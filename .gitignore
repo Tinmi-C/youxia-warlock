@@ -1,0 +1,32 @@
+# 全局忽略规则 —— warlock monorepo（根目录统一管理）
+
+# ===== 编译产物（一律不入库，各机本地生成）=====
+target/
+target-mac/
+**/target/
+**/target-mac/
+
+# ===== 系统 / 编辑器文件（跨机器开发必备）=====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# ===== 本地环境 =====
+.dsh/
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== Obsidian 个人布局（.obsidian/ 团队共享配置保留提交）=====
+docs/.obsidian/workspace.json
+docs/.obsidian/workspace-mobile.json
+docs/.trash/
+
+# ===== Cargo.lock 说明 =====
+# 可执行项目（游戏）→ 提交 Cargo.lock，保证三人构建一致
+# 库项目（引擎 crate）→ 通常忽略 Cargo.lock
+# 本项目（monorepo 含游戏）→ 全部提交，不在这里忽略

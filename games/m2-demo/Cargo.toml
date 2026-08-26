@@ -1,0 +1,13 @@
+[package]
+name = "m2-demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = "1.25.2"
+env_logger = "0.11.11"
+glam = "0.33.4"
+log = "0.4.33"
+pollster = "1.0.1"
+wgpu = "25"
+winit = "0.30"

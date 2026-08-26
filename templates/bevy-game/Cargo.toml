@@ -1,0 +1,27 @@
+[package]
+name = "bevy-game"
+version = "0.1.0"
+edition = "2021"
+description = "<游戏名> —— 基于 Bevy 0.19 的游戏（模板复制后改名）"
+
+[dependencies]
+# ⚠️ Bevy 版本锁定：迭代快、有 breaking changes。升级看官方 release notes，不要盲目升。
+# 模板按 0.19.1 验证（spike: games/bevy-spike）。
+bevy = { version = "0.19.1", features = [
+    "default_font", # UI 默认字体：不配字体文件也能显示文字（默认已含，显式列出仅为可读性）
+    "jpeg",         # glTF 内嵌 JPEG 贴图（CesiumMan 等常见模型需要——spike 踩过的坑）
+    # 默认 features 已含：png / ktx2 / vorbis / x11 / wayland 等
+] }
+
+# 第三方插件按需在此追加，注意版本对齐 Bevy 0.19，例如：
+# bevy_rapier = "0.29"   # 物理（碰撞/刚体/重力）
+
+# 迭代友好：依赖开优化（编译一次后运行快），自身代码保持快编译
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"

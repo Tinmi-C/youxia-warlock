@@ -1,0 +1,19 @@
+[package]
+name = "bevy-spike"
+version = "0.1.0"
+edition = "2021"
+description = "Bevy 0.19 全流程冒烟测试（ADR-0004 证据）：glTF 人形导入 + 骨骼动画 + 相机灯光 + UI + 构建"
+
+[dependencies]
+# jpeg 特性：hero.glb 内嵌 JPEG 贴图（Bevy 默认只带 png/ktx2）
+bevy = { version = "0.19.1", features = ["jpeg"] }
+
+# 迭代友好：依赖开优化（编译一次后运行快），自身代码保持快编译
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"

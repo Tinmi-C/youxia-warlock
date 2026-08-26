@@ -1,0 +1,13 @@
+# Obsidian（团队共享配置提交，个人布局不提交）
+.trash/
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+
+# 个人笔记区：只忽略内容，保留说明文件（README.md 提交给团队知悉约定）
+_private/*
+!_private/README.md
+
+# 系统
+.DS_Store
+Thumbs.db

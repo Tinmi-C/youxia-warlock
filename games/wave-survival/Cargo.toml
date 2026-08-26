@@ -1,0 +1,28 @@
+[package]
+name = "wave-survival"
+version = "0.1.0"
+edition = "2021"
+description = "Wave Survival —— 波次生存游戏（Bevy 0.19，垂直切片优先开发流程）"
+
+[dependencies]
+# ⚠️ Bevy 版本锁定：迭代快、有 breaking changes。升级看官方 release notes，不要盲目升。
+bevy = { version = "0.19.1", features = [
+    "default_font", # UI 默认字体
+    "jpeg",         # glTF 内嵌 JPEG 贴图（CesiumMan 等常见模型需要）
+] }
+
+# 客观技术 → 插件引用（团队约定：docs/topics/engine/bevy-plugin-and-code-reuse.md）
+bevy_rapier3d = "0.36.0"        # 物理/碰撞（对齐 bevy ^0.19.0）
+bevy_hanabi = "0.19.0"          # 粒子特效（对齐 bevy ^0.19）
+bevy_egui = "0.42.0"            # 调试面板（对齐 bevy ^0.19）
+bevy-inspector-egui = "0.37.0"  # 实体检查器（对齐 bevy ^0.19.0）
+
+# 迭代友好：依赖开优化（编译一次后运行快），自身代码保持快编译
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"

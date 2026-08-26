@@ -1,0 +1,8 @@
+{
+  "alwaysUpdateLinks": true,
+  "attachmentFolderPath": "meta/attachments",
+  "newFileLocation": "folder",
+  "newFileFolderPath": "topics",
+  "showLineNumber": true,
+  "useMarkdownLinks": false
+}

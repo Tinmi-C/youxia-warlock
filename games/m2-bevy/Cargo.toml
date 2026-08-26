@@ -1,0 +1,16 @@
+[package]
+name = "m2-bevy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy_ecs = "0.19.1"
+bytemuck = "1.25.2"
+env_logger = "0.11.11"
+glam = "0.33.4"
+gltf = "1"
+image = "0.25"
+log = "0.4.33"
+pollster = "1.0.1"
+wgpu = "25"
+winit = "0.30"
