@@ -40,7 +40,7 @@
 | PlayerMove | system | 🔄 模板已有，按手感重写 | WASD 斜向不超速；位移 = speed×Δt（帧率无关，误差<1%） |
 | PlayerAttack | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | Space 挥砍：≤0.9 满 −34 / 0.9~1.5 线性衰减至 0 / 冷却 0.45s（详见下方卡 2） |
 | WaveSystem | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | 三态流转；公式 2+n / 1.1+0.08n / 30×(1+0.4n)；波间 3s（详见下方卡 3） |
-| EnemyChase | system | ⏳ 待立 | 追踪怪朝玩家移动（rapier 驱动），速度 1.1+0.08n |
+| EnemyChase | system | ✅ 已实现（2026-08-26，含回归测试） | 追踪怪朝玩家移动（rapier 驱动），速度 1.1+0.08n（详见下方卡 4） |
 | CombatContact | system | ⏳ 待立 | rapier 碰撞事件 → 受击扣血 + 白闪；死亡 despawn |
 | PickupDrop | system | ⏳ 待立 | 击杀掉金色补给，走近自动拾取回血 |
 | GameStateUI | ui-system | ⏳ 待立 | 血条 / 波次格子 / 冷却条；P 暂停 / 死亡 GameOver / R 重开 |
@@ -107,6 +107,33 @@
   3. 战斗中不刷: 场上有怪时 n 不变、不额外刷怪
   4. 波间喘息: 清空场上怪后 3s 内不刷下一波，3s 后刷第 2 波 4 只、n=2
   5. 怪数据: 第 n 波怪的 Hp = 30×(1+0.4n)、Chasing.speed = 1.1+0.08n
+```
+
+## 卡 4：EnemyChase（追踪怪）
+
+```yaml
+能力卡: EnemyChase（追踪怪）
+类型: system
+状态: 已实现 2026-08-26（实现 + 回归测试全绿）
+设计来源: m2 ChaseSystem（追玩家，速度 = 波次速度 1.1+0.08n）
+引入: 首次引入 bevy_rapier3d（客观物理插件，GDD 技术选型）
+接口:
+  输入: Player 的 Transform; 怪物的 Transform + Chasing.speed + Velocity
+  输出: 怪物的 Velocity.linear = 朝向玩家的 XZ 单位向量 × speed
+行为:
+  - 每帧对每只追踪怪（With<Chasing>）:
+    方向 = (玩家位置 − 怪位置) 在 XZ 平面归一化（Y 恒 0，不飞不坠）
+    Velocity.linear = 方向 × Chasing.speed; angular 不动（=0）
+  - 物理落地: 怪物 = KinematicVelocityBased 刚体（velocity 驱动，不受重力）
+    玩家 = KinematicPositionBased 刚体（move_player 写 Transform，rapier 读位置）
+  - 已在玩家位置时方向为 0（length² ≤ 1e-6 → 停），避免零距离抖动
+验收句:
+  1. 方向: 怪在玩家 +X 侧，velocity.linear.x < 0（朝玩家），y=z=0
+  2. 速度: velocity.linear 模长 = Chasing.speed（1.18 时误差 <1e-3）
+  3. 接近: 运行 1 秒后怪与玩家距离减小，位移 ≈ speed×1s（±0.5 吸收物理步进边界）
+  4. 以上转 tests/behavior.rs（无渲染 App + RapierPhysicsPlugin）
+踩坑: RapierPhysicsPlugin 依赖 TransformPlugin（需 GlobalTransform 传播 + StaticTransformOptimizations 资源），而 MinimalPlugins 不含它 → 测试 App 需显式加 TransformPlugin，否则报「StaticTransformOptimizations 资源不存在」。
+设计备注（卡 5 前瞻）: kinematic-vs-kinematic 在 rapier 里不产生接触事件；卡 5 CombatContact 的碰撞判定需改用 Dynamic 刚体或距离检测（m2 用 CONTACT_DIST 距离判定）。
 ```
 
 ## 观察通道约定
