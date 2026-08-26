@@ -19,7 +19,11 @@ impl Plugin for GamePlugin {
         )
         .add_systems(
             Update,
-            systems::player::move_player.run_if(in_state(GameState::Playing)),
+            (
+                systems::player::move_player,
+                systems::combat::player_attack,
+            )
+                .run_if(in_state(GameState::Playing)),
         )
         // Pause toggle must run in every state (P resumes from Paused too).
         .add_systems(Update, toggle_pause);
@@ -47,7 +51,7 @@ fn toggle_pause(
 /// Static UI hint (bevy_ui text pipeline). Dynamic text is a future capability card.
 fn spawn_hint_ui(mut commands: Commands) {
     commands.spawn((
-        Text::new("WASD move | P pause | F12 screenshot"),
+        Text::new("WASD move | Space slash | P pause | F12 screenshot"),
         TextFont {
             font_size: FontSize::Px(20.0),
             ..default()

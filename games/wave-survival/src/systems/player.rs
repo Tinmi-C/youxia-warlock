@@ -1,12 +1,13 @@
-//! Player: WASD movement. Capability card: PlayerMove (docs/capability-cards.md).
-//! Interface: keys (in) -> Transform.translation (out).
-//! Behavior: direction = normalized(WASD sum); translation += direction * speed * dt.
-//! Acceptance: 1s straight move == speed (error < 1%); diagonal speed == speed,
-//!             not speed * sqrt(2); paused state freezes movement.
+//! Player: WASD movement + melee attack state. Capability cards: PlayerMove, PlayerAttack.
+//! Movement interface: keys (in) -> Transform.translation (out).
+//!   direction = normalized(WASD sum); translation += direction * speed * dt.
+//!   Acceptance: 1s straight move == speed (error < 1%); diagonal speed == speed,
+//!               not speed * sqrt(2); paused state freezes movement.
+//! Attack state: the `Attack` component (cooldown) is consumed by systems::combat::player_attack.
 
 use bevy::prelude::*;
 
-use crate::components::Player;
+use crate::components::{Attack, Player};
 
 pub fn spawn_player(
     mut commands: Commands,
@@ -15,6 +16,7 @@ pub fn spawn_player(
 ) {
     commands.spawn((
         Player { speed: 5.0 },
+        Attack { cooldown: 0.0 },
         Mesh3d(meshes.add(Cuboid::new(0.8, 0.8, 0.8))),
         MeshMaterial3d(materials.add(Color::srgb(0.9, 0.45, 0.2))),
         Transform::from_xyz(0.0, 0.5, 0.0),
