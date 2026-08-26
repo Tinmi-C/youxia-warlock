@@ -9,6 +9,7 @@ use bevy::{
     state::app::StatesPlugin,
     time::TimeUpdateStrategy,
 };
+use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity};
 
 use wave_survival::components::{Chasing, Hp, Monster, Player, Visual};
 use wave_survival::resources::Wave;
@@ -18,7 +19,12 @@ use wave_survival::{plugins::game::GamePlugin, states::GameState};
 /// Headless app: MinimalPlugins (no renderer/window) + game logic + fixed timestep.
 fn test_app() -> App {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, StatesPlugin)) // init_state needs StateTransition schedule
+    app.add_plugins((
+        MinimalPlugins,
+        StatesPlugin,
+        TransformPlugin,
+        RapierPhysicsPlugin::<NoUserData>::default(),
+    )) // init_state needs StateTransition schedule
         .init_state::<GameState>()
         .add_plugins(GamePlugin)
         // Headless: no winit / asset plugins, so create the resources the
@@ -298,4 +304,66 @@ fn wave_monsters_carry_per_wave_stats() {
         seen += 1;
     }
     assert_eq!(seen, 3, "3 wave-1 monsters");
+}
+
+// --- EnemyChase tests (capability card 4) ---
+
+/// Spawn a chasing monster at (x, 0.5, 0) with the given chase speed.
+fn spawn_chaser(app: &mut App, x: f32, speed: f32) -> Entity {
+    app.world_mut()
+        .spawn((
+            Monster,
+            Chasing { speed },
+            Hp { hp: 42.0 },
+            Visual { flash: 0.0 },
+            RigidBody::KinematicVelocityBased,
+            Collider::ball(0.3),
+            Velocity::zero(),
+            Transform::from_xyz(x, 0.5, 0.0),
+        ))
+        .id()
+}
+
+/// EnemyChase — acceptance: velocity points at the player on the XZ plane at Chasing.speed.
+#[test]
+fn enemy_chase_sets_velocity_toward_player() {
+    let mut app = test_app();
+    run_frames(&mut app, 1); // Startup spawns the player at the origin
+    let e = spawn_chaser(&mut app, 2.0, 1.18);
+
+    app.update(); // enemy_chase runs, writes velocity
+
+    let vel = app.world().entity(e).get::<Velocity>().unwrap();
+    // Player at origin, monster at +X -> velocity points -X.
+    assert!(
+        vel.linear.x < -1.0,
+        "should move toward the player (-X), x={}",
+        vel.linear.x
+    );
+    assert!(vel.linear.y.abs() < 1e-6, "no vertical motion, y={}", vel.linear.y);
+    assert!(vel.linear.z.abs() < 1e-6, "no Z motion, z={}", vel.linear.z);
+    assert!(
+        (vel.linear.length() - 1.18).abs() < 1e-3,
+        "speed should be 1.18, got {}",
+        vel.linear.length()
+    );
+}
+
+/// EnemyChase — acceptance: the monster actually moves toward the player over time.
+#[test]
+fn enemy_chase_moves_monster_toward_player() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    let e = spawn_chaser(&mut app, 2.0, 1.18);
+
+    let start = app.world().entity(e).get::<Transform>().unwrap().translation;
+    run_frames(&mut app, 60); // 1s
+    let tf = app.world().entity(e).get::<Transform>().unwrap().translation;
+
+    let moved = (start - tf).length();
+    assert!(moved > 0.5, "monster should move toward the player in 1s, moved {moved}");
+    assert!(
+        (moved - 1.18).abs() < 0.5,
+        "should move ~1.18 units in 1s (speed 1.18), moved {moved}"
+    );
 }

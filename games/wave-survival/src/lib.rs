@@ -8,6 +8,7 @@ pub mod states;
 pub mod systems;
 
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::{NoUserData, RapierPhysicsPlugin};
 
 /// Assemble the full app. Shared by `main` (run) and could be reused by
 /// integration tests that need the whole stack.
@@ -29,6 +30,7 @@ pub fn build_app() -> App {
                 ..default()
             }),
         )
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .init_state::<states::GameState>()
         .add_plugins((plugins::game::GamePlugin, plugins::debug::DebugPlugin));
     app

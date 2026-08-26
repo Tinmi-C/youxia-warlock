@@ -23,6 +23,7 @@ impl Plugin for GamePlugin {
                 (
                     systems::player::move_player,
                     systems::combat::player_attack,
+                    systems::enemy::enemy_chase,
                     systems::wave::wave_system,
                 )
                     .run_if(in_state(GameState::Playing)),

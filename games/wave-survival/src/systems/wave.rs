@@ -6,6 +6,7 @@
 //! Formulas (mixed growth, inherited from m2): count = 2+n, speed = 1.1+0.08n, hp = 30*(1+0.4n).
 
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::{Collider, RigidBody, Velocity};
 
 use crate::components::{Chasing, Hp, Monster, Visual};
 use crate::resources::{Wave, WAVE_BREAK};
@@ -28,7 +29,7 @@ pub fn wave_hp(n: u32) -> f32 {
     30.0 * (1.0 + 0.4 * n as f32)
 }
 
-/// Spawn one wave-`n` monster at `at`.
+/// Spawn one wave-`n` monster at `at`. Kinematic rigid body (card 4: chase via velocity).
 fn spawn_wave_monster(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -41,6 +42,9 @@ fn spawn_wave_monster(
         Hp { hp: wave_hp(n) },
         Chasing { speed: wave_speed(n) },
         Visual { flash: 0.0 },
+        RigidBody::KinematicVelocityBased,
+        Collider::ball(0.3),
+        Velocity::zero(),
         Mesh3d(meshes.add(Cuboid::new(0.6, 0.6, 0.6))),
         MeshMaterial3d(materials.add(Color::srgb(0.75, 0.2, 0.2))),
         Transform::from_translation(at),
