@@ -49,9 +49,9 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：EnemyChase 已实现（2026-08-26），`cargo test` 13 个回归测试全绿；下一步立 CombatContact 卡
+- **进行中**：CombatContact 已实现（2026-08-26），`cargo test` 18 个回归测试全绿；下一步立 PickupDrop 卡
 - **已知问题**：无阻塞
-- **近期目标**：立 CombatContact 卡（rapier 碰撞/距离判定 → 受击扣血 + 死亡 despawn）→ 实现
+- **近期目标**：立 PickupDrop 卡（击杀掉金色补给 → 走近自动拾取回血）→ 实现
 
 ## 项目专属规则
 

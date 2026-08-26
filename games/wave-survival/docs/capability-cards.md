@@ -41,7 +41,7 @@
 | PlayerAttack | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | Space 挥砍：≤0.9 满 −34 / 0.9~1.5 线性衰减至 0 / 冷却 0.45s（详见下方卡 2） |
 | WaveSystem | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | 三态流转；公式 2+n / 1.1+0.08n / 30×(1+0.4n)；波间 3s（详见下方卡 3） |
 | EnemyChase | system | ✅ 已实现（2026-08-26，含回归测试） | 追踪怪朝玩家移动（rapier 驱动），速度 1.1+0.08n（详见下方卡 4） |
-| CombatContact | system | ⏳ 待立 | rapier 碰撞事件 → 受击扣血 + 白闪；死亡 despawn |
+| CombatContact | system | ✅ 已实现（2026-08-26，含回归测试） | 距离判定 → 受击扣血 + 白闪；死亡 despawn（详见下方卡 5） |
 | PickupDrop | system | ⏳ 待立 | 击杀掉金色补给，走近自动拾取回血 |
 | GameStateUI | ui-system | ⏳ 待立 | 血条 / 波次格子 / 冷却条；P 暂停 / 死亡 GameOver / R 重开 |
 | GameLoop | system | ⏳ 待立 | 完整一局闭环：出生→刷怪→击杀→死亡→重开，无崩溃 |
@@ -134,6 +134,31 @@
   4. 以上转 tests/behavior.rs（无渲染 App + RapierPhysicsPlugin）
 踩坑: RapierPhysicsPlugin 依赖 TransformPlugin（需 GlobalTransform 传播 + StaticTransformOptimizations 资源），而 MinimalPlugins 不含它 → 测试 App 需显式加 TransformPlugin，否则报「StaticTransformOptimizations 资源不存在」。
 设计备注（卡 5 前瞻）: kinematic-vs-kinematic 在 rapier 里不产生接触事件；卡 5 CombatContact 的碰撞判定需改用 Dynamic 刚体或距离检测（m2 用 CONTACT_DIST 距离判定）。
+```
+
+## 卡 5：CombatContact（贴脸受击 + 死亡）
+
+```yaml
+能力卡: CombatContact（贴脸受击 + 死亡）
+类型: system
+状态: 已实现 2026-08-26（实现 + 回归测试全绿）
+设计来源: m2 ContactSystem + DeathSystem（CONTACT_DIST=0.40 / CONTACT_DAMAGE=15 / INVULN_TIME=0.9）
+设计修正: 卡 4 备注的 kinematic-vs-kinematic 无接触事件 → 采用 m2 的距离判定（推荐方案 A），不依赖 rapier 碰撞事件。
+组件变更: Hp 扩展为 { hp, max, invuln }（照抄 m2 Health），新增 Hp::full() 构造；玩家补 Hp + Visual。
+接口:
+  输入: 玩家 Transform + Hp + Visual; 怪物 Transform + Hp
+  输出: 玩家 Hp.hp 减 15、Hp.invuln 置 0.9、Visual.flash=1.0; 死亡实体 despawn / 玩家死亡 → GameOver
+行为:
+  - contact_damage（每帧）: 玩家 invuln 递减；invuln ≤ 0 时扫描怪物，水平距离 ≤ 0.40 → hp -= 15、invuln=0.9、flash=1.0、break（一帧最多挨一口）
+  - death_despawn（每帧）: 怪物 hp ≤ 0 → despawn；玩家 hp ≤ 0 且 Playing → 切 GameOver
+  - 顺序链: move_player → enemy_chase → player_attack → contact_damage → death_despawn → wave_system（同帧内「击杀 → despawn → 数怪」因果链）
+验收句:
+  1. 受击: 怪在玩家 0.4 内，玩家 hp 100→85、invuln≈0.9、flash=1.0
+  2. 无敌帧: 受击后 0.5s 内（<0.9s）即使怪仍贴着也不再次扣血
+  3. 一帧一口: 两只怪同时贴脸，一帧只扣 15（85 而非 70）
+  4. 死亡: 怪 hp ≤ 0 → despawn（场上怪数减 1）
+  5. 玩家死: 玩家 hp ≤ 0 → GameState 切 GameOver
+  6. 以上转 tests/behavior.rs
 ```
 
 ## 观察通道约定
