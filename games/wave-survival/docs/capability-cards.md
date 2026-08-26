@@ -38,7 +38,7 @@
 | 卡 | 类型 | 状态 | 验收句要点 |
 |----|------|------|-----------|
 | PlayerMove | system | 🔄 模板已有，按手感重写 | WASD 斜向不超速；位移 = speed×Δt（帧率无关，误差<1%） |
-| PlayerAttack | gameplay-system | ✅ 已立（2026-08-26） | Space 挥砍：≤0.9 满 −34 / 0.9~1.5 线性衰减至 0 / 冷却 0.45s（详见下方卡 2） |
+| PlayerAttack | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | Space 挥砍：≤0.9 满 −34 / 0.9~1.5 线性衰减至 0 / 冷却 0.45s（详见下方卡 2） |
 | WaveSystem | gameplay-system | ⏳ 待立 | 三态流转；公式 2+n / 1.1+0.08n / 30×(1+0.4n)；波间 3s |
 | EnemyChase | system | ⏳ 待立 | 追踪怪朝玩家移动（rapier 驱动），速度 1.1+0.08n |
 | CombatContact | system | ⏳ 待立 | rapier 碰撞事件 → 受击扣血 + 白闪；死亡 despawn |
@@ -51,7 +51,7 @@
 ```yaml
 能力卡: PlayerAttack（近战挥砍）
 类型: gameplay-system
-状态: 已立 2026-08-26（验收句待人工复核）
+状态: 已实现 2026-08-26（实现 + 回归测试全绿）
 设计来源: m2 CombatSystem（Space 挥砍 / 半径 0.9 / 一刀 34 / 冷却 0.45s）
 设计变更: GDD 数值「0.9 内 −34 / 1.5 外 −0」经团队确认 = 0.9~1.5 之间线性衰减。
           m2 原实现只有 0.9 平砍（一刀 34），衰减是 wave-survival 的新决策。
