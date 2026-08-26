@@ -22,7 +22,7 @@ pub fn build_app() -> App {
         .add_plugins(
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "bevy-game".into(),
+                    title: "wave-survival".into(),
                     resolution: (1280, 720).into(),
                     ..default()
                 }),

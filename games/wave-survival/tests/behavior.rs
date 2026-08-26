@@ -10,7 +10,7 @@ use bevy::{
     time::TimeUpdateStrategy,
 };
 
-use bevy_game::{components::Player, plugins::game::GamePlugin, states::GameState};
+use wave_survival::{components::Player, plugins::game::GamePlugin, states::GameState};
 
 /// Headless app: MinimalPlugins (no renderer/window) + game logic + fixed timestep.
 fn test_app() -> App {
