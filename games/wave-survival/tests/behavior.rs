@@ -128,7 +128,7 @@ fn spawn_monster(app: &mut App, x: f32, z: f32) -> Entity {
     app.world_mut()
         .spawn((
             Monster,
-            Hp { hp: 100.0 },
+            Hp::full(100.0),
             Visual { flash: 0.0 },
             Transform::from_xyz(x, 0.5, z),
         ))
@@ -314,7 +314,7 @@ fn spawn_chaser(app: &mut App, x: f32, speed: f32) -> Entity {
         .spawn((
             Monster,
             Chasing { speed },
-            Hp { hp: 42.0 },
+            Hp::full(42.0),
             Visual { flash: 0.0 },
             RigidBody::KinematicVelocityBased,
             Collider::ball(0.3),
@@ -366,4 +366,97 @@ fn enemy_chase_moves_monster_toward_player() {
         (moved - 1.18).abs() < 0.5,
         "should move ~1.18 units in 1s (speed 1.18), moved {moved}"
     );
+}
+
+// --- CombatContact tests (capability card 5) ---
+
+fn player_hp(app: &mut App) -> f32 {
+    let mut q = app.world_mut().query_filtered::<&Hp, With<Player>>();
+    q.single(app.world()).unwrap().hp
+}
+
+/// CombatContact — acceptance: a monster within CONTACT_DIST bites (hp 100→85, invuln, flash).
+#[test]
+fn contact_bites_player() {
+    let mut app = test_app();
+    run_frames(&mut app, 1); // player spawned
+    spawn_monster(&mut app, 0.3, 0.0); // within CONTACT_DIST 0.4
+
+    app.update(); // contact_damage runs
+
+    assert!((player_hp(&mut app) - 85.0).abs() < 0.01, "100 - 15 = 85");
+    let (invuln, flash) = {
+        let mut q = app.world_mut().query_filtered::<(&Hp, &Visual), With<Player>>();
+        let (hp, vis) = q.single(app.world()).unwrap();
+        (hp.invuln, vis.flash)
+    };
+    assert!(invuln > 0.8, "invuln should be ~0.9, got {invuln}");
+    assert!(flash > 0.99, "player should flash on hit");
+}
+
+/// CombatContact — acceptance: invulnerability frames prevent a second bite.
+#[test]
+fn contact_invuln_prevents_rebite() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    spawn_monster(&mut app, 0.3, 0.0);
+
+    app.update(); // first bite
+    assert!((player_hp(&mut app) - 85.0).abs() < 0.01);
+
+    run_frames(&mut app, 30); // 0.5s (< 0.9s invuln)
+    assert!(
+        (player_hp(&mut app) - 85.0).abs() < 0.01,
+        "no second bite within invulnerability frames"
+    );
+}
+
+/// CombatContact — acceptance: at most one bite per frame even with several monsters.
+#[test]
+fn contact_one_bite_per_frame() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    spawn_monster(&mut app, 0.3, 0.0);
+    spawn_monster(&mut app, -0.3, 0.0);
+
+    app.update();
+    assert!((player_hp(&mut app) - 85.0).abs() < 0.01, "one bite (15), not two (30)");
+}
+
+/// CombatContact — acceptance: a monster at hp <= 0 is despawned.
+#[test]
+fn monster_dies_and_despawns() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    let e = spawn_monster(&mut app, 0.5, 0.0);
+    app.world_mut().entity_mut(e).get_mut::<Hp>().unwrap().hp = 1.0; // nearly dead
+
+    press_space(&mut app);
+    app.update(); // slash (34) -> hp <= 0 -> death_despawn despawns
+
+    assert!(app.world().get_entity(e).is_err(), "monster should be despawned");
+}
+
+/// CombatContact — acceptance: player hp <= 0 flips the game to GameOver.
+#[test]
+fn player_death_sets_game_over() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+
+    // Kill the player directly.
+    let player = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Player>>();
+        q.single(app.world()).unwrap()
+    };
+    app.world_mut()
+        .entity_mut(player)
+        .get_mut::<Hp>()
+        .unwrap()
+        .hp = -1.0;
+
+    app.update(); // death_despawn sets NextState = GameOver
+    app.update(); // StateTransition applies it
+
+    let state = app.world().resource::<State<GameState>>().get();
+    assert_eq!(*state, GameState::GameOver);
 }

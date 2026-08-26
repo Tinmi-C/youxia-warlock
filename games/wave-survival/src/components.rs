@@ -13,10 +13,23 @@ pub struct Player {
 #[derive(Component)]
 pub struct Monster;
 
-/// Hit points. Death/despawn is a later card (CombatContact); PlayerAttack only subtracts.
+/// Hit points + invulnerability. Death/despawn is handled by CombatContact (card 5).
 #[derive(Component)]
 pub struct Hp {
     pub hp: f32,
+    pub max: f32,
+    pub invuln: f32,
+}
+
+impl Hp {
+    /// Full-health constructor (max = hp, no invulnerability).
+    pub fn full(amount: f32) -> Self {
+        Self {
+            hp: amount,
+            max: amount,
+            invuln: 0.0,
+        }
+    }
 }
 
 /// Melee state on the player: cooldown remaining (seconds) until the next slash.

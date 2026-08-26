@@ -39,7 +39,7 @@ fn spawn_wave_monster(
 ) {
     commands.spawn((
         Monster,
-        Hp { hp: wave_hp(n) },
+        Hp::full(wave_hp(n)),
         Chasing { speed: wave_speed(n) },
         Visual { flash: 0.0 },
         RigidBody::KinematicVelocityBased,

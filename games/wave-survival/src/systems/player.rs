@@ -4,13 +4,14 @@
 //!   Acceptance: 1s straight move == speed (error < 1%); diagonal speed == speed,
 //!               not speed * sqrt(2); paused state freezes movement.
 //! Attack state: the `Attack` component (cooldown) is consumed by systems::combat::player_attack.
+//! Health (card 5): `Hp` (hp/max/invuln) is consumed by systems::contact::contact_damage.
 //! Physics (card 4): KinematicPositionBased rigid body + ball collider — rapier reads the
 //!   Transform move_player writes, so contact detection can work in a later card.
 
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, RigidBody};
 
-use crate::components::{Attack, Player};
+use crate::components::{Attack, Hp, Player, Visual};
 
 pub fn spawn_player(
     mut commands: Commands,
@@ -20,6 +21,8 @@ pub fn spawn_player(
     commands.spawn((
         Player { speed: 5.0 },
         Attack { cooldown: 0.0 },
+        Hp::full(100.0),
+        Visual { flash: 0.0 },
         RigidBody::KinematicPositionBased,
         Collider::ball(0.4),
         Mesh3d(meshes.add(Cuboid::new(0.8, 0.8, 0.8))),

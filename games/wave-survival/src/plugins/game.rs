@@ -22,10 +22,13 @@ impl Plugin for GamePlugin {
                 Update,
                 (
                     systems::player::move_player,
-                    systems::combat::player_attack,
                     systems::enemy::enemy_chase,
+                    systems::combat::player_attack,
+                    systems::contact::contact_damage,
+                    systems::contact::death_despawn,
                     systems::wave::wave_system,
                 )
+                    .chain()
                     .run_if(in_state(GameState::Playing)),
             )
             // Pause toggle must run in every state (P resumes from Paused too).
