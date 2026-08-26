@@ -49,7 +49,11 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-（进行中的功能、已知问题、近期目标——每次开工前更新）
+- **进行中**：PlayerAttack 卡已立（2026-08-26，见 `docs/capability-cards.md` 卡 2），验收句待人工复核 → AI 实现
+- **已知问题**：
+  - 本机（Windows）编译被 ahash 0.8.12 build script 拦截（os error 5，疑似杀软误报）——需加 Defender 排除后重新验证基线（`cargo test`）
+  - GDD 数值补丁：近战「0.9~1.5 线性衰减」为 wave-survival 新决策（m2 原实现只有 0.9 平砍），已记入 PlayerAttack 卡
+- **近期目标**：编译基线验证 → PlayerAttack 实现 + 回归测试 → WaveSystem
 
 ## 项目专属规则
 
