@@ -9,7 +9,8 @@
 cp -r templates/bevy-game games/<game-name>   # 复制模板
 cd games/<game-name>
 # 1. 改 Cargo.toml 的 package.name / description
-# 2. git init && git add . && git commit    （一卡一提交，见下）
+# 2. 全局替换代码里的旧 crate 名 bevy_game 为新 crate 名（main.rs / tests/behavior.rs），否则首编报 E0433
+# 3. git add . && git commit    （monorepo 不用 git init；一卡一提交，见下）
 cargo run                                     # 跑起来看示例场景
 cargo test                                    # 行为一致性回归测试
 RUST_LOG=info cargo run                       # 观察通道：日志仪表
@@ -54,6 +55,8 @@ AGENTS.md          # 给 AI 智能体的项目上下文（AI 协作方式）
 | Linux 无头运行 panic `libxkbcommon-x11.so` | 安装 `libxkbcommon-x11-0`（无显示器验证用 Xvfb + lavapipe） |
 | Bevy assets 目录相对可执行文件解析 | 用 `cargo run`（自带 CARGO_MANIFEST_DIR）；直跑二进制需设置该环境变量 |
 | Bevy 版本 breaking changes | 锁 `0.19.1`；升级前读 release notes |
+| 复制改名后首编报 `bevy_game` 找不到（E0433） | 把代码里的 `bevy_game::` 全局替换为新 crate 名（见「快速开始」第 2 步） |
+| Windows 杀软（360 等）误报 ahash 构建脚本 → `os error 5` | 杀软加白名单 `target/` + 工具链/`~/.cargo`（详见知识库 `topics/engine/bevy-windows-antivirus-build-pitfall.md`） |
 
 ## 工作流（和 AI 一起开发）
 

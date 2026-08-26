@@ -9,7 +9,7 @@ games/<game-name>/
 ## 新建游戏
 
 1. 从 `templates/bevy-game/`（Bevy 0.19 默认模板）复制到 `games/<game-name>/`。
-2. 改 `Cargo.toml` 的 `package.name` / `description`。
+2. 改 `Cargo.toml` 的 `package.name` / `description`，并把代码里的旧 crate 名 `bevy_game::` 全局替换为新 crate 名（`src/main.rs`、`tests/behavior.rs` 等），否则第一次编译报 `E0433 bevy_game` 找不到。
 3. 按模板里的 `AGENTS.md` 补充项目专属上下文（玩法、目标平台、当前状态），并更新 README。
 4. 按 `docs/capability-cards.md` 能力卡工作流开发：立卡 → 实现 → 验收 → 回归 → **一卡一提交**（Conventional Commits，英文）。
 

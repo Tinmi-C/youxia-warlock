@@ -22,3 +22,4 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 ## 相关踩坑
 
 - [[topics/engine/bevy-ecs-world-reset-pitfall|bevy_ecs 重开游戏不能重建 World]]（high）：换新 World → Schedule 绑定 panic；`clear_all()` → 资源缓存失配 panic。正解 = World 永不清空，despawn 场景实体 + 原地重置资源。
+- [[topics/engine/bevy-windows-antivirus-build-pitfall|Windows 杀软误报 ahash 构建脚本]]（medium）：360 主动防御拦/删 build-script exe → `os error 5`；给 `target/` + 工具链目录加白名单解决。

@@ -1,7 +1,7 @@
 ---
 title: 索引地图 MOC
 type: moc
-updated: 2026-08-25
+updated: 2026-08-26
 ---
 
 # 🗺️ 索引地图（Map of Content）
@@ -47,3 +47,4 @@ updated: 2026-08-25
 - [[topics/engine/bevy-ecs-world-reset-pitfall|踩坑：bevy_ecs 重开不能重建 World]]（新增，pitfall：mismatched World / clear_all 资源缓存失配）；ADR-0003 → accepted（m2-bevy 实施完成）
 - [[decisions/0004-handwritten-renderer-to-bevy|ADR-0004 渲染底料开源化 → Bevy 全引擎]]（新增，proposed：手写 wgpu 渲染器存档封存，波次生存迁移 Bevy 并做成成品；AI 装配层 = 自研分量不变）
 - [[topics/engine/bevy-plugin-and-code-reuse|Bevy 开发约定：插件决策与代码沉淀]]（新增，reference：客观→引用生态插件；主观→自研沉淀；第二次用到才抽 crate；已固化进 templates/bevy-game）
+- [[topics/engine/bevy-windows-antivirus-build-pitfall|踩坑：Windows 杀软误报 ahash 构建脚本]]（新增，pitfall：os error 5；白名单 target/ + 工具链目录解决；模板 README 已加替换 crate 名步骤）
