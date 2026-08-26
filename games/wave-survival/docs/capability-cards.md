@@ -39,7 +39,7 @@
 |----|------|------|-----------|
 | PlayerMove | system | 🔄 模板已有，按手感重写 | WASD 斜向不超速；位移 = speed×Δt（帧率无关，误差<1%） |
 | PlayerAttack | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | Space 挥砍：≤0.9 满 −34 / 0.9~1.5 线性衰减至 0 / 冷却 0.45s（详见下方卡 2） |
-| WaveSystem | gameplay-system | ⏳ 待立 | 三态流转；公式 2+n / 1.1+0.08n / 30×(1+0.4n)；波间 3s |
+| WaveSystem | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | 三态流转；公式 2+n / 1.1+0.08n / 30×(1+0.4n)；波间 3s（详见下方卡 3） |
 | EnemyChase | system | ⏳ 待立 | 追踪怪朝玩家移动（rapier 驱动），速度 1.1+0.08n |
 | CombatContact | system | ⏳ 待立 | rapier 碰撞事件 → 受击扣血 + 白闪；死亡 despawn |
 | PickupDrop | system | ⏳ 待立 | 击杀掉金色补给，走近自动拾取回血 |
@@ -81,6 +81,32 @@
   3. 衰减边界: 距离 0.9 → −34（±1）; 距离 1.5 → −0（±1）
   4. 多目标: 两个桩怪同时命中，各自按距离扣对应伤害
   5. 以上全部转 tests/behavior.rs（无渲染 App 手动驱动，模式同 PlayerMove 测试）
+```
+
+## 卡 3：WaveSystem（波次系统）
+
+```yaml
+能力卡: WaveSystem（波次系统）
+类型: gameplay-system
+状态: 已实现 2026-08-26（实现 + 回归测试全绿）
+设计来源: m2 WaveSystem（世界即真相：数敌人 → 波间倒计时 → 刷下一波；出生环表驱动）
+设计修正: m2 只在第 1 波前喘息一次（刷怪后 timer 未重置）；GDD 明确「清怪 → 波间喘息 3 秒 → 更强一波」= 每波之间都喘息。本卡按 GDD：每次刷怪后 timer = 3s。
+接口:
+  输入: Wave 资源（n、timer）; Time; 场上怪物计数（With<Monster>）
+  输出: 刷出第 n 波怪物（Monster + Hp + Chasing.speed + Visual + Transform）; Wave.n / Wave.timer 推进
+行为:
+  - 三态（由「敌人数 + timer」派生，不存枚举）:
+    - 敌人 > 0              → 战斗中，不动作
+    - 敌人 = 0 且 timer > 0 → 波间喘息，倒计时
+    - 敌人 = 0 且 timer ≤ 0 → 刷下一波：n += 1，出生环刷 wave_count(n) 只怪，然后 timer = 3s
+  - 混合递增公式: count = 2+n; speed = 1.1+0.08n; hp = 30×(1+0.4n)
+  - 初始 n = 0、timer = 3s（开场 3 秒后第 1 波）
+验收句:
+  1. 公式: wave_count(1)=3 / wave_count(5)=7; wave_speed(1)=1.18 / wave_speed(10)=1.9; wave_hp(1)=42 / wave_hp(5)=90
+  2. 首波延迟: 开场前 3s 无怪，随后第 1 波刷 3 只、n=1
+  3. 战斗中不刷: 场上有怪时 n 不变、不额外刷怪
+  4. 波间喘息: 清空场上怪后 3s 内不刷下一波，3s 后刷第 2 波 4 只、n=2
+  5. 怪数据: 第 n 波怪的 Hp = 30×(1+0.4n)、Chasing.speed = 1.1+0.08n
 ```
 
 ## 观察通道约定
