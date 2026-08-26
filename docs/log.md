@@ -38,6 +38,7 @@
 | 2026-08-25 | 维护 | 明确 Bevy = 团队默认游戏底座（ADR-0004 适用范围）+ 创建 `templates/bevy-game/`（Bevy 0.19 插件化骨架 + 回归测试 + 能力卡工作流，AI 协作原生）；模板编译/3 测试/无头运行全验证通过 | decisions/0004、templates/bevy-game/、templates/README.md | AI + youxia |
 | 2026-08-25 | 回写 | 团队讨论固化两条免重复准则 → `topics/engine/bevy-plugin-and-code-reuse.md`（插件决策：客观→引用生态插件/主观→自研；代码沉淀：第二次用到才抽 crate；选型三原则）；同步固化进 templates/bevy-game（README + AGENTS.md） | topics/engine/bevy-plugin-and-code-reuse.md、topics/engine/_index.md、MOC.md、templates/bevy-game/README.md、templates/bevy-game/AGENTS.md | AI + youxia |
 | 2026-08-25 | 维护 | 学习文档 Bevy 化 v2：`learning-roadmap.md` 重写为 Bevy 路线（阶段0→M1 垂直切片→M2 玩法深化→M3 表现层→M4 打磨发布）；`engine-concepts-map.md` 里程碑标注从 wgpu 手写改为 Bevy 使用 | topics/engine/learning-roadmap.md、topics/engine/engine-concepts-map.md | AI，待团队 review |
+| 2026-08-26 | 维护 | 陈旧文档与 monorepo 约定对齐：games/engine/tools 三个 README 去除 polyrepo 残留（独立建仓 → 整体 monorepo、新游戏指引改为 bevy-game 模板）+ 删除 topics/未命名.base（Obsidian 残留，误提交） | games/README.md、engine/README.md、tools/README.md、topics/未命名.base（删除） | AI |
 
 ## 操作类型
 

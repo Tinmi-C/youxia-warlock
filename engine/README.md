@@ -1,9 +1,9 @@
 # 自研引擎
 
-Rust 自研 3D 引擎。**独立 git 仓库**，clone 到本目录下：
+团队自研 crate 仓库（玩法沉淀用，**第二次用到才抽**，见根 `AGENTS.md`）。位于整体 monorepo 内，不单独建仓：
 
 ```
-engine/<engine-name>/    # 例如 engine/warlock-engine/
+engine/<crate-name>/     # 例如 engine/warlock-engine/
 ```
 
 ## 组织建议
@@ -15,7 +15,7 @@ engine/<engine-name>/    # 例如 engine/warlock-engine/
   - `engine-assets` / `engine-audio` / `engine-input` …
 - 引擎本身不绑定具体游戏，通过 trait 抽象 + 内置 demo 验证。
 
-## 起步路线（3D 学习）
+## 起步路线（3D 学习，wgpu 手写时代历史存档；已退役，见 ADR-0004）
 
 1. 跑通窗口 + 清屏（`winit` + `wgpu`）
 2. 画一个三角形（理解渲染管线、WGSL）
@@ -29,5 +29,5 @@ engine/<engine-name>/    # 例如 engine/warlock-engine/
 
 ## 游戏如何依赖引擎
 
-- 开发期：游戏里用 `path = "../engine/<engine-name>/engine-core"` 快速迭代。
-- 稳定期：引擎打 tag，游戏里改用 git 依赖锁定版本。
+- 开发期：游戏里用 `path = "../engine/<crate-name>"` 快速迭代。
+- 稳定期：crate 打版本号后，游戏改用 git 依赖锁定版本（同仓库内提交即可，无需独立远程仓库）。
