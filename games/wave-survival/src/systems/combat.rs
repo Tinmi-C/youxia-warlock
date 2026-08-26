@@ -67,25 +67,3 @@ pub fn player_attack(
         }
     }
 }
-
-/// Demo stub monsters so the running game has something to hit. Not part of
-/// GamePlugin (tests spawn their own at exact distances); placeholder until
-/// WaveSystem / EnemyChase (cards 3-4) replace them.
-pub fn spawn_stub_monsters(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // One in the full-damage zone (0.5), one in the falloff zone (1.2).
-    for x in [0.5_f32, 1.2] {
-        commands.spawn((
-            Monster,
-            Hp { hp: 100.0 },
-            Visual { flash: 0.0 },
-            Mesh3d(meshes.add(Cuboid::new(0.6, 0.6, 0.6))),
-            MeshMaterial3d(materials.add(Color::srgb(0.75, 0.2, 0.2))),
-            Transform::from_xyz(x, 0.5, 0.0),
-        ));
-    }
-    info!("[combat] spawned 2 stub monsters for melee testing");
-}

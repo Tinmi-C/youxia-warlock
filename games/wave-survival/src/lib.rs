@@ -30,7 +30,6 @@ pub fn build_app() -> App {
             }),
         )
         .init_state::<states::GameState>()
-        .add_plugins((plugins::game::GamePlugin, plugins::debug::DebugPlugin))
-        .add_systems(Startup, systems::combat::spawn_stub_monsters);
+        .add_plugins((plugins::game::GamePlugin, plugins::debug::DebugPlugin));
     app
 }

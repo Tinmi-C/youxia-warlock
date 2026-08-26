@@ -30,3 +30,10 @@ pub struct Attack {
 pub struct Visual {
     pub flash: f32,
 }
+
+/// Chase tuning on a monster: moves toward the player at `speed` units/sec.
+/// Written by WaveSystem (per-wave speed); consumed by EnemyChase (card 4).
+#[derive(Component)]
+pub struct Chasing {
+    pub speed: f32,
+}

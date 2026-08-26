@@ -2,31 +2,33 @@
 
 use bevy::prelude::*;
 
-use crate::{states::GameState, systems};
+use crate::{resources::Wave, states::GameState, systems};
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Startup,
-            (
-                systems::camera::spawn_camera,
-                systems::camera::spawn_environment,
-                systems::player::spawn_player,
-                spawn_hint_ui,
-            ),
-        )
-        .add_systems(
-            Update,
-            (
-                systems::player::move_player,
-                systems::combat::player_attack,
+        app.init_resource::<Wave>()
+            .add_systems(
+                Startup,
+                (
+                    systems::camera::spawn_camera,
+                    systems::camera::spawn_environment,
+                    systems::player::spawn_player,
+                    spawn_hint_ui,
+                ),
             )
-                .run_if(in_state(GameState::Playing)),
-        )
-        // Pause toggle must run in every state (P resumes from Paused too).
-        .add_systems(Update, toggle_pause);
+            .add_systems(
+                Update,
+                (
+                    systems::player::move_player,
+                    systems::combat::player_attack,
+                    systems::wave::wave_system,
+                )
+                    .run_if(in_state(GameState::Playing)),
+            )
+            // Pause toggle must run in every state (P resumes from Paused too).
+            .add_systems(Update, toggle_pause);
     }
 }
 

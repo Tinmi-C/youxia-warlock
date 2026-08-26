@@ -10,7 +10,9 @@ use bevy::{
     time::TimeUpdateStrategy,
 };
 
-use wave_survival::components::{Hp, Monster, Player, Visual};
+use wave_survival::components::{Chasing, Hp, Monster, Player, Visual};
+use wave_survival::resources::Wave;
+use wave_survival::systems::wave::{wave_count, wave_hp, wave_speed};
 use wave_survival::{plugins::game::GamePlugin, states::GameState};
 
 /// Headless app: MinimalPlugins (no renderer/window) + game logic + fixed timestep.
@@ -219,4 +221,81 @@ fn slash_hits_multiple_targets_and_flashes() {
         app.world().entity(b).get::<Visual>().unwrap().flash > 0.99,
         "b should flash on hit"
     );
+}
+
+// --- WaveSystem tests (capability card 3) ---
+
+fn monster_count(app: &mut App) -> usize {
+    let mut q = app.world_mut().query_filtered::<(), With<Monster>>();
+    q.iter(app.world()).count()
+}
+
+fn current_wave(app: &App) -> u32 {
+    app.world().resource::<Wave>().n
+}
+
+/// WaveSystem — acceptance: mixed-growth formulas (count 2+n / speed 1.1+0.08n / hp 30*(1+0.4n)).
+#[test]
+fn wave_formulas() {
+    assert_eq!(wave_count(1), 3);
+    assert_eq!(wave_count(5), 7);
+    assert!((wave_speed(1) - 1.18).abs() < 1e-5);
+    assert!((wave_speed(10) - 1.9).abs() < 1e-5);
+    assert!((wave_hp(1) - 42.0).abs() < 1e-4);
+    assert!((wave_hp(5) - 90.0).abs() < 1e-4);
+}
+
+/// WaveSystem — acceptance: first wave is delayed by WAVE_BREAK, then spawns 2+1 = 3.
+#[test]
+fn first_wave_spawns_after_break() {
+    let mut app = test_app();
+    run_frames(&mut app, 60); // 1s: well before the 3s break ends
+    assert_eq!(current_wave(&app), 0, "no wave before the initial break");
+    assert_eq!(monster_count(&mut app), 0);
+
+    run_frames(&mut app, 200); // total ~4.3s: break elapsed + spawn landed
+    assert_eq!(current_wave(&app), 1);
+    assert_eq!(monster_count(&mut app), 3, "wave 1 = 2+1 = 3 monsters");
+}
+
+/// WaveSystem — acceptance: 3s rest between waves (no respawn while resting).
+#[test]
+fn wave_rests_between_waves() {
+    let mut app = test_app();
+    run_frames(&mut app, 240); // wave 1 spawned
+    assert_eq!(current_wave(&app), 1);
+
+    // Clear the field (CombatContact despawn is a later card; simulate it here).
+    let ids: Vec<Entity> = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Monster>>();
+        q.iter(app.world()).collect()
+    };
+    for id in ids {
+        app.world_mut().despawn(id);
+    }
+    assert_eq!(monster_count(&mut app), 0);
+
+    run_frames(&mut app, 60); // ~1s into the 3s rest
+    assert_eq!(current_wave(&app), 1, "no wave 2 during the 3s rest");
+    assert_eq!(monster_count(&mut app), 0);
+
+    run_frames(&mut app, 200); // rest elapsed
+    assert_eq!(current_wave(&app), 2);
+    assert_eq!(monster_count(&mut app), 4, "wave 2 = 2+2 = 4 monsters");
+}
+
+/// WaveSystem — acceptance: monsters carry per-wave Hp and chase speed.
+#[test]
+fn wave_monsters_carry_per_wave_stats() {
+    let mut app = test_app();
+    run_frames(&mut app, 240); // wave 1 spawned (hp 42, speed 1.18)
+
+    let mut q = app.world_mut().query::<(&Hp, &Chasing)>();
+    let mut seen = 0;
+    for (hp, chasing) in q.iter(app.world()) {
+        assert!((hp.hp - 42.0).abs() < 1e-4, "wave 1 hp should be 42");
+        assert!((chasing.speed - 1.18).abs() < 1e-5, "wave 1 speed should be 1.18");
+        seen += 1;
+    }
+    assert_eq!(seen, 3, "3 wave-1 monsters");
 }
