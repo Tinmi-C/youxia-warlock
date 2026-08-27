@@ -33,7 +33,8 @@
 
 ## 本项目的卡清单
 
-> 垂直切片阶段（阶段 1）的 8 张卡，按开发顺序排列；玩法数值照抄 GDD 数值表。
+> 阶段 1（垂直切片）：卡 1–8，全部完成（2026-08-26）。
+> 阶段 2（玩法深化）：卡 9–11（2026-08-27 立卡）。
 
 | 卡 | 类型 | 状态 | 验收句要点 |
 |----|------|------|-----------|
@@ -45,6 +46,9 @@
 | PickupDrop | system | ✅ 已实现（2026-08-26，含回归测试） | 击杀掉金色补给，走近自动拾取回血（详见下方卡 6） |
 | GameStateUI | ui-system | ✅ 已实现（2026-08-26，视觉卡） | 血条 / 波次文本 / 冷却条；死亡 GameOver / R 重开（详见下方卡 7） |
 | GameLoop | system | ✅ 已实现（2026-08-26，含回归测试） | 完整一局闭环：出生→刷怪→击杀→死亡→重开，无崩溃（详见下方卡 8） |
+| NovaSlash | gameplay-system | 📝 已立卡（2026-08-27，待实现） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
+| EnemyVariants | component/gameplay-system | 📝 已立卡（2026-08-27，待实现） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
+| EguiTunePanel | architecture/ui-system | 📝 已立卡（2026-08-27，待实现） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
 
 ## 卡 2：PlayerAttack（近战挥砍）
 
@@ -212,6 +216,108 @@
   2. 玩家死亡 → GameOver
   3. 按 R → Playing + 波0 + 玩家满血 + 怪清空
   4. 转 tests/behavior.rs game_loop_full_cycle
+```
+
+## 卡 9：NovaSlash（范围斩 + 冲击波特效）
+
+```yaml
+能力卡: NovaSlash（范围斩 + 冲击波特效）
+类型: gameplay-system
+状态: 已立卡 2026-08-27（待实现）
+设计来源: GDD 数值表「范围斩 Nova 半径 1.6 / 伤害 60 / CD 5s」+ 核心循环「Shift 范围斩」
+接口:
+  输入:
+    - Shift 按下（键位来自 GDD 核心循环，与近战 Space 并列）
+    - Player 实体: Transform + NovaAttack（新组件：{ cooldown }，与 Attack 完全独立）
+    - 怪物实体: Hp + Transform
+  输出:
+    - 半径内所有怪物 Hp.hp −60（无距离衰减——范围斩的定义就是圈内满伤）
+    - 命中反馈白闪（Visual.flash = 1.0）
+    - NovaAttack.cooldown 重置为 5s
+    - NovaFired { at: Vec3 } 事件恰好一次（供 VFX 插件消费；逻辑系统本身不碰渲染类型）
+行为:
+  - 每帧: NovaAttack.cooldown -= dt，clamp 到 ≥ 0
+  - Shift 按下且 cooldown == 0 → 触发一次:
+    以玩家为圆心、水平半径 1.6 内所有怪 Hp.hp -= 60、flash = 1.0
+    发送 NovaFired（玩家位置）；NovaAttack.cooldown = 5s
+  - 系统链位置: player_attack 之后、contact_damage 之前（chain 追加，不改既有顺序语义）
+架构决策:
+  - 逻辑与特效分离：nova_slash（纯逻辑）进 GamePlugin 可无头回归；
+    hanabi 冲击波由独立 vfx 插件监听 NovaFired 实现，只挂 build_app，
+    测试 App 不引入 hanabi 渲染依赖（headless 兼容优先）。
+设计变更记录（文档化）:
+  - spawn_player 增挂 NovaAttack 组件（新增字段，不动既有 Attack/Hp/Visual）
+  - game.rs 系统 chain 尾部追加 nova_slash + 注册 NovaFired 事件
+验收句:
+  1. 冷却节流: Shift 间隔 2s 连按两次 → 只触发 1 次；间隔 5.2s 再按 → 第 2 次触发
+  2. 圈内满伤圈外无效: d=0.4 与 d=1.55 的桩怪各 −60；d=1.65 的桩怪 hp 不变
+  3. 多目标: 三只桩怪同在圈内 → 同帧各扣 60
+  4. 独立节流: 近战 Slash 后立刻按 Shift 仍可触发（两条冷却互不影响）
+  5. 事件: 触发帧 NovaFired 恰好 1 条、位置=玩家位置
+  6. 视觉卡条目: 跑游戏按 Shift，玩家位置爆出金色环状冲击波粒子（hanabi），消散干净无残留
+```
+
+## 卡 10：EnemyVariants（敌人分化）
+
+```yaml
+能力卡: EnemyVariants（敌人分化：Runner / Tank）
+类型: component + gameplay-system
+状态: 已立卡 2026-08-27（待实现）
+设计来源: GDD 验收标准「玩法深化：敌人分化」；基线数值仍照抄 GDD 波次公式，
+          分化系数为本卡新草案（主观玩法，egui 面板就绪后可实时调）
+接口:
+  输入: Wave.n（当前波次）
+  输出: 刷出的每只怪多带 MonsterKind 枚举组件（Grunt | Runner | Tank）；
+        kind 决定该怪的 Hp / Chasing.speed / 网格尺寸 / 材质颜色
+组成公式（草案，确定性可测）:
+  - runner_count(n) = n ≥ 3 ? min(3, (n−1)/2 向下取整) : 0
+      → w2:0 w3:1 w4:1 w5:2 w6:2 w7+:3（封顶）
+  - tank_count(n)   = n ≥ 5 ? min(2, n/5 向下取整) : 0
+      → w4:0 w5:1 w9:1 w10:2（封顶）
+  - grunt_count(n)  = wave_count(n) − runner − tank（守恒校验必过）
+属性分型:
+  - Grunt（红 0.6³）: 即现状 —— speed = wave_speed(n), hp = wave_hp(n)
+  - Runner（黄 0.45³）: speed × 1.6, hp × 0.5（快而脆）
+  - Tank（紫 0.85³）: speed × 0.6, hp × 3.0（慢而硬）
+行为:
+  - wave_system 刷波时按上述数量从出生环依次分配 kind（分配规则确定性，
+    测试只需断言各类计数与各类的属性值，不断言具体方位）
+  - 敌人追踪/受击/掉落等老系统零改动（它们只认 Chasing.speed / Hp / Monster，
+    分化仅改变 spawn 时的数据）
+兼容性承诺: 前 4 波无 Tank、前 2 波纯 Grunt ⇒ 既有 wave/phase1 回归断言逐字不变。
+验收句:
+  1. 计数公式: runner_count(2)=0 /(3)=1 /(5)=2 /(7)=3 /(9)=3; tank_count(4)=0 /(5)=1 /(10)=2
+  2. 组合守恒: 对 n=1..15 恒有 grunt+runner+tank == wave_count(n) 且各 ≥ 0
+  3. 分型属性: 强制刷第 3 波 → 恰 1 只 Runner：speed ≈ 1.34×1.6、hp ≈ 66×0.5，
+     其余为标准 Grunt；第 5 波 → 恰 1 只 Tank：speed ≈ 1.50×0.6、hp ≈ 90×3
+  4. 老 assert 兼容: 既有 tests 全部原样通过（首两波逐字不变）
+  5. 以上全部转 tests/behavior.rs
+```
+
+## 卡 11：EguiTunePanel（F1 实时调参面板）
+
+```yaml
+能力卡: EguiTunePanel（F1 实时调参面板 + Balance 资源）
+类型: architecture + ui-system
+状态: 已立卡 2026-08-27（待实现）
+设计来源: GDD「做」清单「bevy_egui 实时调参面板」+ 观察通道约定 F1 键位
+架构决策:
+  - 新资源 Balance { slash_damage, slash_cooldown, nova_radius, nova_damage,
+    nova_cooldown, contact_damage } 默认值 = 现有常量（等值迁移）
+  - 调参生效路径（两类，均为机械替换、零逻辑变化，文档化于此）:
+    a) 全局数值项: player_attack / contact_damage / nova_slash 的伤害与冷却
+       从 const 改读 Res<Balance>（const 保留为默认值来源）
+    b) 组件承载项: Player.speed 由面板直改实体组件（move_player 不动）
+  - 插件拆分: Balance 定义/init 在 GamePlugin（headless 可读写默认值）；
+    egui 面板本体放独立 tuning 插件只挂 build_app —— 测试 App 无 egui 依赖
+  - 硬性约束: 接入 bevy_egui 0.42 前先核对本地 cargo registry 中该版本源码的
+    公开 API（EguiPlugin/EguiContexts 等），不凭记忆写
+验收句:
+  1. 等值回归: 默认 Balance 下既有测试全部原样通过（不接面板也不改行为）
+  2. 生效路径: headless 测试直接改 Balance.slash_damage = 100 → 下一刀造成 100 伤害;
+              改 contact_damage = 30 → 下次贴脸扣 30
+  3. 视觉卡条目: F1 开/关面板；拖动 slash_damage 滑条后一刀伤害立即变化；
+              面板关闭后台无残留影响
 ```
 
 ## 观察通道约定
