@@ -11,6 +11,8 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/engine-direction-discussion\|引擎定位与团队方向讨论纪要]] | reference | draft | demo 策略 + 自研=AI 装配层 + 环境工作流 |
 | [[topics/engine/engine-concepts-map\|引擎概念地图]] | reference | draft | A-E 五层引擎概念速查 |
 | [[topics/engine/bevy-plugin-and-code-reuse\|Bevy 开发约定：插件决策与代码沉淀]] | reference | draft | 客观→引用插件；主观→自研沉淀；第二次用到才抽 crate |
+| [[topics/engine/capability-card-workflow-deep-dive\|能力卡机制深度理解]] | reference | draft | 卡=需求规格非运行时组件；成果=增量+测试+归档；切卡=可独立验收的玩法链路 |
+| [[topics/engine/ai-collaboration-by-phase\|游戏全生命周期的人机分工]] | reference | draft | AI 可接管程度 = 验收句可数字化程度；立项/需求/试玩/构建分工表 + 点子池模式 |
 
 ## 相关决策
 

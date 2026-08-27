@@ -49,3 +49,6 @@ updated: 2026-08-27
 - [[topics/engine/bevy-plugin-and-code-reuse|Bevy 开发约定：插件决策与代码沉淀]]（新增，reference：客观→引用生态插件；主观→自研沉淀；第二次用到才抽 crate；已固化进 templates/bevy-game）
 - [[topics/engine/bevy-windows-antivirus-build-pitfall|踩坑：Windows 杀软误报 ahash 构建脚本]]（新增，pitfall：os error 5；白名单 target/ + 工具链目录解决；模板 README 已加替换 crate 名步骤）
 - [[topics/engine/bevy-019-events-to-messages-pitfall|踩坑：Bevy 0.19 缓冲事件更名 Message]]（新增，pitfall：Event→Message / add_event→add_message，wave-survival 卡 9 编译期发现；含 hanabi Gradient 撞名等版本对齐小坑）
+- [[topics/engine/capability-card-workflow-deep-dive|能力卡机制深度理解]]（回写，reference：卡=需求规格；成果=增量+测试+归档；切卡=可独立验收的玩法链路；wave-survival 阶段一 8 卡用量表）
+- [[topics/engine/ai-collaboration-by-phase|游戏全生命周期的人机分工]]（回写，reference：AI 可接管程度=验收句可数字化程度；立项/需求/试玩/构建分工 + 点子池模式）
+- [[topics/game-design/art-pipeline-human-ai-division|美术与动作阶段的人机协作]]（回写，reference：规格归 AI 审美归人；表现层 80% 是代码；动作=采购+组装+参考驱动；占位图=进度解耦+判断纯度）

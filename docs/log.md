@@ -41,6 +41,7 @@
 | 2026-08-26 | 维护 | 陈旧文档与 monorepo 约定对齐：games/engine/tools 三个 README 去除 polyrepo 残留（独立建仓 → 整体 monorepo、新游戏指引改为 bevy-game 模板）+ 删除 topics/未命名.base（Obsidian 残留，误提交） | games/README.md、engine/README.md、tools/README.md、topics/未命名.base（删除） | AI |
 | 2026-08-26 | 维护 | 沉淀开发踩坑两件：① 模板复制改名后 `bevy_game` crate 名残留 → 首编 E0433（模板 README + games/README 新增「全局替换 crate 名」步骤）；② Windows 杀软（360）误报 ahash 构建脚本 → os error 5（新增踩坑页 + 白名单解法） | templates/bevy-game/README.md、games/README.md、topics/engine/bevy-windows-antivirus-build-pitfall.md（新增）、topics/engine/_index.md、MOC.md | AI |
 | 2026-08-27 | 回写 | wave-survival 卡 9 实现中 Bevy 0.19 缓冲事件 API 编译失败 → 事件体系更名踩坑沉淀（Event→Message 三件套 + 无头测试读消息技巧 + hanabi/egui 版本对齐小坑） | topics/engine/bevy-019-events-to-messages-pitfall.md（新增）、topics/engine/_index.md、MOC.md | AI，待团队 review |
+| 2026-08-27 | 回写 | wave-survival 阶段一代码 review + 流程讨论沉淀三篇：能力卡深度理解（卡的本质/成果/切法/复用率）、全生命周期人机分工（验收句可数字化程度定律 + 点子池）、美术与动作协作（规格 vs 审美 / 采购式动作设计 / 占位图双价值） | topics/engine/capability-card-workflow-deep-dive.md（新增）、topics/engine/ai-collaboration-by-phase.md（新增）、topics/game-design/art-pipeline-human-ai-division.md（新增）、两个 _index.md、MOC.md | AI + youxia |
 
 ## 操作类型
 
