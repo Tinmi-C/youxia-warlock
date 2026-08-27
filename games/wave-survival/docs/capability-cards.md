@@ -35,7 +35,7 @@
 
 > 阶段 1（垂直切片）：卡 1–8，全部完成（2026-08-26）。
 > 阶段 2（玩法深化）：卡 9–11，全部完成（2026-08-27，33 个回归测试全绿）。
-> 阶段 3（表现层）：卡 12–14 已立卡草案（2026-08-27，待团队 review，未开工）。UI 正式化、音效（GDD 后置项）暂未立卡，随实现进度再立。
+> 阶段 3（表现层）：卡 12–14 已立卡并通过 review（2026-08-27），进入实现，顺序 12→13→14、一卡一提交。UI 正式化、音效（GDD 后置项）暂未立卡，随实现进度再立。
 
 | 卡 | 类型 | 状态 | 验收句要点 |
 |----|------|------|-----------|
@@ -50,9 +50,9 @@
 | NovaSlash | gameplay-system | ✅ 已实现（2026-08-27，含回归测试；粒子视觉条目待跑游戏验收） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
 | EnemyVariants | component/gameplay-system | ✅ 已实现（2026-08-27，含回归测试） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
 | EguiTunePanel | architecture/ui-system | ✅ 已实现（2026-08-27，含回归测试；面板视觉条目待跑游戏验收） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
-| HeroPresentation | asset/architecture | 📝 草案（2026-08-27，待 review） | 玩家挂 hero.glb 人形 + 走路循环动画；纯表现插件，33 个回归逐字不变（详见下方卡 12） |
-| MonsterPresentation | asset/component | 📝 草案（2026-08-27，待 review） | 怪物挂 monster.glb 人形；三分型辨识 = tint+缩放双编码；判定几何不动（详见下方卡 13） |
-| HitFlashFeedback | system | 📝 草案（2026-08-27，待 review） | flash 首次接入衰减 + 材质发光跟随——白闪真正可见（详见下方卡 14） |
+| HeroPresentation | asset/architecture | 🚧 实现中（2026-08-27 review 通过） | 玩家挂 hero.glb 人形；走路动画「动才播/静止停」跟随位移；回归零改动（详见下方卡 12） |
+| MonsterPresentation | asset/component | 🟢 已立卡（2026-08-27 review 通过） | 怪物挂 monster.glb 人形；分型辨识方案 C = tint+缩放双编码；判定几何不动（详见下方卡 13） |
+| HitFlashFeedback | system | 🟢 已立卡（2026-08-27 review 通过） | flash 首次接入衰减 + 材质发光跟随——白闪真正可见（详见下方卡 14） |
 
 ## 卡 2：PlayerAttack（近战挥砍）
 
@@ -337,12 +337,12 @@
 
 ## 卡 12：HeroPresentation（玩家 glTF 模型展示层）
 
-> ⚠️ 卡 12–14 为阶段三立卡草案（2026-08-27），团队 review 通过后才开工。
+> ✅ 卡 12–14 于 2026-08-27 经团队 review 通过（分型辨识采用方案 C / 走路动画「动才播、静止停」/ 实现顺序 12→13→14），进入实现；各卡视觉验收条目由人跑游戏完成。
 
 ```yaml
 能力卡: HeroPresentation（玩家 glTF 模型 + 骨骼动画展示层）
 类型: asset + architecture
-状态: 草案（2026-08-27 立卡，待 review，未开工）
+状态: 已立卡（2026-08-27 团队 review 通过），排队实现中
 设计来源: GDD「做」清单「3D 场景：玩家+怪物+地面（骨骼动画角色，glTF）」+
           技术选型「动画 = Bevy 内置 AnimationGraph」；
           bevy-spike 已验证完整路径：hero.glb Scene → AnimationGraph::from_clip(Animation(0))
@@ -358,28 +358,45 @@
     并把根实体的占位 Cuboid 组件移除（Mesh3d + MeshMaterial3d）——只动渲染世界里的视觉，
     Player/Transform/Hp/Attack/NovaAttack/Visual/刚体碰撞体等逻辑组件一律不碰
     （不用根实体 Visibility::Hidden 方案：可见性会级联给子模型）
-  - 已知妥协: 资产只有走路循环一条 clip，待机时也播走路（无 idle 可采购前的事实标准妥协，
-    见 docs/topics/game-design/art-pipeline-human-ai-division.md 的占位图双价值论）;
-    idle/run/attack 动画状态机等动作素材就绪后另立卡
+  - 播放策略（2026-08-27 review 拍板，取代原「待机也播走路」的妥协草案）:
+    只有走路这一条 clip ≠ 必须常播——静止时不播就是了。走路动画只在玩家移动中播放，
+    静止（含 Paused/GameOver）即暂停，模型定住在当前姿势；idle 动作素材到位后再立动画状态机卡。
+    数据链: 新组件 WalkCycle { playing } + 新系统 update_walk_cycle（读根实体当帧位移写入，
+    注册为**不受状态门控**的普通 Update 系统——Paused 时位置不变自然落到 false，老系统零改动）；
+    表现插件只负责把组件映射到 AnimationPlayer 的 play/pause
   - 编码期硬约束（延用卡 11 规矩）: WorldAssetRoot / GltfAssetLabel / AnimationGraphHandle /
     WorldInstanceReady 的 0.19.1 公开 API 与所在模块路径，先核对本地 cargo registry 源码再写，
     不凭记忆（spike 里 WorldInstanceReady 走的是非 prelude 导入）
 接口:
-  输入: 玩家根实体; AssetServer（hero.glb）
-  输出: 玩家实体树下出现人形场景子实体并循环播放走路动画; 根实体不再渲染方块
+  输入: 玩家根实体的 Transform（update_walk_cycle 读位移）; AssetServer（hero.glb）
+  输出: 场景子实体挂上玩家树、走路动画播放状态跟随 WalkCycle 组件; 根实体不再渲染方块
 行为:
-  - Startup 后一帧内: 表现插件定位玩家根实体，插入标记组件 RoleModel + 场景子实体
-    （带独立 Transform，便于调锚点/缩放，不动 move_player 写的根 Transform）
-  - On<WorldInstanceReady> 观察者: 遍历子树找到 AnimationPlayer，挂图并 play(0).repeat()，
-    各打一条 info! 日志（观察通道约定）
-  - 玩家死亡/重开不涉及本插件（restart 只重置数据，本就不 despawn 玩家）
+  - 逻辑侧（GamePlugin）: update_walk_cycle 维护 WalkCycle.playing =「根实体本帧位移 > ε」；
+    配套组件 PrevTranslation { v } 存上一帧位置（均进 components.rs，纯数据）
+  - 表现侧（PresentationPlugin，Startup 后定位玩家根实体）: 插入 RoleModel 标记 +
+    WorldAssetRoot(hero.glb Scene(0)) 及其观察者；场景挂在专用子实体上（局部 Transform
+    便于调锚点/缩放，move_player 写的根 Transform 不动）；同时移除根实体占位的
+    Mesh3d / MeshMaterial3d 组件（不用 Visibility::Hidden——可见性会级联给子模型）
+  - On<WorldInstanceReady> 观察者: 遍历子树找到 AnimationPlayer，挂 AnimationGraphHandle 并
+    play(0).repeat()，打 info! 日志（观察通道约定）
+  - 每帧映射系统: 读根实体 WalkCycle.playing，同步其子树 AnimationPlayer 的 pause/resume
+  - 玩家死亡/重开不涉及模型（restart 只重置数据，本就不 despawn 玩家）
+设计变更记录（装配级，先例同卡 9/11）:
+  - GamePlugin 增注册 update_walk_cycle
+  - lib.rs build_app 增挂 PresentationPlugin（一行）
+  - 具体父子挂载 API（with_child / ChildOf 关系组件二选一）编码期以本地 cargo registry
+    的 0.19.1 源码为准
 验收句:
-  1. 零改动红线: tests/behavior.rs 33 个回归测试逐字不变、全绿
+  1. 零改动红线: tests/behavior.rs 既有 33 个回归测试逐字不变、全绿
      （立卡前已 grep 核实：没有任何测试断言玩家/怪物的网格类型或材质，方块只是没人看的替身）
-  2. 视觉: 跑游戏玩家显示为人形且动画在播（间隔 >2s 的两张 F12 截图存在差异 = 骨骼在变形，
-     手法同 bevy-spike 的 auto_screenshot 验收）；WASD 位移照旧 = speed×Δt
-  3. 锚点正确: 模型站在地面上（脚底 ≈ y=0），与占位方块时期的立足位置肉眼连续
-  4. 重开无恙: 死亡 → GameOver → R 重开，模型与动画不受影响
+  2. WalkCycle 数据链（headless 可测，转 tests/behavior.rs 回归）:
+     桩 App 注入「按住 W」并连驱动 ≥2 帧 → 玩家 WalkCycle.playing == true;
+     清空输入再驱动 ≥2 帧 → == false; ε 取值下低速帧率（30fps）移动仍可判真
+  3. 视觉（联动真实感）: 按住 WASD 移动中人形在迈步、松开静止后画面定格不再迈步；
+     手法同 bevy-spike 的 auto_screenshot（两帧截图有骨骼差 = 在动），F12 截图存证；
+     WASD 位移照旧 = speed×Δt
+  4. 锚点正确: 模型站在地面上（脚底 ≈ y=0），与占位方块时期的立足位置肉眼连续
+  5. 重开无恙: 死亡 → GameOver → R 重开，模型显示正常且按住方向键重新迈步
 ```
 
 ## 卡 13：MonsterPresentation（怪物 glTF 模型 + 分型辨识度）
@@ -387,7 +404,7 @@
 ```yaml
 能力卡: MonsterPresentation（怪物 glTF 模型 + 三分型辨识度）
 类型: asset + component
-状态: 草案（2026-08-27 立卡，待 review，未开工）
+状态: 已立卡（2026-08-27 团队 review 通过），排队实现中
 设计来源: 同卡 12 的机制复用；卡 10 EnemyVariants 现状靠「颜色 + 尺寸」区分分型
           （Grunt 红 0.6³ / Runner 黄 0.45³ / Tank 紫 0.85³）——换人形模型后此差异消失，
           辨识度必须重新落地，这是本卡的真正难点（审美决策，AI 给方案、人拍板）
@@ -426,7 +443,7 @@
 ```yaml
 能力卡: HitFlashFeedback（flash 衰减 + 材质发光跟随）
 类型: system
-状态: 草案（2026-08-27 立卡，待 review，未开工）
+状态: 已立卡（2026-08-27 团队 review 通过），排队实现中
 背景（立卡前代码审查发现）: Visual.flash 全工程目前只有三个写入方
   （player_attack / nova_slash / contact_damage 命中时置 1.0），没有任何读取方、
   从不衰减——白闪从未真正看得见。阶段三把它补完，正好骑在卡 12/13 的模型材质之上。
