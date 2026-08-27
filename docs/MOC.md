@@ -52,3 +52,4 @@ updated: 2026-08-27
 - [[topics/engine/capability-card-workflow-deep-dive|能力卡机制深度理解]]（回写，reference：卡=需求规格；成果=增量+测试+归档；切卡=可独立验收的玩法链路；wave-survival 阶段一 8 卡用量表）
 - [[topics/engine/ai-collaboration-by-phase|游戏全生命周期的人机分工]]（回写，reference：AI 可接管程度=验收句可数字化程度；立项/需求/试玩/构建分工 + 点子池模式）
 - [[topics/game-design/art-pipeline-human-ai-division|美术与动作阶段的人机协作]]（回写，reference：规格归 AI 审美归人；表现层 80% 是代码；动作=采购+组装+参考驱动；占位图=进度解耦+判断纯度）
+- [[topics/game-design/art-style-and-pipeline-fundamentals|美术风格与管线基础]]（回写，reference：2D/3D 不可逆第一决策；风格统一=共享约束；套装/变体派生与 ECS 同构；武器插槽=锚点+行为预告；物理跟玩法维度走）

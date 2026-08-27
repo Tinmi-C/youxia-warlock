@@ -42,6 +42,9 @@
 | 2026-08-26 | 维护 | 沉淀开发踩坑两件：① 模板复制改名后 `bevy_game` crate 名残留 → 首编 E0433（模板 README + games/README 新增「全局替换 crate 名」步骤）；② Windows 杀软（360）误报 ahash 构建脚本 → os error 5（新增踩坑页 + 白名单解法） | templates/bevy-game/README.md、games/README.md、topics/engine/bevy-windows-antivirus-build-pitfall.md（新增）、topics/engine/_index.md、MOC.md | AI |
 | 2026-08-27 | 回写 | wave-survival 卡 9 实现中 Bevy 0.19 缓冲事件 API 编译失败 → 事件体系更名踩坑沉淀（Event→Message 三件套 + 无头测试读消息技巧 + hanabi/egui 版本对齐小坑） | topics/engine/bevy-019-events-to-messages-pitfall.md（新增）、topics/engine/_index.md、MOC.md | AI，待团队 review |
 | 2026-08-27 | 回写 | wave-survival 阶段一代码 review + 流程讨论沉淀三篇：能力卡深度理解（卡的本质/成果/切法/复用率）、全生命周期人机分工（验收句可数字化程度定律 + 点子池）、美术与动作协作（规格 vs 审美 / 采购式动作设计 / 占位图双价值） | topics/engine/capability-card-workflow-deep-dive.md（新增）、topics/engine/ai-collaboration-by-phase.md（新增）、topics/game-design/art-pipeline-human-ai-division.md（新增）、两个 _index.md、MOC.md | AI + youxia |
+| 2026-08-27 | 维护 | GDD 新增「点子池」小节：美术前置 4 项（AssetPreview 工具卡 / 风格圣经+调色板 / 采购策略 / 占位图系统）+ 阶段一 review 遗留问题 3 项（白闪缺口 / 重开清补给 / 日志占位符）；点子池 = 需求模糊态与就绪态的缓冲区，能写出验收句才升级成卡 | games/wave-survival/docs/GDD.md | AI + youxia |
+| 2026-08-27 | 维护 | 点子池美术两条更新：采购策略精确到粒度（按套装采购，AI 生成只作套装粗坯须过风格圣经四条）；新增变体派生条目（一个模型撑一族敌人，与 ECS 数值分化对称设计，敌人定义表落地） | games/wave-survival/docs/GDD.md | AI + youxia |
+| 2026-08-27 | 回写 | 美术风格与管线基础讨论（维度决策/风格坐标系/生产粒度/武器插槽/2D vs 3D 物理） | topics/game-design/art-style-and-pipeline-fundamentals.md（新增）、_index.md、MOC.md | AI + youxia |
 
 ## 操作类型
 
