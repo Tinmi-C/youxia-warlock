@@ -10,7 +10,9 @@
 //! multipliers (components::MonsterKind).
 
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::{Collider, GravityScale, LockedAxes, RigidBody, Velocity};
+use bevy_rapier3d::prelude::{
+    Collider, CollisionGroups, GravityScale, Group, LockedAxes, RigidBody, Velocity,
+};
 
 use crate::components::{Chasing, Hp, Monster, MonsterKind, Visual, WalkCycle};
 use crate::resources::{Wave, WAVE_BREAK};
@@ -99,6 +101,11 @@ fn spawn_wave_monster(
         RigidBody::Dynamic,
         GravityScale(0.0),
         LockedAxes::ROTATION_LOCKED,
+        // Visual-pass fix #4b: monsters shove each other (group 1) but treat
+        // the player as a ghost — otherwise the solver stops them at surface
+        // distance (~0.7) and the bite check (0.40, GDD constant) can never
+        // trigger. Brief model overlap during a bite is intended melee jostle.
+        CollisionGroups::new(Group::GROUP_1, Group::GROUP_1),
         Collider::ball(kind.cube_size() / 2.0),
         Velocity::zero(),
         Mesh3d(meshes.add(Cuboid::new(

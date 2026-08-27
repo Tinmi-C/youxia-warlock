@@ -9,7 +9,7 @@
 //!   Transform move_player writes, so contact detection can work in a later card.
 
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::{Collider, RigidBody};
+use bevy_rapier3d::prelude::{Collider, CollisionGroups, Group, RigidBody};
 
 use crate::components::{Attack, Hp, NovaAttack, Player, PrevTranslation, Visual, WalkCycle};
 
@@ -26,6 +26,10 @@ pub fn spawn_player(
         Visual { flash: 0.0 },
         RigidBody::KinematicPositionBased,
         Collider::ball(0.4),
+        // Ghost player: no rapier contacts at all. Dynamic monsters must reach
+        // the 0.40 bite distance instead of stacking on the collider surface;
+        // player movement is position-driven and never relied on responses.
+        CollisionGroups::new(Group::GROUP_2, Group::NONE),
         Mesh3d(meshes.add(Cuboid::new(0.8, 0.8, 0.8))),
         MeshMaterial3d(materials.add(Color::srgb(0.9, 0.45, 0.2))),
         Transform::from_xyz(0.0, 0.5, 0.0),
@@ -38,11 +42,13 @@ pub fn move_player(
     mut q: Query<(&mut Transform, &Player)>,
 ) {
     let mut dir = Vec3::ZERO;
+    // South camera sits on -Z, which mirrors screen-left/right against world X:
+    // flip A/D so "D" keeps meaning screen-right (visual-pass fix #1).
     for (key, axis) in [
         (KeyCode::KeyW, Vec3::Z),
         (KeyCode::KeyS, -Vec3::Z),
-        (KeyCode::KeyA, -Vec3::X),
-        (KeyCode::KeyD, Vec3::X),
+        (KeyCode::KeyA, Vec3::X),
+        (KeyCode::KeyD, -Vec3::X),
     ] {
         if keys.pressed(key) {
             dir += axis;
