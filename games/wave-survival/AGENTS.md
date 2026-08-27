@@ -49,10 +49,12 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：卡 16 UiFormalization 已实现（feat `bb637fa`，2026-08-27，43 个回归全绿；
-  待人工视觉验收）。补齐 GDD 清单：波次格子（顶部中央存活敌数 pips）、Nova 冷却条
-  （紫罗兰）、P 暂停遮罩；debug 提示行迁底部半透明；布局/色板收敛为 ui.rs 常量组。
-  技术路线沿 GDD 锁定的 bevy_ui，F1 egui 面板零接触。
+- **进行中**：卡 16 UiFormalization 已实现（feat `bb637fa`，2026-08-27，44 个回归全绿；
+  视觉验收基本通过，暂停冻结修复 `d44ec77` 待复验）。补齐 GDD 清单：波次格子
+  （顶部中央存活敌数 pips）、Nova 冷却条（紫罗兰）、P 暂停遮罩；debug 提示行迁底部
+  半透明；布局/色板收敛为 ui.rs 常量组。技术路线沿 GDD 锁定的 bevy_ui，F1 egui 零接触。
+  暂停修复：rapier 步进不受 GameState 门控，动态怪体曾带残速穿透暂停画面——
+  新增 `sync_physics_pause` 把 `RapierConfiguration.physics_pipeline_active` 镜像到状态。
 - **已完成**：卡 15 MonsterFacing（feat `3a15cf2`，2026-08-27 真机视觉验收通过，40 个回归全绿）。
   `Heading` 观测组件 + `derive_heading`（逻辑链尾）+ wrapper yaw 恒定角速度平滑
   （540°/s 最短弧，掉头 ≈0.33s），物理零交互（只转场景子实体）。
