@@ -19,7 +19,10 @@
 
 use std::collections::HashMap;
 
-use bevy::{math::VectorSpace, prelude::*, world_serialization::WorldInstanceReady};
+use bevy::{
+    animation::RepeatAnimation, math::VectorSpace, prelude::*,
+    world_serialization::WorldInstanceReady,
+};
 
 use crate::components::{Monster, MonsterKind, Player, Visual, WalkCycle};
 
@@ -50,10 +53,13 @@ struct MonsterBound;
 
 /// Per-owner animation link carried on the wrapper child; both the hero ready
 /// observer and the sync system read it to address graph/node/clip.
+/// `was_playing` remembers last frame's WalkCycle so sync can act on EDGES:
+/// stop = let the current stride finish (non-repeating), resume = loop again.
 #[derive(Component)]
 struct AnimLink {
     graph_handle: Handle<AnimationGraph>,
     index: AnimationNodeIndex,
+    was_playing: bool,
 }
 
 /// Memoized tinted material variants, keyed by (source material, kind) so each
@@ -108,6 +114,7 @@ fn skin_player(
     let link = AnimLink {
         graph_handle: graphs.add(graph),
         index,
+        was_playing: true, // clip starts playing on bind; sync settles it
     };
 
     let _wrapper = commands
@@ -190,6 +197,7 @@ fn skin_new_monsters(
                 AnimLink {
                     graph_handle: graph_handle.clone(),
                     index,
+                    was_playing: true,
                 },
                 WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(MONSTER_GLB))),
                 Transform {
@@ -203,7 +211,13 @@ fn skin_new_monsters(
         info!(
             "[presentation] skinning {kind:?} root {root:?} with {MONSTER_GLB} (scale {scale:.2})"
         );
-        commands.entity(root).insert(MonsterSkinned);
+        commands
+            .entity(root)
+            // visual-pass fix #3: strip the placeholder cube the same way the
+            // player root does — the model IS the body now
+            .insert(MonsterSkinned)
+            .remove::<Mesh3d>()
+            .remove::<MeshMaterial3d<StandardMaterial>>();
     }
 }
 
@@ -292,12 +306,16 @@ fn kind_ordinal(kind: MonsterKind) -> u8 {
 
 // --- shared playback sync --------------------------------------------------
 
-/// Mirror WalkCycle.playing onto each owner's model subtree every frame —
-/// works uniformly for the player (movement-derived) and monsters (spawned up,
-/// cleared outside Playing by logic-side clear_walk_on_pause).
+/// Walk playback on EDGES, per visual-pass fix #2 ("走完这一步再停"):
+/// moving && was-idle  -> (re)start the clip looping;
+/// idle   && was-moving-> stop repeating so the CURRENT stride finishes and the
+///                        model freezes at the cycle-end stance instead of
+///                        freezing mid-air. With a single walk clip this is the
+///                        closest correct "stand still"; a true idle pose needs
+///                        an idle asset (future animation-state card).
 fn sync_walk_playback(
     roots: Query<(Entity, &WalkCycle, &Children)>,
-    links: Query<&AnimLink>,
+    mut links: Query<&mut AnimLink>,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
@@ -306,22 +324,36 @@ fn sync_walk_playback(
         let mut found = None;
         for kid in owner_children.iter() {
             if let Ok(link) = links.get(kid) {
-                found = Some((kid, link.index));
+                found = Some((kid, link.index, link.was_playing));
             }
         }
-        let Some((wrapper, index)) = found else {
+        let Some((wrapper, index, was_playing)) = found else {
             continue;
         };
+        let moving = walk.playing;
+
         for node in children.iter_descendants(wrapper) {
-            if let Ok(mut player) = players.get_mut(node) {
+            let Ok(mut player) = players.get_mut(node) else {
+                continue;
+            };
+            if moving && !was_playing {
+                player.play(index).repeat();
+            } else if !moving && was_playing {
                 if let Some(active) = player.animation_mut(index) {
-                    if walk.playing && active.is_paused() {
+                    active.set_repeat(RepeatAnimation::Never);
+                }
+            } else if moving && was_playing {
+                // steady walking: just make sure it is actually advancing
+                if let Some(active) = player.animation_mut(index) {
+                    if active.is_paused() {
                         active.resume();
-                    } else if !walk.playing && !active.is_paused() {
-                        active.pause();
                     }
                 }
             }
+        }
+
+        if let Ok(mut link) = links.get_mut(wrapper) {
+            link.was_playing = moving;
         }
     }
 }

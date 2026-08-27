@@ -3,9 +3,13 @@
 use bevy::prelude::*;
 
 pub fn spawn_camera(mut commands: Commands) {
+    // South-elevated three-quarter view. The humanoid glTF models face +Z, so
+    // viewing from -Z reads them back-to-camera and W (+Z) walks into the
+    // screen instead of into the lens (first visual-pass feedback: input felt
+    // mirrored when the camera sat on +Z staring at the character's face).
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 4.0, 8.0).looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
+        Transform::from_xyz(0.0, 8.0, -9.5).looking_at(Vec3::new(0.0, 0.4, 0.0), Vec3::Y),
     ));
     commands.spawn((
         Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 0.0, 0.9, -0.6)),

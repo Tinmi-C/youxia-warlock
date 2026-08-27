@@ -59,7 +59,8 @@ assets/{models,textures,audio,fonts,ui}/
   - ③ 近战/受击/Nova 的白闪一瞬即暗（卡 14）
   - ④ 阶段二遗留：Shift 冲击波粒子（卡 9）/ F1 面板实时生效（卡 11）
 - **已知问题**：
-  - hero.glb / monster.glb 各只有 1 条走路动画 clip（无 idle）；契约「动才播、静止停」，idle 素材到位后再立动画状态机卡
+  - 单走路 clip 的待机方案（验收反馈#2）：停止移动后不再原地僵住——取消循环让当前步态自然走完、定格在循环末端姿势；真正 idle 待机仍需动作素材，到位后再立动画状态机卡。已知缺口：怪物无朝向系统（面朝 +Z 固定），后续单独立卡
+  - 物理语义修正（验收反馈#4）：怪物由 KinematicVelocityBased 改为 Dynamic + 零重力 + 锁定旋转——kinematic-vs-kinematic 在 rapier 中不产生接触是设计行为，改后怪群互相推挤、不再穿透玩家（卡 4 的距离判定不受影响）
   - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
   - 本机曾发生 PowerShell 文本管道写坏 UTF-8 注释的事故（已用 git 恢复）；改文件一律走 AI 文件工具或显式 UTF-8 编码
 - **近期目标**：人工视觉验收 ①–④ → 阶段三收尾（写 phase-3-dev-notes 存档）→ 立「UI 正式化」卡；音效按 GDD 后置

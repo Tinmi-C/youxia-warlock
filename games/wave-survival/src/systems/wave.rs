@@ -10,7 +10,7 @@
 //! multipliers (components::MonsterKind).
 
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::{Collider, RigidBody, Velocity};
+use bevy_rapier3d::prelude::{Collider, GravityScale, LockedAxes, RigidBody, Velocity};
 
 use crate::components::{Chasing, Hp, Monster, MonsterKind, Visual, WalkCycle};
 use crate::resources::{Wave, WAVE_BREAK};
@@ -91,7 +91,14 @@ fn spawn_wave_monster(
         // card 13: monsters always chase while Playing, so they spawn walking;
         // clear_walk_on_pause owns the flag outside Playing.
         WalkCycle { playing: true },
-        RigidBody::KinematicVelocityBased,
+        // Visual-pass fix #4: kinematic-vs-kinematic never generates contact
+        // response (rapier design, see card 4 note) — monsters phased through
+        // the player and each other. Dynamic bodies with zero gravity and
+        // locked rotation keep the planar chase intact while letting crowds
+        // shove instead of overlapping.
+        RigidBody::Dynamic,
+        GravityScale(0.0),
+        LockedAxes::ROTATION_LOCKED,
         Collider::ball(kind.cube_size() / 2.0),
         Velocity::zero(),
         Mesh3d(meshes.add(Cuboid::new(
