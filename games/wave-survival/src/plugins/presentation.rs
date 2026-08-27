@@ -23,8 +23,9 @@ use bevy::{math::VectorSpace, prelude::*, world_serialization::WorldInstanceRead
 
 use crate::components::{Monster, MonsterKind, Player, Visual, WalkCycle};
 
-const HERO_GLB: &str = "hero.glb";
-const MONSTER_GLB: &str = "monster.glb";
+// Assets live under assets/models/ in this project (spike kept them at the root).
+const HERO_GLB: &str = "models/hero.glb";
+const MONSTER_GLB: &str = "models/monster.glb";
 /// The root transform centers on the physics ball (y = 0.5); CesiumMan's origin
 /// sits at its feet, so shift the model down half a unit to keep feet on the
 /// ground exactly like the placeholder cube was.

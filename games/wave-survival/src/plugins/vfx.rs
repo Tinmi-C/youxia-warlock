@@ -8,8 +8,8 @@ use bevy::prelude::*;
 // Explicit imports: bevy's prelude also exports a `Gradient`, so the hanabi
 // prelude glob would be ambiguous. Verified against bevy_hanabi-0.19 sources.
 use bevy_hanabi::{
-    Attribute, ColorOverLifetimeModifier, EffectAsset, EffectSpawner,
-    ExprWriter, Gradient, LinearDragModifier, ParticleEffect, SetAttributeModifier,
+    Attribute, ColorOverLifetimeModifier, EffectAsset, EffectSpawner, ExprWriter, Gradient,
+    HanabiPlugin, LinearDragModifier, ParticleEffect, SetAttributeModifier,
     SetPositionCircleModifier, ShapeDimension, SizeOverLifetimeModifier, SpawnerSettings,
 };
 
@@ -19,7 +19,11 @@ pub struct VfxPlugin;
 
 impl Plugin for VfxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_nova_shockwave_effect)
+        // HanabiPlugin registers Assets<EffectAsset> + the particle render
+        // extraction; without it the asset store does not exist and our
+        // Startup spawner panics (found on first real-machine run).
+        app.add_plugins(HanabiPlugin)
+            .add_systems(Startup, spawn_nova_shockwave_effect)
             .add_systems(Update, replay_shockwave_on_nova);
     }
 }

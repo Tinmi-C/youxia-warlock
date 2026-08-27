@@ -5,7 +5,7 @@
 //! bevy_egui-0.42.0 sources: `EguiContexts::ctx_mut()` + `egui::Window`.
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::components::Player;
 use crate::resources::Balance;
@@ -15,7 +15,10 @@ pub struct TuningPlugin;
 impl Plugin for TuningPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TunePanelOpen>()
-            .add_systems(Update, tuning_panel);
+            // bevy_egui 0.42: UI systems MUST run inside the egui pass schedule
+            // (plain Update races the internal context loop and panics with
+            // "Dropped TexturesDelta" — found on first real-machine run).
+            .add_systems(EguiPrimaryContextPass, tuning_panel);
     }
 }
 
