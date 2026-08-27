@@ -34,7 +34,8 @@
 ## 本项目的卡清单
 
 > 阶段 1（垂直切片）：卡 1–8，全部完成（2026-08-26）。
-> 阶段 2（玩法深化）：卡 9–11（2026-08-27 立卡）。
+> 阶段 2（玩法深化）：卡 9–11，全部完成（2026-08-27，33 个回归测试全绿）。
+> 阶段 3（表现层）：卡 12–14 已立卡草案（2026-08-27，待团队 review，未开工）。UI 正式化、音效（GDD 后置项）暂未立卡，随实现进度再立。
 
 | 卡 | 类型 | 状态 | 验收句要点 |
 |----|------|------|-----------|
@@ -49,6 +50,9 @@
 | NovaSlash | gameplay-system | ✅ 已实现（2026-08-27，含回归测试；粒子视觉条目待跑游戏验收） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
 | EnemyVariants | component/gameplay-system | ✅ 已实现（2026-08-27，含回归测试） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
 | EguiTunePanel | architecture/ui-system | ✅ 已实现（2026-08-27，含回归测试；面板视觉条目待跑游戏验收） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
+| HeroPresentation | asset/architecture | 📝 草案（2026-08-27，待 review） | 玩家挂 hero.glb 人形 + 走路循环动画；纯表现插件，33 个回归逐字不变（详见下方卡 12） |
+| MonsterPresentation | asset/component | 📝 草案（2026-08-27，待 review） | 怪物挂 monster.glb 人形；三分型辨识 = tint+缩放双编码；判定几何不动（详见下方卡 13） |
+| HitFlashFeedback | system | 📝 草案（2026-08-27，待 review） | flash 首次接入衰减 + 材质发光跟随——白闪真正可见（详见下方卡 14） |
 
 ## 卡 2：PlayerAttack（近战挥砍）
 
@@ -329,6 +333,120 @@
               改 contact_damage = 30 → 下次贴脸扣 30
   3. 视觉卡条目: F1 开/关面板；拖动 slash_damage 滑条后一刀伤害立即变化；
               面板关闭后台无残留影响
+```
+
+## 卡 12：HeroPresentation（玩家 glTF 模型展示层）
+
+> ⚠️ 卡 12–14 为阶段三立卡草案（2026-08-27），团队 review 通过后才开工。
+
+```yaml
+能力卡: HeroPresentation（玩家 glTF 模型 + 骨骼动画展示层）
+类型: asset + architecture
+状态: 草案（2026-08-27 立卡，待 review，未开工）
+设计来源: GDD「做」清单「3D 场景：玩家+怪物+地面（骨骼动画角色，glTF）」+
+          技术选型「动画 = Bevy 内置 AnimationGraph」；
+          bevy-spike 已验证完整路径：hero.glb Scene → AnimationGraph::from_clip(Animation(0))
+          → 子树 AnimationPlayer.play(i).repeat()，WorldAssetRoot + On<WorldInstanceReady>
+          观察者开播（games/bevy-spike/src/main.rs）
+资产: assets/models/hero.glb（CesiumMan 人形，1 mesh + 1 skin，动画剪辑恰 1 条 / 57 通道——
+      本卡立卡前已用脚本核实 glTF 结构）
+核心架构决策（本卡主要产出，卡 13 复用同一机制）:
+  - 逻辑与皮相分离（先例：nova 纯逻辑 / vfx 只挂 build_app；Balance 在 game / 面板在 tuning）:
+    新建 PresentationPlugin **只挂 build_app**，headless 测试 App 不引入 glTF/AssetServer 依赖。
+    GamePlugin 及全部逻辑系统零改动；生产链路改动 = lib.rs 加一行插件
+  - 挂载方式: 表现插件给玩家根实体挂「场景子实体」（WorldAssetRoot 载 hero.glb），
+    并把根实体的占位 Cuboid 组件移除（Mesh3d + MeshMaterial3d）——只动渲染世界里的视觉，
+    Player/Transform/Hp/Attack/NovaAttack/Visual/刚体碰撞体等逻辑组件一律不碰
+    （不用根实体 Visibility::Hidden 方案：可见性会级联给子模型）
+  - 已知妥协: 资产只有走路循环一条 clip，待机时也播走路（无 idle 可采购前的事实标准妥协，
+    见 docs/topics/game-design/art-pipeline-human-ai-division.md 的占位图双价值论）;
+    idle/run/attack 动画状态机等动作素材就绪后另立卡
+  - 编码期硬约束（延用卡 11 规矩）: WorldAssetRoot / GltfAssetLabel / AnimationGraphHandle /
+    WorldInstanceReady 的 0.19.1 公开 API 与所在模块路径，先核对本地 cargo registry 源码再写，
+    不凭记忆（spike 里 WorldInstanceReady 走的是非 prelude 导入）
+接口:
+  输入: 玩家根实体; AssetServer（hero.glb）
+  输出: 玩家实体树下出现人形场景子实体并循环播放走路动画; 根实体不再渲染方块
+行为:
+  - Startup 后一帧内: 表现插件定位玩家根实体，插入标记组件 RoleModel + 场景子实体
+    （带独立 Transform，便于调锚点/缩放，不动 move_player 写的根 Transform）
+  - On<WorldInstanceReady> 观察者: 遍历子树找到 AnimationPlayer，挂图并 play(0).repeat()，
+    各打一条 info! 日志（观察通道约定）
+  - 玩家死亡/重开不涉及本插件（restart 只重置数据，本就不 despawn 玩家）
+验收句:
+  1. 零改动红线: tests/behavior.rs 33 个回归测试逐字不变、全绿
+     （立卡前已 grep 核实：没有任何测试断言玩家/怪物的网格类型或材质，方块只是没人看的替身）
+  2. 视觉: 跑游戏玩家显示为人形且动画在播（间隔 >2s 的两张 F12 截图存在差异 = 骨骼在变形，
+     手法同 bevy-spike 的 auto_screenshot 验收）；WASD 位移照旧 = speed×Δt
+  3. 锚点正确: 模型站在地面上（脚底 ≈ y=0），与占位方块时期的立足位置肉眼连续
+  4. 重开无恙: 死亡 → GameOver → R 重开，模型与动画不受影响
+```
+
+## 卡 13：MonsterPresentation（怪物 glTF 模型 + 分型辨识度）
+
+```yaml
+能力卡: MonsterPresentation（怪物 glTF 模型 + 三分型辨识度）
+类型: asset + component
+状态: 草案（2026-08-27 立卡，待 review，未开工）
+设计来源: 同卡 12 的机制复用；卡 10 EnemyVariants 现状靠「颜色 + 尺寸」区分分型
+          （Grunt 红 0.6³ / Runner 黄 0.45³ / Tank 紫 0.85³）——换人形模型后此差异消失，
+          辨识度必须重新落地，这是本卡的真正难点（审美决策，AI 给方案、人拍板）
+资产: assets/models/monster.glb（同款 CesiumMan 资产，1 skin + 1 条动画 / 57 通道）
+分型辨识方案（默认建议 C，跑游戏看效果后定稿）:
+  A. 材质 tint —— 场景子树内的 StandardMaterial 克隆实例化后基色乘分型色
+     （红/黄/紫沿用卡 10 的 color() 语义；克隆防共享材质串扰）
+  B. 整体缩放 —— Grunt ×1.0 / Runner ×0.85 / Tank ×1.25（体格方向对齐卡 10 数值气质：
+     Runner 轻快小巧、Tank 沉重巨大）
+  C. A+B 组合 —— 色 + 体双编码，最快速可读
+数据落地: MonsterKind 新增 visual_scale() 方法（tint 直接复用既有 color()，语义从
+          「方块涂色」扩展为「分型主色」——集中持有分型参数是卡 10 先例）;
+          读取方只剩表现插件，老系统继续零感知
+接口:
+  输入: 怪物根实体的 MonsterKind; monster.glb 场景
+  输出: 怪物实体树下人形场景（带 tint / 缩放 / 走路循环常播）; 根实体不再渲染方块
+行为:
+  - wave_system 刷怪代码**逐字不动**（依旧只造占位方块）; 表现插件每帧对新增的
+    Monster 实体补挂场景子实体 + 移除占位 Mesh3d/MeshMaterial3d + 按 kind 上 tint/缩放
+  - 怪死亡被 despawn 时场景子实体随父级一起消失（Bevy 父子关系保证），补给照常掉落
+兼容性承诺:
+  - tests/behavior.rs 全部原样通过（headless 无表现插件，测试世界里的怪物永远是方块，
+    这恰好证明逻辑与外观解耦成功）
+  - 判定几何完全不动: 贴脸 0.40 / 近战 0.9~1.5 / Nova 1.6 是 GDD 设计常量;
+    Collider::ball(cube_size/2) 维持现状——本卡一个数值都不改
+验收句:
+  1. 零改动红线: 33 个回归测试逐字不变、全绿
+  2. 视觉: 第 5 波起（Grunt/Runner/Tank 同场）三分型肉眼可辨，F12 截图存证
+  3. 地面真相不变: 缩放后 Tank 观感大于 Runner，但 Chasing.speed/Hp 仍由卡 10 公式决定
+     （按 Shift 放一圈可复核伤害/冷却完全一致）
+  4. 死亡干净: 击杀任一分型，模型消失、金色补给在尸体位置正常掉出并可拾取
+```
+
+## 卡 14：HitFlashFeedback（受击白闪真正可见）
+
+```yaml
+能力卡: HitFlashFeedback（flash 衰减 + 材质发光跟随）
+类型: system
+状态: 草案（2026-08-27 立卡，待 review，未开工）
+背景（立卡前代码审查发现）: Visual.flash 全工程目前只有三个写入方
+  （player_attack / nova_slash / contact_damage 命中时置 1.0），没有任何读取方、
+  从不衰减——白闪从未真正看得见。阶段三把它补完，正好骑在卡 12/13 的模型材质之上。
+职责切分（逻辑/表现分离铁律）:
+  - 衰减（逻辑层，进 GamePlugin 游戏链末尾）: flash = max(flash − FLASH_DECAY_RATE×dt, 0)
+    FLASH_DECAY_RATE 默认 4.0（全亮到灭约 0.25s; 主观手感值，先常量后随 Balance 入面板的
+    决策实现时定）; 排在 death_despawn 之后，保证命中帧的新写入先进后衰
+  - 应用（表现层，PresentationPlugin）: 每帧读 With<Visual> 实体的 flash，
+    对其材质克隆实例设 emissive = WHITE × flash——只在挂了模型的渲染世界生效
+接口:
+  输入: 所有 With<Visual> 实体的 flash 字段; Time
+  输出: flash 单调衰减至 0 且不为负; （仅渲染 App）模型材质发光强度跟随 flash
+验收句:
+  1. 衰减确定式（headless 可测）: 置 flash=1.0 后驱动 dt=1/60 ×15 帧 → flash < 0.05 且 >0;
+      继续驱动共 1s → flash == 0.0 且 clamp 生效从未出现负值
+  2. 当帧可预言: 命中置 1.0 的同一帧走完衰减后 flash == max(1 − rate×dt, 0)（60fps ≈ 0.93，
+      断言按公式写误差带，不写「仍为 1」）
+  3. 兼容如实报告: 既有 flash 断言多在触发当帧读取（>0.99），若端到端装配方式引入衰减导致
+      任一断言漂移，以 diff 形式报人确认修订，不静默改测试
+  4. 视觉: 近战一刀/贴脸挨一口 → 目标全身白光一瞬即暗; Nova 圈内多怪齐闪齐暗; F12 截图存证
 ```
 
 ## 观察通道约定

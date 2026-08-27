@@ -49,9 +49,16 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：阶段二（玩法深化）三张卡全部完成（2026-08-27，`cargo test` 33 个回归测试全绿）：卡 9 NovaSlash（hanabi 冲击波）、卡 10 EnemyVariants（Runner/Tank）、卡 11 EguiTunePanel（F1 + Balance）
-- **已知问题**：卡 9/11 的粒子与面板为视觉条目，需跑游戏人工验收（Shift 冲击波特效 / F1 拖动立即生效）
-- **近期目标**：阶段三 表现层——骨骼动画（glTF 替换占位方块）+ UI 正式化 + 音效
+- **进行中**：阶段三（表现层）立卡草案已完成、待团队 review（2026-08-27）：
+  卡 12 HeroPresentation（玩家 glTF 展示层插件）、卡 13 MonsterPresentation（怪物模型 + 三分型 tint/缩放辨识）、
+  卡 14 HitFlashFeedback（flash 衰减 + 材质发光——白闪首次真正可见）。
+  共同架构：表现层插件只挂 `build_app`，逻辑系统与 headless 回归零改动。
+- **已知问题**：
+  - 阶段二两项视觉验收仍待跑游戏完成：Shift 冲击波粒子（卡 9 第 6 条）/ F1 面板实时生效（卡 11 第 3 条）
+  - hero.glb / monster.glb 各只有 1 条走路动画 clip（无 idle），待机播走路是已知妥协，动画状态机待动作素材后另立卡
+  - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
+- **近期目标**：review 卡 12–14 → 按卡实现（建议顺序 12 → 13 → 14，一卡一提交）→ 阶段三后半再立「UI 正式化」；音效按 GDD 后置
+- **阶段二收尾存档**：卡 9–11 全部完成（2026-08-27，33 个回归测试全绿，见 `docs/phase-2-dev-notes.md`）
 
 ## 项目专属规则
 
