@@ -19,7 +19,6 @@ impl Plugin for GamePlugin {
                     systems::camera::spawn_environment,
                     systems::player::spawn_player,
                     systems::ui::spawn_ui,
-                    spawn_hint_ui,
                 ),
             )
             .add_systems(
@@ -98,22 +97,4 @@ fn restart(
     *wave = Wave::default();
     next.set(GameState::Playing);
     info!("[game] restart — back to wave 0");
-}
-
-/// Static UI hint (bevy_ui text pipeline). Dynamic text is a future capability card.
-fn spawn_hint_ui(mut commands: Commands) {
-    commands.spawn((
-        Text::new("WASD move | Space slash | P pause | R restart | F12 screenshot"),
-        TextFont {
-            font_size: FontSize::Px(20.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(12.0),
-            left: Val::Px(12.0),
-            ..default()
-        },
-    ));
 }

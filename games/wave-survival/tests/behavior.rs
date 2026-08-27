@@ -1289,3 +1289,151 @@ fn balance_contact_damage_applies_live() {
         player_hp(&mut app)
     );
 }
+
+// --- UiFormalization (card 16) ---
+
+use wave_survival::components::{UiCooldownFill, UiNovaFill, UiPauseOverlay, UiWavePips};
+
+fn pip_count(app: &mut App) -> usize {
+    let world = app.world_mut();
+    let mut container = world.query_filtered::<Entity, With<UiWavePips>>();
+    let mut children = world.query::<&Children>();
+    let e = container
+        .single(world)
+        .expect("pip container entity exists");
+    // Children is removed once the last pip despawns, hence the Option-or-zero.
+    children.get(world, e).map(|c| c.len()).unwrap_or(0)
+}
+
+fn fill_pct(app: &mut App, marker: &'static str) -> f32 {
+    let world = app.world_mut();
+    let mut cd = world.query_filtered::<&Node, With<UiCooldownFill>>();
+    let mut nova = world.query_filtered::<&Node, With<UiNovaFill>>();
+    let node = match marker {
+        "slash" => cd.single(world).expect("slash fill"),
+        _ => nova.single(world).expect("nova fill"),
+    };
+    match node.width {
+        Val::Percent(p) => p,
+        other => panic!("fill width should be Percent, got {other:?}"),
+    }
+}
+
+/// Card 16 — acceptance: pips mirror the alive-monster count, including the
+/// clear-to-zero moment right after a wipe (before the next wave timer lands).
+#[test]
+fn wave_pips_track_alive_monsters() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    *app.world_mut().resource_mut::<Wave>() = Wave { n: 4, timer: -1.0 };
+    run_frames(&mut app, 3);
+    assert_eq!(monster_count(&mut app), 7, "wave 5 forced");
+
+    run_frames(&mut app, 2); // sync pass + spawn-settle pass
+    assert_eq!(pip_count(&mut app), 7, "pips == alive monsters");
+
+    // Remove two monsters directly (death flow is covered by combat tests).
+    let victims: Vec<Entity> = {
+        let mut q = app.world_mut().query::<(Entity, &Monster)>();
+        q.iter(app.world()).take(2).map(|(e, _)| e).collect()
+    };
+    for v in &victims {
+        app.world_mut().despawn(*v);
+    }
+    run_frames(&mut app, 2);
+    assert_eq!(pip_count(&mut app), 5, "pips drop with each kill");
+
+    // Wipe the rest: pips hit zero on the next sync (next wave stays pending
+    // behind its timer, so the zero state is observable).
+    let rest: Vec<Entity> = {
+        let mut q = app.world_mut().query::<(Entity, &Monster)>();
+        q.iter(app.world()).map(|(e, _)| e).collect()
+    };
+    for v in &rest {
+        app.world_mut().despawn(*v);
+    }
+    run_frames(&mut app, 2);
+    assert_eq!(pip_count(&mut app), 0, "cleared wave shows zero pips");
+}
+
+/// Card 16 — acceptance: Nova bar mirrors (1 − cooldown/NOVA_COOLDOWN) exactly
+/// like the slash bar; guards against a copy-paste reading the wrong cooldown.
+/// Cooldowns decay every frame, so we seed distinct ratios, let them run, then
+/// assert each bar against the LIVE value's formula (wrong-source bars diverge).
+#[test]
+fn cooldown_fills_track_nova_and_slash_ratios() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+
+    {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut Attack, With<Player>>();
+        let mut attack = q.single_mut(app.world_mut()).expect("player attack");
+        attack.cooldown = combat::SLASH_COOLDOWN * 0.25; // ~75% ready seed
+    }
+    {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut NovaAttack, With<Player>>();
+        let mut nova = q.single_mut(app.world_mut()).expect("player nova");
+        nova.cooldown = NOVA_COOLDOWN * 0.2; // ~80% ready seed
+    }
+    run_frames(&mut app, 2);
+
+    // Freeze the clock: cooldowns stop decaying, so the fill (written by
+    // ui_update, order-ambiguous vs the combat chain) and the live value we
+    // read afterwards refer to the exact same tick — no lag tolerance needed.
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+    run_frames(&mut app, 2);
+
+    // live values at assertion time (frozen since the clock stopped)
+    let (slash_cd, nova_cd) = {
+        let world = app.world_mut();
+        let mut qa = world.query_filtered::<&Attack, With<Player>>();
+        let mut qn = world.query_filtered::<&NovaAttack, With<Player>>();
+        let a = qa.single(world).expect("player attack");
+        let n = qn.single(world).expect("player nova");
+        (a.cooldown, n.cooldown)
+    };
+    let slash_expect = ((1.0 - slash_cd / combat::SLASH_COOLDOWN).clamp(0.0, 1.0)) * 100.0;
+    let nova_expect = ((1.0 - nova_cd / NOVA_COOLDOWN).clamp(0.0, 1.0)) * 100.0;
+
+    assert!(
+        (fill_pct(&mut app, "slash") - slash_expect).abs() < 1.0,
+        "slash fill {0:.2} should track its live cooldown ratio {slash_expect:.2}",
+        fill_pct(&mut app, "slash")
+    );
+    assert!(
+        (fill_pct(&mut app, "nova") - nova_expect).abs() < 1.0,
+        "nova fill {0:.2} should track its live cooldown ratio {nova_expect:.2}",
+        fill_pct(&mut app, "nova")
+    );
+}
+
+/// Card 16 — acceptance: the pause overlay is visible exactly while Paused.
+#[test]
+fn pause_overlay_visibility_follows_state() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+
+    let visible = |app: &mut App| -> bool {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Visibility, With<UiPauseOverlay>>();
+        *q.single(app.world()).expect("pause overlay") == Visibility::Visible
+    };
+    assert!(!visible(&mut app), "starts hidden");
+
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Paused);
+    run_frames(&mut app, 1);
+    assert!(visible(&mut app), "visible while Paused");
+
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Playing);
+    run_frames(&mut app, 1);
+    assert!(!visible(&mut app), "hidden again once Playing");
+}

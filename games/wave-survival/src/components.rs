@@ -141,6 +141,17 @@ pub struct UiCooldownFill;
 #[derive(Component)]
 pub struct UiGameOver;
 
+// --- HUD formalization (card 16 UiFormalization) ---
+/// Violet fill of the Nova cooldown bar (mirrors the slash bar).
+#[derive(Component)]
+pub struct UiNovaFill;
+/// Container row at top-center; children are alive-enemy pips (one per monster).
+#[derive(Component)]
+pub struct UiWavePips;
+/// Fullscreen translucent overlay shown only while the game is paused.
+#[derive(Component)]
+pub struct UiPauseOverlay;
+
 // --- Walk-state tracking (card 12 HeroPresentation) ---
 /// Whether the owner moved this frame. Written by
 /// `systems::player::update_walk_cycle` (logic side), read by the presentation
