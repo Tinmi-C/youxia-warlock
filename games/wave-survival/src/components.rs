@@ -156,3 +156,13 @@ pub struct WalkCycle {
 pub struct PrevTranslation {
     pub v: Vec3,
 }
+
+// --- Facing tracking (card 15 MonsterFacing) ---
+/// Unit movement direction on the XZ plane (x = world +X, y = world +Z),
+/// written by `systems::heading::derive_heading` (logic side) and turned into
+/// wrapper yaw by the presentation plugin. Held while stationary to avoid
+/// jitter; seeded towards the player so freshly spawned monsters face inward.
+#[derive(Component)]
+pub struct Heading {
+    pub dir: Vec2,
+}

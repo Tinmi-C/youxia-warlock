@@ -10,9 +10,12 @@ use bevy::{
 use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity};
 
 use wave_survival::components::{
-    Attack, Chasing, Hp, Monster, MonsterKind, NovaAttack, Pickup, Player, Visual, WalkCycle,
+    Attack, Chasing, Heading, Hp, Monster, MonsterKind, NovaAttack, Pickup, Player, Visual,
+    WalkCycle,
 };
+use wave_survival::plugins::presentation::MAX_TURN_RATE_DEG;
 use wave_survival::resources::{Balance, Wave};
+use wave_survival::systems::heading::derive_heading;
 use wave_survival::systems::nova::{NovaFired, NOVA_COOLDOWN, NOVA_DAMAGE, NOVA_RADIUS};
 use wave_survival::systems::wave::{
     kinds_for_wave, runner_count, tank_count, wave_count, wave_hp, wave_speed,
@@ -165,6 +168,98 @@ fn walk_flag_clears_while_paused_even_with_keys_held() {
     assert!(
         !player_walk_playing(&mut app),
         "walk flag must clear while Paused even though W stays pressed"
+    );
+}
+
+// --- MonsterFacing (card 15) ---
+
+fn monster_heading(app: &mut App) -> Vec2 {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(&Heading, &Transform), With<Monster>>();
+    let (h, _) = q.single(app.world()).expect("one heading monster");
+    h.dir
+}
+
+fn angle_between(a: Vec2, b: Vec2) -> f32 {
+    let (la, lb) = (a.length(), b.length());
+    if la <= f32::EPSILON || lb <= f32::EPSILON {
+        return f32::INFINITY;
+    }
+    // signed angle via dot/cross, robust for the sub-2° assertions here
+    let cos = a.dot(b) / (la * lb);
+    let sin = a.perp_dot(b) / (la * lb);
+    sin.atan2(cos).abs().to_degrees()
+}
+
+/// Minimal harness for the heading observer alone: no GamePlugin chain (physics
+/// etc. would perturb exact displacement math), just this system + a stub.
+fn heading_stub_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            1.0 / 60.0,
+        )));
+    app.add_systems(Update, derive_heading);
+    // no Player entity: first-sight seed falls back to +Z (Vec2::Y)
+    app.world_mut()
+        .spawn((Monster, Transform::from_xyz(-3.0, 0.5, 0.0)));
+    app
+}
+
+#[test]
+fn heading_tracks_displacement_then_freezes_when_still() {
+    let mut app = heading_stub_app();
+    run_frames(&mut app, 1); // seeding pass
+
+    // March +X one small step per frame (speed >> MIN_SPEED).
+    for i in 1..=30 {
+        let x = -3.0 + 0.05 * i as f32;
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut Transform, With<Monster>>();
+        for mut tf in q.iter_mut(app.world_mut()) {
+            tf.translation.x = x;
+        }
+        app.update();
+    }
+    let dir = monster_heading(&mut app);
+    assert!(
+        angle_between(dir, Vec2::X) < 2.0,
+        "after marching +X, heading should point within 2° of world +X, got {dir:?}"
+    );
+
+    // Stand still: heading must hold bit-for-bit.
+    run_frames(&mut app, 5);
+    assert_eq!(
+        monster_heading(&mut app),
+        dir,
+        "stationary frames must not perturb the frozen heading"
+    );
+
+    // About-face on the DATA side is instant (smoothing lives presentation-side).
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&mut Transform, With<Monster>>();
+    for mut tf in q.iter_mut(app.world_mut()) {
+        tf.translation.x -= 0.05;
+    }
+    app.update();
+    let flipped = monster_heading(&mut app);
+    assert!(
+        angle_between(flipped, -Vec2::X) < 2.0,
+        "data-side heading flips to the new displacement immediately, got {flipped:?}"
+    );
+}
+
+/// Card 15 acceptance math anchor: MAX_TURN_RATE_DEG must convert any worst-case
+/// about-face (~180°) into less than the 0.6 s visual convergence deadline.
+#[test]
+fn max_turn_rate_covers_about_face_deadline() {
+    let about_face_seconds = 180.0 / MAX_TURN_RATE_DEG;
+    assert!(
+        about_face_seconds > 0.0 && about_face_seconds <= 0.6,
+        "about-face via wrapper smoothing must converge within 0.6 s, got {about_face_seconds:.3}s"
     );
 }
 

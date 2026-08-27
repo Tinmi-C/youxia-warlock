@@ -24,7 +24,7 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 
-use crate::components::{Monster, MonsterKind, Player, Visual, WalkCycle};
+use crate::components::{Heading, Monster, MonsterKind, Player, Visual, WalkCycle};
 
 // Assets live under assets/models/ in this project (spike kept them at the root).
 const HERO_GLB: &str = "models/hero.glb";
@@ -87,6 +87,7 @@ impl Plugin for PresentationPlugin {
                     bind_monster_models,
                     apply_flash_visuals,
                     sync_walk_playback,
+                    face_towards_heading,
                 )
                     .chain(),
             );
@@ -368,6 +369,55 @@ fn sync_walk_playback(
             link.was_playing = moving;
         }
     }
+}
+
+// --- card 15: monster facing ------------------------------------------------
+
+/// Constant yaw turn speed for heading convergence (card 15 acceptance math:
+/// a full about-face takes 180/540 = 0.33 s, inside the 0.6 s deadline).
+pub const MAX_TURN_RATE_DEG: f32 = 540.0;
+
+/// Turn each monster's model wrapper towards its logic-side `Heading` at a
+/// constant rate along the shortest arc. Wrapper-local only — roots never
+/// rotate, physics never sees this (rotation-locked dynamic bodies).
+fn face_towards_heading(
+    time: Res<Time>,
+    headings: Query<(&Heading, &Children), With<Monster>>,
+    links: Query<&AnimLink>,
+    mut wrappers: Query<&mut Transform>,
+) {
+    let dt = time.delta_secs();
+    let max_step = MAX_TURN_RATE_DEG.to_radians() * dt;
+
+    for (heading, owner_children) in &headings {
+        // the wrapper child carrying the model + AnimLink
+        let mut wrapper = None;
+        for kid in owner_children.iter() {
+            if links.contains(kid) {
+                wrapper = Some(kid);
+            }
+        }
+        let Some(wrapper) = wrapper else { continue };
+        let Ok(mut tf) = wrappers.get_mut(wrapper) else {
+            continue;
+        };
+
+        // model faces +Z at yaw 0 ⇒ forward(yaw) = (sin, cos) must equal
+        // (dir.x, dir.y[=world +Z]) ⇒ yaw = atan2(dir.x, dir.z)
+        let target_yaw = f32::atan2(heading.dir.x, heading.dir.y);
+        let current_yaw = 2.0 * f32::atan2(tf.rotation.y, tf.rotation.w);
+        let diff = wrap_pi(target_yaw - current_yaw);
+        let step = diff.clamp(-max_step, max_step);
+        if step != 0.0 {
+            tf.rotation = Quat::from_rotation_y(wrap_pi(current_yaw + step));
+        }
+    }
+}
+
+/// Wrap an angle into (-π, π].
+fn wrap_pi(a: f32) -> f32 {
+    const TWO_PI: f32 = std::f32::consts::TAU;
+    (a + std::f32::consts::PI).rem_euclid(TWO_PI) - std::f32::consts::PI
 }
 
 // --- card 14: hit-flash visuals --------------------------------------------

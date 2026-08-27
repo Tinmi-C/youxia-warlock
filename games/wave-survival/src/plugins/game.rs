@@ -37,6 +37,8 @@ impl Plugin for GamePlugin {
                     systems::player::update_walk_cycle,
                     // card 14: decay flash AFTER all combat writers same-frame
                     systems::contact::decay_flash,
+                    // card 15: heading observation AFTER all movers this frame
+                    systems::heading::derive_heading,
                 )
                     .chain()
                     .run_if(in_state(GameState::Playing)),
