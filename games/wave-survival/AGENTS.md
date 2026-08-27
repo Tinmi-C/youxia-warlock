@@ -49,12 +49,13 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：卡 18 PlayerFacing 已实现（待人工视觉验收，2026-08-27，46 个回归全绿）。
+- **进行中**：无（卡 18 已闭环，工作区闲置；队友美术侧 WIP 未落库）。
+- **已完成**：卡 18 PlayerFacing（feat `f10df37`，2026-08-27 真机视觉验收通过，46 个回归全绿）。
   玩家模型面向移动方向：位移观测（速度>0.02/s 更新、停步保持）+ 与怪一致的
   540°/s 最短弧平滑——`face_towards_heading` 摘掉 With<Monster> 后玩家白嫖。
-  要点：玩家锚点 `PrevTranslation` 归卡 12 的 walk 系统所有，derive_heading 只读
-  不写（写了会把 walk 的 delta 清零）且在链上排在 update_walk_cycle 之前；
-  怪物锚点仍由 derive 自有自写。spec 在卡片清单文件里，随队友 WIP 落库后一并提交。
+  关键取舍：玩家锚点 `PrevTranslation` 归卡 12 walk 系统所有，derive_heading
+  只读不写（写了会清零 walk 的 delta）且链上排在 update_walk_cycle 之前；
+  怪物锚点仍由 derive 自有自写。hero.glb 原生面向与约定一致，未加基准偏角。
 - **已完成**：卡 16 UiFormalization 闭环（2026-08-27 人工验收通过：feat `bb637fa` +
   暂停冻结修复 `d44ec77`，44 个回归全绿）。补齐 GDD 清单：波次格子（顶部中央存活
   敌数 pips）、Nova 冷却条（紫罗兰）、P 暂停遮罩；debug 提示行迁底部半透明；
@@ -77,7 +78,11 @@ assets/{models,textures,audio,fonts,ui}/
   - **残余穿模（2026-08-27 验收记录，人判定影响不大，挂起后续解决）**：① 咬合瞬间玩家与怪的模型交叠是「玩家幽灵分组」的设计预期；② 重度围堵时怪群之间仍可能短暂互渗（速度直写 + 碰撞球半径小于模型包围盒）。候选方案：碰撞球按模型实际体形校准（球→胶囊）、开启 CCD、或调接触推挤刚度——届时单独立卡
   - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
   - 本机曾发生 PowerShell 文本管道写坏 UTF-8 注释的事故（已用 git 恢复）；改文件一律走 AI 文件工具或显式 UTF-8 编码
-- **近期目标**：卡 18 PlayerFacing 拍板后实现 → 真机验收 → 闭环；「音效」按用户指示搁置（2026-08-27）；挂起项等素材（idle 动画、残余穿模）
+- **近期目标**：待定——候选：攻击时面向最近敌人（卡 18 非目标项，战斗 QoL）、
+  新怪物种类接入（队友 green_blob / mushnub / yeti 模型已就位）；「音效」搁置（2026-08-27）；
+  挂起项等素材/时机（idle 动画、残余穿模）
+- **卡片清单挂起事项**：卡 16 / 卡 18 的清单内状态翻转待队友 WIP 落库后补提交
+  （该文件当前含其未提交的卡 17 ArtAssetPipeline 草案等，避免混入提交）
 - **协作提醒**：工作区存在队友未提交的美术侧 WIP（GDD/style-bible/tools/art 等），AI 提交时只圈自己的文件，勿整目录 `git add`
 - **阶段二收尾存档**：卡 9–11 全部完成（2026-08-27，33 个回归测试全绿，见 `docs/phase-2-dev-notes.md`）
 
