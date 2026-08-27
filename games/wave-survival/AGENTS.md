@@ -49,9 +49,9 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：CombatContact 已实现（2026-08-26），`cargo test` 18 个回归测试全绿；下一步立 PickupDrop 卡
+- **进行中**：阶段一（垂直切片）完成（2026-08-26），`cargo test` 21 个回归测试全绿；下一步进入阶段二玩法深化
 - **已知问题**：无阻塞
-- **近期目标**：立 PickupDrop 卡（击杀掉金色补给 → 走近自动拾取回血）→ 实现
+- **近期目标**：阶段二 玩法深化（Nova 范围斩 + bevy_hanabi 粒子 / 敌人分化 / bevy_egui 调参打磨）
 
 ## 项目专属规则
 

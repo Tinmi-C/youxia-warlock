@@ -42,9 +42,9 @@
 | WaveSystem | gameplay-system | ✅ 已实现（2026-08-26，含回归测试） | 三态流转；公式 2+n / 1.1+0.08n / 30×(1+0.4n)；波间 3s（详见下方卡 3） |
 | EnemyChase | system | ✅ 已实现（2026-08-26，含回归测试） | 追踪怪朝玩家移动（rapier 驱动），速度 1.1+0.08n（详见下方卡 4） |
 | CombatContact | system | ✅ 已实现（2026-08-26，含回归测试） | 距离判定 → 受击扣血 + 白闪；死亡 despawn（详见下方卡 5） |
-| PickupDrop | system | ⏳ 待立 | 击杀掉金色补给，走近自动拾取回血 |
-| GameStateUI | ui-system | ⏳ 待立 | 血条 / 波次格子 / 冷却条；P 暂停 / 死亡 GameOver / R 重开 |
-| GameLoop | system | ⏳ 待立 | 完整一局闭环：出生→刷怪→击杀→死亡→重开，无崩溃 |
+| PickupDrop | system | ✅ 已实现（2026-08-26，含回归测试） | 击杀掉金色补给，走近自动拾取回血（详见下方卡 6） |
+| GameStateUI | ui-system | ✅ 已实现（2026-08-26，视觉卡） | 血条 / 波次文本 / 冷却条；死亡 GameOver / R 重开（详见下方卡 7） |
+| GameLoop | system | ✅ 已实现（2026-08-26，含回归测试） | 完整一局闭环：出生→刷怪→击杀→死亡→重开，无崩溃（详见下方卡 8） |
 
 ## 卡 2：PlayerAttack（近战挥砍）
 
@@ -159,6 +159,59 @@
   4. 死亡: 怪 hp ≤ 0 → despawn（场上怪数减 1）
   5. 玩家死: 玩家 hp ≤ 0 → GameState 切 GameOver
   6. 以上转 tests/behavior.rs
+```
+
+## 卡 6：PickupDrop（掉落补给）
+
+```yaml
+能力卡: PickupDrop（掉落补给）
+类型: system
+状态: 已实现 2026-08-26（实现 + 回归测试全绿）
+设计来源: m2 spawn_drop + pickup_system（heal 10 / arm 0.6s / PICKUP_DIST 0.45）
+接口:
+  输入: 怪物死亡位置; 玩家 Transform + Hp; Pickup（heal/arm）
+  输出: 怪物死亡掉金色补给; 玩家近补给回血（封顶 max）
+行为:
+  - 怪物 hp ≤ 0 死亡时（death_despawn）: 在死亡位置 spawn 金色 Pickup（arm = 0.6s）
+  - pickup_drop（每帧）: pickup.arm 递减；arm ≤ 0 且玩家水平距离 ≤ 0.45 → 玩家 hp += heal（min(max)）+ despawn pick
+验收句:
+  1. 掉出: 怪物死亡 → 场上多一个 Pickup
+  2. 回血: 玩家 50 血时拾取 → 60（封顶 100）
+  3. 拾取消费: 拾取后 Pickup 消失
+  4. 以上转 tests/behavior.rs
+```
+
+## 卡 7：GameStateUI（HUD 界面）
+
+```yaml
+能力卡: GameStateUI（HUD 界面）
+类型: ui-system
+状态: 已实现 2026-08-26（视觉卡，跑游戏验收）
+设计来源: m2 UI 管线（血条/波次/冷却）+ GDD「做」清单
+接口: 读取 Player Hp / Attack 冷却 / Wave / GameState
+输出: HP 条 + HP 文本、波次文本、挥砍冷却条、GameOver 画面（survived to wave N + R 提示）
+行为:
+  - spawn_ui（Startup）: 生成血条/波次/冷却/结算画面实体（带标记组件）
+  - ui_update（每帧，所有状态）: 按当前数据更新血条宽度%/文本、冷却条%、波次文本；GameOver 时显示结算画面
+  - 纯数据更新，不参与玩法
+验收句: 视觉卡——跑游戏看：血条随受击变短、波次递增、冷却条回满、死亡显示结算画面 + 按 R 重开
+```
+
+## 卡 8：GameLoop（完整一局闭环）
+
+```yaml
+能力卡: GameLoop（完整一局闭环）
+类型: system
+状态: 已实现 2026-08-26（实现 + 回归测试全绿）
+设计来源: 汇总卡——验证 出生→刷怪→击杀→死亡→重开 整循环无崩溃
+行为:
+  - 完整循环: 出生 → 波1刷怪 → 玩家攻击/回血 → 玩家死亡 → GameOver → R 重开 → 重置回波0
+  - 「无崩溃」由回归测试连续驱动多帧保证
+验收句:
+  1. 跑 220 帧 → 波1（3 怪）
+  2. 玩家死亡 → GameOver
+  3. 按 R → Playing + 波0 + 玩家满血 + 怪清空
+  4. 转 tests/behavior.rs game_loop_full_cycle
 ```
 
 ## 观察通道约定
