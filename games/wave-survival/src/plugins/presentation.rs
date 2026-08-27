@@ -19,9 +19,9 @@
 
 use std::collections::HashMap;
 
-use bevy::{prelude::*, world_serialization::WorldInstanceReady};
+use bevy::{math::VectorSpace, prelude::*, world_serialization::WorldInstanceReady};
 
-use crate::components::{Monster, MonsterKind, Player, WalkCycle};
+use crate::components::{Monster, MonsterKind, Player, Visual, WalkCycle};
 
 const HERO_GLB: &str = "hero.glb";
 const MONSTER_GLB: &str = "monster.glb";
@@ -65,6 +65,7 @@ pub struct PresentationPlugin;
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MonsterSkinCache>()
+            .init_resource::<FlashAssets>()
             .add_systems(
                 Startup,
                 // after spawn_player so the Player entity exists on first run
@@ -72,8 +73,15 @@ impl Plugin for PresentationPlugin {
             )
             .add_systems(
                 Update,
-                // pure render-side decoration; safe in every state
-                (skin_new_monsters, bind_monster_models, sync_walk_playback),
+                // pure render-side decoration; safe in every state; flash
+                // application runs after material binding, before sync
+                (
+                    skin_new_monsters,
+                    bind_monster_models,
+                    apply_flash_visuals,
+                    sync_walk_playback,
+                )
+                    .chain(),
             );
     }
 }
@@ -312,6 +320,69 @@ fn sync_walk_playback(
                         active.pause();
                     }
                 }
+            }
+        }
+    }
+}
+
+// --- card 14: hit-flash visuals --------------------------------------------
+
+/// Lazily-created private material clones per owner, so emissive flash edits
+/// never bleed between entities that share a (per-kind) base material. Entries
+/// live for the session; a despawned owner leaves only a few orphaned assets —
+/// bounded by the count of entities that ever flashed this run.
+#[derive(Resource, Default)]
+struct FlashAssets {
+    privates: HashMap<Entity, Vec<Handle<StandardMaterial>>>,
+}
+
+/// Card 14 (presentation half): mirror each owner's Visual.flash onto its model
+/// materials as an emissive whiteout. The logic side owns the number; here we
+/// only paint it — headless worlds stay untouched by construction.
+fn apply_flash_visuals(
+    mut commands: Commands,
+    holders: Query<(Entity, &Visual)>,
+    children: Query<&Children>,
+    slots: Query<&MeshMaterial3d<StandardMaterial>>,
+    meshes: Query<(), With<Mesh3d>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut flash: ResMut<FlashAssets>,
+) {
+    for (root, vis) in &holders {
+        // Privatize on first sight: clone current mesh-material handles into
+        // per-owner instances and swap them in. Re-runs harmlessly until at
+        // least one slot exists (models load a few frames after spawn).
+        let entry = flash.privates.entry(root).or_default();
+        if entry.is_empty() {
+            let mut collected: Vec<Handle<StandardMaterial>> = Vec::new();
+            for node in children.iter_descendants(root) {
+                if meshes.contains(node) {
+                    if let Ok(slot) = slots.get(node) {
+                        let mut variant = match materials.get(&slot.0) {
+                            Some(material) => material.clone(),
+                            None => StandardMaterial::default(),
+                        };
+                        variant.emissive = variant
+                            .base_color
+                            .to_linear()
+                            .lerp(LinearRgba::WHITE, vis.flash);
+                        let handle = materials.add(variant);
+                        commands.entity(node).insert(MeshMaterial3d(handle.clone()));
+                        collected.push(handle);
+                    }
+                }
+            }
+            *entry = collected;
+            continue; // first pass already paints via the clones' initial state
+        }
+        // steady state: repaint private instances in place — no allocations,
+        // and other entities sharing the pre-clone lineage are never touched.
+        for handle in entry {
+            if let Some(mut material) = materials.get_mut(handle) {
+                material.emissive = material
+                    .base_color
+                    .to_linear()
+                    .lerp(LinearRgba::WHITE, vis.flash);
             }
         }
     }

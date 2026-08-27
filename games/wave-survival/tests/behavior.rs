@@ -200,6 +200,40 @@ fn wave_monsters_spawn_with_walk_flag_up() {
     );
 }
 
+// --- HitFlashFeedback (card 14) ---
+
+fn player_flash(app: &mut App) -> f32 {
+    let mut q = app.world_mut().query_filtered::<&Visual, With<Player>>();
+    q.single(app.world()).expect("player carries Visual").flash
+}
+
+/// Card 14 — acceptance 2 + 1 combined, driven through the REAL system chain:
+/// a same-frame hit ends the update at exactly max(1 - rate*dt, 0), and the
+/// value keeps decaying to an exact-zero clamp without ever going negative.
+#[test]
+fn flash_decays_predictably_and_clamps_at_zero() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    // a monster standing on the player guarantees a same-frame bite
+    spawn_monster(&mut app, 0.0, 0.0);
+
+    run_frames(&mut app, 1);
+    let expected = (1.0 - contact::FLASH_DECAY_RATE / 60.0).max(0.0);
+    let got = player_flash(&mut app);
+    assert!(
+        (got - expected).abs() < 1e-6,
+        "hit frame must end at max(1 - rate*dt, 0): got {got}, expected {expected}"
+    );
+
+    // ~0.75 s more than covers the 0.25 s fade window
+    run_frames(&mut app, 45);
+    let gone = player_flash(&mut app);
+    assert!(
+        gone == 0.0,
+        "flash must clamp exactly to zero after fading, got {gone}"
+    );
+}
+
 // --- PlayerAttack helpers (capability card 2) ---
 
 fn run_frames(app: &mut App, n: usize) {
@@ -338,13 +372,16 @@ fn slash_hits_multiple_targets_and_flashes() {
         (monster_hp(&app, b) - 83.0).abs() < 0.5,
         "b (d=1.2) should take ~17"
     );
+    // card 14 (reviewed): the chained decay_flash runs the same frame, so the
+    // end-of-update value is exactly max(1 - rate*dt, 0), not the raw 1.0.
+    let hit_frame = (1.0 - contact::FLASH_DECAY_RATE / 60.0).max(0.0);
     assert!(
-        app.world().entity(a).get::<Visual>().unwrap().flash > 0.99,
-        "a should flash on hit"
+        (app.world().entity(a).get::<Visual>().unwrap().flash - hit_frame).abs() < 1e-6,
+        "a should flash on hit (decayed to {hit_frame} by frame end)"
     );
     assert!(
-        app.world().entity(b).get::<Visual>().unwrap().flash > 0.99,
-        "b should flash on hit"
+        (app.world().entity(b).get::<Visual>().unwrap().flash - hit_frame).abs() < 1e-6,
+        "b should flash on hit (decayed to {hit_frame} by frame end)"
     );
 }
 
@@ -532,7 +569,12 @@ fn contact_bites_player() {
         (hp.invuln, vis.flash)
     };
     assert!(invuln > 0.8, "invuln should be ~0.9, got {invuln}");
-    assert!(flash > 0.99, "player should flash on hit");
+    // card 14 (reviewed): same-frame decay — see flash_decays_predictably test
+    let hit_frame = (1.0 - contact::FLASH_DECAY_RATE / 60.0).max(0.0);
+    assert!(
+        (flash - hit_frame).abs() < 1e-6,
+        "player should flash on hit (decayed to {hit_frame} by frame end)"
+    );
 }
 
 /// CombatContact — acceptance: invulnerability frames prevent a second bite.
@@ -906,9 +948,11 @@ fn nova_hits_multiple_targets_and_flashes() {
     assert!((monster_hp(&app, c) - 40.0).abs() < 1e-4);
     for e in [a, b, c] {
         let flash = app.world().entity(e).get::<Visual>().unwrap().flash;
+        // card 14 (reviewed): same-frame decay band, see the dedicated test
+        let hit_frame = (1.0 - contact::FLASH_DECAY_RATE / 60.0).max(0.0);
         assert!(
-            (flash - 1.0).abs() < 1e-6,
-            "hit monster flashes, got {flash}"
+            (flash - hit_frame).abs() < 1e-6,
+            "hit monster flashes (decayed to {hit_frame} by frame end), got {flash}"
         );
     }
 }

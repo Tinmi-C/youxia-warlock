@@ -69,3 +69,23 @@ pub fn death_despawn(
         }
     }
 }
+
+// --- HitFlashFeedback (card 14) ---
+
+/// Card 14: flash fully decays in ~0.25 s (1.0 / rate). Subjective feel value;
+/// promoting it into the Balance panel is a later, separate decision.
+pub const FLASH_DECAY_RATE: f32 = 4.0;
+
+/// Card 14 (logic half): decay every Visual.flash toward zero and never below.
+/// Runs at the tail of the Playing chain (after the writers), so a same-frame
+/// hit ends up at `max(1 - rate*dt, 0)` — deterministic per acceptance #2.
+/// The presentation plugin mirrors this value onto material emissive; headless
+/// worlds only ever see the number, which keeps every old test untouched.
+pub fn decay_flash(time: Res<Time>, mut q: Query<&mut Visual>) {
+    let dt = time.delta_secs();
+    for mut visual in &mut q {
+        if visual.flash > 0.0 {
+            visual.flash = (visual.flash - FLASH_DECAY_RATE * dt).max(0.0);
+        }
+    }
+}

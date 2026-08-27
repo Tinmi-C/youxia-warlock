@@ -35,6 +35,8 @@ impl Plugin for GamePlugin {
                     systems::wave::wave_system,
                     // card 12: after every Transform writer above
                     systems::player::update_walk_cycle,
+                    // card 14: decay flash AFTER all combat writers same-frame
+                    systems::contact::decay_flash,
                 )
                     .chain()
                     .run_if(in_state(GameState::Playing)),
