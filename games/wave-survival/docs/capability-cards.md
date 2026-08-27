@@ -217,7 +217,7 @@
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. entities=..`（`src/plugins/debug.rs`）。
-- **调试面板**：`F1` 开关 bevy_egui 面板（实时调波次/手感参数）。
+- **调试面板**：bevy_egui 实时调参面板——**阶段二计划，当前未实现**（依赖已进 `Cargo.toml`，源码未接入）；届时用 `F1` 开关。
 - **截图**：`F12` 存 `./screenshot.png`（给验收/队友看效果）。
 - **回归测试**：验收句转 `tests/behavior.rs`（不带渲染的 App 手动驱动，见示例）。
 
