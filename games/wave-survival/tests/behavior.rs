@@ -555,3 +555,85 @@ fn game_loop_full_cycle() {
     );
     assert_eq!(monster_count(&mut app), 0, "monsters cleared on restart");
 }
+
+// --- 阶段一验收：垂直切片端到端（真实系统链完整一局） ---
+
+/// Phase-1 acceptance: the whole slice driven through the REAL system chain —
+/// wave spawns real chasing monsters, they close in and bite, held Space slays
+/// them (pickups drop), field clears, a stronger wave 2 arrives, the player
+/// dies, and R restarts. Mirrors docs/GDD.md acceptance: 能完整玩一局。
+#[test]
+fn phase1_acceptance_full_vertical_slice() {
+    let mut app = test_app();
+
+    // 1. 开场喘息结束，第 1 波到场（3 只）。
+    run_frames(&mut app, 220);
+    assert_eq!(current_wave(&app), 1, "wave 1 spawned");
+    assert_eq!(monster_count(&mut app), 3);
+
+    // 2. 站桩让怪贴脸（出生环半径 3、速度 1.18，约 2.6s 抵达玩家）。
+    run_frames(&mut app, 130);
+    assert!(player_hp(&mut app) > 0.0, "player survives the approach");
+
+    // 3. 按住 Space 连砍至清场（每刀对范围内所有怪各 34 伤害，冷却 0.45s）。
+    press_space(&mut app);
+    let mut guard = 0;
+    while monster_count(&mut app) > 0 && guard < 240 {
+        app.update();
+        guard += 1;
+    }
+    release_space(&mut app);
+    assert!(guard < 240, "slaying should finish promptly");
+    assert_eq!(monster_count(&mut app), 0, "all wave-1 monsters slain");
+    assert!(
+        pickup_count(&mut app) >= 1,
+        "slain monsters drop golden pickups"
+    );
+    assert!(player_hp(&mut app) > 0.0, "player survives the melee");
+
+    // 4. 波间喘息后第 2 波到来，更强（数量 4 / 血 54 / 速 1.26）。
+    run_frames(&mut app, 200);
+    assert_eq!(current_wave(&app), 2, "wave 2 after the break");
+    assert_eq!(monster_count(&mut app), 4, "wave 2 = 2+2 = 4 monsters");
+    let mut q = app.world_mut().query::<(&Hp, &Chasing)>();
+    for (hp, chasing) in q.iter(app.world()) {
+        assert!((hp.hp - 54.0).abs() < 1e-4, "wave 2 hp 30*(1+0.4*2)=54");
+        assert!((chasing.speed - 1.26).abs() < 1e-5, "wave 2 speed 1.1+0.08*2=1.26");
+    }
+
+    // 5. 玩家死亡 → GameOver。
+    let player = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Player>>();
+        q.single(app.world()).unwrap()
+    };
+    app.world_mut()
+        .entity_mut(player)
+        .get_mut::<Hp>()
+        .unwrap()
+        .hp = -1.0;
+    app.update();
+    app.update();
+    assert_eq!(
+        *app.world().resource::<State<GameState>>().get(),
+        GameState::GameOver,
+        "death flips to GameOver"
+    );
+
+    // 6. R 重开 → Playing、波次归零、满血、清场。
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyR);
+    app.update();
+    app.update();
+    assert_eq!(
+        *app.world().resource::<State<GameState>>().get(),
+        GameState::Playing,
+        "restart returns to Playing"
+    );
+    assert_eq!(current_wave(&app), 0, "wave reset to 0");
+    assert!(
+        (player_hp(&mut app) - 100.0).abs() < 0.01,
+        "player reset to full hp"
+    );
+    assert_eq!(monster_count(&mut app), 0, "field cleared on restart");
+}
