@@ -26,3 +26,4 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[topics/engine/bevy-ecs-world-reset-pitfall|bevy_ecs 重开游戏不能重建 World]]（high）：换新 World → Schedule 绑定 panic；`clear_all()` → 资源缓存失配 panic。正解 = World 永不清空，despawn 场景实体 + 原地重置资源。
 - [[topics/engine/bevy-windows-antivirus-build-pitfall|Windows 杀软误报 ahash 构建脚本]]（medium）：360 主动防御拦/删 build-script exe → `os error 5`；给 `target/` + 工具链目录加白名单解决。
 - [[topics/engine/bevy-019-events-to-messages-pitfall|Bevy 0.19 缓冲事件更名 Message]]（high，待团队 review）：`#[derive(Event)]`/`EventWriter`/`add_event` 全部失效 → `Message` + `MessageWriter` + `add_message`；附无头测试读消息的增量计数法。
+- [[topics/engine/powershell-pipeline-utf8-corruption-pitfall|PowerShell 文本管道写坏 UTF-8 源码]]（high）：`Get-Content | -replace | Set-Content` 按 ANSI 双重转码 → rustc 报非法 UTF-8；改文件只走编辑器类工具或显式编码 API。

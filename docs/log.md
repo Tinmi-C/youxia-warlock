@@ -45,6 +45,7 @@
 | 2026-08-27 | 维护 | GDD 新增「点子池」小节：美术前置 4 项（AssetPreview 工具卡 / 风格圣经+调色板 / 采购策略 / 占位图系统）+ 阶段一 review 遗留问题 3 项（白闪缺口 / 重开清补给 / 日志占位符）；点子池 = 需求模糊态与就绪态的缓冲区，能写出验收句才升级成卡 | games/wave-survival/docs/GDD.md | AI + youxia |
 | 2026-08-27 | 维护 | 点子池美术两条更新：采购策略精确到粒度（按套装采购，AI 生成只作套装粗坯须过风格圣经四条）；新增变体派生条目（一个模型撑一族敌人，与 ECS 数值分化对称设计，敌人定义表落地） | games/wave-survival/docs/GDD.md | AI + youxia |
 | 2026-08-27 | 回写 | 美术风格与管线基础讨论（维度决策/风格坐标系/生产粒度/武器插槽/2D vs 3D 物理） | topics/game-design/art-style-and-pipeline-fundamentals.md（新增）、_index.md、MOC.md | AI + youxia |
+| 2026-08-27 | 回写 | PowerShell 文本管道写坏 UTF-8 源码事故沉淀（阶段三真机会话确认授权）：ANSI 双重转码根因分析 + 「改文件只走编辑器类工具/显式编码」防复发规则 | topics/engine/powershell-pipeline-utf8-corruption-pitfall.md（新增）、topics/engine/_index.md、MOC.md、log.md | AI，youxia 授权 |
 
 ## 操作类型
 
