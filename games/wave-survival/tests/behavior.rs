@@ -15,11 +15,12 @@ use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBod
 use wave_survival::components::{
     Attack, Chasing, Hp, Monster, MonsterKind, NovaAttack, Pickup, Player, Visual,
 };
-use wave_survival::resources::Wave;
-use wave_survival::systems::nova::NovaFired;
+use wave_survival::resources::{Balance, Wave};
+use wave_survival::systems::nova::{NovaFired, NOVA_COOLDOWN, NOVA_DAMAGE, NOVA_RADIUS};
 use wave_survival::systems::wave::{
     kinds_for_wave, runner_count, tank_count, wave_count, wave_hp, wave_speed,
 };
+use wave_survival::systems::{combat, contact};
 use wave_survival::{plugins::game::GamePlugin, states::GameState};
 
 /// Headless app: MinimalPlugins (no renderer/window) + game logic + fixed timestep.
@@ -913,5 +914,56 @@ fn wave5_spawns_tank_with_kind_stats() {
         }
     }
     assert_eq!((grunts, runners, tanks), (4, 2, 1), "wave 5 composition");
+}
+
+// --- EguiTunePanel / Balance tests (capability card 11; the F1 panel itself is
+// --- a visual item accepted by running the game — headless covers Balance). ---
+
+/// Balance — acceptance: defaults equal the GDD constants (pure value migration).
+#[test]
+fn balance_defaults_equal_gdd_consts() {
+    let b = Balance::default();
+    assert_eq!(b.slash_damage, combat::SLASH_DAMAGE);
+    assert_eq!(b.slash_cooldown, combat::SLASH_COOLDOWN);
+    assert_eq!(b.nova_radius, NOVA_RADIUS);
+    assert_eq!(b.nova_damage, NOVA_DAMAGE);
+    assert_eq!(b.nova_cooldown, NOVA_COOLDOWN);
+    assert_eq!(b.contact_damage, contact::CONTACT_DAMAGE);
+}
+
+/// Balance — acceptance: retuning slash_damage changes the very next swing.
+#[test]
+fn balance_slash_damage_applies_live() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    let m = spawn_monster(&mut app, 0.5, 0.0); // full-damage band
+
+    app.world_mut().resource_mut::<Balance>().slash_damage = 60.0;
+    press_space(&mut app);
+    app.update();
+    release_space(&mut app);
+
+    assert!(
+        (monster_hp(&app, m) - 40.0).abs() < 1e-4,
+        "retuned slash must deal 60, hp left {}",
+        monster_hp(&app, m)
+    );
+}
+
+/// Balance — acceptance: retuning contact_damage changes the very next bite.
+#[test]
+fn balance_contact_damage_applies_live() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    spawn_monster(&mut app, 0.2, 0.0); // well inside CONTACT_DIST
+
+    app.world_mut().resource_mut::<Balance>().contact_damage = 30.0;
+    run_frames(&mut app, 2);
+
+    assert!(
+        (player_hp(&mut app) - 70.0).abs() < 1e-4,
+        "retuned bite must deal 30, hp now {}",
+        player_hp(&mut app)
+    );
 }
 

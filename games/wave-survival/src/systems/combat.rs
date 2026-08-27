@@ -7,20 +7,22 @@
 use bevy::prelude::*;
 
 use crate::components::{Attack, Hp, Monster, Player, Visual};
+use crate::resources::Balance;
 
-/// Slash tuning (GDD values, inherited from m2 CombatSystem).
+/// Slash radii are fixed GDD design (m2 convention); damage/cooldown are
+/// Balance-tunable (card 11).
 pub const SLASH_DAMAGE: f32 = 34.0;
 pub const SLASH_FULL_RADIUS: f32 = 0.9;
 pub const SLASH_FAR_RADIUS: f32 = 1.5;
 pub const SLASH_COOLDOWN: f32 = 0.45;
 
-/// Damage as a function of horizontal distance `d` from the player.
+/// Damage at horizontal distance `d` for a max slash damage `max_dmg`:
 /// `d <= FULL_RADIUS` → full; `FULL..=FAR` → linear falloff to 0; `> FAR` → 0.
-pub fn damage_for(d: f32) -> f32 {
+pub fn damage_at(d: f32, max_dmg: f32) -> f32 {
     if d <= SLASH_FULL_RADIUS {
-        SLASH_DAMAGE
+        max_dmg
     } else if d <= SLASH_FAR_RADIUS {
-        SLASH_DAMAGE * (SLASH_FAR_RADIUS - d) / (SLASH_FAR_RADIUS - SLASH_FULL_RADIUS)
+        max_dmg * (SLASH_FAR_RADIUS - d) / (SLASH_FAR_RADIUS - SLASH_FULL_RADIUS)
     } else {
         0.0
     }
@@ -30,6 +32,7 @@ pub fn damage_for(d: f32) -> f32 {
 pub fn player_attack(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    balance: Res<Balance>,
     mut player: Query<(&mut Attack, &Transform), With<Player>>,
     mut monsters: Query<(&Transform, &mut Hp, &mut Visual), With<Monster>>,
 ) {
@@ -41,7 +44,7 @@ pub fn player_attack(
     if let Some((mut attack, tf)) = player.iter_mut().next() {
         attack.cooldown = (attack.cooldown - dt).max(0.0);
         if keys.pressed(KeyCode::Space) && attack.cooldown <= 0.0 {
-            attack.cooldown = SLASH_COOLDOWN;
+            attack.cooldown = balance.slash_cooldown;
             slash_origin = tf.translation;
             slashing = true;
         }
@@ -56,7 +59,7 @@ pub fn player_attack(
             tf.translation.z - slash_origin.z,
         )
         .length();
-        let dmg = damage_for(d);
+        let dmg = damage_at(d, balance.slash_damage);
         if dmg > 0.0 {
             hp.hp -= dmg;
             visual.flash = 1.0;

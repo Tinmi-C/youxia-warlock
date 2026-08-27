@@ -13,8 +13,10 @@
 use bevy::prelude::*;
 
 use crate::components::{Hp, Monster, NovaAttack, Player, Visual};
+use crate::resources::Balance;
 
-/// Nova tuning (GDD number table: 半径 1.6 / 伤害 60 / CD 5s).
+/// Nova defaults (GDD number table: 半径 1.6 / 伤害 60 / CD 5s); all three are
+/// Balance-tunable at run time (card 11).
 pub const NOVA_RADIUS: f32 = 1.6;
 pub const NOVA_DAMAGE: f32 = 60.0;
 pub const NOVA_COOLDOWN: f32 = 5.0;
@@ -29,6 +31,7 @@ pub struct NovaFired {
 pub fn nova_slash(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    balance: Res<Balance>,
     mut nova_fired: MessageWriter<NovaFired>,
     mut player: Query<(&mut NovaAttack, &Transform), With<Player>>,
     mut monsters: Query<(&Transform, &mut Hp, &mut Visual), With<Monster>>,
@@ -46,13 +49,15 @@ pub fn nova_slash(
         return;
     }
 
-    nova.cooldown = NOVA_COOLDOWN;
+    nova.cooldown = balance.nova_cooldown;
     let origin = tf.translation;
+    let radius_sq = balance.nova_radius * balance.nova_radius;
     let mut hits = 0;
     for (mtf, mut hp, mut visual) in &mut monsters {
-        let d = Vec2::new(mtf.translation.x - origin.x, mtf.translation.z - origin.z).length();
-        if d <= NOVA_RADIUS {
-            hp.hp -= NOVA_DAMAGE; // full damage inside the circle, no falloff
+        let dx = mtf.translation.x - origin.x;
+        let dz = mtf.translation.z - origin.z;
+        if dx * dx + dz * dz <= radius_sq {
+            hp.hp -= balance.nova_damage; // full damage inside the circle, no falloff
             visual.flash = 1.0;
             hits += 1;
         }

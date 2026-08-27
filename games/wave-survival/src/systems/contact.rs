@@ -5,10 +5,12 @@
 use bevy::prelude::*;
 
 use crate::components::{Hp, Monster, Player, Visual};
+use crate::resources::Balance;
 use crate::states::GameState;
 use crate::systems::pickup::spawn_pickup;
 
-/// Contact tuning (GDD / m2 ContactSystem).
+/// Contact tuning (GDD / m2 ContactSystem). INVULN_TIME stays fixed by design;
+/// CONTACT_DAMAGE is the Balance default (card 11).
 pub const CONTACT_DIST: f32 = 0.40;
 pub const CONTACT_DAMAGE: f32 = 15.0;
 pub const INVULN_TIME: f32 = 0.9;
@@ -17,6 +19,7 @@ pub const INVULN_TIME: f32 = 0.9;
 /// At most one bite per frame (m2: "一帧最多挨一口").
 pub fn contact_damage(
     time: Res<Time>,
+    balance: Res<Balance>,
     mut player: Query<(&Transform, &mut Hp, &mut Visual), With<Player>>,
     monsters: Query<&Transform, With<Monster>>,
 ) {
@@ -34,7 +37,7 @@ pub fn contact_damage(
     for mtf in &monsters {
         let d = Vec2::new(mtf.translation.x - p.x, mtf.translation.z - p.z).length();
         if d <= CONTACT_DIST {
-            hp.hp -= CONTACT_DAMAGE;
+            hp.hp -= balance.contact_damage;
             hp.invuln = INVULN_TIME;
             visual.flash = 1.0;
             info!("[contact] player bitten, hp {:.0}", hp.hp);

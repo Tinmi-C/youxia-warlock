@@ -3,13 +3,14 @@
 use bevy::prelude::*;
 
 use crate::components::{Attack, Hp, Monster, NovaAttack, Player};
-use crate::{resources::Wave, states::GameState, systems};
+use crate::{resources::Balance, resources::Wave, states::GameState, systems};
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Wave>()
+            .init_resource::<Balance>()
             .add_message::<systems::nova::NovaFired>()
             .add_systems(
                 Startup,
