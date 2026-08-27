@@ -513,6 +513,56 @@
      （对照: 立卡前版本永远面朝 +Z）
 ```
 
+## 卡 16：UiFormalization（HUD 正式化）
+
+> 2026-08-27 立卡，阶段三第三批。背景：卡 7 时期已有 bevy_ui 基础 HUD
+> （血条/血量文本/波次文字/近战冷却条/GameOver 屏），本卡补齐 GDD 第 30 行清单缺口
+> 并做样式统一。**技术路线不再讨论：GDD 已锁 `UI = bevy_ui`**（第 60 行），
+> F1 调参面板维持 egui（职责分离：HUD=常显信息，egui=按需调试）。
+> AI 按默认方案起草，拍板后进入实现。
+
+```yaml
+能力卡: UiFormalization（HUD 正式化——补 GDD 清单缺口 + 样式统一）
+类型: system + ui
+状态: 待 review
+设计来源: GDD「UI：血条 / 波次格子 / 冷却条 / 暂停 / GameOver（bevy_ui）」；
+          现状盘点——血条✓ 血量文本✓ 波次文字✓ 近战冷却条✓ GameOver✓；
+          缺口 = 波次格子✗ Nova 冷却条✗ 暂停指示✗ debug 提示行占左上角✗ 样式散装✗
+范围与默认方案（可整卡通过或逐条改）:
+  - 波次格子（默认方案 A）: 顶部中央一排红色小方块 pip = 当前波**存活敌人**数；
+    杀一只消一只，清波瞬间归零→下一波重铺。信息价值：剩余压力一目了然
+    （备选 B 曾考虑「第 N 波亮 N 格」进度条式，因信息滞后于战况而弃）
+  - Nova 冷却条: 近战冷却条正下方同宽同高，紫色（Nova 主色对齐卡 9 金色系差异化:
+    条底用紫罗兰 #7a5cff 系）；卡 9 审美拍板沿用「可辨识即可，美术资产后置」
+  - 暂停遮罩: P 暂停时全屏半透明黑 40% + 居中 "PAUSED — P to resume"；
+    复用 GameOver 屏的布局手法
+  - debug 提示行（默认保留）: 从左上角迁到屏幕底部居中、12px、60% 透明度——
+    操作提示对新手有价值但不再抢 HUD 位置（备选删除，因新手期未过而弃）
+  - 样式统一: 边距/尺寸/色板收敛为 ui.rs 顶部常量组（单处可调）；
+    GameOver 屏加 60% 黑遮罩底提升可读性
+  - 字体: 沿用 bevy 内置默认字体（assets/fonts 为空，占位资产=进度解耦；
+    正式字体到位后只换 TextFont 一处）
+数据来源（零新逻辑数据，全部只读既有件）: Hp / Attack / NovaAttack / Wave /
+          Monster 存活计数（Query len）/ GameState；新组件仅 UI 标记件
+          （UiNovaFill / UiWavePips / UiPauseOverlay，进 components.rs）
+职责边界:
+  - ui.rs 一个文件改完（spawn_ui + ui_update + 常量组）；game.rs 的 spawn_hint_ui
+    并入 ui.rs 便于统一布局；GamePlugin 注册面不动（spawn_ui/ui_update 已在）
+  - 卡 11 F1 egui 面板零接触；两套 UI 管线并存互不感知
+数字化验收句:
+  1. 零改动红线: tests/behavior.rs 现有 40 个回归逐字不变、全绿
+     （spawn_ui/ui_update 本就在 headless 链上，是既有事实的延续）
+  2. 波次格子（headless 可测，转回归）: 强制刷 w5（7 怪）→ pip 实体数 == 7；
+     despawn 2 只再驱动 → == 5；波清空后 pip 归零、下一波重铺为新数量
+  3. Nova 冷却条对称性（headless 可测）: 触发 Nova 当帧后 fill 宽度百分比 ==
+     (1 − nova.cooldown / NOVA_COOLDOWN)×100，误差 <1 个百分点；
+     近战条同式断言防复制粘贴错引用
+  4. 暂停遮罩（headless 可测）: 切 Paused → UiPauseOverlay Visibility==Visible；
+     切回 Playing → Hidden
+  5. 视觉: 左上角只有血条+文字+两条冷却条、顶部中央波次格子、底部半透明提示行；
+     P 暂停遮罩正常；F12 截图存证
+```
+
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. entities=..`（`src/plugins/debug.rs`）。
