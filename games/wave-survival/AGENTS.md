@@ -49,7 +49,10 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：无（卡 15 已闭环）。
+- **进行中**：卡 16 UiFormalization 已实现（feat `bb637fa`，2026-08-27，43 个回归全绿；
+  待人工视觉验收）。补齐 GDD 清单：波次格子（顶部中央存活敌数 pips）、Nova 冷却条
+  （紫罗兰）、P 暂停遮罩；debug 提示行迁底部半透明；布局/色板收敛为 ui.rs 常量组。
+  技术路线沿 GDD 锁定的 bevy_ui，F1 egui 面板零接触。
 - **已完成**：卡 15 MonsterFacing（feat `3a15cf2`，2026-08-27 真机视觉验收通过，40 个回归全绿）。
   `Heading` 观测组件 + `derive_heading`（逻辑链尾）+ wrapper yaw 恒定角速度平滑
   （540°/s 最短弧，掉头 ≈0.33s），物理零交互（只转场景子实体）。
@@ -65,7 +68,8 @@ assets/{models,textures,audio,fonts,ui}/
   - **残余穿模（2026-08-27 验收记录，人判定影响不大，挂起后续解决）**：① 咬合瞬间玩家与怪的模型交叠是「玩家幽灵分组」的设计预期；② 重度围堵时怪群之间仍可能短暂互渗（速度直写 + 碰撞球半径小于模型包围盒）。候选方案：碰撞球按模型实际体形校准（球→胶囊）、开启 CCD、或调接触推挤刚度——届时单独立卡
   - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
   - 本机曾发生 PowerShell 文本管道写坏 UTF-8 注释的事故（已用 git 恢复）；改文件一律走 AI 文件工具或显式 UTF-8 编码
-- **近期目标**：「UI 正式化」立卡（HUD 替换 debug 文本，卡 11 egui 基建可复用）；挂起项等素材/时机（idle 动画、残余穿模）；音效按 GDD 后置
+- **近期目标**：卡 16 待人工视觉验收（跑 `cargo run` 看 HUD 四新件）→ 推送归档 → 「音效」按 GDD 时机立卡；挂起项等素材（idle 动画、残余穿模）
+- **协作提醒**：工作区存在队友未提交的美术侧 WIP（GDD/style-bible/tools/art 等），AI 提交时只圈自己的文件，勿整目录 `git add`
 - **阶段二收尾存档**：卡 9–11 全部完成（2026-08-27，33 个回归测试全绿，见 `docs/phase-2-dev-notes.md`）
 
 ## 项目专属规则
