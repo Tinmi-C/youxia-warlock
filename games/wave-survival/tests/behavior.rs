@@ -5,14 +5,16 @@
 use std::time::Duration;
 
 use bevy::{
+    ecs::message::Messages,
     prelude::*,
     state::app::StatesPlugin,
     time::TimeUpdateStrategy,
 };
 use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity};
 
-use wave_survival::components::{Chasing, Hp, Monster, Pickup, Player, Visual};
+use wave_survival::components::{Attack, Chasing, Hp, Monster, NovaAttack, Pickup, Player, Visual};
 use wave_survival::resources::Wave;
+use wave_survival::systems::nova::NovaFired;
 use wave_survival::systems::wave::{wave_count, wave_hp, wave_speed};
 use wave_survival::{plugins::game::GamePlugin, states::GameState};
 
@@ -637,3 +639,144 @@ fn phase1_acceptance_full_vertical_slice() {
     );
     assert_eq!(monster_count(&mut app), 0, "field cleared on restart");
 }
+
+// --- NovaSlash tests (capability card 9; the hanabi visual item is accepted by
+// --- running the game — headless tests cover the logic acceptance sentences). ---
+
+fn press_shift(app: &mut App) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+}
+
+fn release_shift(app: &mut App) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .release(KeyCode::ShiftLeft);
+}
+
+/// Fire once on a fresh app: press Shift for exactly one frame. The blast writes
+/// NovaFired into the message buffer of that same update.
+fn fire_nova_once(app: &mut App) {
+    press_shift(app);
+    app.update();
+    release_shift(app);
+}
+
+/// Messages buffered in the current update (len() semantics suffice here because
+/// every assert reads immediately after the firing frame or measures a delta).
+fn nova_messages_now(app: &App) -> usize {
+    app.world().resource::<Messages<NovaFired>>().len()
+}
+
+/// NovaSlash — acceptance: cooldown throttles (2s apart → still just 1 blast;
+/// ≥5s later → fires again). Every check measures a message-count DELTA around
+/// its own blast so the assertion holds regardless of buffer-flush semantics.
+#[test]
+fn nova_respects_cooldown() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+
+    let b0 = nova_messages_now(&app);
+    fire_nova_once(&mut app);
+    assert_eq!(nova_messages_now(&app) - b0, 1, "first Shift fires");
+
+    // ~2s later (< 5s CD): no second blast.
+    run_frames(&mut app, 120);
+    let b1 = nova_messages_now(&app);
+    fire_nova_once(&mut app);
+    assert_eq!(nova_messages_now(&app) - b1, 0, "still cooling down at 2s");
+
+    // ~4 more seconds (total > 5s since the first blast): ready again.
+    run_frames(&mut app, 260);
+    let b2 = nova_messages_now(&app);
+    fire_nova_once(&mut app);
+    assert_eq!(nova_messages_now(&app) - b2, 1, "ready again after 5s");
+}
+
+/// NovaSlash — acceptance: full damage inside the radius (d=0.4 and d=1.55 →
+/// −60 each), nothing beyond it (d=1.65 → unchanged); no falloff inside.
+#[test]
+fn nova_full_damage_inside_radius_only() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    let near = spawn_monster(&mut app, 0.4, 0.0);
+    let mid = spawn_monster(&mut app, 1.55, 0.0);
+    let out = spawn_monster(&mut app, -1.65, 0.0);
+
+    let b = nova_messages_now(&app);
+    fire_nova_once(&mut app);
+    assert_eq!(nova_messages_now(&app) - b, 1, "blast fired");
+
+    assert!((monster_hp(&app, near) - 40.0).abs() < 1e-4, "d=0.4: -60 flat");
+    assert!((monster_hp(&app, mid) - 40.0).abs() < 1e-4, "d=1.55: -60 flat");
+    assert!((monster_hp(&app, out) - 100.0).abs() < 1e-4, "d=1.65: untouched");
+}
+
+/// NovaSlash — acceptance: multiple targets inside the circle all take −60 in
+/// the same blast, and each hit monster flashes.
+#[test]
+fn nova_hits_multiple_targets_and_flashes() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    let a = spawn_monster(&mut app, 0.3, 0.0);
+    let b = spawn_monster(&mut app, -0.8, 0.5);
+    let c = spawn_monster(&mut app, 0.6, -1.2);
+
+    let b0 = nova_messages_now(&app);
+    fire_nova_once(&mut app);
+    assert_eq!(nova_messages_now(&app) - b0, 1, "exactly one blast");
+
+    assert!((monster_hp(&app, a) - 40.0).abs() < 1e-4);
+    assert!((monster_hp(&app, b) - 40.0).abs() < 1e-4);
+    assert!((monster_hp(&app, c) - 40.0).abs() < 1e-4);
+    for e in [a, b, c] {
+        let flash = app.world().entity(e).get::<Visual>().unwrap().flash;
+        assert!((flash - 1.0).abs() < 1e-6, "hit monster flashes, got {flash}");
+    }
+}
+
+/// NovaSlash — acceptance: melee slash and nova throttle independently — using
+/// Space does not consume the nova, and both cooldowns tick separately.
+#[test]
+fn nova_independent_of_melee_cooldown() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    let m = spawn_monster(&mut app, 0.5, 0.0); // inside both circles
+
+    // One melee slash: −34, Attack.cooldown rearmed.
+    press_space(&mut app);
+    app.update();
+    release_space(&mut app);
+    assert!((monster_hp(&app, m) - 66.0).abs() < 1e-4, "melee dealt 34");
+
+    // Immediately after: Shift is NOT blocked by the melee cooldown (−60 more).
+    let b = nova_messages_now(&app);
+    press_shift(&mut app);
+    app.update();
+    release_shift(&mut app);
+    assert!(
+        (monster_hp(&app, m) - 6.0).abs() < 1e-4,
+        "nova fired right after melee: total damage 94"
+    );
+    assert_eq!(nova_messages_now(&app) - b, 1, "exactly one blast message");
+
+    let player = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Player>>();
+        q.single(app.world()).unwrap()
+    };
+    let attack = app.world().entity(player).get::<Attack>().unwrap().cooldown;
+    let nova = app
+        .world()
+        .entity(player)
+        .get::<NovaAttack>()
+        .unwrap()
+        .cooldown;
+    // Melee was rearmed one frame earlier than nova, hence the tick difference.
+    assert!(
+        (attack - 0.45).abs() < 0.05 && attack < 0.45,
+        "melee CD ≈0.45 s (one frame ticked), got {attack}"
+    );
+    assert!((nova - 5.0).abs() < 1e-4, "nova CD rearmed to exactly 5 s, got {nova}");
+}
+

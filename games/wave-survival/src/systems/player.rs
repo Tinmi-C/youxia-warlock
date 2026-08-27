@@ -11,7 +11,7 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, RigidBody};
 
-use crate::components::{Attack, Hp, Player, Visual};
+use crate::components::{Attack, Hp, NovaAttack, Player, Visual};
 
 pub fn spawn_player(
     mut commands: Commands,
@@ -21,6 +21,7 @@ pub fn spawn_player(
     commands.spawn((
         Player { speed: 5.0 },
         Attack { cooldown: 0.0 },
+        NovaAttack { cooldown: 0.0 }, // card 9: independent Shift-nova throttle
         Hp::full(100.0),
         Visual { flash: 0.0 },
         RigidBody::KinematicPositionBased,

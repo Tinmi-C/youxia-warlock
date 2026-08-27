@@ -38,6 +38,14 @@ pub struct Attack {
     pub cooldown: f32,
 }
 
+/// AoE nova state on the player: cooldown remaining (seconds) until the next
+/// Shift blast (card 9 NovaSlash). Independent of [`Attack`] on purpose — the
+/// two slashes throttle separately.
+#[derive(Component)]
+pub struct NovaAttack {
+    pub cooldown: f32,
+}
+
 /// Visual feedback state (m2 convention): `flash` > 0 means "tint white".
 #[derive(Component)]
 pub struct Visual {

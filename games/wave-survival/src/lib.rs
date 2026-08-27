@@ -32,6 +32,12 @@ pub fn build_app() -> App {
         )
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .init_state::<states::GameState>()
-        .add_plugins((plugins::game::GamePlugin, plugins::debug::DebugPlugin));
+        .add_plugins(
+            (
+                plugins::game::GamePlugin,
+                plugins::vfx::VfxPlugin,
+                plugins::debug::DebugPlugin,
+            )
+        );
     app
 }

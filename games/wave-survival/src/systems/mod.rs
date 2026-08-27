@@ -2,6 +2,7 @@ pub mod camera;
 pub mod combat;
 pub mod contact;
 pub mod enemy;
+pub mod nova;
 pub mod pickup;
 pub mod player;
 pub mod ui;

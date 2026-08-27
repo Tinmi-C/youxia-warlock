@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Attack, Hp, Monster, Player};
+use crate::components::{Attack, Hp, Monster, NovaAttack, Player};
 use crate::{resources::Wave, states::GameState, systems};
 
 pub struct GamePlugin;
@@ -10,6 +10,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Wave>()
+            .add_message::<systems::nova::NovaFired>()
             .add_systems(
                 Startup,
                 (
@@ -26,6 +27,7 @@ impl Plugin for GamePlugin {
                     systems::player::move_player,
                     systems::enemy::enemy_chase,
                     systems::combat::player_attack,
+                    systems::nova::nova_slash,
                     systems::contact::contact_damage,
                     systems::contact::death_despawn,
                     systems::pickup::pickup_drop,
@@ -63,7 +65,7 @@ fn restart(
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
     monsters: Query<Entity, With<Monster>>,
-    mut player: Query<(&mut Hp, &mut Transform, &mut Attack), With<Player>>,
+    mut player: Query<(&mut Hp, &mut Transform, &mut Attack, &mut NovaAttack), With<Player>>,
     mut wave: ResMut<Wave>,
     mut next: ResMut<NextState<GameState>>,
 ) {
@@ -73,11 +75,12 @@ fn restart(
     for e in &monsters {
         commands.entity(e).despawn();
     }
-    if let Ok((mut hp, mut tf, mut attack)) = player.single_mut() {
+    if let Ok((mut hp, mut tf, mut attack, mut nova)) = player.single_mut() {
         hp.hp = hp.max;
         hp.invuln = 0.0;
         tf.translation = Vec3::new(0.0, 0.5, 0.0);
         attack.cooldown = 0.0;
+        nova.cooldown = 0.0;
     }
     *wave = Wave::default();
     next.set(GameState::Playing);
