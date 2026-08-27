@@ -11,7 +11,7 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, RigidBody};
 
-use crate::components::{Attack, Hp, NovaAttack, Player, Visual};
+use crate::components::{Attack, Hp, NovaAttack, Player, PrevTranslation, Visual, WalkCycle};
 
 pub fn spawn_player(
     mut commands: Commands,
@@ -54,5 +54,61 @@ pub fn move_player(
     let dir = dir.normalize(); // keep diagonal speed equal to straight speed
     for (mut tf, player) in &mut q {
         tf.translation += dir * player.speed * time.delta_secs();
+    }
+}
+
+// --- Walk-state tracking (card 12 HeroPresentation) ---
+
+/// Squared distance below which the player counts as standing still. One frame
+/// at 144 fps / speed 5.0 is ~0.035 units (~1.2e-3 squared), so this threshold
+/// sits safely beneath any real movement step.
+const WALK_MOVE_EPSILON_SQ: f32 = 1e-6;
+
+/// Card 12: mark the player "moving" whenever its position changed since the
+/// previous frame. Lives at the END of the Playing chain (after every
+/// Transform writer). Components seed themselves via the missing-branch, so no
+/// spawn-time change is needed; the frame right after an R-restart teleport may
+/// report one spurious `playing` tick before positions re-align (cosmetic only).
+pub fn update_walk_cycle(
+    mut commands: Commands,
+    mut q: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&mut WalkCycle>,
+            Option<&mut PrevTranslation>,
+        ),
+        With<Player>,
+    >,
+) {
+    for (entity, tf, walking, prev) in &mut q {
+        match (prev, walking) {
+            (Some(mut prev), Some(mut walk)) => {
+                let moved = prev.v.distance_squared(tf.translation) > WALK_MOVE_EPSILON_SQ;
+                walk.playing = moved;
+                prev.v = tf.translation;
+            }
+            _ => {
+                commands.entity(entity).insert((
+                    WalkCycle { playing: false },
+                    PrevTranslation { v: tf.translation },
+                ));
+            }
+        }
+    }
+}
+
+/// Card 12: outside the Playing state nothing can move the player, so hold the
+/// walk flag down and re-anchor the previous position (covers the R-restart
+/// teleport happening during GameOver). Registered with
+/// `run_if(not(in_state(GameState::Playing)))` — disjoint from the gated chain.
+pub fn clear_walk_on_pause(
+    mut q: Query<(&Transform, &mut WalkCycle, Option<&mut PrevTranslation>), With<Player>>,
+) {
+    for (tf, mut walk, prev) in &mut q {
+        walk.playing = false;
+        if let Some(mut prev) = prev {
+            prev.v = tf.translation;
+        }
     }
 }

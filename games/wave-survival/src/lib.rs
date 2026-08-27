@@ -20,28 +20,25 @@ pub fn build_app() -> App {
             brightness: 800.0,
             ..default()
         })
-        .add_plugins(
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "wave-survival".into(),
-                    resolution: (1280, 720).into(),
-                    ..default()
-                }),
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "wave-survival".into(),
+                resolution: (1280, 720).into(),
                 ..default()
             }),
-        )
+            ..default()
+        }))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .init_state::<states::GameState>()
         // bevy_egui drives the F1 tuning panel (card 11); the panel plugin must
         // come after GamePlugin so `Balance` already exists as a resource.
         .add_plugins(bevy_egui::EguiPlugin::default())
-        .add_plugins(
-            (
-                plugins::game::GamePlugin,
-                plugins::vfx::VfxPlugin,
-                plugins::tuning::TuningPlugin,
-                plugins::debug::DebugPlugin,
-            )
-        );
+        .add_plugins((
+            plugins::game::GamePlugin,
+            plugins::presentation::PresentationPlugin, // card 12: glTF skins, build_app only
+            plugins::vfx::VfxPlugin,
+            plugins::tuning::TuningPlugin,
+            plugins::debug::DebugPlugin,
+        ));
     app
 }

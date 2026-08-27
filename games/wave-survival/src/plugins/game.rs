@@ -33,6 +33,8 @@ impl Plugin for GamePlugin {
                     systems::contact::death_despawn,
                     systems::pickup::pickup_drop,
                     systems::wave::wave_system,
+                    // card 12: after every Transform writer above
+                    systems::player::update_walk_cycle,
                 )
                     .chain()
                     .run_if(in_state(GameState::Playing)),
@@ -41,7 +43,13 @@ impl Plugin for GamePlugin {
             .add_systems(Update, systems::ui::ui_update)
             // Pause toggle runs in Playing/Paused; restart runs only in GameOver.
             .add_systems(Update, toggle_pause)
-            .add_systems(Update, restart.run_if(in_state(GameState::GameOver)));
+            .add_systems(Update, restart.run_if(in_state(GameState::GameOver)))
+            // card 12: outside Playing nothing moves the player — hold the walk
+            // flag down so the model never moonwalks through pause/GameOver.
+            .add_systems(
+                Update,
+                systems::player::clear_walk_on_pause.run_if(not(in_state(GameState::Playing))),
+            );
     }
 }
 

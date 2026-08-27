@@ -129,3 +129,19 @@ pub struct UiWaveText;
 pub struct UiCooldownFill;
 #[derive(Component)]
 pub struct UiGameOver;
+
+// --- Walk-state tracking (card 12 HeroPresentation) ---
+/// Whether the owner moved this frame. Written by
+/// `systems::player::update_walk_cycle` (logic side), read by the presentation
+/// plugin to play/pause the walk cycle — review decision: walk only while
+/// actually moving, never a standing moonwalk.
+#[derive(Component)]
+pub struct WalkCycle {
+    pub playing: bool,
+}
+
+/// Owner's previous-frame position; lets `update_walk_cycle` detect movement.
+#[derive(Component)]
+pub struct PrevTranslation {
+    pub v: Vec3,
+}

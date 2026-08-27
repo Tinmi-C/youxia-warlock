@@ -5,15 +5,12 @@
 use std::time::Duration;
 
 use bevy::{
-    ecs::message::Messages,
-    prelude::*,
-    state::app::StatesPlugin,
-    time::TimeUpdateStrategy,
+    ecs::message::Messages, prelude::*, state::app::StatesPlugin, time::TimeUpdateStrategy,
 };
 use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity};
 
 use wave_survival::components::{
-    Attack, Chasing, Hp, Monster, MonsterKind, NovaAttack, Pickup, Player, Visual,
+    Attack, Chasing, Hp, Monster, MonsterKind, NovaAttack, Pickup, Player, Visual, WalkCycle,
 };
 use wave_survival::resources::{Balance, Wave};
 use wave_survival::systems::nova::{NovaFired, NOVA_COOLDOWN, NOVA_DAMAGE, NOVA_RADIUS};
@@ -32,17 +29,17 @@ fn test_app() -> App {
         TransformPlugin,
         RapierPhysicsPlugin::<NoUserData>::default(),
     )) // init_state needs StateTransition schedule
-        .init_state::<GameState>()
-        .add_plugins(GamePlugin)
-        // Headless: no winit / asset plugins, so create the resources the
-        // systems under test need (input, mesh/material asset stores).
-        .init_resource::<ButtonInput<KeyCode>>()
-        .init_resource::<Assets<Mesh>>()
-        .init_resource::<Assets<StandardMaterial>>()
-        // Fixed timestep makes tests reproducible (1/60 s per update).
-        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
-            1.0 / 60.0,
-        )));
+    .init_state::<GameState>()
+    .add_plugins(GamePlugin)
+    // Headless: no winit / asset plugins, so create the resources the
+    // systems under test need (input, mesh/material asset stores).
+    .init_resource::<ButtonInput<KeyCode>>()
+    .init_resource::<Assets<Mesh>>()
+    .init_resource::<Assets<StandardMaterial>>()
+    // Fixed timestep makes tests reproducible (1/60 s per update).
+    .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / 60.0,
+    )));
     app
 }
 
@@ -107,6 +104,68 @@ fn paused_state_stops_movement() {
     }
     let dist = player_distance(&mut app);
     assert!(dist < 0.01, "player moved {dist} units while paused");
+}
+
+// --- HeroPresentation helpers (card 12) ---
+
+fn player_walk_playing(app: &mut App) -> bool {
+    let mut q = app.world_mut().query::<&WalkCycle>();
+    let walk = q.single(app.world()).expect("player carries WalkCycle");
+    walk.playing
+}
+
+fn press_key(app: &mut App, key: KeyCode) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(key);
+}
+
+fn release_key(app: &mut App, key: KeyCode) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .release(key);
+}
+
+/// Capability card 12 — acceptance sentence 2: the WalkCycle data chain tracks
+/// real movement headlessly: true while WASD is held, false after release.
+#[test]
+fn walk_cycle_plays_only_while_moving() {
+    let mut app = test_app();
+    run_frames(&mut app, 2); // startup + first tracker seeding
+    press_key(&mut app, KeyCode::KeyW);
+    run_frames(&mut app, 3);
+    assert!(
+        player_walk_playing(&mut app),
+        "WalkCycle.playing should be true while the player moves"
+    );
+    release_key(&mut app, KeyCode::KeyW);
+    run_frames(&mut app, 3);
+    assert!(
+        !player_walk_playing(&mut app),
+        "WalkCycle.playing should fall back to false once idle"
+    );
+}
+
+/// Capability card 12 review decision: outside Playing nothing may keep the
+/// walk flag up (the model must never moonwalk through pause/GameOver).
+#[test]
+fn walk_flag_clears_while_paused_even_with_keys_held() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    press_key(&mut app, KeyCode::KeyW);
+    run_frames(&mut app, 3);
+    assert!(
+        player_walk_playing(&mut app),
+        "precondition: moving before pause"
+    );
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Paused);
+    run_frames(&mut app, 2); // keys stay held; clear_walk_on_pause owns the flag now
+    assert!(
+        !player_walk_playing(&mut app),
+        "walk flag must clear while Paused even though W stays pressed"
+    );
 }
 
 // --- PlayerAttack helpers (capability card 2) ---
@@ -193,9 +252,18 @@ fn slash_damage_by_distance() {
     press_space(&mut app);
     app.update();
 
-    assert!((monster_hp(&app, near) - 66.0).abs() < 0.5, "d=0.5 should deal 34");
-    assert!((monster_hp(&app, mid) - 83.0).abs() < 0.5, "d=1.2 should deal ~17");
-    assert!((monster_hp(&app, far) - 100.0).abs() < 0.5, "d=1.6 should deal 0");
+    assert!(
+        (monster_hp(&app, near) - 66.0).abs() < 0.5,
+        "d=0.5 should deal 34"
+    );
+    assert!(
+        (monster_hp(&app, mid) - 83.0).abs() < 0.5,
+        "d=1.2 should deal ~17"
+    );
+    assert!(
+        (monster_hp(&app, far) - 100.0).abs() < 0.5,
+        "d=1.6 should deal 0"
+    );
 }
 
 /// PlayerAttack — acceptance: falloff boundaries (0.9 → 34; 1.5 → 0).
@@ -209,8 +277,14 @@ fn slash_falloff_boundaries() {
     press_space(&mut app);
     app.update();
 
-    assert!((monster_hp(&app, at_full) - 66.0).abs() < 1.0, "d=0.9 should deal 34");
-    assert!((monster_hp(&app, at_far) - 100.0).abs() < 1.0, "d=1.5 should deal 0");
+    assert!(
+        (monster_hp(&app, at_full) - 66.0).abs() < 1.0,
+        "d=0.9 should deal 34"
+    );
+    assert!(
+        (monster_hp(&app, at_far) - 100.0).abs() < 1.0,
+        "d=1.5 should deal 0"
+    );
 }
 
 /// PlayerAttack — acceptance: multiple targets each take distance-correct damage and flash.
@@ -224,8 +298,14 @@ fn slash_hits_multiple_targets_and_flashes() {
     press_space(&mut app);
     app.update();
 
-    assert!((monster_hp(&app, a) - 66.0).abs() < 0.5, "a (d=0.5) should take 34");
-    assert!((monster_hp(&app, b) - 83.0).abs() < 0.5, "b (d=1.2) should take ~17");
+    assert!(
+        (monster_hp(&app, a) - 66.0).abs() < 0.5,
+        "a (d=0.5) should take 34"
+    );
+    assert!(
+        (monster_hp(&app, b) - 83.0).abs() < 0.5,
+        "b (d=1.2) should take ~17"
+    );
     assert!(
         app.world().entity(a).get::<Visual>().unwrap().flash > 0.99,
         "a should flash on hit"
@@ -307,7 +387,10 @@ fn wave_monsters_carry_per_wave_stats() {
     let mut seen = 0;
     for (hp, chasing) in q.iter(app.world()) {
         assert!((hp.hp - 42.0).abs() < 1e-4, "wave 1 hp should be 42");
-        assert!((chasing.speed - 1.18).abs() < 1e-5, "wave 1 speed should be 1.18");
+        assert!(
+            (chasing.speed - 1.18).abs() < 1e-5,
+            "wave 1 speed should be 1.18"
+        );
         seen += 1;
     }
     assert_eq!(seen, 3, "3 wave-1 monsters");
@@ -347,7 +430,11 @@ fn enemy_chase_sets_velocity_toward_player() {
         "should move toward the player (-X), x={}",
         vel.linear.x
     );
-    assert!(vel.linear.y.abs() < 1e-6, "no vertical motion, y={}", vel.linear.y);
+    assert!(
+        vel.linear.y.abs() < 1e-6,
+        "no vertical motion, y={}",
+        vel.linear.y
+    );
     assert!(vel.linear.z.abs() < 1e-6, "no Z motion, z={}", vel.linear.z);
     assert!(
         (vel.linear.length() - 1.18).abs() < 1e-3,
@@ -363,12 +450,25 @@ fn enemy_chase_moves_monster_toward_player() {
     run_frames(&mut app, 1);
     let e = spawn_chaser(&mut app, 2.0, 1.18);
 
-    let start = app.world().entity(e).get::<Transform>().unwrap().translation;
+    let start = app
+        .world()
+        .entity(e)
+        .get::<Transform>()
+        .unwrap()
+        .translation;
     run_frames(&mut app, 60); // 1s
-    let tf = app.world().entity(e).get::<Transform>().unwrap().translation;
+    let tf = app
+        .world()
+        .entity(e)
+        .get::<Transform>()
+        .unwrap()
+        .translation;
 
     let moved = (start - tf).length();
-    assert!(moved > 0.5, "monster should move toward the player in 1s, moved {moved}");
+    assert!(
+        moved > 0.5,
+        "monster should move toward the player in 1s, moved {moved}"
+    );
     assert!(
         (moved - 1.18).abs() < 0.5,
         "should move ~1.18 units in 1s (speed 1.18), moved {moved}"
@@ -393,7 +493,9 @@ fn contact_bites_player() {
 
     assert!((player_hp(&mut app) - 85.0).abs() < 0.01, "100 - 15 = 85");
     let (invuln, flash) = {
-        let mut q = app.world_mut().query_filtered::<(&Hp, &Visual), With<Player>>();
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(&Hp, &Visual), With<Player>>();
         let (hp, vis) = q.single(app.world()).unwrap();
         (hp.invuln, vis.flash)
     };
@@ -427,7 +529,10 @@ fn contact_one_bite_per_frame() {
     spawn_monster(&mut app, -0.3, 0.0);
 
     app.update();
-    assert!((player_hp(&mut app) - 85.0).abs() < 0.01, "one bite (15), not two (30)");
+    assert!(
+        (player_hp(&mut app) - 85.0).abs() < 0.01,
+        "one bite (15), not two (30)"
+    );
 }
 
 /// CombatContact — acceptance: a monster at hp <= 0 is despawned.
@@ -441,7 +546,10 @@ fn monster_dies_and_despawns() {
     press_space(&mut app);
     app.update(); // slash (34) -> hp <= 0 -> death_despawn despawns
 
-    assert!(app.world().get_entity(e).is_err(), "monster should be despawned");
+    assert!(
+        app.world().get_entity(e).is_err(),
+        "monster should be despawned"
+    );
 }
 
 /// CombatContact — acceptance: player hp <= 0 flips the game to GameOver.
@@ -472,10 +580,7 @@ fn player_death_sets_game_over() {
 
 fn spawn_pickup_at(app: &mut App, x: f32, z: f32, arm: f32, heal: f32) -> Entity {
     app.world_mut()
-        .spawn((
-            Pickup { heal, arm },
-            Transform::from_xyz(x, 0.25, z),
-        ))
+        .spawn((Pickup { heal, arm }, Transform::from_xyz(x, 0.25, z)))
         .id()
 }
 
@@ -495,7 +600,11 @@ fn pickup_heals_player_when_close() {
         let mut q = app.world_mut().query_filtered::<Entity, With<Player>>();
         q.single(app.world()).unwrap()
     };
-    app.world_mut().entity_mut(player).get_mut::<Hp>().unwrap().hp = 50.0;
+    app.world_mut()
+        .entity_mut(player)
+        .get_mut::<Hp>()
+        .unwrap()
+        .hp = 50.0;
 
     spawn_pickup_at(&mut app, 0.0, 0.0, 0.0, 10.0); // ready, on the player
     app.update(); // pickup_drop heals
@@ -519,8 +628,15 @@ fn monster_kill_drops_pickup() {
 
     app.update(); // death_despawn drops a pickup + despawns the monster
 
-    assert_eq!(pickup_count(&mut app), before + 1, "a pickup should be dropped");
-    assert!(app.world().get_entity(e).is_err(), "monster should be despawned");
+    assert_eq!(
+        pickup_count(&mut app),
+        before + 1,
+        "a pickup should be dropped"
+    );
+    assert!(
+        app.world().get_entity(e).is_err(),
+        "monster should be despawned"
+    );
 }
 
 // --- GameLoop test (capability card 8) ---
@@ -532,7 +648,10 @@ fn game_loop_full_cycle() {
     run_frames(&mut app, 220); // wave 1 spawns (~3s)
     assert_eq!(current_wave(&app), 1);
     assert_eq!(monster_count(&mut app), 3);
-    assert_eq!(*app.world().resource::<State<GameState>>().get(), GameState::Playing);
+    assert_eq!(
+        *app.world().resource::<State<GameState>>().get(),
+        GameState::Playing
+    );
 
     // Kill the player -> GameOver.
     let player = {
@@ -546,7 +665,10 @@ fn game_loop_full_cycle() {
         .hp = -1.0;
     app.update();
     app.update();
-    assert_eq!(*app.world().resource::<State<GameState>>().get(), GameState::GameOver);
+    assert_eq!(
+        *app.world().resource::<State<GameState>>().get(),
+        GameState::GameOver
+    );
 
     // Press R -> restart -> back to Playing, wave reset, player full, monsters cleared.
     app.world_mut()
@@ -554,7 +676,10 @@ fn game_loop_full_cycle() {
         .press(KeyCode::KeyR);
     app.update();
     app.update();
-    assert_eq!(*app.world().resource::<State<GameState>>().get(), GameState::Playing);
+    assert_eq!(
+        *app.world().resource::<State<GameState>>().get(),
+        GameState::Playing
+    );
     assert_eq!(current_wave(&app), 0, "wave reset to 0 on restart");
     assert!(
         (player_hp(&mut app) - 100.0).abs() < 0.01,
@@ -605,7 +730,10 @@ fn phase1_acceptance_full_vertical_slice() {
     let mut q = app.world_mut().query::<(&Hp, &Chasing)>();
     for (hp, chasing) in q.iter(app.world()) {
         assert!((hp.hp - 54.0).abs() < 1e-4, "wave 2 hp 30*(1+0.4*2)=54");
-        assert!((chasing.speed - 1.26).abs() < 1e-5, "wave 2 speed 1.1+0.08*2=1.26");
+        assert!(
+            (chasing.speed - 1.26).abs() < 1e-5,
+            "wave 2 speed 1.1+0.08*2=1.26"
+        );
     }
 
     // 5. 玩家死亡 → GameOver。
@@ -713,9 +841,18 @@ fn nova_full_damage_inside_radius_only() {
     fire_nova_once(&mut app);
     assert_eq!(nova_messages_now(&app) - b, 1, "blast fired");
 
-    assert!((monster_hp(&app, near) - 40.0).abs() < 1e-4, "d=0.4: -60 flat");
-    assert!((monster_hp(&app, mid) - 40.0).abs() < 1e-4, "d=1.55: -60 flat");
-    assert!((monster_hp(&app, out) - 100.0).abs() < 1e-4, "d=1.65: untouched");
+    assert!(
+        (monster_hp(&app, near) - 40.0).abs() < 1e-4,
+        "d=0.4: -60 flat"
+    );
+    assert!(
+        (monster_hp(&app, mid) - 40.0).abs() < 1e-4,
+        "d=1.55: -60 flat"
+    );
+    assert!(
+        (monster_hp(&app, out) - 100.0).abs() < 1e-4,
+        "d=1.65: untouched"
+    );
 }
 
 /// NovaSlash — acceptance: multiple targets inside the circle all take −60 in
@@ -737,7 +874,10 @@ fn nova_hits_multiple_targets_and_flashes() {
     assert!((monster_hp(&app, c) - 40.0).abs() < 1e-4);
     for e in [a, b, c] {
         let flash = app.world().entity(e).get::<Visual>().unwrap().flash;
-        assert!((flash - 1.0).abs() < 1e-6, "hit monster flashes, got {flash}");
+        assert!(
+            (flash - 1.0).abs() < 1e-6,
+            "hit monster flashes, got {flash}"
+        );
     }
 }
 
@@ -782,7 +922,10 @@ fn nova_independent_of_melee_cooldown() {
         (attack - 0.45).abs() < 0.05 && attack < 0.45,
         "melee CD ≈0.45 s (one frame ticked), got {attack}"
     );
-    assert!((nova - 5.0).abs() < 1e-4, "nova CD rearmed to exactly 5 s, got {nova}");
+    assert!(
+        (nova - 5.0).abs() < 1e-4,
+        "nova CD rearmed to exactly 5 s, got {nova}"
+    );
 }
 
 // --- EnemyVariants tests (capability card 10) ---
@@ -867,11 +1010,17 @@ fn wave3_spawns_runner_with_kind_stats() {
 
     for &(hp, speed) in &grunts {
         assert!((hp - base_hp).abs() < 1e-3, "grunt hp {hp} vs {base_hp}");
-        assert!((speed - base_speed).abs() < 1e-3, "grunt speed {speed} vs {base_speed}");
+        assert!(
+            (speed - base_speed).abs() < 1e-3,
+            "grunt speed {speed} vs {base_speed}"
+        );
     }
     for &(hp, speed) in &runners {
         assert!((hp - base_hp * 0.5).abs() < 1e-3, "runner hp {hp}");
-        assert!((speed - base_speed * 1.6).abs() < 1e-3, "runner speed {speed}");
+        assert!(
+            (speed - base_speed * 1.6).abs() < 1e-3,
+            "runner speed {speed}"
+        );
     }
 }
 
@@ -903,7 +1052,10 @@ fn wave5_spawns_tank_with_kind_stats() {
                 MonsterKind::Runner => {
                     runners += 1;
                     assert!((hp.hp - 45.0).abs() < 1e-3, "runner hp = 90*0.5");
-                    assert!((chasing.speed - 2.40).abs() < 1e-3, "runner speed = 1.50*1.6");
+                    assert!(
+                        (chasing.speed - 2.40).abs() < 1e-3,
+                        "runner speed = 1.50*1.6"
+                    );
                 }
                 MonsterKind::Tank => {
                     tanks += 1;
@@ -966,4 +1118,3 @@ fn balance_contact_damage_applies_live() {
         player_hp(&mut app)
     );
 }
-
