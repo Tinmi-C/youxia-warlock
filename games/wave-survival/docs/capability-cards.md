@@ -47,7 +47,7 @@
 | GameStateUI | ui-system | ✅ 已实现（2026-08-26，视觉卡） | 血条 / 波次文本 / 冷却条；死亡 GameOver / R 重开（详见下方卡 7） |
 | GameLoop | system | ✅ 已实现（2026-08-26，含回归测试） | 完整一局闭环：出生→刷怪→击杀→死亡→重开，无崩溃（详见下方卡 8） |
 | NovaSlash | gameplay-system | ✅ 已实现（2026-08-27，含回归测试；粒子视觉条目待跑游戏验收） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
-| EnemyVariants | component/gameplay-system | 📝 已立卡（2026-08-27，待实现） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
+| EnemyVariants | component/gameplay-system | ✅ 已实现（2026-08-27，含回归测试） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
 | EguiTunePanel | architecture/ui-system | 📝 已立卡（2026-08-27，待实现） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
 
 ## 卡 2：PlayerAttack（近战挥砍）
@@ -269,7 +269,7 @@
 ```yaml
 能力卡: EnemyVariants（敌人分化：Runner / Tank）
 类型: component + gameplay-system
-状态: 已立卡 2026-08-27（待实现）
+状态: 已实现 2026-08-27（实现 + 回归测试全绿；分化系数为草案，卡 11 面板就绪后可调参打磨）
 设计来源: GDD 验收标准「玩法深化：敌人分化」；基线数值仍照抄 GDD 波次公式，
           分化系数为本卡新草案（主观玩法，egui 面板就绪后可实时调）
 接口:
