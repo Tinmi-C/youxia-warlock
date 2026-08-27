@@ -12,10 +12,14 @@ use bevy::{
 };
 use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity};
 
-use wave_survival::components::{Attack, Chasing, Hp, Monster, NovaAttack, Pickup, Player, Visual};
+use wave_survival::components::{
+    Attack, Chasing, Hp, Monster, MonsterKind, NovaAttack, Pickup, Player, Visual,
+};
 use wave_survival::resources::Wave;
 use wave_survival::systems::nova::NovaFired;
-use wave_survival::systems::wave::{wave_count, wave_hp, wave_speed};
+use wave_survival::systems::wave::{
+    kinds_for_wave, runner_count, tank_count, wave_count, wave_hp, wave_speed,
+};
 use wave_survival::{plugins::game::GamePlugin, states::GameState};
 
 /// Headless app: MinimalPlugins (no renderer/window) + game logic + fixed timestep.
@@ -778,5 +782,136 @@ fn nova_independent_of_melee_cooldown() {
         "melee CD ≈0.45 s (one frame ticked), got {attack}"
     );
     assert!((nova - 5.0).abs() < 1e-4, "nova CD rearmed to exactly 5 s, got {nova}");
+}
+
+// --- EnemyVariants tests (capability card 10) ---
+
+/// EnemyVariants — acceptance: composition formulas (runner from wave 3,
+/// tank from wave 5, both capped).
+#[test]
+fn variant_count_formulas() {
+    assert_eq!(runner_count(2), 0);
+    assert_eq!(runner_count(3), 1);
+    assert_eq!(runner_count(4), 1);
+    assert_eq!(runner_count(5), 2);
+    assert_eq!(runner_count(7), 3);
+    assert_eq!(runner_count(9), 3); // capped
+    assert_eq!(tank_count(4), 0);
+    assert_eq!(tank_count(5), 1);
+    assert_eq!(tank_count(9), 1);
+    assert_eq!(tank_count(10), 2);
+    assert_eq!(tank_count(15), 2); // capped
+}
+
+/// EnemyVariants — acceptance: grunt + runner + tank == wave_count(n) for
+/// every n in 1..=15, all counts non-negative.
+#[test]
+fn variant_composition_conserves_total() {
+    for n in 1..=15u32 {
+        let kinds = kinds_for_wave(n);
+        assert_eq!(
+            kinds.len() as u32,
+            wave_count(n),
+            "n={n}: composition must conserve the total count"
+        );
+        let runners = kinds.iter().filter(|k| **k == MonsterKind::Runner).count();
+        let tanks = kinds.iter().filter(|k| **k == MonsterKind::Tank).count();
+        assert_eq!(runners as u32, runner_count(n));
+        assert_eq!(tanks as u32, tank_count(n));
+    }
+}
+
+/// EnemyVariants — acceptance: a forced wave-3 spawn carries exactly 1 Runner
+/// (speed ≈1.34×1.6, hp ≈66×0.5) among standard grunts; per-kind stats hold.
+#[test]
+fn wave3_spawns_runner_with_kind_stats() {
+    let mut app = test_app();
+    run_frames(&mut app, 220); // wave 1 arrives naturally
+    assert_eq!(current_wave(&app), 1);
+
+    // Force wave 3 immediately: empty field + timer expired.
+    let ids: Vec<Entity> = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Monster>>();
+        q.iter(app.world()).collect()
+    };
+    for id in ids {
+        app.world_mut().despawn(id);
+    }
+    *app.world_mut().resource_mut::<Wave>() = Wave { n: 2, timer: -1.0 };
+    run_frames(&mut app, 3);
+
+    assert_eq!(current_wave(&app), 3, "forced spawn advanced to wave 3");
+    assert_eq!(monster_count(&mut app), 5, "wave 3 = 2+3 = 5 monsters");
+
+    // Group spawned monsters by kind and check stats against baseline × mul.
+    let mut grunts: Vec<(f32, f32)> = Vec::new();
+    let mut runners: Vec<(f32, f32)> = Vec::new();
+    let mut tanks: Vec<(f32, f32)> = Vec::new();
+    {
+        let mut q = app.world_mut().query::<(&MonsterKind, &Hp, &Chasing)>();
+        for (kind, hp, chasing) in q.iter(app.world()) {
+            match kind {
+                MonsterKind::Grunt => grunts.push((hp.hp, chasing.speed)),
+                MonsterKind::Runner => runners.push((hp.hp, chasing.speed)),
+                MonsterKind::Tank => tanks.push((hp.hp, chasing.speed)),
+            }
+        }
+    }
+
+    let base_hp = wave_hp(3); // 66
+    let base_speed = wave_speed(3); // 1.34
+    assert_eq!(runners.len(), 1, "wave 3 has exactly 1 runner");
+    assert!(tanks.is_empty(), "no tanks before wave 5");
+    assert_eq!(grunts.len(), 4, "grunt remainder conserves the total");
+
+    for &(hp, speed) in &grunts {
+        assert!((hp - base_hp).abs() < 1e-3, "grunt hp {hp} vs {base_hp}");
+        assert!((speed - base_speed).abs() < 1e-3, "grunt speed {speed} vs {base_speed}");
+    }
+    for &(hp, speed) in &runners {
+        assert!((hp - base_hp * 0.5).abs() < 1e-3, "runner hp {hp}");
+        assert!((speed - base_speed * 1.6).abs() < 1e-3, "runner speed {speed}");
+    }
+}
+
+/// EnemyVariants — acceptance: a forced wave-5 spawn carries exactly 1 Tank
+/// (speed ≈1.50×0.6, hp ≈90×3) alongside its runners; kinds only change data.
+#[test]
+fn wave5_spawns_tank_with_kind_stats() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    // Straight to wave 5 from an empty fresh field (tests drive the system directly).
+    *app.world_mut().resource_mut::<Wave>() = Wave { n: 4, timer: -1.0 };
+    run_frames(&mut app, 3);
+
+    assert_eq!(current_wave(&app), 5);
+    assert_eq!(monster_count(&mut app), 7, "wave 5 = 2+5 = 7 monsters");
+
+    let mut grunts = 0;
+    let mut runners = 0;
+    let mut tanks = 0;
+    {
+        let mut q = app.world_mut().query::<(&MonsterKind, &Hp, &Chasing)>();
+        for (kind, hp, chasing) in q.iter(app.world()) {
+            match kind {
+                MonsterKind::Grunt => {
+                    grunts += 1;
+                    assert!((hp.hp - 90.0).abs() < 1e-3);
+                    assert!((chasing.speed - 1.50).abs() < 1e-3);
+                }
+                MonsterKind::Runner => {
+                    runners += 1;
+                    assert!((hp.hp - 45.0).abs() < 1e-3, "runner hp = 90*0.5");
+                    assert!((chasing.speed - 2.40).abs() < 1e-3, "runner speed = 1.50*1.6");
+                }
+                MonsterKind::Tank => {
+                    tanks += 1;
+                    assert!((hp.hp - 270.0).abs() < 1e-3, "tank hp = 90*3");
+                    assert!((chasing.speed - 0.90).abs() < 1e-3, "tank speed = 1.50*0.6");
+                }
+            }
+        }
+    }
+    assert_eq!((grunts, runners, tanks), (4, 2, 1), "wave 5 composition");
 }
 

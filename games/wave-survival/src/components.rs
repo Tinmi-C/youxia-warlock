@@ -13,6 +13,58 @@ pub struct Player {
 #[derive(Component)]
 pub struct Monster;
 
+/// Enemy variant (card 10 EnemyVariants): assigned once at spawn time by
+/// WaveSystem; decides that monster's hp/speed/mesh/color through the
+/// multipliers below. Older systems stay untouched — they only ever see the
+/// generic `Chasing` / `Hp` data these multipliers were baked into.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum MonsterKind {
+    /// Baseline (red, 0.6^3): plain GDD numbers.
+    Grunt,
+    /// Fast but fragile (yellow, 0.45^3): speed x1.6, hp x0.5.
+    Runner,
+    /// Slow but tough (purple, 0.85^3): speed x0.6, hp x3.0.
+    Tank,
+}
+
+impl MonsterKind {
+    /// Chase-speed multiplier applied to the wave baseline (`wave_speed`).
+    pub fn speed_mul(self) -> f32 {
+        match self {
+            MonsterKind::Grunt => 1.0,
+            MonsterKind::Runner => 1.6,
+            MonsterKind::Tank => 0.6,
+        }
+    }
+
+    /// Hit-point multiplier applied to the wave baseline (`wave_hp`).
+    pub fn hp_mul(self) -> f32 {
+        match self {
+            MonsterKind::Grunt => 1.0,
+            MonsterKind::Runner => 0.5,
+            MonsterKind::Tank => 3.0,
+        }
+    }
+
+    /// Cube edge length for this variant's placeholder mesh.
+    pub fn cube_size(self) -> f32 {
+        match self {
+            MonsterKind::Grunt => 0.6,
+            MonsterKind::Runner => 0.45,
+            MonsterKind::Tank => 0.85,
+        }
+    }
+
+    /// Placeholder body color for this variant.
+    pub fn color(self) -> Color {
+        match self {
+            MonsterKind::Grunt => Color::srgb(0.75, 0.2, 0.2), // red
+            MonsterKind::Runner => Color::srgb(0.95, 0.85, 0.2), // yellow
+            MonsterKind::Tank => Color::srgb(0.55, 0.25, 0.8), // purple
+        }
+    }
+}
+
 /// Hit points + invulnerability. Death/despawn is handled by CombatContact (card 5).
 #[derive(Component)]
 pub struct Hp {

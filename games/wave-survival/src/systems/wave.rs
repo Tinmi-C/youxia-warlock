@@ -1,14 +1,18 @@
-//! WaveSystem: the core wave-survival loop. Capability card 3 (docs/capability-cards.md).
+//! WaveSystem: the core wave-survival loop. Capability card 3 (docs/capability-cards.md)
+//! + card 10 EnemyVariants (composition & per-kind stats).
 //! State is derived, not stored ("the world is the truth", m2 convention):
 //!   enemies > 0            -> combat (do nothing)
 //!   enemies == 0, timer>0  -> rest between waves (count down)
 //!   enemies == 0, timer<=0 -> spawn next wave (n += 1, then re-arm timer)
 //! Formulas (mixed growth, inherited from m2): count = 2+n, speed = 1.1+0.08n, hp = 30*(1+0.4n).
+//! Composition (card 10): runners from wave 3, tanks from wave 5; the grunt
+//! remainder conserves the total. Each variant's stats = baseline x its
+//! multipliers (components::MonsterKind).
 
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, RigidBody, Velocity};
 
-use crate::components::{Chasing, Hp, Monster, Visual};
+use crate::components::{Chasing, Hp, Monster, MonsterKind, Visual};
 use crate::resources::{Wave, WAVE_BREAK};
 
 /// Spawn ring radius (world units, XZ plane). Placeholder until an arena exists.
@@ -29,24 +33,62 @@ pub fn wave_hp(n: u32) -> f32 {
     30.0 * (1.0 + 0.4 * n as f32)
 }
 
-/// Spawn one wave-`n` monster at `at`. Kinematic rigid body (card 4: chase via velocity).
+/// Runner slots in wave `n` (card 10): none before wave 3, then floor((n-1)/2),
+/// capped at 3. w3=1, w4=1, w5=2, w6=2, w7+=3.
+pub fn runner_count(n: u32) -> u32 {
+    if n < 3 {
+        0
+    } else {
+        ((n - 1) / 2).min(3)
+    }
+}
+
+/// Tank slots in wave `n` (card 10): none before wave 5, then floor(n/5),
+/// capped at 2. w5..w9=1, w10+=2.
+pub fn tank_count(n: u32) -> u32 {
+    if n < 5 {
+        0
+    } else {
+        (n / 5).min(2)
+    }
+}
+
+/// Deterministic wave composition: `wave_count(n)` kinds in ring order —
+/// grunts first, then runners, then tanks. Sum always equals `wave_count(n)`.
+pub fn kinds_for_wave(n: u32) -> Vec<MonsterKind> {
+    let total = wave_count(n) as usize;
+    let grunt = total - runner_count(n) as usize - tank_count(n) as usize;
+    let mut kinds = Vec::with_capacity(total);
+    kinds.extend(std::iter::repeat_n(MonsterKind::Grunt, grunt));
+    kinds.extend(std::iter::repeat_n(MonsterKind::Runner, runner_count(n) as usize));
+    kinds.extend(std::iter::repeat_n(MonsterKind::Tank, tank_count(n) as usize));
+    kinds
+}
+
+/// Spawn one wave-`n` monster of `kind` at `at`: baseline stats x kind multipliers.
 fn spawn_wave_monster(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     at: Vec3,
     n: u32,
+    kind: MonsterKind,
 ) {
     commands.spawn((
         Monster,
-        Hp::full(wave_hp(n)),
-        Chasing { speed: wave_speed(n) },
+        kind,
+        Hp::full(wave_hp(n) * kind.hp_mul()),
+        Chasing { speed: wave_speed(n) * kind.speed_mul() },
         Visual { flash: 0.0 },
         RigidBody::KinematicVelocityBased,
-        Collider::ball(0.3),
+        Collider::ball(kind.cube_size() / 2.0),
         Velocity::zero(),
-        Mesh3d(meshes.add(Cuboid::new(0.6, 0.6, 0.6))),
-        MeshMaterial3d(materials.add(Color::srgb(0.75, 0.2, 0.2))),
+        Mesh3d(meshes.add(Cuboid::new(
+            kind.cube_size(),
+            kind.cube_size(),
+            kind.cube_size(),
+        ))),
+        MeshMaterial3d(materials.add(kind.color())),
         Transform::from_translation(at),
     ));
 }
@@ -73,21 +115,27 @@ pub fn wave_system(
     // Spawn the next wave.
     wave.n += 1;
     let n = wave.n;
+    let kinds = kinds_for_wave(n);
     info!(
-        "[wave] wave {n} incoming: {} enemies, speed {:.2}, hp {:.0}",
-        wave_count(n),
+        "[wave] wave {n} incoming: {} enemies ({} grunts / {} runners / {} tanks), \
+         speed {:.2}, hp {:.0}",
+        kinds.len(),
+        kinds.iter().filter(|k| **k == MonsterKind::Grunt).count(),
+        kinds.iter().filter(|k| **k == MonsterKind::Runner).count(),
+        kinds.iter().filter(|k| **k == MonsterKind::Tank).count(),
         wave_speed(n),
         wave_hp(n)
     );
-    let count = wave_count(n);
-    for i in 0..count {
-        let angle = i as f32 / count as f32 * std::f32::consts::TAU;
+    let count = kinds.len() as u32;
+    for (i, kind) in kinds.into_iter().enumerate() {
+        let i = i as f32;
+        let angle = i / count as f32 * std::f32::consts::TAU;
         let at = Vec3::new(
             SPAWN_RADIUS * angle.cos(),
             0.5,
             SPAWN_RADIUS * angle.sin(),
         );
-        spawn_wave_monster(&mut commands, &mut meshes, &mut materials, at, n);
+        spawn_wave_monster(&mut commands, &mut meshes, &mut materials, at, n, kind);
     }
     wave.timer = WAVE_BREAK; // re-arm the rest that follows this wave (GDD: 3s between every wave)
 }
