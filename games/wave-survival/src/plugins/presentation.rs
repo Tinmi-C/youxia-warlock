@@ -53,8 +53,8 @@ struct MonsterBound;
 
 /// Per-owner animation link carried on the wrapper child; both the hero ready
 /// observer and the sync system read it to address graph/node/clip.
-/// `was_playing` remembers last frame's WalkCycle so sync can act on EDGES:
-/// stop = let the current stride finish (non-repeating), resume = loop again.
+/// `was_playing` remembers last frame's WalkCycle so sync can arm a one-shot
+/// resume edge; idle holding itself is enforced statelessly every frame.
 #[derive(Component)]
 struct AnimLink {
     graph_handle: Handle<AnimationGraph>,
@@ -307,12 +307,15 @@ fn kind_ordinal(kind: MonsterKind) -> u8 {
 // --- shared playback sync --------------------------------------------------
 
 /// Walk playback on EDGES, per visual-pass fix #2 ("走完这一步再停"):
-/// moving && was-idle  -> (re)start the clip looping;
-/// idle   && was-moving-> stop repeating so the CURRENT stride finishes and the
-///                        model freezes at the cycle-end stance instead of
-///                        freezing mid-air. With a single walk clip this is the
-///                        closest correct "stand still"; a true idle pose needs
-///                        an idle asset (future animation-state card).
+/// Walk playback, deterministic variant (2nd iteration after real-machine
+/// feedback): a "finish the current stride" scheme was tried first but the
+/// single walk clip's cycle-end pose is itself another stride contact pose AND
+/// the stop-edge can be consumed before the model finishes loading (the ready
+/// observer then starts looping behind our back), so idle looked identical to
+/// the old mid-stride freeze. Now: idle is enforced STATELESSLY every frame —
+/// pause + seek to frame 0 (a consistent contact/stance pose) — which is
+/// idempotent, closes the preload race, and gives every stop the same
+/// recognizable stand-in-place silhouette. Resuming walks from cycle start.
 fn sync_walk_playback(
     roots: Query<(Entity, &WalkCycle, &Children)>,
     mut links: Query<&mut AnimLink>,
@@ -337,16 +340,25 @@ fn sync_walk_playback(
                 continue;
             };
             if moving && !was_playing {
-                player.play(index).repeat();
-            } else if !moving && was_playing {
+                // one-shot resume edge: restart the cycle cleanly from 0
                 if let Some(active) = player.animation_mut(index) {
-                    active.set_repeat(RepeatAnimation::Never);
+                    active.set_repeat(RepeatAnimation::Forever);
+                    active.replay();
+                    active.resume();
                 }
             } else if moving && was_playing {
                 // steady walking: just make sure it is actually advancing
                 if let Some(active) = player.animation_mut(index) {
                     if active.is_paused() {
                         active.resume();
+                    }
+                }
+            } else if !moving {
+                // stateless idle enforcement (runs every idle frame on purpose)
+                if let Some(active) = player.animation_mut(index) {
+                    if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
+                        active.pause();
+                        active.seek_to(0.0);
                     }
                 }
             }
