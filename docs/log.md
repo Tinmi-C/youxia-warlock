@@ -40,6 +40,7 @@
 | 2026-08-25 | 维护 | 学习文档 Bevy 化 v2：`learning-roadmap.md` 重写为 Bevy 路线（阶段0→M1 垂直切片→M2 玩法深化→M3 表现层→M4 打磨发布）；`engine-concepts-map.md` 里程碑标注从 wgpu 手写改为 Bevy 使用 | topics/engine/learning-roadmap.md、topics/engine/engine-concepts-map.md | AI，待团队 review |
 | 2026-08-26 | 维护 | 陈旧文档与 monorepo 约定对齐：games/engine/tools 三个 README 去除 polyrepo 残留（独立建仓 → 整体 monorepo、新游戏指引改为 bevy-game 模板）+ 删除 topics/未命名.base（Obsidian 残留，误提交） | games/README.md、engine/README.md、tools/README.md、topics/未命名.base（删除） | AI |
 | 2026-08-26 | 维护 | 沉淀开发踩坑两件：① 模板复制改名后 `bevy_game` crate 名残留 → 首编 E0433（模板 README + games/README 新增「全局替换 crate 名」步骤）；② Windows 杀软（360）误报 ahash 构建脚本 → os error 5（新增踩坑页 + 白名单解法） | templates/bevy-game/README.md、games/README.md、topics/engine/bevy-windows-antivirus-build-pitfall.md（新增）、topics/engine/_index.md、MOC.md | AI |
+| 2026-08-27 | 回写 | wave-survival 卡 9 实现中 Bevy 0.19 缓冲事件 API 编译失败 → 事件体系更名踩坑沉淀（Event→Message 三件套 + 无头测试读消息技巧 + hanabi/egui 版本对齐小坑） | topics/engine/bevy-019-events-to-messages-pitfall.md（新增）、topics/engine/_index.md、MOC.md | AI，待团队 review |
 
 ## 操作类型
 

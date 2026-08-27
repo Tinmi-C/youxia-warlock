@@ -48,7 +48,7 @@
 | GameLoop | system | ✅ 已实现（2026-08-26，含回归测试） | 完整一局闭环：出生→刷怪→击杀→死亡→重开，无崩溃（详见下方卡 8） |
 | NovaSlash | gameplay-system | ✅ 已实现（2026-08-27，含回归测试；粒子视觉条目待跑游戏验收） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
 | EnemyVariants | component/gameplay-system | ✅ 已实现（2026-08-27，含回归测试） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
-| EguiTunePanel | architecture/ui-system | 📝 已立卡（2026-08-27，待实现） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
+| EguiTunePanel | architecture/ui-system | ✅ 已实现（2026-08-27，含回归测试；面板视觉条目待跑游戏验收） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
 
 ## 卡 2：PlayerAttack（近战挥砍）
 
@@ -306,7 +306,11 @@
 ```yaml
 能力卡: EguiTunePanel（F1 实时调参面板 + Balance 资源）
 类型: architecture + ui-system
-状态: 已立卡 2026-08-27（待实现）
+状态: 已实现 2026-08-27（Balance 热生效路径回归全绿；F1 面板视觉条目待跑游戏人工验收）
+实现备注:
+  - bevy_egui 0.42 从 `bevy_egui::{egui, EguiContexts}` 取 egui 命名空间；EguiPlugin 有字段 → 用 ::default()
+  - Bevy 0.19 的 F 键是 KeyCode::F1（不是 KeyF1）；窗口/滑条用 egui::Window / egui::Slider
+  - Balance 默认值 = 原战斗常量（纯等值迁移，既有测试零改动通过即证明）
 设计来源: GDD「做」清单「bevy_egui 实时调参面板」+ 观察通道约定 F1 键位
 架构决策:
   - 新资源 Balance { slash_damage, slash_cooldown, nova_radius, nova_damage,
@@ -330,7 +334,7 @@
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. entities=..`（`src/plugins/debug.rs`）。
-- **调试面板**：bevy_egui 实时调参面板——**阶段二计划，当前未实现**（依赖已进 `Cargo.toml`，源码未接入）；届时用 `F1` 开关。
+- **调试面板**：`F1` 开关 bevy_egui 调参面板（卡 11 已实现：实时改 Balance 六项 + Player.speed）。
 - **截图**：`F12` 存 `./screenshot.png`（给验收/队友看效果）。
 - **回归测试**：验收句转 `tests/behavior.rs`（不带渲染的 App 手动驱动，见示例）。
 

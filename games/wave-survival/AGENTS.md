@@ -49,9 +49,9 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：阶段二 玩法深化——卡 9 NovaSlash / 卡 10 EnemyVariants / 卡 11 EguiTunePanel 已立卡（2026-08-27），按卡实现中；阶段一垂直切片已完成（2026-08-26，`cargo test` 22 个回归测试全绿）
-- **已知问题**：无阻塞
-- **近期目标**：三张卡各「实现 + 回归钉死 + 提交」；随后阶段三表现层（骨骼动画 / 音效）
+- **进行中**：阶段二（玩法深化）三张卡全部完成（2026-08-27，`cargo test` 33 个回归测试全绿）：卡 9 NovaSlash（hanabi 冲击波）、卡 10 EnemyVariants（Runner/Tank）、卡 11 EguiTunePanel（F1 + Balance）
+- **已知问题**：卡 9/11 的粒子与面板为视觉条目，需跑游戏人工验收（Shift 冲击波特效 / F1 拖动立即生效）
+- **近期目标**：阶段三 表现层——骨骼动画（glTF 替换占位方块）+ UI 正式化 + 音效
 
 ## 项目专属规则
 
