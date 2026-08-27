@@ -468,6 +468,51 @@
   4. 视觉: 近战一刀/贴脸挨一口 → 目标全身白光一瞬即暗; Nova 圈内多怪齐闪齐暗; F12 截图存证
 ```
 
+## 卡 15：MonsterFacing（怪物移动朝向）
+
+> 2026-08-27 立卡，阶段三第二批首卡。来源 = 阶段三真机验收确认的观感欠账
+> 「怪物无朝向系统（面朝 +Z 固定），多方向行走露侧脸/背面」。
+> AI 按默认方案起草，拍板后进入实现。
+
+```yaml
+能力卡: MonsterFacing（怪物人形模型面向追击方向）
+类型: component + presentation
+状态: 待 review
+设计来源: 阶段三验收反馈；复用卡 12/13 的 wrapper 架构与「新机制=新组件+新系统」惯例
+          （观测系统先例: 卡 12 的 update_walk_cycle 不碰 move_player 而观测其结果）
+范围红线:
+  - 只做怪物。玩家朝向牵扯攻击方向语义（近战/Nova 判定已是全向），属另一张卡的决策面
+  - 物理零交互: 旋转只写场景 wrapper 子实体的 Transform.rotation——怪物刚体已
+    LockedAxes::ROTATION_LOCKED（验收 fix `110456a`），根实体 rotation 全程保持单位元，
+    卡 4 判定几何与 Velocity 写入完全不受影响
+接口:
+  输入: With<(Monster, Chasing)> 根实体的 Transform（相邻帧位移推算方向）
+  输出: 新组件 Heading { dir: Vec2 }（纯数据，XZ 平面单位向量；进 components.rs）;
+        表现层 wrapper yaw 以恒定角速度平滑收敛到 Heading 方向
+行为:
+  - 数据侧（GamePlugin 注册 derive_heading，逻辑链尾、decay_flash 之后）:
+    每帧由位移反推移动方向写 Heading.dir；速度 < ε（同 WalkCycle 的 0.02/s 阈值）时
+    保持上一值不抖动——静立的怪维持最后面向
+  - 表现侧（PresentationPlugin）: 目标 yaw = atan2(dir.x, dir.z)（glTF 模型面朝 +Z）；
+    当前 wrapper yaw 按 MAX_TURN_RATE 常量（默认 540°/s，主观手感值）走最短弧收敛；
+    出生第一帧直接对准玩家方向，无初始甩头
+  - 为什么不由 enemy_chase 直写朝向: 该老系统只持有 speed 标量不含方向，本卡坚持零改动，
+    与卡 12 同款「新增观测系统取证」手法
+设计变更记录（装配级）:
+  - GamePlugin 增注册 derive_heading
+  - components.rs 增 Heading 组件
+  - PresentationPlugin 增面朝跟随段（挂现有 Update 链尾）
+数字化验收句:
+  1. 零改动红线: tests/behavior.rs 现有 38 个回归逐字不变、全绿
+  2. Heading 数据链（headless 可测，转回归）: 直线追击驱动 0.3s 后
+     angle(Heading.dir, 位移归一) < 2°; 人为挪玩家制造折返 → 折返帧夹角允许 ≈180°
+     但 ≤0.6s 内收敛回 <2°; 对静止怪驱动任意帧数 Heading.dir 逐位不变
+  3. 编码期硬约束（延用规矩）: atan2 分支与 wrapper 初始 yaw、repeat_mode 等 API 细节
+     以本地 cargo registry / 本仓库 presentation.rs 既有实现为准核对后再写
+  4. 视觉: 怪群围堵时模型正面冲脸、包抄侧翼转身流畅无瞬跳; F12 截图存证
+     （对照: 立卡前版本永远面朝 +Z）
+```
+
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. entities=..`（`src/plugins/debug.rs`）。
