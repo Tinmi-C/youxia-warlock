@@ -49,16 +49,20 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：阶段三（表现层）卡 12–14 已过团队 review、进入实现（2026-08-27，一卡一提交，顺序 12→13→14）：
-  卡 12 HeroPresentation（玩家 glTF 展示层插件 + 走路「动才播/静止停」）、
-  卡 13 MonsterPresentation（怪物模型 + 三分型 tint/缩放辨识，方案 C 已拍板）、
-  卡 14 HitFlashFeedback（flash 衰减 + 材质发光——白闪首次真正可见）。
-  共同架构：表现层插件只挂 `build_app`，逻辑系统与 headless 回归零改动。
+- **进行中**：阶段三（表现层）卡 12–14 代码完成、已逐卡提交（2026-08-27，
+  `c07520d` / `0c9119a` / `0ef1ca0`，`cargo test` 38 个回归全绿）。
+  共同架构：PresentationPlugin 只挂 `build_app`，逻辑系统零改动保住全部旧测试
+  （唯一漂移：三条旧 flash 断言按 review 后的衰减公式带宽修订并注明出处）。
+- **待人工验收（跑一次 `cargo run` 可全部完成）**：
+  - ① 玩家人形 + 按住方向键迈步、松开定格（卡 12）
+  - ② 怪物 glTF + Grunt/Runner/Tank 色·体双辨识（第 5 波起观察；卡 13）
+  - ③ 近战/受击/Nova 的白闪一瞬即暗（卡 14）
+  - ④ 阶段二遗留：Shift 冲击波粒子（卡 9）/ F1 面板实时生效（卡 11）
 - **已知问题**：
-  - 阶段二两项视觉验收仍待跑游戏完成：Shift 冲击波粒子（卡 9 第 6 条）/ F1 面板实时生效（卡 11 第 3 条）
-  - hero.glb / monster.glb 各只有 1 条走路动画 clip（无 idle）；review 拍板：走路只在移动中播放、静止即暂停（不常播），idle 素材到位后再立动画状态机卡
+  - hero.glb / monster.glb 各只有 1 条走路动画 clip（无 idle）；契约「动才播、静止停」，idle 素材到位后再立动画状态机卡
   - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
-- **近期目标**：按已过 review 的卡 12 → 13 → 14 实现并逐卡提交 → 阶段三后半再立「UI 正式化」；音效按 GDD 后置
+  - 本机曾发生 PowerShell 文本管道写坏 UTF-8 注释的事故（已用 git 恢复）；改文件一律走 AI 文件工具或显式 UTF-8 编码
+- **近期目标**：人工视觉验收 ①–④ → 阶段三收尾（写 phase-3-dev-notes 存档）→ 立「UI 正式化」卡；音效按 GDD 后置
 - **阶段二收尾存档**：卡 9–11 全部完成（2026-08-27，33 个回归测试全绿，见 `docs/phase-2-dev-notes.md`）
 
 ## 项目专属规则

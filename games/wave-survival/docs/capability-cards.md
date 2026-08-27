@@ -35,7 +35,9 @@
 
 > 阶段 1（垂直切片）：卡 1–8，全部完成（2026-08-26）。
 > 阶段 2（玩法深化）：卡 9–11，全部完成（2026-08-27，33 个回归测试全绿）。
-> 阶段 3（表现层）：卡 12–14 已立卡并通过 review（2026-08-27），进入实现，顺序 12→13→14、一卡一提交。UI 正式化、音效（GDD 后置项）暂未立卡，随实现进度再立。
+> 阶段 3（表现层）：卡 12–14 已实现并逐卡提交（2026-08-27，`cargo test` 38 个回归全绿）；
+> 模型外观/动画/白闪观感等视觉条目由人跑一次游戏完成验收后本阶段收尾。
+> UI 正式化、音效（GDD 后置项）暂未立卡，随实现进度再立。
 
 | 卡 | 类型 | 状态 | 验收句要点 |
 |----|------|------|-----------|
@@ -50,9 +52,9 @@
 | NovaSlash | gameplay-system | ✅ 已实现（2026-08-27，含回归测试；粒子视觉条目待跑游戏验收） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
 | EnemyVariants | component/gameplay-system | ✅ 已实现（2026-08-27，含回归测试） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
 | EguiTunePanel | architecture/ui-system | ✅ 已实现（2026-08-27，含回归测试；面板视觉条目待跑游戏验收） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
-| HeroPresentation | asset/architecture | 🚧 实现中（2026-08-27 review 通过） | 玩家挂 hero.glb 人形；走路动画「动才播/静止停」跟随位移；回归零改动（详见下方卡 12） |
-| MonsterPresentation | asset/component | 🟢 已立卡（2026-08-27 review 通过） | 怪物挂 monster.glb 人形；分型辨识方案 C = tint+缩放双编码；判定几何不动（详见下方卡 13） |
-| HitFlashFeedback | system | 🟢 已立卡（2026-08-27 review 通过） | flash 首次接入衰减 + 材质发光跟随——白闪真正可见（详见下方卡 14） |
+| HeroPresentation | asset/architecture | ✅ 已实现（2026-08-27，提交 c07520d；模型/动画为视觉条目待人工验收） | 玩家挂 hero.glb 人形；走路动画「动才播/静止停」跟随位移；回归零改动（详见下方卡 12） |
+| MonsterPresentation | asset/component | ✅ 已实现（2026-08-27，提交 0c9119a；外观与辨识度为视觉条目待人工验收） | 怪物挂 monster.glb 人形；分型辨识方案 C = tint+缩放双编码；判定几何不动（详见下方卡 13） |
+| HitFlashFeedback | system | ✅ 已实现（2026-08-27，提交 0ef1ca0；含衰减公式回归；观感为视觉条目待人工验收） | flash 首次接入衰减 + 材质发光跟随——白闪真正可见（详见下方卡 14） |
 
 ## 卡 2：PlayerAttack（近战挥砍）
 
@@ -342,7 +344,7 @@
 ```yaml
 能力卡: HeroPresentation（玩家 glTF 模型 + 骨骼动画展示层）
 类型: asset + architecture
-状态: 已立卡（2026-08-27 团队 review 通过），排队实现中
+状态: 已实现 2026-08-27（数字化断言回归全绿；视觉观感项待人工跑游戏验收）
 设计来源: GDD「做」清单「3D 场景：玩家+怪物+地面（骨骼动画角色，glTF）」+
           技术选型「动画 = Bevy 内置 AnimationGraph」；
           bevy-spike 已验证完整路径：hero.glb Scene → AnimationGraph::from_clip(Animation(0))
@@ -404,7 +406,7 @@
 ```yaml
 能力卡: MonsterPresentation（怪物 glTF 模型 + 三分型辨识度）
 类型: asset + component
-状态: 已立卡（2026-08-27 团队 review 通过），排队实现中
+状态: 已实现 2026-08-27（数字化断言回归全绿；视觉观感项待人工跑游戏验收）
 设计来源: 同卡 12 的机制复用；卡 10 EnemyVariants 现状靠「颜色 + 尺寸」区分分型
           （Grunt 红 0.6³ / Runner 黄 0.45³ / Tank 紫 0.85³）——换人形模型后此差异消失，
           辨识度必须重新落地，这是本卡的真正难点（审美决策，AI 给方案、人拍板）
@@ -443,7 +445,7 @@
 ```yaml
 能力卡: HitFlashFeedback（flash 衰减 + 材质发光跟随）
 类型: system
-状态: 已立卡（2026-08-27 团队 review 通过），排队实现中
+状态: 已实现 2026-08-27（数字化断言回归全绿；视觉观感项待人工跑游戏验收）
 背景（立卡前代码审查发现）: Visual.flash 全工程目前只有三个写入方
   （player_attack / nova_slash / contact_damage 命中时置 1.0），没有任何读取方、
   从不衰减——白闪从未真正看得见。阶段三把它补完，正好骑在卡 12/13 的模型材质之上。
