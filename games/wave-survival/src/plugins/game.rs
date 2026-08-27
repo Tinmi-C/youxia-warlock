@@ -1,6 +1,7 @@
 //! GamePlugin: every system of the game domain. One domain = one plugin.
 
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::RapierConfiguration;
 
 use crate::components::{Attack, Hp, Monster, NovaAttack, Player};
 use crate::{resources::Balance, resources::Wave, states::GameState, systems};
@@ -47,12 +48,30 @@ impl Plugin for GamePlugin {
             // Pause toggle runs in Playing/Paused; restart runs only in GameOver.
             .add_systems(Update, toggle_pause)
             .add_systems(Update, restart.run_if(in_state(GameState::GameOver)))
+            // card 16 review fix: rapier steps unconditionally, so dynamic
+            // monster bodies kept integrating their last velocity through the
+            // pause screen. Freeze the whole physics pipeline outside Playing;
+            // enemy_chase rewrites velocities on the first Playing frame back.
+            .add_systems(Update, sync_physics_pause)
             // card 12: outside Playing nothing moves the player — hold the walk
             // flag down so the model never moonwalks through pause/GameOver.
             .add_systems(
                 Update,
                 systems::player::clear_walk_on_pause.run_if(not(in_state(GameState::Playing))),
             );
+    }
+}
+
+/// card 16 review fix: mirror GameState onto rapier's pipeline switch —
+/// physics steps outside our control, so without this the dynamic monster
+/// bodies kept integrating their last velocity through the pause screen.
+/// Idempotent: only writes when the flag actually differs.
+fn sync_physics_pause(state: Res<State<GameState>>, mut configs: Query<&mut RapierConfiguration>) {
+    let active = *state.get() == GameState::Playing;
+    for mut config in &mut configs {
+        if config.physics_pipeline_active != active {
+            config.physics_pipeline_active = active;
+        }
     }
 }
 

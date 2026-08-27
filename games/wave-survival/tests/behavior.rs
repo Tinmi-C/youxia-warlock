@@ -1437,3 +1437,58 @@ fn pause_overlay_visibility_follows_state() {
     run_frames(&mut app, 1);
     assert!(!visible(&mut app), "hidden again once Playing");
 }
+
+/// Card 16 review fix — acceptance: pausing freezes monster MOTION, not just
+/// the walk flag. Rapier steps outside the Playing gate, so dynamic bodies kept
+/// integrating their last velocity through the pause screen until
+/// `sync_physics_pause` turned the pipeline off; resuming must also resume.
+#[test]
+fn paused_world_freezes_and_resumes_monster_motion() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    *app.world_mut().resource_mut::<Wave>() = Wave { n: 0, timer: -1.0 };
+    run_frames(&mut app, 3);
+    assert!(monster_count(&mut app) > 0, "wave 1 spawned");
+
+    run_frames(&mut app, 20); // let the pack approach
+    let before: Vec<(Entity, Vec3)> = {
+        let mut q = app.world_mut().query::<(Entity, &Transform)>();
+        q.iter(app.world())
+            .filter(|(e, _)| app.world().get::<Monster>(*e).is_some())
+            .map(|(e, tf)| (e, tf.translation))
+            .collect()
+    };
+    assert!(!before.is_empty());
+
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Paused);
+    run_frames(&mut app, 30); // a real pause length
+
+    for (e, before_pos) in &before {
+        let now = app
+            .world()
+            .get::<Transform>(*e)
+            .expect("monster alive while paused")
+            .translation;
+        assert!(
+            now.distance(*before_pos) < 1e-4,
+            "monster {e:?} drifted while paused: {before_pos} -> {now}"
+        );
+    }
+
+    // resume: the pack must move again (pipeline reactivated)
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Playing);
+    run_frames(&mut app, 30);
+    let mut moved = 0;
+    for (e, before_pos) in &before {
+        if let Some(tf) = app.world().get::<Transform>(*e) {
+            if tf.translation.distance(*before_pos) > 0.05 {
+                moved += 1;
+            }
+        }
+    }
+    assert!(moved > 0, "after resume monsters must advance again");
+}
