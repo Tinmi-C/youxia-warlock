@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 
+use crate::components::{Attack, Hp, Monster, Player};
 use crate::{resources::Wave, states::GameState, systems};
 
 pub struct GamePlugin;
@@ -15,6 +16,7 @@ impl Plugin for GamePlugin {
                     systems::camera::spawn_camera,
                     systems::camera::spawn_environment,
                     systems::player::spawn_player,
+                    systems::ui::spawn_ui,
                     spawn_hint_ui,
                 ),
             )
@@ -26,17 +28,21 @@ impl Plugin for GamePlugin {
                     systems::combat::player_attack,
                     systems::contact::contact_damage,
                     systems::contact::death_despawn,
+                    systems::pickup::pickup_drop,
                     systems::wave::wave_system,
                 )
                     .chain()
                     .run_if(in_state(GameState::Playing)),
             )
-            // Pause toggle must run in every state (P resumes from Paused too).
-            .add_systems(Update, toggle_pause);
+            // HUD updates in every state (so the GameOver screen can show).
+            .add_systems(Update, systems::ui::ui_update)
+            // Pause toggle runs in Playing/Paused; restart runs only in GameOver.
+            .add_systems(Update, toggle_pause)
+            .add_systems(Update, restart.run_if(in_state(GameState::GameOver)));
     }
 }
 
-/// P toggles Playing/Paused (GameOver resets to Playing).
+/// P toggles Playing/Paused. It does NOT revive a dead player (R restarts).
 fn toggle_pause(
     keys: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
@@ -45,19 +51,43 @@ fn toggle_pause(
     if !keys.just_pressed(KeyCode::KeyP) {
         return;
     }
-    let new_state = match state.get() {
-        GameState::Playing => GameState::Paused,
-        GameState::Paused => GameState::Playing,
-        GameState::GameOver => GameState::Playing,
-    };
-    next.set(new_state);
-    info!("[game] state -> {new_state:?}");
+    match state.get() {
+        GameState::Playing => next.set(GameState::Paused),
+        GameState::Paused => next.set(GameState::Playing),
+        GameState::GameOver => {} // dead: R restarts, P does nothing
+    }
+}
+
+/// R restarts from GameOver: clear monsters, reset the player, reset the wave.
+fn restart(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    monsters: Query<Entity, With<Monster>>,
+    mut player: Query<(&mut Hp, &mut Transform, &mut Attack), With<Player>>,
+    mut wave: ResMut<Wave>,
+    mut next: ResMut<NextState<GameState>>,
+) {
+    if !keys.just_pressed(KeyCode::KeyR) {
+        return;
+    }
+    for e in &monsters {
+        commands.entity(e).despawn();
+    }
+    if let Ok((mut hp, mut tf, mut attack)) = player.single_mut() {
+        hp.hp = hp.max;
+        hp.invuln = 0.0;
+        tf.translation = Vec3::new(0.0, 0.5, 0.0);
+        attack.cooldown = 0.0;
+    }
+    *wave = Wave::default();
+    next.set(GameState::Playing);
+    info!("[game] restart — back to wave 0");
 }
 
 /// Static UI hint (bevy_ui text pipeline). Dynamic text is a future capability card.
 fn spawn_hint_ui(mut commands: Commands) {
     commands.spawn((
-        Text::new("WASD move | Space slash | P pause | F12 screenshot"),
+        Text::new("WASD move | Space slash | P pause | R restart | F12 screenshot"),
         TextFont {
             font_size: FontSize::Px(20.0),
             ..default()

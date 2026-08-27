@@ -50,3 +50,22 @@ pub struct Visual {
 pub struct Chasing {
     pub speed: f32,
 }
+
+/// Golden pickup dropped on a monster kill; heals the player once armed & close.
+#[derive(Component)]
+pub struct Pickup {
+    pub heal: f32,
+    pub arm: f32,
+}
+
+// --- UI markers (card 7 GameStateUI) ---
+#[derive(Component)]
+pub struct UiHpFill;
+#[derive(Component)]
+pub struct UiHpText;
+#[derive(Component)]
+pub struct UiWaveText;
+#[derive(Component)]
+pub struct UiCooldownFill;
+#[derive(Component)]
+pub struct UiGameOver;

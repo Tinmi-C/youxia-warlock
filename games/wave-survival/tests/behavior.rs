@@ -11,7 +11,7 @@ use bevy::{
 };
 use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity};
 
-use wave_survival::components::{Chasing, Hp, Monster, Player, Visual};
+use wave_survival::components::{Chasing, Hp, Monster, Pickup, Player, Visual};
 use wave_survival::resources::Wave;
 use wave_survival::systems::wave::{wave_count, wave_hp, wave_speed};
 use wave_survival::{plugins::game::GamePlugin, states::GameState};
@@ -459,4 +459,99 @@ fn player_death_sets_game_over() {
 
     let state = app.world().resource::<State<GameState>>().get();
     assert_eq!(*state, GameState::GameOver);
+}
+
+// --- PickupDrop tests (capability card 6) ---
+
+fn spawn_pickup_at(app: &mut App, x: f32, z: f32, arm: f32, heal: f32) -> Entity {
+    app.world_mut()
+        .spawn((
+            Pickup { heal, arm },
+            Transform::from_xyz(x, 0.25, z),
+        ))
+        .id()
+}
+
+fn pickup_count(app: &mut App) -> usize {
+    let mut q = app.world_mut().query::<&Pickup>();
+    q.iter(app.world()).count()
+}
+
+/// PickupDrop — acceptance: a ready pickup within range heals the player (capped at max).
+#[test]
+fn pickup_heals_player_when_close() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+
+    // Damage the player first so healing is observable.
+    let player = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Player>>();
+        q.single(app.world()).unwrap()
+    };
+    app.world_mut().entity_mut(player).get_mut::<Hp>().unwrap().hp = 50.0;
+
+    spawn_pickup_at(&mut app, 0.0, 0.0, 0.0, 10.0); // ready, on the player
+    app.update(); // pickup_drop heals
+
+    assert!(
+        (player_hp(&mut app) - 60.0).abs() < 0.01,
+        "50 + 10 = 60, got {}",
+        player_hp(&mut app)
+    );
+    assert_eq!(pickup_count(&mut app), 0, "pickup consumed on heal");
+}
+
+/// PickupDrop — acceptance: killing a monster drops a pickup at its position.
+#[test]
+fn monster_kill_drops_pickup() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    let before = pickup_count(&mut app);
+    let e = spawn_monster(&mut app, 1.0, 0.0);
+    app.world_mut().entity_mut(e).get_mut::<Hp>().unwrap().hp = -1.0; // dead
+
+    app.update(); // death_despawn drops a pickup + despawns the monster
+
+    assert_eq!(pickup_count(&mut app), before + 1, "a pickup should be dropped");
+    assert!(app.world().get_entity(e).is_err(), "monster should be despawned");
+}
+
+// --- GameLoop test (capability card 8) ---
+
+/// Full vertical-slice loop: spawn → wave 1 → player dies → GameOver → R restart → Playing.
+#[test]
+fn game_loop_full_cycle() {
+    let mut app = test_app();
+    run_frames(&mut app, 220); // wave 1 spawns (~3s)
+    assert_eq!(current_wave(&app), 1);
+    assert_eq!(monster_count(&mut app), 3);
+    assert_eq!(*app.world().resource::<State<GameState>>().get(), GameState::Playing);
+
+    // Kill the player -> GameOver.
+    let player = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Player>>();
+        q.single(app.world()).unwrap()
+    };
+    app.world_mut()
+        .entity_mut(player)
+        .get_mut::<Hp>()
+        .unwrap()
+        .hp = -1.0;
+    app.update();
+    app.update();
+    assert_eq!(*app.world().resource::<State<GameState>>().get(), GameState::GameOver);
+
+    // Press R -> restart -> back to Playing, wave reset, player full, monsters cleared.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyR);
+    app.update();
+    app.update();
+    assert_eq!(*app.world().resource::<State<GameState>>().get(), GameState::Playing);
+    assert_eq!(current_wave(&app), 0, "wave reset to 0 on restart");
+    assert!(
+        (player_hp(&mut app) - 100.0).abs() < 0.01,
+        "player reset to full hp"
+    );
+    assert_eq!(monster_count(&mut app), 0, "monsters cleared on restart");
 }

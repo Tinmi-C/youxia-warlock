@@ -6,6 +6,7 @@ use bevy::prelude::*;
 
 use crate::components::{Hp, Monster, Player, Visual};
 use crate::states::GameState;
+use crate::systems::pickup::spawn_pickup;
 
 /// Contact tuning (GDD / m2 ContactSystem).
 pub const CONTACT_DIST: f32 = 0.40;
@@ -42,16 +43,19 @@ pub fn contact_damage(
     }
 }
 
-/// hp <= 0: monsters despawn; the player flips the game to GameOver.
+/// hp <= 0: monsters despawn (dropping a pickup, card 6); the player flips to GameOver.
 pub fn death_despawn(
     mut commands: Commands,
-    monsters: Query<(Entity, &Hp), With<Monster>>,
+    monsters: Query<(Entity, &Hp, &Transform), With<Monster>>,
     player: Query<&Hp, With<Player>>,
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (e, hp) in &monsters {
+    for (e, hp, tf) in &monsters {
         if hp.hp <= 0.0 {
+            spawn_pickup(&mut commands, &mut meshes, &mut materials, tf.translation);
             commands.entity(e).despawn();
         }
     }
