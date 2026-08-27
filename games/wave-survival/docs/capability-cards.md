@@ -46,7 +46,7 @@
 | PickupDrop | system | ✅ 已实现（2026-08-26，含回归测试） | 击杀掉金色补给，走近自动拾取回血（详见下方卡 6） |
 | GameStateUI | ui-system | ✅ 已实现（2026-08-26，视觉卡） | 血条 / 波次文本 / 冷却条；死亡 GameOver / R 重开（详见下方卡 7） |
 | GameLoop | system | ✅ 已实现（2026-08-26，含回归测试） | 完整一局闭环：出生→刷怪→击杀→死亡→重开，无崩溃（详见下方卡 8） |
-| NovaSlash | gameplay-system | 📝 已立卡（2026-08-27，待实现） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
+| NovaSlash | gameplay-system | ✅ 已实现（2026-08-27，含回归测试；粒子视觉条目待跑游戏验收） | Shift 范围斩：半径 1.6 内全体 −60 / 冷却 5s；hanabi 金色冲击波（详见下方卡 9） |
 | EnemyVariants | component/gameplay-system | 📝 已立卡（2026-08-27，待实现） | 第 3 波起混入 Runner（快/脆）、第 5 波起 Tank（慢/硬）；组合守恒（详见下方卡 10） |
 | EguiTunePanel | architecture/ui-system | 📝 已立卡（2026-08-27，待实现） | F1 开关调参面板，Balance 资源生效于挥砍/Nova/接触数值（详见下方卡 11） |
 
@@ -223,7 +223,14 @@
 ```yaml
 能力卡: NovaSlash（范围斩 + 冲击波特效）
 类型: gameplay-system
-状态: 已立卡 2026-08-27（待实现）
+状态: 已实现 2026-08-27（逻辑 + 回归测试全绿；验收句第 6 条粒子视觉待跑游戏人工验收）
+实现备注:
+  - Bevy 0.19 缓冲事件已更名 Message：#[derive(Message)] + MessageWriter + add_message
+    （编译期发现，Event/add_event 已不存在；观察通道踩坑候选）
+  - bevy::prelude 也导出 Gradient（bevy_ui），与 hanabi 的 Gradient 撞名 → vfx.rs 显式导入
+  - hanabi 0.19 ColorOverLifetimeModifier 新增 mask 字段 → 用 ::new(gradient) 构造
+  - vfx 触发链：nova_slash 写 NovaFired → VfxPlugin 的 EffectSpawner::reset() 重放一次性爆发
+    （照抄官方示例 spawn_on_command 的受控触发模式）
 设计来源: GDD 数值表「范围斩 Nova 半径 1.6 / 伤害 60 / CD 5s」+ 核心循环「Shift 范围斩」
 接口:
   输入:
