@@ -1492,3 +1492,54 @@ fn paused_world_freezes_and_resumes_monster_motion() {
     }
     assert!(moved > 0, "after resume monsters must advance again");
 }
+
+// --- PlayerFacing (card 18) ---
+
+fn player_heading(app: &mut App) -> Vec2 {
+    let mut q = app.world_mut().query_filtered::<&Heading, With<Player>>();
+    (*q.single(app.world()).expect("player heading")).dir
+}
+
+/// Card 18 — acceptance: heading follows the actual displacement direction
+/// (W = world +Z ⇒ dir ≈ (0, 1)), angle error under 5°.
+#[test]
+fn player_heading_tracks_movement_direction() {
+    let mut app = test_app();
+    run_frames(&mut app, 2); // seed the walk-cycle reference position
+
+    press_key(&mut app, KeyCode::KeyW);
+    run_frames(&mut app, 30);
+    release_key(&mut app, KeyCode::KeyW);
+
+    let h = player_heading(&mut app);
+    let cos_5deg = 5.0f32.to_radians().cos();
+    assert!(
+        h.dot(Vec2::Y) > cos_5deg && h.length_squared() > 0.999 * 0.999,
+        "heading {h:?} should point along +Z within 5°"
+    );
+}
+
+/// Card 18 — acceptance: standing still keeps the last heading (hold semantics
+/// identical to the monsters', card 15).
+#[test]
+fn player_heading_holds_when_still() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+
+    press_key(&mut app, KeyCode::KeyA); // A = world +X (south-camera flip)
+    run_frames(&mut app, 20);
+    release_key(&mut app, KeyCode::KeyA);
+
+    let held = player_heading(&mut app);
+    assert!(
+        held.dot(Vec2::X) > 0.999,
+        "precondition: heading should face +X, got {held:?}"
+    );
+
+    run_frames(&mut app, 30); // plenty of idle frames
+    let after = player_heading(&mut app);
+    assert!(
+        (held - after).length() < 1e-5,
+        "heading drifted while still: {held:?} -> {after:?}"
+    );
+}

@@ -33,12 +33,15 @@ impl Plugin for GamePlugin {
                     systems::contact::death_despawn,
                     systems::pickup::pickup_drop,
                     systems::wave::wave_system,
-                    // card 12: after every Transform writer above
-                    systems::player::update_walk_cycle,
                     // card 14: decay flash AFTER all combat writers same-frame
                     systems::contact::decay_flash,
-                    // card 15: heading observation AFTER all movers this frame
+                    // card 15/18: heading observation AFTER all movers this
+                    // frame but BEFORE update_walk_cycle — the two watchers
+                    // share PrevTranslation, and derive_heading must read the
+                    // position anchor from LAST frame to see a non-zero delta.
                     systems::heading::derive_heading,
+                    // card 12: after every Transform writer above
+                    systems::player::update_walk_cycle,
                 )
                     .chain()
                     .run_if(in_state(GameState::Playing)),

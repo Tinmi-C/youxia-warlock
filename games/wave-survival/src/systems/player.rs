@@ -11,7 +11,9 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, CollisionGroups, Group, RigidBody};
 
-use crate::components::{Attack, Hp, NovaAttack, Player, PrevTranslation, Visual, WalkCycle};
+use crate::components::{
+    Attack, Heading, Hp, NovaAttack, Player, PrevTranslation, Visual, WalkCycle,
+};
 
 pub fn spawn_player(
     mut commands: Commands,
@@ -22,6 +24,9 @@ pub fn spawn_player(
         Player { speed: 5.0 },
         Attack { cooldown: 0.0 },
         NovaAttack { cooldown: 0.0 }, // card 9: independent Shift-nova throttle
+        // card 18: presentation-side facing target (+Z = yaw0, model convention);
+        // derive_heading updates it from displacement, the wrapper turns to it.
+        Heading { dir: Vec2::Y },
         Hp::full(100.0),
         Visual { flash: 0.0 },
         RigidBody::KinematicPositionBased,

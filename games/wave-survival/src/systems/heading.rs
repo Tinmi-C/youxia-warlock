@@ -4,6 +4,8 @@
 //! `enemy_chase` keeps its scalar-speed interface untouched. The presentation
 //! plugin turns `Heading` into wrapper yaw; physics stays out entirely
 //! (monsters are rotation-locked dynamics, root transforms never rotate).
+//! Card 18 PlayerFacing: the player mirrors the same displacement rules (with
+//! no chase target to seed from — its spawn-time heading just persists).
 
 use bevy::prelude::*;
 
@@ -16,7 +18,15 @@ const MIN_SPEED: f32 = 0.02;
 pub fn derive_heading(
     time: Res<Time>,
     mut commands: Commands,
-    player: Query<&Transform, With<Player>>,
+    mut player: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&mut PrevTranslation>,
+            Option<&mut Heading>,
+        ),
+        (With<Player>, Without<Monster>),
+    >,
     mut monsters: Query<
         (
             Entity,
@@ -24,12 +34,30 @@ pub fn derive_heading(
             Option<&mut PrevTranslation>,
             Option<&mut Heading>,
         ),
-        With<Monster>,
+        (With<Monster>, Without<Player>),
     >,
 ) {
     let dt = time.delta_secs();
     // Seed reference for first sight: face towards the player when known.
-    let player_at = player.single().ok().map(|tf| tf.translation);
+    let player_at = player.iter().next().map(|(_, tf, _, _)| tf.translation);
+
+    // --- card 18: player heading (mirror of the monster rules, no seed target).
+    // The player anchor is OWNED by card 12's update_walk_cycle, which runs
+    // after us: we READ it (it still holds last frame's post-move position, so
+    // our delta is this frame's move) but never write it — writing here would
+    // zero the walk-cycle's delta and kill the walk animation. Outside Playing
+    // clear_walk_on_pause re-anchors it, so resuming cannot cause a fake flip.
+    if let Ok((_entity, tf, prev, heading)) = player.single_mut() {
+        let here = tf.translation;
+        if let (Some(prev), Some(mut heading)) = (prev, heading) {
+            let delta = Vec2::new(here.x - prev.v.x, here.z - prev.v.z);
+            if delta.length() / dt.max(f32::EPSILON) > MIN_SPEED {
+                heading.dir = delta.normalize();
+            }
+            // slow frame → hold dir (no write-back: the anchor is not ours)
+        }
+        // no seeding: update_walk_cycle owns player anchor setup
+    }
 
     for (entity, tf, prev, heading) in &mut monsters {
         let here = tf.translation;

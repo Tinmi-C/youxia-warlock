@@ -377,12 +377,14 @@ fn sync_walk_playback(
 /// a full about-face takes 180/540 = 0.33 s, inside the 0.6 s deadline).
 pub const MAX_TURN_RATE_DEG: f32 = 540.0;
 
-/// Turn each monster's model wrapper towards its logic-side `Heading` at a
-/// constant rate along the shortest arc. Wrapper-local only — roots never
-/// rotate, physics never sees this (rotation-locked dynamic bodies).
+/// Turn any heading owner's model wrapper (monsters AND the player, card 18)
+/// towards its logic-side `Heading` at a constant rate along the shortest arc.
+/// Wrapper-local only — roots never rotate, physics never sees this
+/// (rotation-locked dynamic bodies; the player root is position-driven).
+/// Both wrappers carry AnimLink, which is what identifies the model child.
 fn face_towards_heading(
     time: Res<Time>,
-    headings: Query<(&Heading, &Children), With<Monster>>,
+    headings: Query<(&Heading, &Children)>,
     links: Query<&AnimLink>,
     mut wrappers: Query<&mut Transform>,
 ) {
