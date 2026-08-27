@@ -63,6 +63,17 @@ impl MonsterKind {
             MonsterKind::Tank => Color::srgb(0.55, 0.25, 0.8), // purple
         }
     }
+
+    /// Card 13 (MonsterPresentation) scale applied to the glTF model wrapper so
+    /// each kind keeps the placeholder cube's size language (review scheme C:
+    /// tint + 体格双编码). Purely visual — colliders stay untouched.
+    pub fn visual_scale(self) -> f32 {
+        match self {
+            MonsterKind::Grunt => 1.0,
+            MonsterKind::Runner => 0.85,
+            MonsterKind::Tank => 1.25,
+        }
+    }
 }
 
 /// Hit points + invulnerability. Death/despawn is handled by CombatContact (card 5).

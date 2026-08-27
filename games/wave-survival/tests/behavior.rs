@@ -168,6 +168,38 @@ fn walk_flag_clears_while_paused_even_with_keys_held() {
     );
 }
 
+// --- MonsterPresentation (card 13) ---
+
+/// Capability card 13 — scheme C body scales are pinned so a silent drift
+/// cannot desynchronize visual size language from gameplay stats.
+#[test]
+fn variant_visual_scales_match_scheme_c() {
+    assert_eq!(MonsterKind::Grunt.visual_scale(), 1.0);
+    assert_eq!(MonsterKind::Runner.visual_scale(), 0.85);
+    assert_eq!(MonsterKind::Tank.visual_scale(), 1.25);
+}
+
+/// Card 13 data contract: wave-spawned monsters carry `WalkCycle { playing }`
+/// so the presentation layer can animate them; the logic side stays the single
+/// source of truth for when walking stops.
+#[test]
+fn wave_monsters_spawn_with_walk_flag_up() {
+    let mut app = test_app();
+    run_frames(&mut app, 220); // wave 1 arrives naturally
+    let total = monster_count(&mut app);
+    assert!(total > 0, "wave 1 should have spawned by now");
+    let flagged = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&WalkCycle, With<Monster>>();
+        q.iter(app.world()).filter(|w| w.playing).count()
+    };
+    assert_eq!(
+        flagged, total,
+        "every spawned monster must carry WalkCycle.playing = true"
+    );
+}
+
 // --- PlayerAttack helpers (capability card 2) ---
 
 fn run_frames(app: &mut App, n: usize) {

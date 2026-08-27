@@ -98,12 +98,12 @@ pub fn update_walk_cycle(
     }
 }
 
-/// Card 12: outside the Playing state nothing can move the player, so hold the
-/// walk flag down and re-anchor the previous position (covers the R-restart
-/// teleport happening during GameOver). Registered with
-/// `run_if(not(in_state(GameState::Playing)))` — disjoint from the gated chain.
+/// Card 12/13: outside the Playing state nothing moves anyone, so hold every
+/// walk flag down (player AND monsters — a paused field must not moonwalk) and
+/// re-anchor the previous position (covers the R-restart teleport during
+/// GameOver). Registered with `run_if(not(in_state(GameState::Playing)))`.
 pub fn clear_walk_on_pause(
-    mut q: Query<(&Transform, &mut WalkCycle, Option<&mut PrevTranslation>), With<Player>>,
+    mut q: Query<(&Transform, &mut WalkCycle, Option<&mut PrevTranslation>)>,
 ) {
     for (tf, mut walk, prev) in &mut q {
         walk.playing = false;

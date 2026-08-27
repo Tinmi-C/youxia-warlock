@@ -12,7 +12,7 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, RigidBody, Velocity};
 
-use crate::components::{Chasing, Hp, Monster, MonsterKind, Visual};
+use crate::components::{Chasing, Hp, Monster, MonsterKind, Visual, WalkCycle};
 use crate::resources::{Wave, WAVE_BREAK};
 
 /// Spawn ring radius (world units, XZ plane). Placeholder until an arena exists.
@@ -60,8 +60,14 @@ pub fn kinds_for_wave(n: u32) -> Vec<MonsterKind> {
     let grunt = total - runner_count(n) as usize - tank_count(n) as usize;
     let mut kinds = Vec::with_capacity(total);
     kinds.extend(std::iter::repeat_n(MonsterKind::Grunt, grunt));
-    kinds.extend(std::iter::repeat_n(MonsterKind::Runner, runner_count(n) as usize));
-    kinds.extend(std::iter::repeat_n(MonsterKind::Tank, tank_count(n) as usize));
+    kinds.extend(std::iter::repeat_n(
+        MonsterKind::Runner,
+        runner_count(n) as usize,
+    ));
+    kinds.extend(std::iter::repeat_n(
+        MonsterKind::Tank,
+        tank_count(n) as usize,
+    ));
     kinds
 }
 
@@ -78,8 +84,13 @@ fn spawn_wave_monster(
         Monster,
         kind,
         Hp::full(wave_hp(n) * kind.hp_mul()),
-        Chasing { speed: wave_speed(n) * kind.speed_mul() },
+        Chasing {
+            speed: wave_speed(n) * kind.speed_mul(),
+        },
         Visual { flash: 0.0 },
+        // card 13: monsters always chase while Playing, so they spawn walking;
+        // clear_walk_on_pause owns the flag outside Playing.
+        WalkCycle { playing: true },
         RigidBody::KinematicVelocityBased,
         Collider::ball(kind.cube_size() / 2.0),
         Velocity::zero(),
@@ -130,11 +141,7 @@ pub fn wave_system(
     for (i, kind) in kinds.into_iter().enumerate() {
         let i = i as f32;
         let angle = i / count as f32 * std::f32::consts::TAU;
-        let at = Vec3::new(
-            SPAWN_RADIUS * angle.cos(),
-            0.5,
-            SPAWN_RADIUS * angle.sin(),
-        );
+        let at = Vec3::new(SPAWN_RADIUS * angle.cos(), 0.5, SPAWN_RADIUS * angle.sin());
         spawn_wave_monster(&mut commands, &mut meshes, &mut materials, at, n, kind);
     }
     wave.timer = WAVE_BREAK; // re-arm the rest that follows this wave (GDD: 3s between every wave)
