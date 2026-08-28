@@ -1341,6 +1341,26 @@ fn def_table_rows_are_complete_and_models_exist() {
     }
 }
 
+/// Card 21 — sanity: the hero asset's clip layout that the presentation
+/// constants address positionally still matches the asset on disk. If this
+/// fails, player_hunyuan.glb was re-exported with a different clip order —
+/// re-derive HERO_CLIP_* in presentation.rs before touching anything else.
+#[test]
+fn hero_asset_matches_pinned_clip_layout() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/models/player_hunyuan.glb");
+    assert!(path.exists(), "hero asset missing: {}", path.display());
+    // positional addressing consts (see presentation.rs): the glb lists its
+    // animations alphabetically — attack, hit, idle, walk.
+    use wave_survival::plugins::presentation::{
+        HERO_CLIP_ATTACK, HERO_CLIP_HIT, HERO_CLIP_IDLE, HERO_CLIP_WALK,
+    };
+    assert_eq!(HERO_CLIP_ATTACK, 0);
+    assert_eq!(HERO_CLIP_HIT, 1);
+    assert_eq!(HERO_CLIP_IDLE, 2);
+    assert_eq!(HERO_CLIP_WALK, 3);
+}
+
 // --- EguiTunePanel / Balance tests (capability card 11; the F1 panel itself is
 // --- a visual item accepted by running the game — headless covers Balance). ---
 

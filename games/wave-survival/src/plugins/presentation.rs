@@ -11,27 +11,47 @@
 //!              WorldAssetRoot(model scene) + AnimLink + ChildOf(root), then
 //!              strip the root's placeholder cube meshes.
 //!   binding  : once the model subtree actually exists under the wrapper, bind
-//!              the animation graph onto its AnimationPlayer, start clip 0 on
-//!              repeat and retint instance materials per MonsterKind.
-//!   sync     : mirror WalkCycle.playing (logic side) onto play/pause — review
-//!              decision "walk only while actually moving" (monsters spawn with
-//!              the flag up because chasing is all they do while Playing).
+//!              the animation graph onto its AnimationPlayer and retint
+//!              instance materials per MonsterKind. The hero (card 21) gets a
+//!              4-clip graph (walk/idle/attack/hit) + AnimationTransitions;
+//!              monsters keep their single walk clip.
+//!   sync     : monsters mirror WalkCycle.playing onto play/pause with a
+//!              stateless frame-0 idle hold; the hero runs a walk/idle state
+//!              machine with attack/hit one-shots on combat edges (card 21).
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use bevy::{
     animation::RepeatAnimation, math::VectorSpace, prelude::*,
     world_serialization::WorldInstanceReady,
 };
 
-use crate::components::{Heading, Monster, MonsterKind, Player, Visual, WalkCycle};
+use crate::components::{Attack, Heading, Monster, MonsterKind, Player, Visual, WalkCycle};
+use crate::states::GameState;
 
 // Assets live under assets/models/ in this project (spike kept them at the root).
-const HERO_GLB: &str = "models/hero.glb";
-/// The root transform centers on the physics ball (y = 0.5); both the legacy
-/// CesiumMan and the card-19 Quaternius-set models keep their origin at the
-/// feet, so shift the model down half a unit to keep feet on the ground
-/// exactly like the placeholder cube was.
+const HERO_GLB: &str = "models/player_hunyuan.glb";
+/// Clip layout of player_hunyuan.glb (alphabetical in the glTF: attack/hit/
+/// idle/walk). Pinned here because AnimationNodeIndex addressing is positional;
+/// if the asset is ever re-exported with a different order, re-derive these.
+pub const HERO_CLIP_ATTACK: usize = 0;
+pub const HERO_CLIP_HIT: usize = 1;
+pub const HERO_CLIP_IDLE: usize = 2;
+pub const HERO_CLIP_WALK: usize = 3;
+/// player_hunyuan is 1.33 m tall raw; scale up to the CesiumMan-era 1.8 m world
+/// height the game's sizes (doorways, monster heights) were tuned around.
+const HERO_SCALE: f32 = 1.353;
+/// Strike/flinch display windows: the raw attack clip runs 4.7 s (way past the
+/// 1.5 s slash cooldown) so we only show its early strike and blend back.
+const HERO_ATTACK_WINDOW: f32 = 0.6;
+const HERO_HIT_WINDOW: f32 = 0.4;
+/// Cross-fade between clips (walk<->idle, one-shots, state resume).
+const HERO_BLEND: Duration = Duration::from_millis(200);
+/// The root transform centers on the physics ball (y = 0.5); all models so far
+/// (legacy CesiumMan, card-19 Quaternius set, card-21 hunyuan) keep their
+/// origin at the feet, so shift the model down half a unit to keep feet on the
+/// ground exactly like the placeholder cube was.
 const MODEL_Y_OFFSET: f32 = -0.5;
 /// How strongly a variant's color is blended over the model's own material
 /// (scheme C tint half of the colour+body double coding).
@@ -49,15 +69,47 @@ struct MonsterSkinned;
 #[derive(Component)]
 struct MonsterBound;
 
-/// Per-owner animation link carried on the wrapper child; both the hero ready
-/// observer and the sync system read it to address graph/node/clip.
+/// Which clip the hero state machine is addressing (card 21).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HeroClip {
+    Walk,
+    Idle,
+    Attack,
+    Hit,
+}
+
+/// Per-owner animation link carried on the wrapper child; the ready observers
+/// and the sync system read it to address graph/nodes/clips.
 /// `was_playing` remembers last frame's WalkCycle so sync can arm a one-shot
 /// resume edge; idle holding itself is enforced statelessly every frame.
+/// Monsters only ever use `walk`; the hero (card 21) fills the optional clips
+/// and drives the 4-clip state machine (walk/idle + attack/hit one-shots).
 #[derive(Component)]
 struct AnimLink {
     graph_handle: Handle<AnimationGraph>,
-    index: AnimationNodeIndex,
+    walk: AnimationNodeIndex,
+    idle: Option<AnimationNodeIndex>,
+    attack: Option<AnimationNodeIndex>,
+    hit: Option<AnimationNodeIndex>,
     was_playing: bool,
+    /// Hero state machine bookkeeping: last clip commanded (None = never, so
+    /// the first sync frame after binding always issues an initial command).
+    current: Option<HeroClip>,
+    /// Active one-shot: (clip, world elapsed at fire, display seconds). The
+    /// state machine holds the clip for the window, then blends back.
+    one_shot: Option<(HeroClip, f32, f32)>,
+    /// One-shot queued by a combat edge this frame, started by the node loop
+    /// (attack wins over hit if both edges land on the same frame).
+    pending: Option<HeroClip>,
+}
+
+/// Combat-edge observation state for the hero (card 12 observer pattern:
+/// read-only view of logic components; the slash/hit edges are detected as
+/// increases because cooldown only decreases and flash only decays otherwise).
+#[derive(Component)]
+struct HeroFxWatch {
+    last_cooldown: f32,
+    last_flash: f32,
 }
 
 /// Memoized tinted material variants, keyed by (source material, kind) so each
@@ -94,9 +146,10 @@ impl Plugin for PresentationPlugin {
 
 // --- card 12: player -------------------------------------------------------
 
-/// Attach the hero.glb model to the player root and retire the placeholder
-/// cube visuals from the render world. Logic components are never touched:
-/// Player/Hp/Transform/rigidbody/collider all stay exactly as spawned.
+/// Attach the player_hunyuan.glb model to the player root and retire the
+/// placeholder cube visuals from the render world (card 21: 4-clip graph —
+/// walk/idle state machine + attack/hit one-shots). Logic components are never
+/// touched: Player/Hp/Transform/rigidbody/collider all stay exactly as spawned.
 fn skin_player(
     mut commands: Commands,
     players: Query<Entity, (With<Player>, Without<RoleModel>)>,
@@ -106,14 +159,24 @@ fn skin_player(
     let Ok(root) = players.single() else {
         return;
     };
-    info!("[presentation] skinning player with {HERO_GLB}");
+    info!("[presentation] skinning player with {HERO_GLB} (4-clip graph)");
 
-    let (graph, index) =
-        AnimationGraph::from_clip(assets.load(GltfAssetLabel::Animation(0).from_asset(HERO_GLB)));
+    let clip = |i: usize| assets.load(GltfAssetLabel::Animation(i).from_asset(HERO_GLB));
+    let mut graph = AnimationGraph::new();
+    let attack = graph.add_clip(clip(HERO_CLIP_ATTACK), 1.0, graph.root);
+    let hit = graph.add_clip(clip(HERO_CLIP_HIT), 1.0, graph.root);
+    let idle = graph.add_clip(clip(HERO_CLIP_IDLE), 1.0, graph.root);
+    let walk = graph.add_clip(clip(HERO_CLIP_WALK), 1.0, graph.root);
     let link = AnimLink {
         graph_handle: graphs.add(graph),
-        index,
+        walk,
+        idle: Some(idle),
+        attack: Some(attack),
+        hit: Some(hit),
         was_playing: true, // clip starts playing on bind; sync settles it
+        current: None,     // force the first state command after binding
+        one_shot: None,
+        pending: None,
     };
 
     let _wrapper = commands
@@ -121,23 +184,34 @@ fn skin_player(
             ChildOf(root),
             link,
             WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(HERO_GLB))),
-            Transform::from_xyz(0.0, MODEL_Y_OFFSET, 0.0),
+            Transform {
+                translation: Vec3::new(0.0, MODEL_Y_OFFSET, 0.0),
+                scale: Vec3::splat(HERO_SCALE),
+                ..default()
+            },
         ))
         .observe(on_model_ready)
         .id();
 
     commands
         .entity(root)
-        .insert(RoleModel)
+        .insert((
+            RoleModel,
+            HeroFxWatch {
+                last_cooldown: 0.0,
+                last_flash: 0.0,
+            },
+        ))
         // replace the placeholder visuals, not hide them (root Visibility would
         // cascade down onto the model subtree)
         .remove::<Mesh3d>()
         .remove::<MeshMaterial3d<StandardMaterial>>();
 }
 
-/// Model subtree landed under the wrapper: bind the animation graph onto the
-/// subtree's AnimationPlayer and start clip 0 looping (sync will pause it again
-/// next frame if the player stands still).
+/// Model subtree landed under the wrapper: bind the 4-clip animation graph and
+/// an AnimationTransitions onto the subtree's AnimationPlayer (card 21). The
+/// first sync frame commands walk/idle from scratch (`current: None`), so no
+/// clip is started here — that keeps one code path for all playback decisions.
 fn on_model_ready(
     ready: On<WorldInstanceReady>,
     mut commands: Commands,
@@ -150,11 +224,25 @@ fn on_model_ready(
     };
     for node in children.iter_descendants(ready.entity) {
         if let Ok(mut player) = players.get_mut(node) {
-            player.play(link.index).repeat();
-            commands
-                .entity(node)
-                .insert((AnimationGraphHandle(link.graph_handle.clone()),));
-            info!("[presentation] hero walk-cycle bound to {node:?} (clip 0, repeat)");
+            // start idle looping so the very first frames after load have a
+            // clip running even before sync issues its state command
+            if let Some(idle) = link.idle {
+                let mut transitions = AnimationTransitions::new();
+                transitions
+                    .play(&mut player, idle, Duration::ZERO)
+                    .set_repeat(RepeatAnimation::Forever);
+                commands
+                    .entity(node)
+                    .insert((AnimationGraphHandle(link.graph_handle.clone()), transitions));
+                info!("[presentation] hero 4-clip graph bound to {node:?} (idle initial)");
+            } else {
+                // legacy single-clip owners (defensive: monsters never take
+                // this observer, but keep the old path compiling)
+                player.play(link.walk).repeat();
+                commands
+                    .entity(node)
+                    .insert((AnimationGraphHandle(link.graph_handle.clone()),));
+            }
         }
     }
 }
@@ -198,8 +286,14 @@ fn skin_new_monsters(
                 ChildOf(root),
                 AnimLink {
                     graph_handle: graph_handle.clone(),
-                    index,
+                    walk: index,
+                    idle: None,
+                    attack: None,
+                    hit: None,
                     was_playing: true,
+                    current: None,
+                    one_shot: None,
+                    pending: None,
                 },
                 WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(model))),
                 Transform {
@@ -255,7 +349,7 @@ fn bind_monster_models(
 
         for node in children.iter_descendants(wrapper) {
             if let Ok(mut player) = players.get_mut(node) {
-                player.play(link.index).repeat();
+                player.play(link.walk).repeat();
                 commands
                     .entity(node)
                     .insert((AnimationGraphHandle(link.graph_handle.clone()),));
@@ -307,67 +401,170 @@ fn kind_ordinal(kind: MonsterKind) -> u8 {
 
 // --- shared playback sync --------------------------------------------------
 
-/// Walk playback on EDGES, per visual-pass fix #2 ("走完这一步再停"):
-/// Walk playback, deterministic variant (2nd iteration after real-machine
-/// feedback): a "finish the current stride" scheme was tried first but the
-/// single walk clip's cycle-end pose is itself another stride contact pose AND
-/// the stop-edge can be consumed before the model finishes loading (the ready
-/// observer then starts looping behind our back), so idle looked identical to
-/// the old mid-stride freeze. Now: idle is enforced STATELESSLY every frame —
-/// pause + seek to frame 0 (a consistent contact/stance pose) — which is
-/// idempotent, closes the preload race, and gives every stop the same
-/// recognizable stand-in-place silhouette. Resuming walks from cycle start.
+/// Playback sync, card 21 edition. Monsters keep the card-12 stateless idle
+/// freeze verbatim (their graphs only carry the walk clip). The hero runs a
+/// 4-clip state machine through AnimationTransitions:
+///   Playing + moving     -> walk loop
+///   Playing + standing   -> idle loop (retires the card-12 frame-0 hold for
+///                           the player; true idle was waiting for this asset)
+///   slash-fire edge      -> attack one-shot window, then blend back
+///   bite edge (flash up) -> hit one-shot window, then blend back
+///   outside Playing      -> stateless freeze for every owner (monsters hold
+///                           their walk node at frame 0; the hero pause_all()s)
+///                           so the accepted pause behavior is preserved.
+/// Combat edges follow the card-12 observer pattern: cooldown only decreases
+/// and flash only decays in normal operation, so an increase is a definitive
+/// trigger; nothing here ever writes logic components.
 fn sync_walk_playback(
-    roots: Query<(Entity, &WalkCycle, &Children)>,
+    state: Res<State<GameState>>,
+    time: Res<Time>,
+    mut roots: Query<(
+        Entity,
+        &WalkCycle,
+        Option<&Attack>,
+        Option<&Visual>,
+        Option<&mut HeroFxWatch>,
+        &Children,
+    )>,
     mut links: Query<&mut AnimLink>,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
+    mut transitions: Query<&mut AnimationTransitions>,
 ) {
-    for (_root, walk, owner_children) in &roots {
+    let in_game = *state.get() == GameState::Playing;
+    let now = time.elapsed_secs();
+
+    for (_root, walk, attack, visual, watch, owner_children) in &mut roots {
         // find the wrapper child carrying the animation link
         let mut found = None;
         for kid in owner_children.iter() {
-            if let Ok(link) = links.get(kid) {
-                found = Some((kid, link.index, link.was_playing));
+            if links.contains(kid) {
+                found = Some(kid);
             }
         }
-        let Some((wrapper, index, was_playing)) = found else {
+        let Some(wrapper) = found else {
+            continue;
+        };
+        let Ok(mut link) = links.get_mut(wrapper) else {
             continue;
         };
         let moving = walk.playing;
+
+        // Hero combat bookkeeping: edge detection + one-shot expiry (Playing
+        // only; outside the game state everything freezes and resets below).
+        if link.idle.is_some() && in_game {
+            if let Some(mut w) = watch {
+                let fired = attack.is_some_and(|a| a.cooldown > w.last_cooldown + 1e-4);
+                let bitten = visual.is_some_and(|v| v.flash > w.last_flash + 1e-4);
+                w.last_cooldown = attack.map_or(0.0, |a| a.cooldown);
+                w.last_flash = visual.map_or(0.0, |v| v.flash);
+                if link.one_shot.is_none() && link.pending.is_none() {
+                    if fired {
+                        link.pending = Some(HeroClip::Attack);
+                    } else if bitten {
+                        link.pending = Some(HeroClip::Hit);
+                    }
+                }
+            }
+            if let Some((_, at, window)) = link.one_shot {
+                if now - at >= window {
+                    // window over: blend back to the state clip next frame
+                    link.one_shot = None;
+                    link.current = None;
+                }
+            }
+        }
 
         for node in children.iter_descendants(wrapper) {
             let Ok(mut player) = players.get_mut(node) else {
                 continue;
             };
-            if moving && !was_playing {
-                // one-shot resume edge: restart the cycle cleanly from 0
-                if let Some(active) = player.animation_mut(index) {
-                    active.set_repeat(RepeatAnimation::Forever);
-                    active.replay();
-                    active.resume();
-                }
-            } else if moving && was_playing {
-                // steady walking: just make sure it is actually advancing
-                if let Some(active) = player.animation_mut(index) {
-                    if active.is_paused() {
-                        active.resume();
-                    }
-                }
-            } else if !moving {
-                // stateless idle enforcement (runs every idle frame on purpose)
-                if let Some(active) = player.animation_mut(index) {
+
+            if !in_game {
+                if link.idle.is_some() {
+                    // hero: freeze every clip (walk AND idle) while paused
+                    player.pause_all();
+                    link.pending = None;
+                    link.one_shot = None;
+                    link.current = None;
+                    link.was_playing = false;
+                } else if let Some(active) = player.animation_mut(link.walk) {
+                    // monsters: stateless hold at frame 0 (card 12, verbatim)
                     if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
                         active.pause();
                         active.seek_to(0.0);
                     }
                 }
+                continue;
+            }
+
+            // Monsters: legacy card-12 walk edges, untouched behavior.
+            let Some(idle) = link.idle else {
+                if moving && !link.was_playing {
+                    if let Some(active) = player.animation_mut(link.walk) {
+                        active.set_repeat(RepeatAnimation::Forever);
+                        active.replay();
+                        active.resume();
+                    }
+                } else if moving {
+                    if let Some(active) = player.animation_mut(link.walk) {
+                        if active.is_paused() {
+                            active.resume();
+                        }
+                    }
+                } else if let Some(active) = player.animation_mut(link.walk) {
+                    if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
+                        active.pause();
+                        active.seek_to(0.0);
+                    }
+                }
+                continue;
+            };
+
+            // Hero: 4-clip state machine (card 21).
+            let Ok(mut trans) = transitions.get_mut(node) else {
+                continue;
+            };
+            if let Some(clip) = link.pending.take() {
+                // start the queued one-shot (no repeat; expires after window)
+                let (idx, window) = match clip {
+                    HeroClip::Attack => (
+                        link.attack.expect("hero carries attack"),
+                        HERO_ATTACK_WINDOW,
+                    ),
+                    HeroClip::Hit => (link.hit.expect("hero carries hit"), HERO_HIT_WINDOW),
+                    HeroClip::Walk | HeroClip::Idle => {
+                        unreachable!("one-shots are never state clips")
+                    }
+                };
+                trans
+                    .play(&mut player, idx, HERO_BLEND)
+                    .set_repeat(RepeatAnimation::Never);
+                link.one_shot = Some((clip, now, window));
+                link.current = Some(clip);
+            } else if link.one_shot.is_none() {
+                let desired = if moving {
+                    HeroClip::Walk
+                } else {
+                    HeroClip::Idle
+                };
+                if link.current != Some(desired) {
+                    let idx = match desired {
+                        HeroClip::Walk => link.walk,
+                        HeroClip::Idle => idle,
+                        HeroClip::Attack | HeroClip::Hit => {
+                            unreachable!("state clips are never one-shots")
+                        }
+                    };
+                    trans
+                        .play(&mut player, idx, HERO_BLEND)
+                        .set_repeat(RepeatAnimation::Forever);
+                    link.current = Some(desired);
+                }
             }
         }
 
-        if let Ok(mut link) = links.get_mut(wrapper) {
-            link.was_playing = moving;
-        }
+        link.was_playing = moving;
     }
 }
 
