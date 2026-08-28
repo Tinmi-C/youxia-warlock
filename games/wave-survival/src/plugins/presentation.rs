@@ -28,13 +28,11 @@ use crate::components::{Heading, Monster, MonsterKind, Player, Visual, WalkCycle
 
 // Assets live under assets/models/ in this project (spike kept them at the root).
 const HERO_GLB: &str = "models/hero.glb";
-const MONSTER_GLB: &str = "models/monster.glb";
-/// The root transform centers on the physics ball (y = 0.5); CesiumMan's origin
-/// sits at its feet, so shift the model down half a unit to keep feet on the
-/// ground exactly like the placeholder cube was.
+/// The root transform centers on the physics ball (y = 0.5); both the legacy
+/// CesiumMan and the card-19 Quaternius-set models keep their origin at the
+/// feet, so shift the model down half a unit to keep feet on the ground
+/// exactly like the placeholder cube was.
 const MODEL_Y_OFFSET: f32 = -0.5;
-/// Raw CesiumMan height used as the normalizing reference for monster scales.
-const MONSTER_MODEL_REF_HEIGHT: f32 = 1.8;
 /// How strongly a variant's color is blended over the model's own material
 /// (scheme C tint half of the colour+body double coding).
 const MODEL_TINT_STRENGTH: f32 = 0.65;
@@ -163,35 +161,38 @@ fn on_model_ready(
 
 // --- card 13: monsters -----------------------------------------------------
 
-/// Give every model-less monster root a monster.glb wrapper child, scaled by
-/// its kind (scheme C body language). The placeholder cube is retired from the
-/// render world; gameplay data on the root stays untouched.
+/// Give every model-less monster root its kind's model wrapper (card 19 enemy
+/// definition table: model file + wrapper scale + walk-clip index live on
+/// `MonsterKind`). The placeholder cube is retired from the render world;
+/// gameplay data on the root stays untouched.
 fn skin_new_monsters(
     mut commands: Commands,
     monsters: Query<(Entity, &MonsterKind), (With<Monster>, Without<MonsterSkinned>)>,
     assets: Res<AssetServer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    // one shared graph pair for every monster (asset server dedups the clip)
-    mut cached: Local<Option<(Handle<AnimationGraph>, AnimationNodeIndex)>>,
+    // one graph pair per kind (each model carries its own clip set/indices)
+    mut cached: Local<HashMap<MonsterKind, (Handle<AnimationGraph>, AnimationNodeIndex)>>,
 ) {
     if monsters.is_empty() {
         return;
     }
-    // resolve the shared graph lazily so an empty field costs nothing
-    let (graph_handle, index) = match cached.as_ref() {
-        Some(pair) => (pair.0.clone(), pair.1),
-        None => {
-            let (graph, index) = AnimationGraph::from_clip(
-                assets.load(GltfAssetLabel::Animation(0).from_asset(MONSTER_GLB)),
-            );
-            let handle = graphs.add(graph);
-            *cached = Some((handle.clone(), index));
-            (handle, index)
-        }
-    };
 
     for (root, kind) in monsters.iter() {
-        let scale = kind.cube_size() / MONSTER_MODEL_REF_HEIGHT * kind.visual_scale();
+        let model = kind.model();
+        // resolve the per-kind graph lazily so an empty map costs nothing
+        let (graph_handle, index) = match cached.get(kind) {
+            Some(pair) => (pair.0.clone(), pair.1),
+            None => {
+                let (graph, index) = AnimationGraph::from_clip(
+                    assets.load(GltfAssetLabel::Animation(kind.walk_clip()).from_asset(model)),
+                );
+                let handle = graphs.add(graph);
+                cached.insert(*kind, (handle.clone(), index));
+                (handle, index)
+            }
+        };
+
+        let scale = kind.wrapper_scale();
         let _wrapper = commands
             .spawn((
                 ChildOf(root),
@@ -200,7 +201,7 @@ fn skin_new_monsters(
                     index,
                     was_playing: true,
                 },
-                WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(MONSTER_GLB))),
+                WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(model))),
                 Transform {
                     translation: Vec3::new(0.0, MODEL_Y_OFFSET, 0.0),
                     scale: Vec3::splat(scale),
@@ -209,9 +210,7 @@ fn skin_new_monsters(
             ))
             .observe(on_monster_model_ready)
             .id();
-        info!(
-            "[presentation] skinning {kind:?} root {root:?} with {MONSTER_GLB} (scale {scale:.2})"
-        );
+        info!("[presentation] skinning {kind:?} root {root:?} with {model} (scale {scale:.2})");
         commands
             .entity(root)
             // visual-pass fix #3: strip the placeholder cube the same way the
@@ -302,6 +301,7 @@ fn kind_ordinal(kind: MonsterKind) -> u8 {
         MonsterKind::Grunt => 0,
         MonsterKind::Runner => 1,
         MonsterKind::Tank => 2,
+        MonsterKind::Elite => 3,
     }
 }
 

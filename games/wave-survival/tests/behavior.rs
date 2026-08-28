@@ -265,13 +265,16 @@ fn max_turn_rate_covers_about_face_deadline() {
 
 // --- MonsterPresentation (card 13) ---
 
-/// Capability card 13 — scheme C body scales are pinned so a silent drift
-/// cannot desynchronize visual size language from gameplay stats.
+/// Capability card 13 — wrapper scales are pinned so a silent drift cannot
+/// desynchronize visual size language from gameplay stats. Card 19 (drift
+/// pre-declared in the card) swapped the skins and re-anchored this scheme
+/// onto the per-kind definition table: world-height parity values.
 #[test]
 fn variant_visual_scales_match_scheme_c() {
-    assert_eq!(MonsterKind::Grunt.visual_scale(), 1.0);
-    assert_eq!(MonsterKind::Runner.visual_scale(), 0.85);
-    assert_eq!(MonsterKind::Tank.visual_scale(), 1.25);
+    assert_eq!(MonsterKind::Grunt.wrapper_scale(), 0.667);
+    assert_eq!(MonsterKind::Runner.wrapper_scale(), 0.350);
+    assert_eq!(MonsterKind::Tank.wrapper_scale(), 0.632);
+    assert_eq!(MonsterKind::Elite.wrapper_scale(), 0.557);
 }
 
 /// Card 13 data contract: wave-spawned monsters carry `WalkCycle { playing }`
@@ -1169,6 +1172,9 @@ fn wave3_spawns_runner_with_kind_stats() {
                 MonsterKind::Grunt => grunts.push((hp.hp, chasing.speed)),
                 MonsterKind::Runner => runners.push((hp.hp, chasing.speed)),
                 MonsterKind::Tank => tanks.push((hp.hp, chasing.speed)),
+                // card 19 compile-completion arm (pre-declared): no elites
+                // exist at wave 3, so this arm must never fire here.
+                MonsterKind::Elite => panic!("no elites before wave 6"),
             }
         }
     }
@@ -1233,10 +1239,106 @@ fn wave5_spawns_tank_with_kind_stats() {
                     assert!((hp.hp - 270.0).abs() < 1e-3, "tank hp = 90*3");
                     assert!((chasing.speed - 0.90).abs() < 1e-3, "tank speed = 1.50*0.6");
                 }
+                // card 19 compile-completion arm (pre-declared): no elites
+                // exist at wave 5, so this arm must never fire here.
+                MonsterKind::Elite => panic!("no elites before wave 6"),
             }
         }
     }
     assert_eq!((grunts, runners, tanks), (4, 2, 1), "wave 5 composition");
+}
+
+// --- EnemyDefinitionTable / Elite (card 19) ---
+
+/// Card 19 — acceptance: elites join from wave 6 (one per wave, capped at half
+/// the grunt remainder) with the 慢而硬 stat line (hp x2.0, speed x0.85);
+/// waves 1-5 stay elite-free so legacy compositions hold verbatim.
+#[test]
+fn elite_joins_from_wave_six_with_tough_stats() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+
+    // Wave 5: unchanged composition, zero elites.
+    *app.world_mut().resource_mut::<Wave>() = Wave { n: 4, timer: -1.0 };
+    run_frames(&mut app, 3);
+    let elites_at = |app: &mut App| -> usize {
+        let mut qk = app.world_mut().query::<(&MonsterKind, &Hp, &Chasing)>();
+        qk.iter(app.world())
+            .filter(|(k, _, _)| **k == MonsterKind::Elite)
+            .count()
+    };
+    assert_eq!(current_wave(&app), 5);
+    assert_eq!(elites_at(&mut app), 0, "no elites at wave 5");
+
+    // Wave 6: exactly 1 elite, hp = wave_hp(6) x2 = 204, speed = wave_speed(6) x0.85.
+    let ids: Vec<Entity> = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Monster>>();
+        q.iter(app.world()).collect()
+    };
+    for id in ids {
+        app.world_mut().despawn(id);
+    }
+    *app.world_mut().resource_mut::<Wave>() = Wave { n: 5, timer: -1.0 };
+    run_frames(&mut app, 3);
+
+    assert_eq!(current_wave(&app), 6);
+    assert_eq!(monster_count(&mut app), 8, "wave 6 = 2+6 = 8 monsters");
+    assert_eq!(elites_at(&mut app), 1, "wave 6 fields its first elite");
+
+    let mut elite = None;
+    {
+        let mut q = app.world_mut().query::<(&MonsterKind, &Hp, &Chasing)>();
+        for (kind, hp, chasing) in q.iter(app.world()) {
+            if *kind == MonsterKind::Elite {
+                elite = Some((hp.hp, chasing.speed));
+            }
+        }
+    }
+    let (hp, speed) = elite.expect("elite present");
+    assert!(
+        (hp - wave_hp(6) * 2.0).abs() < 1e-3,
+        "elite hp {hp} vs {}",
+        wave_hp(6) * 2.0
+    );
+    assert!(
+        (speed - wave_speed(6) * 0.85).abs() < 1e-3,
+        "elite speed {speed} vs {}",
+        wave_speed(6) * 0.85
+    );
+}
+
+/// Card 19 — acceptance: every kind's definition-table row is complete and
+/// points at a model that actually exists on disk (catches typo'd paths and
+/// out-of-range clip indices without booting the renderer).
+#[test]
+fn def_table_rows_are_complete_and_models_exist() {
+    for kind in [
+        MonsterKind::Grunt,
+        MonsterKind::Runner,
+        MonsterKind::Tank,
+        MonsterKind::Elite,
+    ] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(kind.model());
+        assert!(
+            path.exists(),
+            "model missing for {kind:?}: {}",
+            path.display()
+        );
+        assert!(
+            kind.wrapper_scale() > 0.0,
+            "{kind:?} wrapper scale must be positive"
+        );
+        assert!(
+            kind.walk_clip() < 9,
+            "{kind:?} walk clip index out of the 9-clip set"
+        );
+        assert!(
+            kind.hp_mul() > 0.0 && kind.speed_mul() > 0.0,
+            "{kind:?} stat multipliers must be positive"
+        );
+    }
 }
 
 // --- EguiTunePanel / Balance tests (capability card 11; the F1 panel itself is

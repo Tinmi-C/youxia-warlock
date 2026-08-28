@@ -55,11 +55,24 @@ pub fn tank_count(n: u32) -> u32 {
     }
 }
 
+/// Elite slots in wave `n` (card 19): none before wave 6, then one more per
+/// wave (n-5), capped at half the grunt remainder — elites trickle in as the
+/// grunt mass grows instead of swamping early waves. w6=1, w7=2, w8=3...
+pub fn elite_count(n: u32) -> u32 {
+    if n < 6 {
+        0
+    } else {
+        let grunt = wave_count(n) - runner_count(n) - tank_count(n);
+        (n - 5).min(grunt / 2)
+    }
+}
+
 /// Deterministic wave composition: `wave_count(n)` kinds in ring order —
-/// grunts first, then runners, then tanks. Sum always equals `wave_count(n)`.
+/// grunts first, then runners, then tanks, then elites (card 19). Sum always
+/// equals `wave_count(n)`.
 pub fn kinds_for_wave(n: u32) -> Vec<MonsterKind> {
     let total = wave_count(n) as usize;
-    let grunt = total - runner_count(n) as usize - tank_count(n) as usize;
+    let grunt = total - runner_count(n) as usize - tank_count(n) as usize - elite_count(n) as usize;
     let mut kinds = Vec::with_capacity(total);
     kinds.extend(std::iter::repeat_n(MonsterKind::Grunt, grunt));
     kinds.extend(std::iter::repeat_n(
@@ -69,6 +82,10 @@ pub fn kinds_for_wave(n: u32) -> Vec<MonsterKind> {
     kinds.extend(std::iter::repeat_n(
         MonsterKind::Tank,
         tank_count(n) as usize,
+    ));
+    kinds.extend(std::iter::repeat_n(
+        MonsterKind::Elite,
+        elite_count(n) as usize,
     ));
     kinds
 }
@@ -142,12 +159,13 @@ pub fn wave_system(
     let n = wave.n;
     let kinds = kinds_for_wave(n);
     info!(
-        "[wave] wave {n} incoming: {} enemies ({} grunts / {} runners / {} tanks), \
+        "[wave] wave {n} incoming: {} enemies ({} grunts / {} runners / {} tanks / {} elites), \
          speed {:.2}, hp {:.0}",
         kinds.len(),
         kinds.iter().filter(|k| **k == MonsterKind::Grunt).count(),
         kinds.iter().filter(|k| **k == MonsterKind::Runner).count(),
         kinds.iter().filter(|k| **k == MonsterKind::Tank).count(),
+        kinds.iter().filter(|k| **k == MonsterKind::Elite).count(),
         wave_speed(n),
         wave_hp(n)
     );

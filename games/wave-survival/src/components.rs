@@ -19,12 +19,15 @@ pub struct Monster;
 /// generic `Chasing` / `Hp` data these multipliers were baked into.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MonsterKind {
-    /// Baseline (red, 0.6^3): plain GDD numbers.
+    /// Baseline. Card 19 skin: green_blob, family-green slot.
     Grunt,
-    /// Fast but fragile (yellow, 0.45^3): speed x1.6, hp x0.5.
+    /// Fast but fragile: speed x1.6, hp x0.5. Card 19 skin: mushnub.
     Runner,
-    /// Slow but tough (purple, 0.85^3): speed x0.6, hp x3.0.
+    /// Slow but tough: speed x0.6, hp x3.0. Card 19 skin: yeti.
     Tank,
+    /// Card 19 elite variant (slow-but-tough flagship, GDD 变体派生):
+    /// mushnub_evolved in the elite-red slot, scale = grunt x1.3.
+    Elite,
 }
 
 impl MonsterKind {
@@ -34,6 +37,7 @@ impl MonsterKind {
             MonsterKind::Grunt => 1.0,
             MonsterKind::Runner => 1.6,
             MonsterKind::Tank => 0.6,
+            MonsterKind::Elite => 0.85,
         }
     }
 
@@ -43,35 +47,64 @@ impl MonsterKind {
             MonsterKind::Grunt => 1.0,
             MonsterKind::Runner => 0.5,
             MonsterKind::Tank => 3.0,
+            MonsterKind::Elite => 2.0,
         }
     }
 
-    /// Cube edge length for this variant's placeholder mesh.
+    /// Cube edge length for this variant's placeholder mesh (and collider ball
+    /// diameter). Elite = grunt x1.3, matching its GDD scale-up.
     pub fn cube_size(self) -> f32 {
         match self {
             MonsterKind::Grunt => 0.6,
             MonsterKind::Runner => 0.45,
             MonsterKind::Tank => 0.85,
+            MonsterKind::Elite => 0.78,
         }
     }
 
-    /// Placeholder body color for this variant.
+    /// Placeholder body color = card 19 palette slot (style bible §2):
+    /// family green #7AA25C for base monsters, deep red #B03A2E for elites.
+    /// The tint system blends this over the model's own material.
     pub fn color(self) -> Color {
         match self {
-            MonsterKind::Grunt => Color::srgb(0.75, 0.2, 0.2), // red
-            MonsterKind::Runner => Color::srgb(0.95, 0.85, 0.2), // yellow
-            MonsterKind::Tank => Color::srgb(0.55, 0.25, 0.8), // purple
+            MonsterKind::Grunt | MonsterKind::Runner | MonsterKind::Tank => {
+                Color::srgb(0.478, 0.635, 0.361)
+            } // #7AA25C
+            MonsterKind::Elite => Color::srgb(0.690, 0.227, 0.180), // #B03A2E
         }
     }
 
-    /// Card 13 (MonsterPresentation) scale applied to the glTF model wrapper so
-    /// each kind keeps the placeholder cube's size language (review scheme C:
-    /// tint + 体格双编码). Purely visual — colliders stay untouched.
-    pub fn visual_scale(self) -> f32 {
+    // --- card 19 enemy definition table (skin side) -------------------------
+    // One row per kind: model file, walk-clip index inside that glTF (the four
+    // Quaternius-set models all carry the same 9 clips; `walk` is index 7),
+    // and wrapper scale derived from world-height parity with the old
+    // monster.glb skins (grunt 0.60 / runner 0.378 / tank 1.062 world units,
+    // elite = grunt x1.3 per GDD). New monster = new row here + a wave slot.
+
+    /// glTF model that dresses this kind (path under assets/).
+    pub fn model(self) -> &'static str {
         match self {
-            MonsterKind::Grunt => 1.0,
-            MonsterKind::Runner => 0.85,
-            MonsterKind::Tank => 1.25,
+            MonsterKind::Grunt => "models/green_blob.glb",
+            MonsterKind::Runner => "models/mushnub.glb",
+            MonsterKind::Tank => "models/yeti.glb",
+            MonsterKind::Elite => "models/mushnub_evolved.glb",
+        }
+    }
+
+    /// Index of the walk-loop clip inside the kind's glTF animations.
+    pub fn walk_clip(self) -> usize {
+        match self {
+            MonsterKind::Grunt | MonsterKind::Runner | MonsterKind::Tank | MonsterKind::Elite => 7, // clip order: attack|Dance|death|hit|idle|Jump|No|walk|Yes
+        }
+    }
+
+    /// Wrapper scale for the kind's model (world-height parity, see above).
+    pub fn wrapper_scale(self) -> f32 {
+        match self {
+            MonsterKind::Grunt => 0.667,  // 0.60 / 0.90
+            MonsterKind::Runner => 0.350, // 0.378 / 1.08
+            MonsterKind::Tank => 0.632,   // 1.062 / 1.68
+            MonsterKind::Elite => 0.557,  // 0.78 / 1.40
         }
     }
 }
