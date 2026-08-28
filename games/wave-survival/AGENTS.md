@@ -49,7 +49,14 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：无（卡 18 已闭环，工作区闲置；队友美术侧 WIP 未落库）。
+- **进行中**：卡 19 EnemyDefinitionTable 已实现（feat `31ab6f7`，2026-08-28，48 个回归
+  全绿；待人工视觉验收）。落地 GDD 点子池[变体派生]：MonsterKind 方法族即敌人
+  定义表（model/walk_clip/wrapper_scale/色槽/数值倍率一行齐全），首批接入队友
+  四模型——grunt→green_blob / runner→mushnub / tank→yeti（世界身高与旧皮对齐），
+  新 Elite 变体（mushnub_evolved、深红槽、grunt×1.3、hp×2/speed×0.85 慢而硬），
+  w6 起每波 grunt 里 +1（上限 grunt 半数），w5 及以前组成不变。
+  预声明漂移（卡内已记）：卡 13 缩放锚定测试改锚新表值；两条卡 10 组成测试补
+  Elite 编译臂（w3/w5 断言语义不变）。
 - **已完成**：卡 18 PlayerFacing（feat `f10df37`，2026-08-27 真机视觉验收通过，46 个回归全绿）。
   玩家模型面向移动方向：位移观测（速度>0.02/s 更新、停步保持）+ 与怪一致的
   540°/s 最短弧平滑——`face_towards_heading` 摘掉 With<Monster> 后玩家白嫖。
@@ -78,8 +85,8 @@ assets/{models,textures,audio,fonts,ui}/
   - **残余穿模（2026-08-27 验收记录，人判定影响不大，挂起后续解决）**：① 咬合瞬间玩家与怪的模型交叠是「玩家幽灵分组」的设计预期；② 重度围堵时怪群之间仍可能短暂互渗（速度直写 + 碰撞球半径小于模型包围盒）。候选方案：碰撞球按模型实际体形校准（球→胶囊）、开启 CCD、或调接触推挤刚度——届时单独立卡
   - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
   - 本机曾发生 PowerShell 文本管道写坏 UTF-8 注释的事故（已用 git 恢复）；改文件一律走 AI 文件工具或显式 UTF-8 编码
-- **近期目标**：待定——候选：攻击时面向最近敌人（卡 18 非目标项，战斗 QoL）、
-  新怪物种类接入（队友 green_blob / mushnub / yeti 模型已就位）；「音效」搁置（2026-08-27）；
+- **近期目标**：卡 19 视觉验收（四新皮 + w6 精英实机观感）→ 闭环归档；
+  候选：攻击时面向最近敌人（卡 18 非目标项，战斗 QoL）；「音效」搁置（2026-08-27）；
   挂起项等素材/时机（idle 动画、残余穿模）
 - **卡片清单挂起事项**：卡 16 / 卡 18 的清单内状态翻转待队友 WIP 落库后补提交
   （该文件当前含其未提交的卡 17 ArtAssetPipeline 草案等，避免混入提交）
