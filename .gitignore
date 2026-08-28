@@ -23,6 +23,9 @@ logs/
 # 本地试跑的控制台重定向捕获（如 games/*/run-log.txt），运行产物不入库
 run-log*.txt
 
+# ===== 美术流水线工作目录（卡 17：raw 原件/图册渲染产物不入库，入库只收洗白后资产）=====
+games/*/_art/
+
 # ===== Obsidian 个人布局（.obsidian/ 团队共享配置保留提交）=====
 docs/.obsidian/workspace.json
 docs/.obsidian/workspace-mobile.json
