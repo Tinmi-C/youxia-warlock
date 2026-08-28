@@ -49,6 +49,12 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
+- **进行中**：卡 21 HeroV2 玩家换皮+四动画（feat `a0b1207`，2026-08-28，49 回归
+  全绿；待人工视觉验收）。hero.glb → player_hunyuan（队友卡 17 产出，自带
+  attack/hit/idle/walk 四 clip），walk↔idle 200ms 混合状态机 + 挥砍/受击单次
+  窗口（0.6s/0.4s，attack 全长 4.7s 只播前段）；暂停时 pause_all 全冻结语义不变；
+  卡 12 观察者纪律（只读 WalkCycle/Attack/Visual，逻辑零接触）。若验收通过，
+  「单走路 clip 待机定格」已知问题随之销账（怪物侧 frame-0 定格保留）。
 - **进行中**：卡 19 EnemyDefinitionTable 已实现（feat `31ab6f7`，2026-08-28，48 个回归
   全绿；待人工视觉验收）。落地 GDD 点子池[变体派生]：MonsterKind 方法族即敌人
   定义表（model/walk_clip/wrapper_scale/色槽/数值倍率一行齐全），首批接入队友
@@ -85,9 +91,9 @@ assets/{models,textures,audio,fonts,ui}/
   - **残余穿模（2026-08-27 验收记录，人判定影响不大，挂起后续解决）**：① 咬合瞬间玩家与怪的模型交叠是「玩家幽灵分组」的设计预期；② 重度围堵时怪群之间仍可能短暂互渗（速度直写 + 碰撞球半径小于模型包围盒）。候选方案：碰撞球按模型实际体形校准（球→胶囊）、开启 CCD、或调接触推挤刚度——届时单独立卡
   - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
   - 本机曾发生 PowerShell 文本管道写坏 UTF-8 注释的事故（已用 git 恢复）；改文件一律走 AI 文件工具或显式 UTF-8 编码
-- **近期目标**：卡 19 视觉验收（四新皮 + w6 精英实机观感）→ 闭环归档；
-  候选：攻击时面向最近敌人（卡 18 非目标项，战斗 QoL）；「音效」搁置（2026-08-27）；
-  挂起项等素材/时机（idle 动画、残余穿模）
+- **近期目标**：卡 19 + 卡 21 视觉验收（19=四新皮 + w6 精英；21=玩家新皮四态
+  动画：跑/停/挥砍/受击）→ 闭环归档；候选：攻击时面向最近敌人（卡 18 非目标项，
+  战斗 QoL）；「音效」搁置（2026-08-27）；挂起项等素材/时机（怪物三态 idle、残余穿模）
 - **卡片清单挂起事项**：卡 16 / 18 / 19 的清单内状态翻转 + 卡号重编号（文件内现有
   两个「卡 18」：建议按文件序 PlayerFacing→19、EnemyDefinitionTable→20，拍板随翻转）
   + 知识库 MOC/log 的两条新踩坑行——全部等队友美术 WIP（含其未推的卡 17 两个本地
