@@ -27,3 +27,5 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[topics/engine/bevy-windows-antivirus-build-pitfall|Windows 杀软误报 ahash 构建脚本]]（medium）：360 主动防御拦/删 build-script exe → `os error 5`；给 `target/` + 工具链目录加白名单解决。
 - [[topics/engine/bevy-019-events-to-messages-pitfall|Bevy 0.19 缓冲事件更名 Message]]（high，待团队 review）：`#[derive(Event)]`/`EventWriter`/`add_event` 全部失效 → `Message` + `MessageWriter` + `add_message`；附无头测试读消息的增量计数法。
 - [[topics/engine/powershell-pipeline-utf8-corruption-pitfall|PowerShell 文本管道写坏 UTF-8 源码]]（high）：`Get-Content | -replace | Set-Content` 按 ANSI 双重转码 → rustc 报非法 UTF-8；改文件只走编辑器类工具或显式编码 API。
+- [[topics/engine/rapier-stepping-ignores-game-states-pitfall|rapier 物理步进不受游戏状态门控]]（high，待团队 review）：暂停只 gate 了自研系统，动态刚体带残速继续被积分 → 暂停画面怪物滑行；用 `RapierConfiguration.physics_pipeline_active` 镜像游戏状态，配位移双向回归钉死。
+- [[topics/engine/shared-anchor-component-order-pitfall|观察系统共用锚点组件——后读者恒见零位移]]（high，待团队 review）：「上一帧状态」锚点被两个系统读写，先写者偷走时间差；锚点定唯一 owner-writer、其余只读，执行顺序跟所有权走；附带「断言方向要区别于默认值」的恒真测试教训。
