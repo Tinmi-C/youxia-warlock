@@ -98,6 +98,22 @@ impl MonsterKind {
         }
     }
 
+    /// Index of the attack clip (card 22): the same 9-clip set across all four
+    /// first-batch models, so one constant covers every kind for now — a new
+    /// model with a different layout turns this into a real per-kind match.
+    pub fn attack_clip(self) -> usize {
+        match self {
+            MonsterKind::Grunt | MonsterKind::Runner | MonsterKind::Tank | MonsterKind::Elite => 0,
+        }
+    }
+
+    /// Index of the hit (flinch) clip (card 22), same shared-layout note.
+    pub fn hit_clip(self) -> usize {
+        match self {
+            MonsterKind::Grunt | MonsterKind::Runner | MonsterKind::Tank | MonsterKind::Elite => 3,
+        }
+    }
+
     /// Wrapper scale for the kind's model (world-height parity, see above).
     pub fn wrapper_scale(self) -> f32 {
         match self {

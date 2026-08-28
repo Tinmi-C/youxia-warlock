@@ -1334,6 +1334,9 @@ fn def_table_rows_are_complete_and_models_exist() {
             kind.walk_clip() < 9,
             "{kind:?} walk clip index out of the 9-clip set"
         );
+        // card 22: combat clips share the first-batch 9-clip layout
+        assert_eq!(kind.attack_clip(), 0, "{kind:?} attack clip index");
+        assert_eq!(kind.hit_clip(), 3, "{kind:?} hit clip index");
         assert!(
             kind.hp_mul() > 0.0 && kind.speed_mul() > 0.0,
             "{kind:?} stat multipliers must be positive"

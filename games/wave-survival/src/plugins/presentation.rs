@@ -48,6 +48,16 @@ const HERO_ATTACK_WINDOW: f32 = 0.6;
 const HERO_HIT_WINDOW: f32 = 0.4;
 /// Cross-fade between clips (walk<->idle, one-shots, state resume).
 const HERO_BLEND: Duration = Duration::from_millis(200);
+// --- card 22: monster combat clips -----------------------------------------
+/// All four first-batch monster models share one clip layout, and their
+/// attack/hit clips are short enough to play whole — no windowing needed
+/// (measured 2026-08-28: attack 0.38 s, hit 0.29 s on every kind).
+const MONSTER_ATTACK_SECS: f32 = 0.38;
+const MONSTER_HIT_SECS: f32 = 0.29;
+/// Monsters swing as they enter biting distance: trigger slightly outside the
+/// real bite radius (contact.rs CONTACT_DIST) so the wind-up precedes contact.
+use crate::systems::contact::CONTACT_DIST;
+const MONSTER_ATTACK_RANGE: f32 = CONTACT_DIST + 0.15;
 /// The root transform centers on the physics ball (y = 0.5); all models so far
 /// (legacy CesiumMan, card-19 Quaternius set, card-21 hunyuan) keep their
 /// origin at the feet, so shift the model down half a unit to keep feet on the
@@ -80,10 +90,10 @@ enum HeroClip {
 
 /// Per-owner animation link carried on the wrapper child; the ready observers
 /// and the sync system read it to address graph/nodes/clips.
-/// `was_playing` remembers last frame's WalkCycle so sync can arm a one-shot
-/// resume edge; idle holding itself is enforced statelessly every frame.
-/// Monsters only ever use `walk`; the hero (card 21) fills the optional clips
-/// and drives the 4-clip state machine (walk/idle + attack/hit one-shots).
+/// Card 21 gave the hero the 4-clip state machine (walk/idle + attack/hit
+/// one-shots); card 22 fills the monsters' attack/hit slots from the
+/// definition table and routes every owner through the shared one-shot
+/// machinery — no owner-specific playback paths remain.
 #[derive(Component)]
 struct AnimLink {
     graph_handle: Handle<AnimationGraph>,
@@ -91,7 +101,6 @@ struct AnimLink {
     idle: Option<AnimationNodeIndex>,
     attack: Option<AnimationNodeIndex>,
     hit: Option<AnimationNodeIndex>,
-    was_playing: bool,
     /// Hero state machine bookkeeping: last clip commanded (None = never, so
     /// the first sync frame after binding always issues an initial command).
     current: Option<HeroClip>,
@@ -103,11 +112,13 @@ struct AnimLink {
     pending: Option<HeroClip>,
 }
 
-/// Combat-edge observation state for the hero (card 12 observer pattern:
-/// read-only view of logic components; the slash/hit edges are detected as
-/// increases because cooldown only decreases and flash only decays otherwise).
-#[derive(Component)]
-struct HeroFxWatch {
+/// Combat-edge observation state (card 12 observer pattern: read-only view of
+/// logic components). Edges are detected as increases because cooldown only
+/// decreases and flash only decays otherwise. Card 22: every animated root
+/// carries one — the player additionally watches cooldown (slash fires),
+/// monsters additionally watch their distance to the player (bite wind-up).
+#[derive(Component, Default)]
+struct FxWatch {
     last_cooldown: f32,
     last_flash: f32,
 }
@@ -173,8 +184,7 @@ fn skin_player(
         idle: Some(idle),
         attack: Some(attack),
         hit: Some(hit),
-        was_playing: true, // clip starts playing on bind; sync settles it
-        current: None,     // force the first state command after binding
+        current: None, // force the first state command after binding
         one_shot: None,
         pending: None,
     };
@@ -197,7 +207,7 @@ fn skin_player(
         .entity(root)
         .insert((
             RoleModel,
-            HeroFxWatch {
+            FxWatch {
                 last_cooldown: 0.0,
                 last_flash: 0.0,
             },
@@ -251,15 +261,25 @@ fn on_model_ready(
 
 /// Give every model-less monster root its kind's model wrapper (card 19 enemy
 /// definition table: model file + wrapper scale + walk-clip index live on
-/// `MonsterKind`). The placeholder cube is retired from the render world;
-/// gameplay data on the root stays untouched.
+/// `MonsterKind`; card 22 adds the attack/hit clips). The placeholder cube is
+/// retired from the render world; gameplay data on the root stays untouched.
 fn skin_new_monsters(
     mut commands: Commands,
     monsters: Query<(Entity, &MonsterKind), (With<Monster>, Without<MonsterSkinned>)>,
     assets: Res<AssetServer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    // one graph pair per kind (each model carries its own clip set/indices)
-    mut cached: Local<HashMap<MonsterKind, (Handle<AnimationGraph>, AnimationNodeIndex)>>,
+    // one graph per kind (each model carries its own clip set/indices)
+    mut cached: Local<
+        HashMap<
+            MonsterKind,
+            (
+                Handle<AnimationGraph>,
+                AnimationNodeIndex,
+                AnimationNodeIndex,
+                AnimationNodeIndex,
+            ),
+        >,
+    >,
 ) {
     if monsters.is_empty() {
         return;
@@ -268,15 +288,17 @@ fn skin_new_monsters(
     for (root, kind) in monsters.iter() {
         let model = kind.model();
         // resolve the per-kind graph lazily so an empty map costs nothing
-        let (graph_handle, index) = match cached.get(kind) {
-            Some(pair) => (pair.0.clone(), pair.1),
+        let (graph_handle, walk, attack, hit) = match cached.get(kind) {
+            Some(quadruple) => (quadruple.0.clone(), quadruple.1, quadruple.2, quadruple.3),
             None => {
-                let (graph, index) = AnimationGraph::from_clip(
-                    assets.load(GltfAssetLabel::Animation(kind.walk_clip()).from_asset(model)),
-                );
+                let clip = |i: usize| assets.load(GltfAssetLabel::Animation(i).from_asset(model));
+                let mut graph = AnimationGraph::new();
+                let walk = graph.add_clip(clip(kind.walk_clip()), 1.0, graph.root);
+                let attack = graph.add_clip(clip(kind.attack_clip()), 1.0, graph.root);
+                let hit = graph.add_clip(clip(kind.hit_clip()), 1.0, graph.root);
                 let handle = graphs.add(graph);
-                cached.insert(*kind, (handle.clone(), index));
-                (handle, index)
+                cached.insert(*kind, (handle.clone(), walk, attack, hit));
+                (handle, walk, attack, hit)
             }
         };
 
@@ -286,11 +308,10 @@ fn skin_new_monsters(
                 ChildOf(root),
                 AnimLink {
                     graph_handle: graph_handle.clone(),
-                    walk: index,
+                    walk,
                     idle: None,
-                    attack: None,
-                    hit: None,
-                    was_playing: true,
+                    attack: Some(attack),
+                    hit: Some(hit),
                     current: None,
                     one_shot: None,
                     pending: None,
@@ -307,6 +328,7 @@ fn skin_new_monsters(
         info!("[presentation] skinning {kind:?} root {root:?} with {model} (scale {scale:.2})");
         commands
             .entity(root)
+            .insert(FxWatch::default())
             // visual-pass fix #3: strip the placeholder cube the same way the
             // player root does — the model IS the body now
             .insert(MonsterSkinned)
@@ -349,10 +371,15 @@ fn bind_monster_models(
 
         for node in children.iter_descendants(wrapper) {
             if let Ok(mut player) = players.get_mut(node) {
-                player.play(link.walk).repeat();
+                // card 22: monsters join the transitions world too (one-shot
+                // combat clips share the machinery); walk starts immediately
+                let mut transitions = AnimationTransitions::new();
+                transitions
+                    .play(&mut player, link.walk, Duration::ZERO)
+                    .set_repeat(RepeatAnimation::Forever);
                 commands
                     .entity(node)
-                    .insert((AnimationGraphHandle(link.graph_handle.clone()),));
+                    .insert((AnimationGraphHandle(link.graph_handle.clone()), transitions));
             }
             // tint only real mesh entities that carry their own material slot
             if meshes.contains(node) {
@@ -363,7 +390,7 @@ fn bind_monster_models(
             }
         }
         commands.entity(wrapper).insert(MonsterBound);
-        info!("[presentation] monster model bound on {root:?} ({kind:?}, walk loop)");
+        info!("[presentation] monster model bound on {root:?} ({kind:?}, walk+combat clips)");
     }
 }
 
@@ -401,31 +428,30 @@ fn kind_ordinal(kind: MonsterKind) -> u8 {
 
 // --- shared playback sync --------------------------------------------------
 
-/// Playback sync, card 21 edition. Monsters keep the card-12 stateless idle
-/// freeze verbatim (their graphs only carry the walk clip). The hero runs a
-/// 4-clip state machine through AnimationTransitions:
-///   Playing + moving     -> walk loop
-///   Playing + standing   -> idle loop (retires the card-12 frame-0 hold for
-///                           the player; true idle was waiting for this asset)
-///   slash-fire edge      -> attack one-shot window, then blend back
-///   bite edge (flash up) -> hit one-shot window, then blend back
-///   outside Playing      -> stateless freeze for every owner (monsters hold
-///                           their walk node at frame 0; the hero pause_all()s)
-///                           so the accepted pause behavior is preserved.
-/// Combat edges follow the card-12 observer pattern: cooldown only decreases
-/// and flash only decays in normal operation, so an increase is a definitive
-/// trigger; nothing here ever writes logic components.
+/// Playback sync, card 22 edition. All animated owners now run through
+/// AnimationTransitions; each owner contributes its own edges to the shared
+/// one-shot machinery:
+///   player slash edge (cooldown up)  -> attack one-shot (0.6 s window)
+///   monster in bite range            -> attack one-shot (0.38 s, whole clip)
+///   any owner flash edge (bit/hit)   -> hit one-shot (0.4 s hero / 0.29 s)
+/// State clips: hero walks/idles (card 21); monsters walk-loop while Playing.
+/// Outside Playing everything still freezes statelessly (accepted pause
+/// behavior): heroes pause_all(), monsters hold walk at frame 0.
+/// Combat observation follows the card-12 pattern: read-only; edges are
+/// increases because cooldown only decreases and flash only decays otherwise.
 fn sync_walk_playback(
     state: Res<State<GameState>>,
     time: Res<Time>,
     mut roots: Query<(
         Entity,
+        &Transform,
         &WalkCycle,
         Option<&Attack>,
         Option<&Visual>,
-        Option<&mut HeroFxWatch>,
+        Option<&mut FxWatch>,
         &Children,
     )>,
+    player_pos: Query<&Transform, With<Player>>,
     mut links: Query<&mut AnimLink>,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
@@ -433,8 +459,9 @@ fn sync_walk_playback(
 ) {
     let in_game = *state.get() == GameState::Playing;
     let now = time.elapsed_secs();
+    let player_at = player_pos.single().ok().map(|t| t.translation);
 
-    for (_root, walk, attack, visual, watch, owner_children) in &mut roots {
+    for (_root, root_tf, walk, attack, visual, watch, owner_children) in &mut roots {
         // find the wrapper child carrying the animation link
         let mut found = None;
         for kid in owner_children.iter() {
@@ -449,12 +476,23 @@ fn sync_walk_playback(
             continue;
         };
         let moving = walk.playing;
+        let is_hero = link.idle.is_some();
 
-        // Hero combat bookkeeping: edge detection + one-shot expiry (Playing
-        // only; outside the game state everything freezes and resets below).
-        if link.idle.is_some() && in_game {
+        // Combat bookkeeping: edges + one-shot expiry (Playing only; outside
+        // the game state everything freezes and resets in the node loop).
+        if in_game && link.attack.is_some() {
             if let Some(mut w) = watch {
-                let fired = attack.is_some_and(|a| a.cooldown > w.last_cooldown + 1e-4);
+                let fired = if is_hero {
+                    // player: slash edge = cooldown reset jump
+                    attack.is_some_and(|a| a.cooldown > w.last_cooldown + 1e-4)
+                } else {
+                    // monster: level-triggered bite wind-up (see range const)
+                    player_at.is_some_and(|p| {
+                        let d = Vec2::new(root_tf.translation.x - p.x, root_tf.translation.z - p.z)
+                            .length();
+                        d <= MONSTER_ATTACK_RANGE
+                    })
+                };
                 let bitten = visual.is_some_and(|v| v.flash > w.last_flash + 1e-4);
                 w.last_cooldown = attack.map_or(0.0, |a| a.cooldown);
                 w.last_flash = visual.map_or(0.0, |v| v.flash);
@@ -481,13 +519,12 @@ fn sync_walk_playback(
             };
 
             if !in_game {
-                if link.idle.is_some() {
+                if is_hero {
                     // hero: freeze every clip (walk AND idle) while paused
                     player.pause_all();
                     link.pending = None;
                     link.one_shot = None;
                     link.current = None;
-                    link.was_playing = false;
                 } else if let Some(active) = player.animation_mut(link.walk) {
                     // monsters: stateless hold at frame 0 (card 12, verbatim)
                     if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
@@ -498,41 +535,29 @@ fn sync_walk_playback(
                 continue;
             }
 
-            // Monsters: legacy card-12 walk edges, untouched behavior.
-            let Some(idle) = link.idle else {
-                if moving && !link.was_playing {
-                    if let Some(active) = player.animation_mut(link.walk) {
-                        active.set_repeat(RepeatAnimation::Forever);
-                        active.replay();
-                        active.resume();
-                    }
-                } else if moving {
-                    if let Some(active) = player.animation_mut(link.walk) {
-                        if active.is_paused() {
-                            active.resume();
-                        }
-                    }
-                } else if let Some(active) = player.animation_mut(link.walk) {
-                    if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
-                        active.pause();
-                        active.seek_to(0.0);
-                    }
-                }
-                continue;
-            };
-
-            // Hero: 4-clip state machine (card 21).
             let Ok(mut trans) = transitions.get_mut(node) else {
                 continue;
             };
+
+            // Shared one-shot fire: attack wins over hit on the same frame.
             if let Some(clip) = link.pending.take() {
-                // start the queued one-shot (no repeat; expires after window)
                 let (idx, window) = match clip {
-                    HeroClip::Attack => (
-                        link.attack.expect("hero carries attack"),
-                        HERO_ATTACK_WINDOW,
-                    ),
-                    HeroClip::Hit => (link.hit.expect("hero carries hit"), HERO_HIT_WINDOW),
+                    HeroClip::Attack => {
+                        let window = if is_hero {
+                            HERO_ATTACK_WINDOW
+                        } else {
+                            MONSTER_ATTACK_SECS
+                        };
+                        (link.attack.expect("owner carries attack"), window)
+                    }
+                    HeroClip::Hit => {
+                        let window = if is_hero {
+                            HERO_HIT_WINDOW
+                        } else {
+                            MONSTER_HIT_SECS
+                        };
+                        (link.hit.expect("owner carries hit"), window)
+                    }
                     HeroClip::Walk | HeroClip::Idle => {
                         unreachable!("one-shots are never state clips")
                     }
@@ -543,28 +568,44 @@ fn sync_walk_playback(
                 link.one_shot = Some((clip, now, window));
                 link.current = Some(clip);
             } else if link.one_shot.is_none() {
-                let desired = if moving {
-                    HeroClip::Walk
-                } else {
-                    HeroClip::Idle
-                };
-                if link.current != Some(desired) {
-                    let idx = match desired {
-                        HeroClip::Walk => link.walk,
-                        HeroClip::Idle => idle,
-                        HeroClip::Attack | HeroClip::Hit => {
-                            unreachable!("state clips are never one-shots")
-                        }
+                // State clips.
+                if is_hero {
+                    let desired = if moving {
+                        HeroClip::Walk
+                    } else {
+                        HeroClip::Idle
                     };
-                    trans
-                        .play(&mut player, idx, HERO_BLEND)
-                        .set_repeat(RepeatAnimation::Forever);
-                    link.current = Some(desired);
+                    if link.current != Some(desired) {
+                        let idx = match desired {
+                            HeroClip::Walk => link.walk,
+                            HeroClip::Idle => link.idle.expect("hero carries idle"),
+                            HeroClip::Attack | HeroClip::Hit => {
+                                unreachable!("state clips are never one-shots")
+                            }
+                        };
+                        trans
+                            .play(&mut player, idx, HERO_BLEND)
+                            .set_repeat(RepeatAnimation::Forever);
+                        link.current = Some(desired);
+                    }
+                } else if moving {
+                    // monsters chase while Playing: keep the walk loop up
+                    if link.current != Some(HeroClip::Walk) {
+                        trans
+                            .play(&mut player, link.walk, HERO_BLEND)
+                            .set_repeat(RepeatAnimation::Forever);
+                        link.current = Some(HeroClip::Walk);
+                    }
+                } else if let Some(active) = player.animation_mut(link.walk) {
+                    // robustness: a not-moving monster while Playing should not
+                    // happen (chasing is all they do); hold frame 0 if it does
+                    if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
+                        active.pause();
+                        active.seek_to(0.0);
+                    }
                 }
             }
         }
-
-        link.was_playing = moving;
     }
 }
 
