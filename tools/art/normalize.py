@@ -26,6 +26,22 @@ CLIP_MAP = [
 KEEP_TYPES = {"MESH", "ARMATURE", "EMPTY"}  # preserve rig hierarchy
 
 
+def all_fcurves(act):
+    """Yield every fcurve of an action across Blender API generations: legacy
+    Action.fcurves and the slotted Actions (4.4+: layers -> strips -> bags)."""
+    if hasattr(act, "fcurves"):
+        yield from act.fcurves
+        return
+    for layer in act.layers:
+        for strip in layer.strips:
+            if strip.type != "KEYFRAME":
+                continue
+            for slot in act.slots:
+                bag = strip.channelbag(slot)
+                if bag is not None:
+                    yield from bag.fcurves
+
+
 def parse_args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     parser = argparse.ArgumentParser(description="Normalize raw glTF into pipeline glb")
@@ -289,11 +305,34 @@ def main():
 
     # Bake transforms into object data. Skinned meshes are exported in armature
     # space, so parent-node scale/location would be dropped on export without this.
+    arm_scales = {o.name: o.scale.x for o in objects if o.type == "ARMATURE"}
     bpy.ops.object.select_all(action="DESELECT")
     for o in objects:
         o.select_set(True)
     bpy.context.view_layer.objects.active = objects[0]
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+    # transform_apply bakes armature object scale into bone rest data, but pose
+    # location fcurves keep their pre-bake armature-space units. A Mixamo FBX
+    # armature arrives at scale 0.01 (cm); baking without rescaling the channels
+    # inflates every animated translation ~100x (walk drifts 76m per loop).
+    # Rescale pose-location channels by the same factor. Factor 1.0 (glTF-native
+    # rigs) is a no-op, so Quaternius-style washes are untouched.
+    for arm_name, s in arm_scales.items():
+        if abs(s - 1.0) < 1e-6:
+            continue
+        fixed = 0
+        for act in bpy.data.actions:
+            for fc in all_fcurves(act):
+                dp = fc.data_path
+                if 'pose.bones["' in dp and dp.endswith(".location"):
+                    for kp in fc.keyframe_points:
+                        kp.co.y *= s
+                        kp.handle_left.y *= s
+                        kp.handle_right.y *= s
+                    fc.update()
+                    fixed += 1
+        print(f"[normalize] rescaled pose-location fcurves by x{s:g} ({arm_name}): {fixed} channels")
 
     bpy.ops.export_scene.gltf(filepath=str(dst), export_format="GLB", use_selection=True)
     if banned:
