@@ -54,3 +54,7 @@ updated: 2026-08-27
 - [[topics/game-design/art-pipeline-human-ai-division|美术与动作阶段的人机协作]]（回写，reference：规格归 AI 审美归人；表现层 80% 是代码；动作=采购+组装+参考驱动；占位图=进度解耦+判断纯度）
 - [[topics/game-design/art-style-and-pipeline-fundamentals|美术风格与管线基础]]（回写，reference：2D/3D 不可逆第一决策；风格统一=共享约束；套装/变体派生与 ECS 同构；武器插槽=锚点+行为预告；物理跟玩法维度走）
 - [[topics/engine/powershell-pipeline-utf8-corruption-pitfall|踩坑：PowerShell 文本管道写坏 UTF-8 源码]]（新增，pitfall：ANSI 双重转码 → 非法 UTF-8；改文件只走编辑器类工具或显式编码 API）
+- [[topics/game-design/art-pipeline-3d-v2|3D 美术生产管线 v2：双轨并行与工具链]]（回写，draft：规格≠数值解耦、按族生产；AI+套装混合获取、洗白收口；Blender 流水线 + 现成 viewer，自研只在运行时耦合处；风格圣经 v0 + 卡 17/18 草案同批落地）
+- [[topics/game-design/blender-gltf-wash-pitfalls|踩坑：Blender 无头 glTF 洗白三连坑]]（新增，pitfall：幻影网格污染测量→自检读文件 JSON；蒙皮变换烘焙；按名字索引防 StructRNA 尸体）
+- [[topics/game-design/ai-3d-generation-tools|AI 生成 3D 资产工具调研]]（新增，reference：混元 2.0/2.1 开源 + 4060Ti 8GB 定版 mini/turbo；形状-only + palette lock 抵消纹理短板；商用前人工读 LICENSE）
+- [[topics/game-design/ai-asset-pipeline|AI 生成美术管线八站流程]]（新增，howto：八站人机分工；normalize/turntable 速查；玩家模型 50k→10k 面/30.9→3.3MB 实测；prompt 模板）

@@ -46,6 +46,8 @@
 | 2026-08-27 | 维护 | 点子池美术两条更新：采购策略精确到粒度（按套装采购，AI 生成只作套装粗坯须过风格圣经四条）；新增变体派生条目（一个模型撑一族敌人，与 ECS 数值分化对称设计，敌人定义表落地） | games/wave-survival/docs/GDD.md | AI + youxia |
 | 2026-08-27 | 回写 | 美术风格与管线基础讨论（维度决策/风格坐标系/生产粒度/武器插槽/2D vs 3D 物理） | topics/game-design/art-style-and-pipeline-fundamentals.md（新增）、_index.md、MOC.md | AI + youxia |
 | 2026-08-27 | 回写 | PowerShell 文本管道写坏 UTF-8 源码事故沉淀（阶段三真机会话确认授权）：ANSI 双重转码根因分析 + 「改文件只走编辑器类工具/显式编码」防复发规则 | topics/engine/powershell-pipeline-utf8-corruption-pitfall.md（新增）、topics/engine/_index.md、MOC.md、log.md | AI，youxia 授权 |
+| 2026-08-27 | 回写 | 3D 美术管线 v2 讨论（对 v1 六幕的三条修正：规格≠数值双轨并行 / 族级粒度 / 混合获取+洗白收口）+ 可视化工具链三站一总线（否决 Bevy 自研 AssetPreview bin）；同批落地风格圣经 v0 与卡 17/18 草案 | topics/game-design/art-pipeline-3d-v2.md（新增）、games/wave-survival/docs/style-bible.md（新增）、games/wave-survival/docs/capability-cards.md（卡 15/16 补入卡清单 + 卡 17/18 草案）、games/wave-survival/docs/GDD.md（点子池三处对齐）、game-design/_index.md、MOC.md | AI + youxia |
+| 2026-08-28 | 回写 | AI 生成路线实操闭环沉淀（youxia 确认）：Blender 无头洗白三连坑（幻影 Icosphere/蒙皮变换烘焙/名字索引）；混元 Hunyuan3D 工具调研与三路对比（本机 4060Ti 8GB 定版 mini/turbo + 形状-only 补色策略，商用前人工读 LICENSE）；八站管线流程与玩家模型实战数据（混元网页版 0 成本，洗白 50k→10k 面/30.9→3.3MB，两轮人工复检通过） | topics/game-design/blender-gltf-wash-pitfalls.md（新增）、topics/game-design/ai-3d-generation-tools.md（新增）、topics/game-design/ai-asset-pipeline.md（新增）、game-design/_index.md、MOC.md | AI + youxia |
 
 ## 操作类型
 
