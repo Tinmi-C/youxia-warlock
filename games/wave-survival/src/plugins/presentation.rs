@@ -125,7 +125,7 @@ struct FeelState {
 struct MonsterBound;
 
 /// Which clip the hero state machine is addressing (card 21; Run added card 25).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum HeroClip {
     Walk,
     Run,
@@ -688,6 +688,9 @@ fn sync_walk_playback(
                             _ => {}
                         }
                         link.current = Some(desired);
+                        // card 25 acceptance instrument: prove the state
+                        // machine actually switches (visual feedback loop)
+                        info!("[presentation] hero clip -> {desired:?} (speed {ground_speed:.2})");
                     }
                 } else if moving {
                     // monsters chase while Playing: keep the walk loop up
