@@ -27,7 +27,9 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 
-use crate::components::{Attack, Heading, Monster, MonsterKind, Player, Visual, WalkCycle};
+use crate::components::{
+    Attack, Chasing, Heading, Monster, MonsterKind, Player, Visual, WalkCycle,
+};
 use crate::states::GameState;
 
 // Assets live under assets/models/ in this project (spike kept them at the root).
@@ -66,6 +68,12 @@ const MODEL_Y_OFFSET: f32 = -0.5;
 /// How strongly a variant's color is blended over the model's own material
 /// (scheme C tint half of the colour+body double coding).
 const MODEL_TINT_STRENGTH: f32 = 0.65;
+/// Anti-slide calibration (card 21 acceptance feedback #1, 2026-08-29): the
+/// ground speed in units/second that a walk clip was authored for. Walk
+/// playback rate = actual ground speed / this value, so feet plant instead of
+/// skating. Rough estimate (humanoid walk clips are authored ~1.2-1.5 u/s at
+/// 1.8 m height); final value is a visual-acceptance knob.
+const WALK_CLIP_AUTHORED_SPEED: f32 = 1.4;
 
 /// Marks the player root as already skinned (idempotence guard).
 #[derive(Component)]
@@ -448,6 +456,8 @@ fn sync_walk_playback(
         &WalkCycle,
         Option<&Attack>,
         Option<&Visual>,
+        Option<&Player>,
+        Option<&Chasing>,
         Option<&mut FxWatch>,
         &Children,
     )>,
@@ -461,7 +471,9 @@ fn sync_walk_playback(
     let now = time.elapsed_secs();
     let player_at = player_pos.single().ok().map(|t| t.translation);
 
-    for (_root, root_tf, walk, attack, visual, watch, owner_children) in &mut roots {
+    for (_root, root_tf, walk, attack, visual, player_m, chasing, watch, owner_children) in
+        &mut roots
+    {
         // find the wrapper child carrying the animation link
         let mut found = None;
         for kid in owner_children.iter() {
@@ -477,6 +489,16 @@ fn sync_walk_playback(
         };
         let moving = walk.playing;
         let is_hero = link.idle.is_some();
+
+        // Anti-slide calibration (card 21 feedback #1): walk playback rate
+        // mirrors actual ground speed, so feet plant instead of skating. Read
+        // every frame — F1 speed tweaks apply live without re-commanding.
+        let ground_speed = match (player_m, chasing) {
+            (Some(p), _) => p.speed,
+            (_, Some(c)) => c.speed,
+            _ => 0.0,
+        };
+        let walk_rate = (ground_speed / WALK_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
 
         // Combat bookkeeping: edges + one-shot expiry (Playing only; outside
         // the game state everything freezes and resets in the node loop).
@@ -585,7 +607,8 @@ fn sync_walk_playback(
                         };
                         trans
                             .play(&mut player, idx, HERO_BLEND)
-                            .set_repeat(RepeatAnimation::Forever);
+                            .set_repeat(RepeatAnimation::Forever)
+                            .set_speed(walk_rate);
                         link.current = Some(desired);
                     }
                 } else if moving {
@@ -593,7 +616,8 @@ fn sync_walk_playback(
                     if link.current != Some(HeroClip::Walk) {
                         trans
                             .play(&mut player, link.walk, HERO_BLEND)
-                            .set_repeat(RepeatAnimation::Forever);
+                            .set_repeat(RepeatAnimation::Forever)
+                            .set_speed(walk_rate);
                         link.current = Some(HeroClip::Walk);
                     }
                 } else if let Some(active) = player.animation_mut(link.walk) {
@@ -602,6 +626,13 @@ fn sync_walk_playback(
                     if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
                         active.pause();
                         active.seek_to(0.0);
+                    }
+                }
+
+                // live rate refresh while walking (anti-slide, see above)
+                if link.current == Some(HeroClip::Walk) {
+                    if let Some(active) = player.animation_mut(link.walk) {
+                        active.set_speed(walk_rate);
                     }
                 }
             }
