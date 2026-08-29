@@ -72,8 +72,24 @@ const MODEL_TINT_STRENGTH: f32 = 0.65;
 /// ground speed in units/second that a walk clip was authored for. Walk
 /// playback rate = actual ground speed / this value, so feet plant instead of
 /// skating. Rough estimate (humanoid walk clips are authored ~1.2-1.5 u/s at
-/// 1.8 m height); final value is a visual-acceptance knob.
-const WALK_CLIP_AUTHORED_SPEED: f32 = 1.4;
+/// 1.8 m height); card 24 acceptance: raised 1.4 -> 1.6 so the march reads
+/// less frantic once the lean/bob garnish lands.
+const WALK_CLIP_AUTHORED_SPEED: f32 = 1.6;
+
+// --- card 24: locomotion feel (lean + step bob) ------------------------------
+/// Body leans into the movement direction, reaching full lean at a run.
+const LEAN_MAX_DEG: f32 = 10.0;
+/// Ground speed that counts as a full run for the lean ramp (player default).
+const LEAN_REF_SPEED: f32 = 4.0;
+/// 1/s smoothing rate toward the lean target (start/stop ramps).
+const LEAN_RESPONSE: f32 = 6.0;
+/// Step-bounce height in world units.
+const BOB_AMP: f32 = 0.045;
+/// 1/s smoothing rate of the bob height (no popping when stopping).
+const BOB_RESPONSE: f32 = 14.0;
+/// Walk cycle length the bob oscillator is tuned for (hunyuan walk clip; the
+/// monster clips approximate it — bob is generic garnish, not foot-synced).
+const WALK_CYCLE_SECS: f32 = 1.375;
 
 /// Marks the player root as already skinned (idempotence guard).
 #[derive(Component)]
@@ -82,6 +98,15 @@ struct RoleModel;
 /// Marks a monster root as already given a model child (idempotence guard).
 #[derive(Component)]
 struct MonsterSkinned;
+
+/// Card 24 locomotion-feel state, presentation-local (lives on the wrapper):
+/// smoothed lean angle, smoothed bob height, and the bob oscillator phase.
+#[derive(Component, Default)]
+struct FeelState {
+    lean: f32,
+    bob: f32,
+    phase: f32,
+}
 
 /// Marks a monster wrapper whose subtree finished binding (animation + tint).
 #[derive(Component)]
@@ -157,6 +182,8 @@ impl Plugin for PresentationPlugin {
                     apply_flash_visuals,
                     sync_walk_playback,
                     face_towards_heading,
+                    // after face: composes lean pitch onto the yaw face wrote
+                    locomotion_feel,
                 )
                     .chain(),
             );
@@ -202,6 +229,7 @@ fn skin_player(
             ChildOf(root),
             link,
             WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(HERO_GLB))),
+            FeelState::default(),
             Transform {
                 translation: Vec3::new(0.0, MODEL_Y_OFFSET, 0.0),
                 scale: Vec3::splat(HERO_SCALE),
@@ -325,6 +353,7 @@ fn skin_new_monsters(
                     pending: None,
                 },
                 WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(model))),
+                FeelState::default(),
                 Transform {
                     translation: Vec3::new(0.0, MODEL_Y_OFFSET, 0.0),
                     scale: Vec3::splat(scale),
@@ -689,6 +718,65 @@ fn face_towards_heading(
 fn wrap_pi(a: f32) -> f32 {
     const TWO_PI: f32 = std::f32::consts::TAU;
     (a + std::f32::consts::PI).rem_euclid(TWO_PI) - std::f32::consts::PI
+}
+
+// --- card 24: locomotion feel ------------------------------------------------
+
+/// Two garnish layers over locomotion, per wrapper (hero + monsters alike):
+/// 1. lean — the body pitches forward into its movement, ramping with ground
+///    speed up to LEAN_MAX_DEG at LEAN_REF_SPEED;
+/// 2. bob — the body bounces at two footfalls per walk cycle via |sin|.
+/// Reads only WalkCycle/Player.speed/Chasing.speed (card-12 observer rule);
+/// runs AFTER face_towards_heading, which writes a pure absolute yaw each
+/// frame. Composing `Ry(yaw) * Rx(pitch)` keeps that yaw extraction exact
+/// (the cos(pitch/2) factors cancel in face's 2*atan2(q.y, q.w)), so lean
+/// never accumulates and never fights the heading servo.
+fn locomotion_feel(
+    time: Res<Time>,
+    game: Res<State<GameState>>,
+    roots: Query<(&WalkCycle, Option<&Player>, Option<&Chasing>, &Children)>,
+    links: Query<(), With<AnimLink>>,
+    mut wrappers: Query<(&mut Transform, &mut FeelState)>,
+) {
+    let in_game = *game.get() == GameState::Playing;
+    let dt = time.delta_secs();
+    for (walk, player_m, chasing, owner_children) in &roots {
+        let Some(wrapper) = owner_children.iter().find(|kid| links.contains(*kid)) else {
+            continue;
+        };
+        let Ok((mut tf, mut state)) = wrappers.get_mut(wrapper) else {
+            continue;
+        };
+
+        let speed = match (player_m, chasing) {
+            (Some(p), _) => p.speed,
+            (_, Some(c)) => c.speed,
+            _ => 0.0,
+        };
+        let moving = in_game && walk.playing && speed > 0.0;
+        let walk_rate = (speed / WALK_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
+
+        let lean_target = if moving {
+            LEAN_MAX_DEG * (speed / LEAN_REF_SPEED).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        state.lean += (lean_target - state.lean) * (LEAN_RESPONSE * dt).min(1.0);
+        let yaw = 2.0 * f32::atan2(tf.rotation.y, tf.rotation.w);
+        tf.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-state.lean.to_radians());
+
+        if moving {
+            // two footfalls per cycle, rate-scaled to match the clip playback
+            state.phase += dt * std::f32::consts::TAU * (2.0 / WALK_CYCLE_SECS) * walk_rate;
+        }
+        let bob_target = if moving {
+            state.phase.sin().abs() * BOB_AMP
+        } else {
+            0.0
+        };
+        state.bob += (bob_target - state.bob) * (BOB_RESPONSE * dt).min(1.0);
+        tf.translation.y = MODEL_Y_OFFSET + state.bob;
+    }
 }
 
 // --- card 14: hit-flash visuals --------------------------------------------
