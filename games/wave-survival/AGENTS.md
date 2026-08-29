@@ -54,9 +54,16 @@ assets/{models,textures,audio,fonts,ui}/
   Ry×Rx 不打架）+ 步伐起伏（|sin| 4.5cm 跟步频）+ 步频校准 1.4→1.6；英雄
   怪物同吃，Playing 门控冻结。动机：卡 21 反馈"走路不滑了但仍不自然"——
   程序化修饰先顶上。
-- **草案**：卡 25 HeroRunClip（Mixamo run clip 接入，A 路线主力）——依赖队友
-  mixamo_merge.py 工具就位，届时协作执行（5-clip 重推 HERO_CLIP_* 常量 +
-  钉测）。规格已入卡集。
+- **进行中**：卡 25 HeroRunClip（feat，2026-08-29，49 回归全绿；待人工视觉验收）。
+  Mixamo 跑步动画接入（动作优化 A 路线）：用队友的 mixamo_merge.py + normalize.py
+  管线把 `unarmed run forward` 嫁接进 player_hunyuan.glb（5 clip：attack/hit/
+  idle/run/walk，HERO_CLIP_* 重排 run=3/walk=4，钉测同步）；状态机升三档——
+  speed ≥3.0 跑（原生速率，RUN_CLIP_AUTHORED_SPEED=4.0），低于走（1.6），停止
+  idle；玩家 4.0 默认即跑，怪物 ≤2.2 保持走；卡 24 前倾/弹跳节奏跟跑档。
+  管线复跑配方：picked5/（picked 四件 + run.fbx）→ blender -b -P mixamo_merge.py
+  --rigged extracted/player_for_mixamo.fbx（**带骨架**；根目录同名文件是上传前
+  素模，没 ARMATURE）→ normalize.py --height 1.33；本机 Blender 在 D:\Blender
+  （5.2.1 LTS）。
 - **进行中**：卡 23 NovaJuice（feat `def55a3`，2026-08-28，49 回归全绿；待人工
   视觉验收）。Nova 打击感升级：单层烟花 → 四层爆发（冲击环重调/火花上抛受重力/
   贴地闪圈/中心白闪 0.1s）+ 镜头微抖 0.15s（确定性抖动，camera.rs 零改动全部
