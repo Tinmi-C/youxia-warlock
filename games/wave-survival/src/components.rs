@@ -151,8 +151,8 @@ pub struct Attack {
 }
 
 /// AoE nova state on the player: cooldown remaining (seconds) until the next
-/// Shift blast (card 9 NovaSlash). Independent of [`Attack`] on purpose — the
-/// two slashes throttle separately.
+/// Q blast (card 9 NovaSlash; card 26 moved the key Shift -> Q). Independent
+/// of [`Attack`] on purpose — the two slashes throttle separately.
 #[derive(Component)]
 pub struct NovaAttack {
     pub cooldown: f32,

@@ -1,7 +1,8 @@
-//! NovaSlash: the Shift AoE blast. Capability card 9 (docs/capability-cards.md).
-//! Interface: Shift (in) + player Transform/NovaAttack + monster Hp/Transform
+//! NovaSlash: the Q AoE blast. Capability card 9 (docs/capability-cards.md);
+//! card 26 moved the key Shift -> Q (Shift now carries the sprint).
+//! Interface: Q (in) + player Transform/NovaAttack + monster Hp/Transform
 //!   (out: Hp.hp, Visual.flash, NovaAttack.cooldown, NovaFired message).
-//! Behavior: the nova ticks its own cooldown; pressing Shift when ready deals a
+//! Behavior: the nova ticks its own cooldown; pressing Q when ready deals a
 //!   flat NOVA_DAMAGE to every monster within NOVA_RADIUS (no falloff — an AoE
 //!   is full damage inside the circle), fires exactly one `NovaFired`, and rearms.
 //! VFX separation: this module is pure gameplay logic (headless-testable); the
@@ -27,7 +28,9 @@ pub struct NovaFired {
     pub at: Vec3,
 }
 
-/// The Shift nova: tick cooldown, then blast every monster in radius once ready.
+/// The nova blast: tick cooldown, then fire every monster in radius once ready.
+/// Card 26: the key moved Shift -> Q so Shift can carry the sprint; E stays
+/// reserved for the planned dash skill.
 pub fn nova_slash(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -42,7 +45,7 @@ pub fn nova_slash(
         return;
     };
     nova.cooldown = (nova.cooldown - dt).max(0.0);
-    if !(keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)) {
+    if !keys.pressed(KeyCode::KeyQ) {
         return;
     }
     if nova.cooldown > 0.0 {
@@ -64,5 +67,8 @@ pub fn nova_slash(
     }
 
     nova_fired.write(NovaFired { at: origin });
-    info!("[nova] blast at ({:.1}, {:.1}), hit {hits} monsters", origin.x, origin.z);
+    info!(
+        "[nova] blast at ({:.1}, {:.1}), hit {hits} monsters",
+        origin.x, origin.z
+    );
 }

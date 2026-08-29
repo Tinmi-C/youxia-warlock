@@ -21,9 +21,11 @@ pub fn spawn_player(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.spawn((
-        Player { speed: 5.0 },
+        // card 26: base WALK speed; sprinting (hold Shift) multiplies by
+        // SPRINT_MULT back up to the old 5.0 combat pace
+        Player { speed: 2.5 },
         Attack { cooldown: 0.0 },
-        NovaAttack { cooldown: 0.0 }, // card 9: independent Shift-nova throttle
+        NovaAttack { cooldown: 0.0 }, // card 9/26: independent Q-nova throttle
         // card 18: presentation-side facing target (+Z = yaw0, model convention);
         // derive_heading updates it from displacement, the wrapper turns to it.
         Heading { dir: Vec2::Y },
@@ -40,6 +42,11 @@ pub fn spawn_player(
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
 }
+
+/// Card 26: sprint multiplier while Shift is held. 2.5 walk -> 5.0 sprint
+/// (the pre-card-26 pace), which also straddles the presentation walk/run
+/// clip threshold (3.0) so the gait follows the key automatically.
+pub const SPRINT_MULT: f32 = 2.0;
 
 pub fn move_player(
     keys: Res<ButtonInput<KeyCode>>,
@@ -63,8 +70,14 @@ pub fn move_player(
         return;
     }
     let dir = dir.normalize(); // keep diagonal speed equal to straight speed
+    let sprint = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     for (mut tf, player) in &mut q {
-        tf.translation += dir * player.speed * time.delta_secs();
+        let speed = if sprint {
+            player.speed * SPRINT_MULT
+        } else {
+            player.speed
+        };
+        tf.translation += dir * speed * time.delta_secs();
     }
 }
 

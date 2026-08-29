@@ -55,6 +55,7 @@ fn player_distance(app: &mut App) -> f32 {
 /// Capability card PlayerMove — acceptance: distance == speed × elapsed time
 /// (frame-rate independent; asserted against the *actually* elapsed time, not an
 /// assumed frame count, so first-frame clock quirks can't break it).
+/// Card 26: the base speed is the WALK pace (2.5); sprinting is tested below.
 #[test]
 fn straight_move_distance_equals_speed_times_time() {
     let mut app = test_app();
@@ -66,7 +67,7 @@ fn straight_move_distance_equals_speed_times_time() {
     }
     let elapsed = app.world().resource::<Time>().elapsed_secs();
     let dist = player_distance(&mut app);
-    let expected = 5.0 * elapsed; // Player.speed × actually elapsed seconds
+    let expected = 2.5 * elapsed; // Player.speed (walk) × actually elapsed seconds
     assert!(
         (dist - expected).abs() < 0.05,
         "expected ≈{expected:.3} units in {elapsed:.3}s, got {dist}"
@@ -85,10 +86,31 @@ fn diagonal_move_is_not_faster() {
         app.update();
     }
     let dist = player_distance(&mut app);
-    let expected = 5.0;
+    let expected = 2.5;
     assert!(
         (dist - expected).abs() < 0.1,
         "diagonal got {dist}, should be ≈{expected} (normalized), not {expected}*sqrt(2)"
+    );
+}
+
+/// Card 26 SprintRebind — acceptance: holding Shift doubles the move distance
+/// (walk 2.5 -> sprint 5.0 over the same elapsed time).
+#[test]
+fn shift_sprint_doubles_move_distance() {
+    let mut app = test_app();
+    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+    keys.press(KeyCode::KeyW);
+    keys.press(KeyCode::ShiftLeft);
+    drop(keys);
+    for _ in 0..60 {
+        app.update();
+    }
+    let elapsed = app.world().resource::<Time>().elapsed_secs();
+    let dist = player_distance(&mut app);
+    let expected = 5.0 * elapsed; // walk speed × SPRINT_MULT
+    assert!(
+        (dist - expected).abs() < 0.1,
+        "sprint expected ≈{expected:.3} units in {elapsed:.3}s, got {dist}"
     );
 }
 
@@ -946,26 +968,27 @@ fn phase1_acceptance_full_vertical_slice() {
 }
 
 // --- NovaSlash tests (capability card 9; the hanabi visual item is accepted by
-// --- running the game — headless tests cover the logic acceptance sentences). ---
+// --- running the game — headless tests cover the logic acceptance sentences).
+// --- Card 26: the nova key moved Shift -> Q (Shift carries the sprint now). ---
 
-fn press_shift(app: &mut App) {
+fn press_nova_key(app: &mut App) {
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::ShiftLeft);
+        .press(KeyCode::KeyQ);
 }
 
-fn release_shift(app: &mut App) {
+fn release_nova_key(app: &mut App) {
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
-        .release(KeyCode::ShiftLeft);
+        .release(KeyCode::KeyQ);
 }
 
-/// Fire once on a fresh app: press Shift for exactly one frame. The blast writes
+/// Fire once on a fresh app: press Q for exactly one frame. The blast writes
 /// NovaFired into the message buffer of that same update.
 fn fire_nova_once(app: &mut App) {
-    press_shift(app);
+    press_nova_key(app);
     app.update();
-    release_shift(app);
+    release_nova_key(app);
 }
 
 /// Messages buffered in the current update (len() semantics suffice here because
@@ -1069,11 +1092,11 @@ fn nova_independent_of_melee_cooldown() {
     release_space(&mut app);
     assert!((monster_hp(&app, m) - 66.0).abs() < 1e-4, "melee dealt 34");
 
-    // Immediately after: Shift is NOT blocked by the melee cooldown (−60 more).
+    // Immediately after: Q is NOT blocked by the melee cooldown (−60 more).
     let b = nova_messages_now(&app);
-    press_shift(&mut app);
+    press_nova_key(&mut app);
     app.update();
-    release_shift(&mut app);
+    release_nova_key(&mut app);
     assert!(
         (monster_hp(&app, m) - 6.0).abs() < 1e-4,
         "nova fired right after melee: total damage 94"

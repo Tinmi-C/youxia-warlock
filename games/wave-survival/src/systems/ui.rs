@@ -209,7 +209,7 @@ pub fn spawn_ui(mut commands: Commands) {
     // card 16: the debug-era control hints move to a dim bottom line — they are
     // still useful for new players but must not sit on top of the HUD corner.
     commands.spawn((
-        Text::new("WASD move | Space slash | Shift nova | P pause | R restart | F12 shot"),
+        Text::new("WASD move | Shift run | Q nova | Space slash | P pause | R restart | F12 shot"),
         TextFont {
             font_size: FontSize::Px(12.0),
             ..default()
