@@ -49,21 +49,27 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：卡 24 LocomotionFeel（feat，2026-08-29，49 回归全绿；待人工视觉
-  验收）。动作优化 A+B 组合的 B 路线：身体前倾（随速 0→10°，face 之后复合
+- **进行中**：卡 26 SprintRebind（feat `5e12381`，2026-08-29，50 回归全绿——新增
+  疾跑测试；待人工验收）。Shift 疾跑 + Nova 改键 Q（E 留给规划中的 Dash）：
+  基础移速 5.0→2.5（walk 节奏），按住 Shift ×2 回到 5.0 战斗节奏；卡 25 的
+  速度门控（3.0）天然横跨走/跑两档，动画自动跟随，表现层零改动。数值漂移
+  预声明入卡；用户动机：走/跑要由玩家按键区分（卡 25 验收反馈）。
+- **进行中**：卡 25 HeroRunClip（feat `1ebf2c7` + fix `947a932`，2026-08-29，
+  50 回归全绿；待人工视觉验收）。Mixamo 跑步动画接入（动作优化 A 路线）：用
+  队友的 mixamo_merge.py + normalize.py 管线把 `unarmed run forward` 嫁接进
+  player_hunyuan.glb（5 clip：attack/hit/idle/run/walk，HERO_CLIP_* 重排
+  run=3/walk=4，钉测同步）；状态机速度门控三档。fix `947a932`：各 clip 速率
+  各归各家，待机恒原生 1.0（此前走→待机会把 2.5x 涂在待机上，站立抽搐如迈步
+  ——用户验收反馈#2）。glb 动画时长已离线验证（run 0.83s / walk 1.38s /
+  idle 1.79s）。
+- **进行中**：卡 24 LocomotionFeel（feat `f64c464`，2026-08-29，50 回归全绿；待人工
+  视觉验收）。动作优化 A+B 组合的 B 路线：身体前倾（随速 0→10°，face 之后复合
   Ry×Rx 不打架）+ 步伐起伏（|sin| 4.5cm 跟步频）+ 步频校准 1.4→1.6；英雄
-  怪物同吃，Playing 门控冻结。动机：卡 21 反馈"走路不滑了但仍不自然"——
-  程序化修饰先顶上。
-- **进行中**：卡 25 HeroRunClip（feat，2026-08-29，49 回归全绿；待人工视觉验收）。
-  Mixamo 跑步动画接入（动作优化 A 路线）：用队友的 mixamo_merge.py + normalize.py
-  管线把 `unarmed run forward` 嫁接进 player_hunyuan.glb（5 clip：attack/hit/
-  idle/run/walk，HERO_CLIP_* 重排 run=3/walk=4，钉测同步）；状态机升三档——
-  speed ≥3.0 跑（原生速率，RUN_CLIP_AUTHORED_SPEED=4.0），低于走（1.6），停止
-  idle；玩家 4.0 默认即跑，怪物 ≤2.2 保持走；卡 24 前倾/弹跳节奏跟跑档。
-  管线复跑配方：picked5/（picked 四件 + run.fbx）→ blender -b -P mixamo_merge.py
-  --rigged extracted/player_for_mixamo.fbx（**带骨架**；根目录同名文件是上传前
-  素模，没 ARMATURE）→ normalize.py --height 1.33；本机 Blender 在 D:\Blender
-  （5.2.1 LTS）。
+  怪物同吃，Playing 门控冻结。卡 25 落地后弹跳节奏自动跟跑档。
+  管线复跑配方（卡 25 素材侧）：picked5/（picked 四件 + run.fbx）→ blender -b
+  -P mixamo_merge.py --rigged extracted/player_for_mixamo.fbx（**带骨架**；根
+  目录同名文件是上传前素模，没 ARMATURE）→ normalize.py --height 1.33；本机
+  Blender 在 D:\Blender（5.2.1 LTS）。
 - **进行中**：卡 23 NovaJuice（feat `def55a3`，2026-08-28，49 回归全绿；待人工
   视觉验收）。Nova 打击感升级：单层烟花 → 四层爆发（冲击环重调/火花上抛受重力/
   贴地闪圈/中心白闪 0.1s）+ 镜头微抖 0.15s（确定性抖动，camera.rs 零改动全部
