@@ -1354,14 +1354,16 @@ fn hero_asset_matches_pinned_clip_layout() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/models/player_hunyuan.glb");
     assert!(path.exists(), "hero asset missing: {}", path.display());
     // positional addressing consts (see presentation.rs): the glb lists its
-    // animations alphabetically — attack, hit, idle, walk.
+    // animations alphabetically — attack, hit, idle, run, walk (card 25 added
+    // the Mixamo run clip at index 3, shifting walk 3 -> 4).
     use wave_survival::plugins::presentation::{
-        HERO_CLIP_ATTACK, HERO_CLIP_HIT, HERO_CLIP_IDLE, HERO_CLIP_WALK,
+        HERO_CLIP_ATTACK, HERO_CLIP_HIT, HERO_CLIP_IDLE, HERO_CLIP_RUN, HERO_CLIP_WALK,
     };
     assert_eq!(HERO_CLIP_ATTACK, 0);
     assert_eq!(HERO_CLIP_HIT, 1);
     assert_eq!(HERO_CLIP_IDLE, 2);
-    assert_eq!(HERO_CLIP_WALK, 3);
+    assert_eq!(HERO_CLIP_RUN, 3);
+    assert_eq!(HERO_CLIP_WALK, 4);
 }
 
 // --- EguiTunePanel / Balance tests (capability card 11; the F1 panel itself is

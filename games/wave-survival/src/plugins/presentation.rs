@@ -35,12 +35,14 @@ use crate::states::GameState;
 // Assets live under assets/models/ in this project (spike kept them at the root).
 const HERO_GLB: &str = "models/player_hunyuan.glb";
 /// Clip layout of player_hunyuan.glb (alphabetical in the glTF: attack/hit/
-/// idle/walk). Pinned here because AnimationNodeIndex addressing is positional;
-/// if the asset is ever re-exported with a different order, re-derive these.
+/// idle/run/walk — run added by card 25). Pinned here because
+/// AnimationNodeIndex addressing is positional; if the asset is ever
+/// re-exported with a different order, re-derive these.
 pub const HERO_CLIP_ATTACK: usize = 0;
 pub const HERO_CLIP_HIT: usize = 1;
 pub const HERO_CLIP_IDLE: usize = 2;
-pub const HERO_CLIP_WALK: usize = 3;
+pub const HERO_CLIP_RUN: usize = 3;
+pub const HERO_CLIP_WALK: usize = 4;
 /// player_hunyuan is 1.33 m tall raw; scale up to the CesiumMan-era 1.8 m world
 /// height the game's sizes (doorways, monster heights) were tuned around.
 const HERO_SCALE: f32 = 1.353;
@@ -91,6 +93,16 @@ const BOB_RESPONSE: f32 = 14.0;
 /// monster clips approximate it — bob is generic garnish, not foot-synced).
 const WALK_CYCLE_SECS: f32 = 1.375;
 
+// --- card 25: hero run clip --------------------------------------------------
+/// Ground speed at or above which the hero plays the run clip instead of walk
+/// (player default 4.0 runs; monsters top out at 2.2 and keep walking).
+const RUN_SPEED_THRESHOLD: f32 = 3.0;
+/// Ground speed the run clip was authored for (rate 1.0 at player default);
+/// visual-acceptance knob like its walk sibling.
+const RUN_CLIP_AUTHORED_SPEED: f32 = 4.0;
+/// Run cycle length (24 frames @ 30 fps) for the bob cadence.
+const RUN_CYCLE_SECS: f32 = 0.8;
+
 /// Marks the player root as already skinned (idempotence guard).
 #[derive(Component)]
 struct RoleModel;
@@ -112,10 +124,11 @@ struct FeelState {
 #[derive(Component)]
 struct MonsterBound;
 
-/// Which clip the hero state machine is addressing (card 21).
+/// Which clip the hero state machine is addressing (card 21; Run added card 25).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HeroClip {
     Walk,
+    Run,
     Idle,
     Attack,
     Hit,
@@ -131,6 +144,8 @@ enum HeroClip {
 struct AnimLink {
     graph_handle: Handle<AnimationGraph>,
     walk: AnimationNodeIndex,
+    /// Hero run clip (card 25); None for monsters (they only walk).
+    run: Option<AnimationNodeIndex>,
     idle: Option<AnimationNodeIndex>,
     attack: Option<AnimationNodeIndex>,
     hit: Option<AnimationNodeIndex>,
@@ -205,17 +220,19 @@ fn skin_player(
     let Ok(root) = players.single() else {
         return;
     };
-    info!("[presentation] skinning player with {HERO_GLB} (4-clip graph)");
+    info!("[presentation] skinning player with {HERO_GLB} (5-clip graph)");
 
     let clip = |i: usize| assets.load(GltfAssetLabel::Animation(i).from_asset(HERO_GLB));
     let mut graph = AnimationGraph::new();
     let attack = graph.add_clip(clip(HERO_CLIP_ATTACK), 1.0, graph.root);
     let hit = graph.add_clip(clip(HERO_CLIP_HIT), 1.0, graph.root);
     let idle = graph.add_clip(clip(HERO_CLIP_IDLE), 1.0, graph.root);
+    let run = graph.add_clip(clip(HERO_CLIP_RUN), 1.0, graph.root);
     let walk = graph.add_clip(clip(HERO_CLIP_WALK), 1.0, graph.root);
     let link = AnimLink {
         graph_handle: graphs.add(graph),
         walk,
+        run: Some(run),
         idle: Some(idle),
         attack: Some(attack),
         hit: Some(hit),
@@ -280,7 +297,7 @@ fn on_model_ready(
                 commands
                     .entity(node)
                     .insert((AnimationGraphHandle(link.graph_handle.clone()), transitions));
-                info!("[presentation] hero 4-clip graph bound to {node:?} (idle initial)");
+                info!("[presentation] hero 5-clip graph bound to {node:?} (idle initial)");
             } else {
                 // legacy single-clip owners (defensive: monsters never take
                 // this observer, but keep the old path compiling)
@@ -345,6 +362,7 @@ fn skin_new_monsters(
                 AnimLink {
                     graph_handle: graph_handle.clone(),
                     walk,
+                    run: None,
                     idle: None,
                     attack: Some(attack),
                     hit: Some(hit),
@@ -522,12 +540,18 @@ fn sync_walk_playback(
         // Anti-slide calibration (card 21 feedback #1): walk playback rate
         // mirrors actual ground speed, so feet plant instead of skating. Read
         // every frame — F1 speed tweaks apply live without re-commanding.
+        // Card 25: the rate uses the authored speed of the ACTIVE state clip
+        // (walk vs run have very different natural strides).
         let ground_speed = match (player_m, chasing) {
             (Some(p), _) => p.speed,
             (_, Some(c)) => c.speed,
             _ => 0.0,
         };
-        let walk_rate = (ground_speed / WALK_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
+        let active_authored = match link.current {
+            Some(HeroClip::Run) => RUN_CLIP_AUTHORED_SPEED,
+            _ => WALK_CLIP_AUTHORED_SPEED,
+        };
+        let walk_rate = (ground_speed / active_authored).clamp(0.5, 4.0);
 
         // Combat bookkeeping: edges + one-shot expiry (Playing only; outside
         // the game state everything freezes and resets in the node loop).
@@ -609,7 +633,7 @@ fn sync_walk_playback(
                         };
                         (link.hit.expect("owner carries hit"), window)
                     }
-                    HeroClip::Walk | HeroClip::Idle => {
+                    HeroClip::Walk | HeroClip::Run | HeroClip::Idle => {
                         unreachable!("one-shots are never state clips")
                     }
                 };
@@ -621,14 +645,21 @@ fn sync_walk_playback(
             } else if link.one_shot.is_none() {
                 // State clips.
                 if is_hero {
+                    // Card 25: speed-gated three-state machine — walk below
+                    // RUN_SPEED_THRESHOLD, run at or above it.
                     let desired = if moving {
-                        HeroClip::Walk
+                        if ground_speed >= RUN_SPEED_THRESHOLD {
+                            HeroClip::Run
+                        } else {
+                            HeroClip::Walk
+                        }
                     } else {
                         HeroClip::Idle
                     };
                     if link.current != Some(desired) {
                         let idx = match desired {
                             HeroClip::Walk => link.walk,
+                            HeroClip::Run => link.run.expect("hero carries run"),
                             HeroClip::Idle => link.idle.expect("hero carries idle"),
                             HeroClip::Attack | HeroClip::Hit => {
                                 unreachable!("state clips are never one-shots")
@@ -658,10 +689,17 @@ fn sync_walk_playback(
                     }
                 }
 
-                // live rate refresh while walking (anti-slide, see above)
-                if link.current == Some(HeroClip::Walk) {
-                    if let Some(active) = player.animation_mut(link.walk) {
-                        active.set_speed(walk_rate);
+                // live rate refresh while walking/running (anti-slide, see
+                // above); the rate targets whichever state clip is active
+                if matches!(link.current, Some(HeroClip::Walk) | Some(HeroClip::Run)) {
+                    let idx = match link.current {
+                        Some(HeroClip::Run) => link.run,
+                        _ => Some(link.walk),
+                    };
+                    if let Some(idx) = idx {
+                        if let Some(active) = player.animation_mut(idx) {
+                            active.set_speed(walk_rate);
+                        }
                     }
                 }
             }
@@ -735,7 +773,7 @@ fn locomotion_feel(
     time: Res<Time>,
     game: Res<State<GameState>>,
     roots: Query<(&WalkCycle, Option<&Player>, Option<&Chasing>, &Children)>,
-    links: Query<(), With<AnimLink>>,
+    links: Query<&AnimLink>,
     mut wrappers: Query<(&mut Transform, &mut FeelState)>,
 ) {
     let in_game = *game.get() == GameState::Playing;
@@ -747,6 +785,17 @@ fn locomotion_feel(
         let Ok((mut tf, mut state)) = wrappers.get_mut(wrapper) else {
             continue;
         };
+        // bob cadence follows the active state clip (card 25: run cycles fast)
+        let running = links
+            .get(wrapper)
+            .ok()
+            .and_then(|link| link.current)
+            .is_some_and(|c| c == HeroClip::Run);
+        let cycle_secs = if running {
+            RUN_CYCLE_SECS
+        } else {
+            WALK_CYCLE_SECS
+        };
 
         let speed = match (player_m, chasing) {
             (Some(p), _) => p.speed,
@@ -754,7 +803,12 @@ fn locomotion_feel(
             _ => 0.0,
         };
         let moving = in_game && walk.playing && speed > 0.0;
-        let walk_rate = (speed / WALK_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
+        let authored = if running {
+            RUN_CLIP_AUTHORED_SPEED
+        } else {
+            WALK_CLIP_AUTHORED_SPEED
+        };
+        let walk_rate = (speed / authored).clamp(0.5, 4.0);
 
         let lean_target = if moving {
             LEAN_MAX_DEG * (speed / LEAN_REF_SPEED).clamp(0.0, 1.0)
@@ -767,7 +821,7 @@ fn locomotion_feel(
 
         if moving {
             // two footfalls per cycle, rate-scaled to match the clip playback
-            state.phase += dt * std::f32::consts::TAU * (2.0 / WALK_CYCLE_SECS) * walk_rate;
+            state.phase += dt * std::f32::consts::TAU * (2.0 / cycle_secs) * walk_rate;
         }
         let bob_target = if moving {
             state.phase.sin().abs() * BOB_AMP
