@@ -49,23 +49,23 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：卡 26 SprintRebind（feat `5e12381`，2026-08-29，50 回归全绿——新增
-  疾跑测试；待人工验收）。Shift 疾跑 + Nova 改键 Q（E 留给规划中的 Dash）：
-  基础移速 5.0→2.5（walk 节奏），按住 Shift ×2 回到 5.0 战斗节奏；卡 25 的
-  速度门控（3.0）天然横跨走/跑两档，动画自动跟随，表现层零改动。数值漂移
-  预声明入卡；用户动机：走/跑要由玩家按键区分（卡 25 验收反馈）。
-- **进行中**：卡 25 HeroRunClip（feat `1ebf2c7` + fix `947a932`，2026-08-29，
-  50 回归全绿；待人工视觉验收）。Mixamo 跑步动画接入（动作优化 A 路线）：用
-  队友的 mixamo_merge.py + normalize.py 管线把 `unarmed run forward` 嫁接进
-  player_hunyuan.glb（5 clip：attack/hit/idle/run/walk，HERO_CLIP_* 重排
-  run=3/walk=4，钉测同步）；状态机速度门控三档。fix `947a932`：各 clip 速率
-  各归各家，待机恒原生 1.0（此前走→待机会把 2.5x 涂在待机上，站立抽搐如迈步
-  ——用户验收反馈#2）。glb 动画时长已离线验证（run 0.83s / walk 1.38s /
-  idle 1.79s）。
-- **进行中**：卡 24 LocomotionFeel（feat `f64c464`，2026-08-29，50 回归全绿；待人工
-  视觉验收）。动作优化 A+B 组合的 B 路线：身体前倾（随速 0→10°，face 之后复合
-  Ry×Rx 不打架）+ 步伐起伏（|sin| 4.5cm 跟步频）+ 步频校准 1.4→1.6；英雄
-  怪物同吃，Playing 门控冻结。卡 25 落地后弹跳节奏自动跟跑档。
+- **已完成**：卡 26 SprintRebind（feat `5e12381` + fix `c3f24de`，2026-08-29，
+  **真机验收通过**——用户确认走/跑动作可辨）。Shift 疾跑 + Nova 改键 Q（E 留
+  给规划中的 Dash）：基础移速 5.0→2.5（walk 节奏），按住 Shift ×2 回到 5.0
+  战斗节奏。fix `c3f24de`（关键）：表现层改读实测位移速度（FeelState.speed，
+  locomotion_feel 逐帧测距写入）——静态 Player.speed 看不见疾跑，曾导致走/跑
+  同 clip；查询冲突以 Without<WalkCycle> 划界。数值漂移预声明入卡。
+- **已完成**：卡 25 HeroRunClip（feat `1ebf2c7` + fix `947a932`/`c3f24de`，
+  2026-08-29，**真机验收通过**——走/跑/待机三态动作用户确认可辨）。Mixamo
+  跑步动画接入（动作优化 A 路线）：mixamo_merge.py + normalize.py 管线把
+  `unarmed run forward` 嫁接进 player_hunyuan.glb（5 clip，HERO_CLIP_* 重排
+  run=3/walk=4，钉测同步）；速度门控三档（阈值 3.0）。fix `947a932`：各 clip
+  速率各归各家，待机恒原生 1.0（此前走→待机涂 2.5x 致站立抽搐）。glb 动画
+  时长已离线验证（run 0.83s / walk 1.38s / idle 1.79s）。
+- **已完成**：卡 24 LocomotionFeel（feat `f64c464`，2026-08-29，50 回归全绿，
+  随卡 25/26 真机一并确认）。动作优化 A+B 组合的 B 路线：身体前倾（随速
+  0→10°，face 之后复合 Ry×Rx 不打架）+ 步伐起伏（|sin| 4.5cm 跟步频）+
+  步频校准 1.4→1.6；英雄怪物同吃，Playing 门控冻结。
   管线复跑配方（卡 25 素材侧）：picked5/（picked 四件 + run.fbx）→ blender -b
   -P mixamo_merge.py --rigged extracted/player_for_mixamo.fbx（**带骨架**；根
   目录同名文件是上传前素模，没 ARMATURE）→ normalize.py --height 1.33；本机
