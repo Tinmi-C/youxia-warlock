@@ -17,6 +17,7 @@ use wave_survival::plugins::presentation::MAX_TURN_RATE_DEG;
 use wave_survival::resources::{Balance, Wave};
 use wave_survival::systems::heading::derive_heading;
 use wave_survival::systems::nova::{NovaFired, NOVA_COOLDOWN, NOVA_DAMAGE, NOVA_RADIUS};
+use wave_survival::systems::player::ATTACK_MOVE_FACTOR;
 use wave_survival::systems::wave::{
     kinds_for_wave, runner_count, tank_count, wave_count, wave_hp, wave_speed,
 };
@@ -111,6 +112,70 @@ fn shift_sprint_doubles_move_distance() {
     assert!(
         (dist - expected).abs() < 0.1,
         "sprint expected ≈{expected:.3} units in {elapsed:.3}s, got {dist}"
+    );
+}
+
+/// Card 27 AttackRoot — acceptance: right after a slash the player moves at
+/// speed × ATTACK_MOVE_FACTOR (feet planted, no ice-skating); the root
+/// releases once the remaining cooldown drops below the swing window.
+#[test]
+fn attack_root_damps_movement_right_after_slash() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    // Seed the cooldown as if a slash JUST happened (default balance: 0.45).
+    {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut Attack, With<Player>>();
+        let mut atk = q.single_mut(app.world_mut()).unwrap();
+        atk.cooldown = 0.45;
+    }
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyW);
+    for _ in 0..10 {
+        app.update();
+    }
+    // 10 frames ≈ 0.167s << 0.3s window: cooldown never dropped below 0.15.
+    let elapsed = app.world().resource::<Time>().elapsed_secs();
+    assert!(
+        elapsed < 0.3,
+        "window assumption broken: {elapsed}s elapsed"
+    );
+    let dist = player_distance(&mut app);
+    let expected = 2.5 * ATTACK_MOVE_FACTOR * elapsed;
+    assert!(
+        (dist - expected).abs() < 0.05,
+        "rooted move expected ≈{expected:.3} in {elapsed:.3}s, got {dist}"
+    );
+}
+
+/// Card 27 AttackRoot — acceptance: outside the swing window movement is at
+/// full base speed again (the root is temporary, not a debuff).
+#[test]
+fn attack_root_releases_after_window() {
+    let mut app = test_app();
+    run_frames(&mut app, 2);
+    // Cooldown almost expired: BELOW the 0.3s window floor (0.45 - 0.3).
+    {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut Attack, With<Player>>();
+        let mut atk = q.single_mut(app.world_mut()).unwrap();
+        atk.cooldown = 0.1;
+    }
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyW);
+    for _ in 0..10 {
+        app.update();
+    }
+    let elapsed = app.world().resource::<Time>().elapsed_secs();
+    let dist = player_distance(&mut app);
+    let expected = 2.5 * elapsed;
+    assert!(
+        (dist - expected).abs() < 0.05,
+        "expected full walk ≈{expected:.3} in {elapsed:.3}s, got {dist}"
     );
 }
 

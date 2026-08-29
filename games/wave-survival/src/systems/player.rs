@@ -14,6 +14,15 @@ use bevy_rapier3d::prelude::{Collider, CollisionGroups, Group, RigidBody};
 use crate::components::{
     Attack, Heading, Hp, NovaAttack, Player, PrevTranslation, Visual, WalkCycle,
 };
+use crate::resources::Balance;
+
+/// Card 27 AttackRoot: movement damping while the slash swing is active. The
+/// attack clip is authored standing-still (in-place), so slashing while moving
+/// at full speed ice-skates; rooting the first 0.3 s of the 0.45 s cooldown
+/// plants the feet AND gives the swing weight (attack commitment).
+pub const ATTACK_MOVE_FACTOR: f32 = 0.25;
+/// How long after a slash the root holds (the visible swing window).
+pub const ATTACK_ROOT_WINDOW: f32 = 0.3;
 
 pub fn spawn_player(
     mut commands: Commands,
@@ -51,7 +60,8 @@ pub const SPRINT_MULT: f32 = 2.0;
 pub fn move_player(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
-    mut q: Query<(&mut Transform, &Player)>,
+    balance: Res<Balance>,
+    mut q: Query<(&mut Transform, &Player, Option<&Attack>)>,
 ) {
     let mut dir = Vec3::ZERO;
     // South camera sits on -Z, which mirrors screen-left/right against world X:
@@ -71,12 +81,21 @@ pub fn move_player(
     }
     let dir = dir.normalize(); // keep diagonal speed equal to straight speed
     let sprint = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    for (mut tf, player) in &mut q {
-        let speed = if sprint {
-            player.speed * SPRINT_MULT
-        } else {
-            player.speed
-        };
+    // Card 27 AttackRoot: the first ATTACK_ROOT_WINDOW seconds after a slash
+    // (cooldown still near its max) damp movement so the standing attack clip
+    // doesn't ice-skate across the ground. Anchored to the LIVE balance value
+    // (F1 retunes slash_cooldown) and clamped so a short tuned cooldown still
+    // roots for its whole duration instead of never.
+    let root_floor = (balance.slash_cooldown - ATTACK_ROOT_WINDOW).max(0.0);
+    for (mut tf, player, attack) in &mut q {
+        let rooted = attack.is_some_and(|a| a.cooldown >= root_floor);
+        let mut speed = player.speed;
+        if sprint {
+            speed *= SPRINT_MULT;
+        }
+        if rooted {
+            speed *= ATTACK_MOVE_FACTOR;
+        }
         tf.translation += dir * speed * time.delta_secs();
     }
 }
