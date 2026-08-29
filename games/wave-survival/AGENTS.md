@@ -49,6 +49,14 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
+- **进行中**：卡 24 LocomotionFeel（feat，2026-08-29，49 回归全绿；待人工视觉
+  验收）。动作优化 A+B 组合的 B 路线：身体前倾（随速 0→10°，face 之后复合
+  Ry×Rx 不打架）+ 步伐起伏（|sin| 4.5cm 跟步频）+ 步频校准 1.4→1.6；英雄
+  怪物同吃，Playing 门控冻结。动机：卡 21 反馈"走路不滑了但仍不自然"——
+  程序化修饰先顶上。
+- **草案**：卡 25 HeroRunClip（Mixamo run clip 接入，A 路线主力）——依赖队友
+  mixamo_merge.py 工具就位，届时协作执行（5-clip 重推 HERO_CLIP_* 常量 +
+  钉测）。规格已入卡集。
 - **进行中**：卡 23 NovaJuice（feat `def55a3`，2026-08-28，49 回归全绿；待人工
   视觉验收）。Nova 打击感升级：单层烟花 → 四层爆发（冲击环重调/火花上抛受重力/
   贴地闪圈/中心白闪 0.1s）+ 镜头微抖 0.15s（确定性抖动，camera.rs 零改动全部
