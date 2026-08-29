@@ -671,6 +671,14 @@ struct FlashAssets {
     privates: HashMap<Entity, Vec<Handle<StandardMaterial>>>,
 }
 
+/// Card 14 flash curve: emissive rests at BLACK and whiteouts as `flash`
+/// approaches 1. Single source of truth — the original formula lerped from
+/// `base_color`, which left a permanent additive self-glow at flash=0 and
+/// washed every model out to flat gray (art regression, fixed 2026-08-28).
+fn flash_emissive(flash: f32) -> LinearRgba {
+    LinearRgba::BLACK.lerp(LinearRgba::WHITE, flash)
+}
+
 /// Card 14 (presentation half): mirror each owner's Visual.flash onto its model
 /// materials as an emissive whiteout. The logic side owns the number; here we
 /// only paint it — headless worlds stay untouched by construction.
@@ -697,10 +705,8 @@ fn apply_flash_visuals(
                             Some(material) => material.clone(),
                             None => StandardMaterial::default(),
                         };
-                        variant.emissive = variant
-                            .base_color
-                            .to_linear()
-                            .lerp(LinearRgba::WHITE, vis.flash);
+                        // rest-at-black: see flash_emissive docs
+                        variant.emissive = flash_emissive(vis.flash);
                         let handle = materials.add(variant);
                         commands.entity(node).insert(MeshMaterial3d(handle.clone()));
                         collected.push(handle);
@@ -714,11 +720,36 @@ fn apply_flash_visuals(
         // and other entities sharing the pre-clone lineage are never touched.
         for handle in entry {
             if let Some(mut material) = materials.get_mut(handle) {
-                material.emissive = material
-                    .base_color
-                    .to_linear()
-                    .lerp(LinearRgba::WHITE, vis.flash);
+                material.emissive = flash_emissive(vis.flash);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flash_emissive_rests_at_black() {
+        // THE regression: the old formula rested at base_color, adding a
+        // permanent self-glow that washed every character to flat gray.
+        let rest = flash_emissive(0.0);
+        assert!(rest.red < 1e-6 && rest.green < 1e-6 && rest.blue < 1e-6);
+    }
+
+    #[test]
+    fn flash_emissive_whiteouts_at_one() {
+        let full = flash_emissive(1.0);
+        assert!((full.red - 1.0).abs() < 1e-6);
+        assert!((full.green - 1.0).abs() < 1e-6);
+        assert!((full.blue - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn flash_emissive_is_linear_in_flash() {
+        let quarter = flash_emissive(0.25);
+        assert!((quarter.red - 0.25).abs() < 1e-6);
+        assert!((quarter.blue - 0.25).abs() < 1e-6);
     }
 }
