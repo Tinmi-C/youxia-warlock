@@ -537,21 +537,19 @@ fn sync_walk_playback(
         let moving = walk.playing;
         let is_hero = link.idle.is_some();
 
-        // Anti-slide calibration (card 21 feedback #1): walk playback rate
-        // mirrors actual ground speed, so feet plant instead of skating. Read
+        // Anti-slide calibration (card 21 feedback #1): movement clips play at
+        // ground speed / authored speed so feet plant instead of skating. Read
         // every frame — F1 speed tweaks apply live without re-commanding.
-        // Card 25: the rate uses the authored speed of the ACTIVE state clip
-        // (walk vs run have very different natural strides).
+        // Card 25 fix: the two movement clips each use their OWN authored
+        // speed, and the idle clip is always left at native 1.0 — stamping the
+        // walk rate onto idle made the breathing loop twitch at ~2.5x.
         let ground_speed = match (player_m, chasing) {
             (Some(p), _) => p.speed,
             (_, Some(c)) => c.speed,
             _ => 0.0,
         };
-        let active_authored = match link.current {
-            Some(HeroClip::Run) => RUN_CLIP_AUTHORED_SPEED,
-            _ => WALK_CLIP_AUTHORED_SPEED,
-        };
-        let walk_rate = (ground_speed / active_authored).clamp(0.5, 4.0);
+        let walk_rate = (ground_speed / WALK_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
+        let run_rate = (ground_speed / RUN_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
 
         // Combat bookkeeping: edges + one-shot expiry (Playing only; outside
         // the game state everything freezes and resets in the node loop).
@@ -667,8 +665,28 @@ fn sync_walk_playback(
                         };
                         trans
                             .play(&mut player, idx, HERO_BLEND)
-                            .set_repeat(RepeatAnimation::Forever)
-                            .set_speed(walk_rate);
+                            .set_repeat(RepeatAnimation::Forever);
+                        // each movement clip gets its own rate; idle stays
+                        // native (see rate comment above)
+                        match desired {
+                            HeroClip::Walk => {
+                                if let Some(active) = player.animation_mut(idx) {
+                                    active.set_speed(walk_rate);
+                                }
+                            }
+                            HeroClip::Run => {
+                                if let Some(active) = player.animation_mut(idx) {
+                                    active.set_speed(run_rate);
+                                }
+                            }
+                            // defensive: idle always plays natively
+                            HeroClip::Idle => {
+                                if let Some(active) = player.animation_mut(idx) {
+                                    active.set_speed(1.0);
+                                }
+                            }
+                            _ => {}
+                        }
                         link.current = Some(desired);
                     }
                 } else if moving {
@@ -691,16 +709,18 @@ fn sync_walk_playback(
 
                 // live rate refresh while walking/running (anti-slide, see
                 // above); the rate targets whichever state clip is active
-                if matches!(link.current, Some(HeroClip::Walk) | Some(HeroClip::Run)) {
-                    let idx = match link.current {
-                        Some(HeroClip::Run) => link.run,
-                        _ => Some(link.walk),
-                    };
-                    if let Some(idx) = idx {
-                        if let Some(active) = player.animation_mut(idx) {
+                match link.current {
+                    Some(HeroClip::Walk) => {
+                        if let Some(active) = player.animation_mut(link.walk) {
                             active.set_speed(walk_rate);
                         }
                     }
+                    Some(HeroClip::Run) => {
+                        if let Some(Some(active)) = link.run.map(|idx| player.animation_mut(idx)) {
+                            active.set_speed(run_rate);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
