@@ -66,6 +66,11 @@ assets/{models,textures,audio,fonts,ui}/
   窗口（0.6s/0.4s，attack 全长 4.7s 只播前段）；暂停时 pause_all 全冻结语义不变；
   卡 12 观察者纪律（只读 WalkCycle/Attack/Visual，逻辑零接触）。若验收通过，
   「单走路 clip 待机定格」已知问题随之销账（怪物侧 frame-0 定格保留）。
+  真机验收反馈#1（2026-08-29）：人物走路滑步——walk clip 速率未跟随地面速度
+  （4.0 u/s vs 素材原生 ~1.4 u/s）。修复 fix `91e8279`：walk 播放速率 = 实际
+  速度 ÷ 素材原生步速（Player.speed / Chasing.speed 只读，逐帧刷新，F1 调速
+  实时生效），玩家怪物一并生效；校准常量 WALK_CLIP_AUTHORED_SPEED=1.4 待视觉
+  终审微调。
 - **进行中**：卡 19 EnemyDefinitionTable 已实现（feat `31ab6f7`，2026-08-28，48 个回归
   全绿；待人工视觉验收）。落地 GDD 点子池[变体派生]：MonsterKind 方法族即敌人
   定义表（model/walk_clip/wrapper_scale/色槽/数值倍率一行齐全），首批接入队友
