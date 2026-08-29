@@ -27,9 +27,7 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 
-use crate::components::{
-    Attack, Chasing, Heading, Monster, MonsterKind, Player, Visual, WalkCycle,
-};
+use crate::components::{Attack, Heading, Monster, MonsterKind, Player, Visual, WalkCycle};
 use crate::states::GameState;
 
 // Assets live under assets/models/ in this project (spike kept them at the root).
@@ -113,11 +111,17 @@ struct MonsterSkinned;
 
 /// Card 24 locomotion-feel state, presentation-local (lives on the wrapper):
 /// smoothed lean angle, smoothed bob height, and the bob oscillator phase.
+/// Card 26 feedback: also the measured ground speed (root displacement / dt,
+/// written by locomotion_feel, read by sync ONE FRAME LATER) — Player.speed is
+/// a static base and goes blind to sprinting, which is exactly why walk and
+/// run showed the same clip.
 #[derive(Component, Default)]
 struct FeelState {
     lean: f32,
     bob: f32,
     phase: f32,
+    speed: Option<f32>,
+    prev: Option<Vec3>,
 }
 
 /// Marks a monster wrapper whose subtree finished binding (animation + tint).
@@ -503,14 +507,13 @@ fn sync_walk_playback(
         &WalkCycle,
         Option<&Attack>,
         Option<&Visual>,
-        Option<&Player>,
-        Option<&Chasing>,
         Option<&mut FxWatch>,
         &Children,
     )>,
     player_pos: Query<&Transform, With<Player>>,
     mut links: Query<&mut AnimLink>,
     children: Query<&Children>,
+    feels: Query<&FeelState>,
     mut players: Query<&mut AnimationPlayer>,
     mut transitions: Query<&mut AnimationTransitions>,
 ) {
@@ -518,9 +521,7 @@ fn sync_walk_playback(
     let now = time.elapsed_secs();
     let player_at = player_pos.single().ok().map(|t| t.translation);
 
-    for (_root, root_tf, walk, attack, visual, player_m, chasing, watch, owner_children) in
-        &mut roots
-    {
+    for (_root, root_tf, walk, attack, visual, watch, owner_children) in &mut roots {
         // find the wrapper child carrying the animation link
         let mut found = None;
         for kid in owner_children.iter() {
@@ -543,11 +544,10 @@ fn sync_walk_playback(
         // Card 25 fix: the two movement clips each use their OWN authored
         // speed, and the idle clip is always left at native 1.0 — stamping the
         // walk rate onto idle made the breathing loop twitch at ~2.5x.
-        let ground_speed = match (player_m, chasing) {
-            (Some(p), _) => p.speed,
-            (_, Some(c)) => c.speed,
-            _ => 0.0,
-        };
+        // Card 26 feedback: ground speed is the MEASURED displacement (written
+        // by locomotion_feel last frame), not the static Player.speed — the
+        // static base cannot see sprinting and gated both gaits to walk.
+        let ground_speed = feels.get(wrapper).ok().and_then(|f| f.speed).unwrap_or(0.0);
         let walk_rate = (ground_speed / WALK_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
         let run_rate = (ground_speed / RUN_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
 
@@ -787,7 +787,9 @@ fn wrap_pi(a: f32) -> f32 {
 /// 1. lean — the body pitches forward into its movement, ramping with ground
 ///    speed up to LEAN_MAX_DEG at LEAN_REF_SPEED;
 /// 2. bob — the body bounces at two footfalls per walk cycle via |sin|.
-/// Reads only WalkCycle/Player.speed/Chasing.speed (card-12 observer rule);
+/// Reads only WalkCycle + the measured FeelState speed (card-12 observer rule;
+/// card 26: displacement measurement replaced the Player.speed/Chasing.speed
+/// reads — sprinting moved the transform, not the static speed component).
 /// runs AFTER face_towards_heading, which writes a pure absolute yaw each
 /// frame. Composing `Ry(yaw) * Rx(pitch)` keeps that yaw extraction exact
 /// (the cos(pitch/2) factors cancel in face's 2*atan2(q.y, q.w)), so lean
@@ -795,19 +797,33 @@ fn wrap_pi(a: f32) -> f32 {
 fn locomotion_feel(
     time: Res<Time>,
     game: Res<State<GameState>>,
-    roots: Query<(&WalkCycle, Option<&Player>, Option<&Chasing>, &Children)>,
+    roots: Query<(&Transform, &WalkCycle, &Children)>,
     links: Query<&AnimLink>,
-    mut wrappers: Query<(&mut Transform, &mut FeelState)>,
+    // Without<WalkCycle>: wrappers never carry it (only roots do), which makes
+    // the two Transform accesses provably disjoint (Bevy B0001)
+    mut wrappers: Query<(&mut Transform, &mut FeelState), Without<WalkCycle>>,
 ) {
     let in_game = *game.get() == GameState::Playing;
     let dt = time.delta_secs();
-    for (walk, player_m, chasing, owner_children) in &roots {
+    for (root_tf, walk, owner_children) in &roots {
         let Some(wrapper) = owner_children.iter().find(|kid| links.contains(*kid)) else {
             continue;
         };
         let Ok((mut tf, mut state)) = wrappers.get_mut(wrapper) else {
             continue;
         };
+        // Measure ACTUAL ground speed from root displacement (card 26
+        // feedback): static speed components go blind to sprinting and any
+        // future speed source; displacement cannot lie. Sync reads this value
+        // one frame later (chain order: feel runs after sync).
+        let measured = match (state.prev, dt > 0.0) {
+            (Some(prev), true) => {
+                ((root_tf.translation - prev).length() / dt).min(20.0) // R-restart teleport guard
+            }
+            _ => 0.0,
+        };
+        state.prev = Some(root_tf.translation);
+        state.speed = Some(measured);
         // bob cadence follows the active state clip (card 25: run cycles fast)
         let running = links
             .get(wrapper)
@@ -820,21 +836,16 @@ fn locomotion_feel(
             WALK_CYCLE_SECS
         };
 
-        let speed = match (player_m, chasing) {
-            (Some(p), _) => p.speed,
-            (_, Some(c)) => c.speed,
-            _ => 0.0,
-        };
-        let moving = in_game && walk.playing && speed > 0.0;
+        let moving = in_game && walk.playing && measured > 0.0;
         let authored = if running {
             RUN_CLIP_AUTHORED_SPEED
         } else {
             WALK_CLIP_AUTHORED_SPEED
         };
-        let walk_rate = (speed / authored).clamp(0.5, 4.0);
+        let walk_rate = (measured / authored).clamp(0.5, 4.0);
 
         let lean_target = if moving {
-            LEAN_MAX_DEG * (speed / LEAN_REF_SPEED).clamp(0.0, 1.0)
+            LEAN_MAX_DEG * (measured / LEAN_REF_SPEED).clamp(0.0, 1.0)
         } else {
             0.0
         };
