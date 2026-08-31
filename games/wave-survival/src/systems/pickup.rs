@@ -17,7 +17,10 @@ pub fn spawn_pickup(
     at: Vec3,
 ) {
     commands.spawn((
-        Pickup { heal: PICKUP_HEAL, arm: PICKUP_ARM },
+        Pickup {
+            heal: PICKUP_HEAL,
+            arm: PICKUP_ARM,
+        },
         Mesh3d(meshes.add(Cuboid::new(0.25, 0.25, 0.25))),
         MeshMaterial3d(materials.add(Color::srgb(0.95, 0.8, 0.25))),
         Transform::from_xyz(at.x, 0.25, at.z),

@@ -46,10 +46,13 @@ fn tuning_panel(
     };
 
     egui::Window::new("⚖ Balance").show(ctx, |ui| {
-        ui.label("Phase-2 hot tuning (defaults = GDD numbers)");
+        ui.label("Phase-2 hot tuning (1.0 = weapon-table value, card 29)");
         ui.separator();
-        ui.add(egui::Slider::new(&mut balance.slash_damage, 5.0..=100.0).text("slash damage"));
-        ui.add(egui::Slider::new(&mut balance.slash_cooldown, 0.05..=2.0).text("slash cooldown s"));
+        ui.add(egui::Slider::new(&mut balance.slash_damage_scale, 0.2..=3.0).text("slash damage ×"));
+        ui.add(
+            egui::Slider::new(&mut balance.slash_cooldown_scale, 0.2..=3.0)
+                .text("slash cooldown ×"),
+        );
         ui.separator();
         ui.add(egui::Slider::new(&mut balance.nova_radius, 0.5..=4.0).text("nova radius"));
         ui.add(egui::Slider::new(&mut balance.nova_damage, 10.0..=200.0).text("nova damage"));

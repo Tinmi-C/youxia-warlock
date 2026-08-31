@@ -226,3 +226,78 @@ pub struct PrevTranslation {
 pub struct Heading {
     pub dir: Vec2,
 }
+
+// --- Weapon definition table (card 29 WeaponDefinitionTable) ---
+/// One row per weapon: damage / falloff band / arc / cooldown. Mirrors the
+/// card 19 `MonsterKind` method-table pattern — a new weapon is a new row
+/// here (plus an asset in card 30), never a new branch in a system.
+///
+/// Numbers: `IronSword` row = the GDD melee values verbatim (m2 convention:
+/// 34 damage, 0.9 full / 1.5 far falloff, 0.45s cooldown). `Glaive` row is a
+/// new slow-reach design pending a GDD entry (decided on this card:
+/// short-and-fast vs long-and-slow proves the table is data-driven).
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum WeaponKind {
+    /// GDD melee baseline: broad 120° arc, fast swing.
+    #[default]
+    IronSword,
+    /// Slow reach: narrow 60° arc, longer falloff band, slower swing.
+    Glaive,
+}
+
+impl WeaponKind {
+    /// Full damage inside the full-radius band, before the Balance scale.
+    pub fn damage(self) -> f32 {
+        match self {
+            WeaponKind::IronSword => 34.0,
+            WeaponKind::Glaive => 22.0,
+        }
+    }
+
+    /// Inner radius: damage is full at or below this distance.
+    pub fn full_range(self) -> f32 {
+        match self {
+            WeaponKind::IronSword => 0.9,
+            WeaponKind::Glaive => 1.4,
+        }
+    }
+
+    /// Outer radius: linear falloff to zero between full and far, zero beyond.
+    pub fn far_range(self) -> f32 {
+        match self {
+            WeaponKind::IronSword => 1.5,
+            WeaponKind::Glaive => 1.9,
+        }
+    }
+
+    /// Total horizontal arc of the swing, degrees. The hit test keeps targets
+    /// within `arc / 2` of the player's logical facing (`Heading`).
+    pub fn arc_deg(self) -> f32 {
+        match self {
+            WeaponKind::IronSword => 120.0,
+            WeaponKind::Glaive => 60.0,
+        }
+    }
+
+    /// Swing cooldown seconds, before the Balance scale.
+    pub fn cooldown(self) -> f32 {
+        match self {
+            WeaponKind::IronSword => 0.45,
+            WeaponKind::Glaive => 0.6,
+        }
+    }
+}
+
+/// The weapon currently in the player's hands (card 29). Exactly one per
+/// player; swapping = replacing this component (a future pickup card).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct EquippedWeapon(pub WeaponKind);
+
+/// Presentation-side marker on the carried weapon's model child (card 30
+/// WeaponVisual). Lives on the wrapper child that holds the weapon mesh;
+/// `kind` mirrors the equipped row so the presentation plugin can swap the
+/// mesh when the logical weapon changes.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct WeaponVisual {
+    pub kind: WeaponKind,
+}

@@ -10,10 +10,11 @@ use bevy::{
 use bevy_rapier3d::prelude::{Collider, NoUserData, RapierPhysicsPlugin, RigidBody, Velocity};
 
 use wave_survival::components::{
-    Attack, Chasing, Heading, Hp, Monster, MonsterKind, NovaAttack, Pickup, Player, Visual,
-    WalkCycle,
+    Attack, Chasing, EquippedWeapon, Heading, Hp, Monster, MonsterKind, NovaAttack, Pickup,
+    Player, Visual, WalkCycle, WeaponKind, WeaponVisual,
 };
 use wave_survival::plugins::presentation::MAX_TURN_RATE_DEG;
+use wave_survival::plugins::presentation::{find_bone_in_subtree, weapon_scale_fixup};
 use wave_survival::resources::{Balance, Wave};
 use wave_survival::systems::heading::derive_heading;
 use wave_survival::systems::nova::{NovaFired, NOVA_COOLDOWN, NOVA_DAMAGE, NOVA_RADIUS};
@@ -21,7 +22,7 @@ use wave_survival::systems::player::ATTACK_MOVE_FACTOR;
 use wave_survival::systems::wave::{
     kinds_for_wave, runner_count, tank_count, wave_count, wave_hp, wave_speed,
 };
-use wave_survival::systems::{combat, contact};
+use wave_survival::systems::contact;
 use wave_survival::{plugins::game::GamePlugin, states::GameState};
 
 /// Headless app: MinimalPlugins (no renderer/window) + game logic + fixed timestep.
@@ -439,8 +440,10 @@ fn release_space(app: &mut App) {
         .release(KeyCode::Space);
 }
 
-/// Spawn a stub monster at (x, 0.5, z). The player spawns at (0, 0.5, 0), so
-/// `x` is the horizontal distance to the player.
+/// Spawn a stub monster at (x, 0.5, z). The player spawns at (0, 0.5, 0) and
+/// faces +Z (Heading seed), so **+Z = in front** for the card-29 arc test;
+/// card 29 narrowed the slash from a ring to a fan, so swing tests place
+/// monsters on the +Z axis (预声明漂移① in the card).
 fn spawn_monster(app: &mut App, x: f32, z: f32) -> Entity {
     app.world_mut()
         .spawn((
@@ -461,7 +464,7 @@ fn monster_hp(app: &App, e: Entity) -> f32 {
 fn attack_respects_cooldown() {
     let mut app = test_app();
     run_frames(&mut app, 1); // run Startup (spawns the player)
-    let e = spawn_monster(&mut app, 0.5, 0.0);
+    let e = spawn_monster(&mut app, 0.0, 0.5); // dead ahead (card 29 fan)
 
     press_space(&mut app);
     app.update();
@@ -496,9 +499,10 @@ fn attack_respects_cooldown() {
 fn slash_damage_by_distance() {
     let mut app = test_app();
     run_frames(&mut app, 1);
-    let near = spawn_monster(&mut app, 0.5, 0.0);
-    let mid = spawn_monster(&mut app, 1.2, 0.0);
-    let far = spawn_monster(&mut app, 1.6, 0.0);
+    // card 29: all in front of the player (+Z = facing)
+    let near = spawn_monster(&mut app, 0.0, 0.5);
+    let mid = spawn_monster(&mut app, 0.0, 1.2);
+    let far = spawn_monster(&mut app, 0.0, 1.6);
 
     press_space(&mut app);
     app.update();
@@ -522,8 +526,9 @@ fn slash_damage_by_distance() {
 fn slash_falloff_boundaries() {
     let mut app = test_app();
     run_frames(&mut app, 1);
-    let at_full = spawn_monster(&mut app, 0.9, 0.0);
-    let at_far = spawn_monster(&mut app, 1.5, 0.0);
+    // card 29: in front of the player (+Z = facing)
+    let at_full = spawn_monster(&mut app, 0.0, 0.9);
+    let at_far = spawn_monster(&mut app, 0.0, 1.5);
 
     press_space(&mut app);
     app.update();
@@ -538,13 +543,221 @@ fn slash_falloff_boundaries() {
     );
 }
 
+// --- Weapon definition table (card 29 WeaponDefinitionTable) ---
+
+/// Swap the player's weapon (test helper for the table-driven tests below).
+fn equip(app: &mut App, kind: WeaponKind) {
+    let mut q = app.world_mut().query::<&mut EquippedWeapon>();
+    q.single_mut(app.world_mut())
+        .expect("one player exists")
+        .0 = kind;
+}
+
+/// Card 29 — acceptance: a target dead ahead at 0.8u (inside the 120° arc)
+/// takes the full 34.
+#[test]
+fn weapon_arc_front_hit() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    let e = spawn_monster(&mut app, 0.0, 0.8); // +Z = facing
+
+    press_space(&mut app);
+    app.update();
+    release_space(&mut app);
+
+    assert!(
+        (monster_hp(&app, e) - 66.0).abs() < 0.01,
+        "front target should take 34, got hp {}",
+        monster_hp(&app, e)
+    );
+}
+
+/// Card 29 — acceptance: directly behind (−Z) is outside the arc → −0
+/// (预声明漂移①: the slash narrowed from a ring to a 120° fan). A closer
+/// front target holds the auto-aim, proving the rear one is arc-excluded
+/// rather than merely un-targeted.
+#[test]
+fn weapon_arc_back_no_hit() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    let front = spawn_monster(&mut app, 0.0, 0.8); // +Z: nearest → auto-aim
+    let behind = spawn_monster(&mut app, 0.0, -0.8); // −Z: 180° off the fan
+
+    press_space(&mut app);
+    app.update();
+    release_space(&mut app);
+
+    assert!(
+        (monster_hp(&app, front) - 66.0).abs() < 0.01,
+        "front target should take 34, got hp {}",
+        monster_hp(&app, front)
+    );
+    assert_eq!(
+        monster_hp(&app, behind),
+        100.0,
+        "a target behind the player must not be hit"
+    );
+}
+
+/// Card 29 — acceptance: the table is live. At 1.3u the glaive (full ≤ 1.4)
+/// deals its flat 22, while the iron sword only reaches its falloff band
+/// (34 × (1.5−1.3)/(1.5−0.9) ≈ 11.33). Two victims, two rows, same spot.
+#[test]
+fn weapon_table_rows_differ() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    let glaive_victim = spawn_monster(&mut app, 0.0, 1.3);
+    equip(&mut app, WeaponKind::Glaive);
+    press_space(&mut app);
+    app.update();
+    release_space(&mut app);
+    assert!(
+        (monster_hp(&app, glaive_victim) - 78.0).abs() < 0.01,
+        "glaive at 1.3u should deal 22, got hp {}",
+        monster_hp(&app, glaive_victim)
+    );
+
+    // > 0.6s so the glaive cooldown is fully elapsed, then swing as sword.
+    run_frames(&mut app, 40);
+    let sword_victim = spawn_monster(&mut app, 0.0, 1.3);
+    equip(&mut app, WeaponKind::IronSword);
+    press_space(&mut app);
+    app.update();
+    release_space(&mut app);
+    assert!(
+        (monster_hp(&app, sword_victim) - 88.66).abs() < 0.05,
+        "iron sword at 1.3u should deal ≈11.33, got hp {}",
+        monster_hp(&app, sword_victim)
+    );
+}
+
+/// Card 29 — acceptance: swing cooldown comes from the weapon row
+/// (glaive = 0.60s, not the old global 0.45 const).
+#[test]
+fn weapon_cooldown_from_table() {
+    let mut app = test_app();
+    run_frames(&mut app, 1);
+    spawn_monster(&mut app, 0.0, 0.8);
+    equip(&mut app, WeaponKind::Glaive);
+
+    press_space(&mut app);
+    app.update();
+    release_space(&mut app);
+
+    let mut q = app.world_mut().query::<&Attack>();
+    let cd = q.single(app.world()).expect("one player").cooldown;
+    assert!(
+        (cd - 0.6).abs() < 1e-4,
+        "glaive cooldown should be 0.60s, got {cd}"
+    );
+}
+
+// --- WeaponVisual (card 30): headless covers the hand-bone lookup and the
+// --- scale compensation; the mesh swap itself needs the AssetServer (real
+// --- machine). Acceptance feedback #1 pivoted from a hand-tuned wrapper
+// --- offset (sword ended up at the head) to the mixamorig:RightHand bone.
+
+/// Card 30 — the lookup finds the named hand bone inside the model subtree,
+/// ignores same-named nodes outside it, and returns None when absent.
+#[test]
+fn hand_bone_lookup_finds_named_node() {
+    let mut app = test_app();
+    let wrapper = app.world_mut().spawn(Name::new("hero-wrapper")).id();
+    let mid = app
+        .world_mut()
+        .spawn((ChildOf(wrapper), Name::new("armature-root")))
+        .id();
+    let bone = app
+        .world_mut()
+        .spawn((ChildOf(mid), Name::new("mixamorig:RightHand")))
+        .id();
+    // same-named node OUTSIDE the subtree must not be found
+    let _decoy = app.world_mut().spawn(Name::new("mixamorig:RightHand")).id();
+
+    let found = find_bone_in_subtree(app.world(), wrapper, "mixamorig:RightHand");
+    assert_eq!(found, Some(bone));
+
+    let missing = find_bone_in_subtree(app.world(), wrapper, "mixamorig:LeftHand");
+    assert_eq!(missing, None);
+}
+
+/// Card 30 — the fixup cancels the inherited bone scale once, so the weapon
+/// keeps its authored meters (sword 0.9 m in a 1.353-scaled hero).
+#[test]
+fn weapon_scale_fixup_cancels_parent_scale() {
+    let mut app = test_app();
+    app.add_systems(Update, weapon_scale_fixup);
+    let parent = app
+        .world_mut()
+        .spawn(Transform::from_scale(Vec3::splat(1.353)))
+        .id();
+    let w = app
+        .world_mut()
+        .spawn((
+            ChildOf(parent),
+            WeaponVisual { kind: WeaponKind::IronSword },
+            Transform::IDENTITY,
+        ))
+        .id();
+    run_frames(&mut app, 2);
+
+    let gt = app.world().entity(w).get::<GlobalTransform>().unwrap();
+    let s = gt.scale();
+    assert!(
+        (s.x - 1.0).abs() < 1e-3,
+        "weapon world scale must cancel to 1.0, got {s:?}"
+    );
+}
+
+/// Card 30 — acceptance ①: the weapon child tracks its owner exactly (engine
+/// parent-child guarantee pinned as a regression): after the owner moves, the
+/// weapon's world offset drifts < 1 cm.
+#[test]
+fn weapon_child_follows_parent_within_1cm() {
+    let mut app = test_app();
+    let parent = app.world_mut().spawn(Transform::from_xyz(0.0, 0.5, 0.0)).id();
+    let offset = Vec3::new(0.21, 1.14, 0.07);
+    let w = app
+        .world_mut()
+        .spawn((ChildOf(parent), Transform::from_translation(offset)))
+        .id();
+    app.update();
+
+    // teleport the owner; the child must ride along (parent unrotated → the
+    // world offset equals the local one, stable across frames)
+    app.world_mut()
+        .entity_mut(parent)
+        .get_mut::<Transform>()
+        .unwrap()
+        .translation = Vec3::new(2.0, 0.5, -1.0);
+    run_frames(&mut app, 2);
+
+    let pt = app
+        .world()
+        .entity(parent)
+        .get::<GlobalTransform>()
+        .unwrap()
+        .translation();
+    let gt = app
+        .world()
+        .entity(w)
+        .get::<GlobalTransform>()
+        .unwrap()
+        .translation();
+    let expected = pt + offset;
+    assert!(
+        gt.distance(expected) < 0.01,
+        "weapon world position {gt} must track owner {expected} within 1 cm"
+    );
+}
+
 /// PlayerAttack — acceptance: multiple targets each take distance-correct damage and flash.
 #[test]
 fn slash_hits_multiple_targets_and_flashes() {
     let mut app = test_app();
     run_frames(&mut app, 1);
-    let a = spawn_monster(&mut app, 0.5, 0.0);
-    let b = spawn_monster(&mut app, 1.2, 0.0);
+    let a = spawn_monster(&mut app, 0.0, 0.5); // in front (card 29 fan)
+    let b = spawn_monster(&mut app, 0.0, 1.2);
 
     press_space(&mut app);
     app.update();
@@ -799,7 +1012,7 @@ fn contact_one_bite_per_frame() {
 fn monster_dies_and_despawns() {
     let mut app = test_app();
     run_frames(&mut app, 1);
-    let e = spawn_monster(&mut app, 0.5, 0.0);
+    let e = spawn_monster(&mut app, 0.0, 0.5); // in front (card 29 fan)
     app.world_mut().entity_mut(e).get_mut::<Hp>().unwrap().hp = 1.0; // nearly dead
 
     press_space(&mut app);
@@ -1149,7 +1362,7 @@ fn nova_hits_multiple_targets_and_flashes() {
 fn nova_independent_of_melee_cooldown() {
     let mut app = test_app();
     run_frames(&mut app, 2);
-    let m = spawn_monster(&mut app, 0.5, 0.0); // inside both circles
+    let m = spawn_monster(&mut app, 0.0, 0.5); // in front, inside both circles
 
     // One melee slash: −34, Attack.cooldown rearmed.
     press_space(&mut app);
@@ -1457,33 +1670,37 @@ fn hero_asset_matches_pinned_clip_layout() {
 // --- EguiTunePanel / Balance tests (capability card 11; the F1 panel itself is
 // --- a visual item accepted by running the game — headless covers Balance). ---
 
-/// Balance — acceptance: defaults equal the GDD constants (pure value migration).
+/// Balance — acceptance: scale defaults are neutral (1.0 = weapon-table values,
+/// card 29 multiplier semantics).
 #[test]
 fn balance_defaults_equal_gdd_consts() {
     let b = Balance::default();
-    assert_eq!(b.slash_damage, combat::SLASH_DAMAGE);
-    assert_eq!(b.slash_cooldown, combat::SLASH_COOLDOWN);
+    assert_eq!(b.slash_damage_scale, 1.0);
+    assert_eq!(b.slash_cooldown_scale, 1.0);
     assert_eq!(b.nova_radius, NOVA_RADIUS);
     assert_eq!(b.nova_damage, NOVA_DAMAGE);
     assert_eq!(b.nova_cooldown, NOVA_COOLDOWN);
     assert_eq!(b.contact_damage, contact::CONTACT_DAMAGE);
 }
 
-/// Balance — acceptance: retuning slash_damage changes the very next swing.
+/// Balance — acceptance: retuning the damage scale changes the very next swing
+/// (card 11 feature preserved under card 29 multiplier semantics: 34 × 2 = 68).
 #[test]
 fn balance_slash_damage_applies_live() {
     let mut app = test_app();
     run_frames(&mut app, 2);
-    let m = spawn_monster(&mut app, 0.5, 0.0); // full-damage band
+    let m = spawn_monster(&mut app, 0.0, 0.5); // full-damage band, in front
 
-    app.world_mut().resource_mut::<Balance>().slash_damage = 60.0;
+    app.world_mut()
+        .resource_mut::<Balance>()
+        .slash_damage_scale = 2.0;
     press_space(&mut app);
     app.update();
     release_space(&mut app);
 
     assert!(
-        (monster_hp(&app, m) - 40.0).abs() < 1e-4,
-        "retuned slash must deal 60, hp left {}",
+        (monster_hp(&app, m) - 32.0).abs() < 1e-4,
+        "scaled slash must deal 68, hp left {}",
         monster_hp(&app, m)
     );
 }
@@ -1585,7 +1802,7 @@ fn cooldown_fills_track_nova_and_slash_ratios() {
             .world_mut()
             .query_filtered::<&mut Attack, With<Player>>();
         let mut attack = q.single_mut(app.world_mut()).expect("player attack");
-        attack.cooldown = combat::SLASH_COOLDOWN * 0.25; // ~75% ready seed
+        attack.cooldown = WeaponKind::IronSword.cooldown() * 0.25; // ~75% ready seed (card 29: table source)
     }
     {
         let mut q = app
@@ -1611,7 +1828,8 @@ fn cooldown_fills_track_nova_and_slash_ratios() {
         let n = qn.single(world).expect("player nova");
         (a.cooldown, n.cooldown)
     };
-    let slash_expect = ((1.0 - slash_cd / combat::SLASH_COOLDOWN).clamp(0.0, 1.0)) * 100.0;
+    let slash_expect =
+        ((1.0 - slash_cd / WeaponKind::IronSword.cooldown()).clamp(0.0, 1.0)) * 100.0;
     let nova_expect = ((1.0 - nova_cd / NOVA_COOLDOWN).clamp(0.0, 1.0)) * 100.0;
 
     assert!(

@@ -15,7 +15,10 @@ pub struct Wave {
 
 impl Default for Wave {
     fn default() -> Self {
-        Self { n: 0, timer: WAVE_BREAK }
+        Self {
+            n: 0,
+            timer: WAVE_BREAK,
+        }
     }
 }
 
@@ -25,15 +28,16 @@ pub struct GameStats {
     pub kills: u32,
 }
 
-/// Hot-tunable combat numbers (card 11 EguiTunePanel). Defaults equal the GDD
-/// constants below; the F1 panel edits this live at run time and gameplay
-/// systems read it every frame.
+/// Hot-tunable combat numbers (card 11 EguiTunePanel; multiplier semantics
+/// since card 29). Defaults are neutral (1.0 = table values verbatim); the F1
+/// panel edits these live at run time and gameplay systems read them every
+/// frame. Weapon base numbers live in `components::WeaponKind` (card 29).
 #[derive(Resource, Debug, Clone)]
 pub struct Balance {
-    /// Melee slash damage (default: GDD CombatSystem 一刀 34).
-    pub slash_damage: f32,
-    /// Melee cooldown seconds (default: GDD 0.45).
-    pub slash_cooldown: f32,
+    /// Melee damage multiplier on the equipped weapon's table damage.
+    pub slash_damage_scale: f32,
+    /// Melee cooldown multiplier on the equipped weapon's table cooldown.
+    pub slash_cooldown_scale: f32,
     /// Nova blast radius (default: GDD Nova 半径 1.6).
     pub nova_radius: f32,
     /// Nova flat damage inside the circle (default: GDD 60).
@@ -47,8 +51,8 @@ pub struct Balance {
 impl Default for Balance {
     fn default() -> Self {
         Self {
-            slash_damage: crate::systems::combat::SLASH_DAMAGE,
-            slash_cooldown: crate::systems::combat::SLASH_COOLDOWN,
+            slash_damage_scale: 1.0,
+            slash_cooldown_scale: 1.0,
             nova_radius: crate::systems::nova::NOVA_RADIUS,
             nova_damage: crate::systems::nova::NOVA_DAMAGE,
             nova_cooldown: crate::systems::nova::NOVA_COOLDOWN,

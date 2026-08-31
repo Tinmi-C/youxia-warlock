@@ -10,12 +10,11 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    Attack, Hp, Monster, NovaAttack, Player, UiCooldownFill, UiGameOver, UiHpFill, UiHpText,
-    UiNovaFill, UiPauseOverlay, UiWavePips, UiWaveText,
+    Attack, EquippedWeapon, Hp, Monster, NovaAttack, Player, UiCooldownFill, UiGameOver, UiHpFill,
+    UiHpText, UiNovaFill, UiPauseOverlay, UiWavePips, UiWaveText, WeaponKind,
 };
-use crate::resources::Wave;
+use crate::resources::{Balance, Wave};
 use crate::states::GameState;
-use crate::systems::combat::SLASH_COOLDOWN;
 use crate::systems::nova::NOVA_COOLDOWN;
 
 // --- card 16: layout & palette constants (single tuning point) ---
@@ -230,8 +229,9 @@ pub fn spawn_ui(mut commands: Commands) {
 pub fn ui_update(
     mut commands: Commands,
     player: Query<&Hp, With<Player>>,
-    player_attack: Query<&Attack, With<Player>>,
+    player_attack: Query<(&Attack, Option<&EquippedWeapon>), With<Player>>,
     player_nova: Query<&NovaAttack, With<Player>>,
+    balance: Res<Balance>,
     wave: Res<Wave>,
     state: Res<State<GameState>>,
     monsters: Query<(), With<Monster>>,
@@ -294,9 +294,14 @@ pub fn ui_update(
             text.0 = format!("HP {:.0}/{:.0}", hp.hp, hp.max);
         }
     }
-    // Slash cooldown bar.
-    if let Ok(attack) = player_attack.single() {
-        let ready = (1.0 - attack.cooldown / SLASH_COOLDOWN).clamp(0.0, 1.0);
+    // Slash cooldown bar (card 29: mirrors the equipped weapon's table
+    // cooldown × live balance scale, like combat and the AttackRoot window).
+    if let Ok((attack, equipped)) = player_attack.single() {
+        let max_cd = equipped
+            .map(|e| e.0.cooldown())
+            .unwrap_or(WeaponKind::IronSword.cooldown())
+            * balance.slash_cooldown_scale;
+        let ready = (1.0 - attack.cooldown / max_cd).clamp(0.0, 1.0);
         if let Ok(mut node) = cd_fill.single_mut() {
             node.width = Val::Percent(ready * 100.0);
         }

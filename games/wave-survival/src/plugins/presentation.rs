@@ -27,11 +27,29 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 
-use crate::components::{Attack, Heading, Monster, MonsterKind, Player, Visual, WalkCycle};
+use crate::components::{
+    Attack, EquippedWeapon, Heading, Monster, MonsterKind, Player, Visual, WalkCycle, WeaponKind,
+    WeaponVisual,
+};
 use crate::states::GameState;
 
 // Assets live under assets/models/ in this project (spike kept them at the root).
 const HERO_GLB: &str = "models/player_hunyuan.glb";
+// --- card 30: weapon model assets (landed via the art-catalog pipeline) -----
+const IRON_SWORD_GLB: &str = "models/iron_sword.glb";
+const GLAIVE_GLB: &str = "models/glaive.glb";
+/// Definition-table row → landed asset path.
+fn weapon_glb(kind: WeaponKind) -> &'static str {
+    match kind {
+        WeaponKind::IronSword => IRON_SWORD_GLB,
+        WeaponKind::Glaive => GLAIVE_GLB,
+    }
+}
+/// Mixamo standard rig: the right-hand bone node inside player_hunyuan.glb
+/// (verified offline in Blender: node exists, unit scale chain). The weapon
+/// parents to this bone, so the attack clip itself carries the sword — no
+/// hand-tuned offsets, no fake sway.
+const HAND_BONE: &str = "mixamorig:RightHand";
 /// Clip layout of player_hunyuan.glb (alphabetical in the glTF: attack/hit/
 /// idle/run/walk — run added by card 25). Pinned here because
 /// AnimationNodeIndex addressing is positional; if the asset is ever
@@ -97,7 +115,13 @@ const WALK_CYCLE_SECS: f32 = 1.375;
 const RUN_SPEED_THRESHOLD: f32 = 3.0;
 /// Ground speed the run clip was authored for (rate 1.0 at player default);
 /// visual-acceptance knob like its walk sibling.
-const RUN_CLIP_AUTHORED_SPEED: f32 = 4.0;
+/// Native stride speed of the Mixamo "unarmed run forward" clip. Eyeball-
+/// calibrated like the walk constant above (card 30 feedback #3): the old
+/// 4.0 was the legacy global move speed, not the clip's stride — run played
+/// at 5.0/4.0 = 1.25x, SLOWER cadence than walk (2.5/1.6 = 1.56x), so the
+/// sprint read as a walk. Surfaced by the hand-mounted sword amplifying arm
+/// swing during card 30 acceptance.
+const RUN_CLIP_AUTHORED_SPEED: f32 = 2.8;
 /// Run cycle length (24 frames @ 30 fps) for the bob cadence.
 const RUN_CYCLE_SECS: f32 = 0.8;
 
@@ -203,6 +227,10 @@ impl Plugin for PresentationPlugin {
                     face_towards_heading,
                     // after face: composes lean pitch onto the yaw face wrote
                     locomotion_feel,
+                    // card 30: weapon rides the hero's right-hand bone; the
+                    // fixup cancels the accumulated bone scale once
+                    attach_weapon,
+                    weapon_scale_fixup,
                 )
                     .chain(),
             );
@@ -273,6 +301,125 @@ fn skin_player(
         // cascade down onto the model subtree)
         .remove::<Mesh3d>()
         .remove::<MeshMaterial3d<StandardMaterial>>();
+}
+
+/// Card 30: find a named bone node inside a model subtree (helper kept `pub`
+/// so headless tests can pin the lookup against a fake hierarchy). Plain
+/// `world.get` walk so it works from both system and test contexts.
+pub fn find_bone_in_subtree(world: &World, wrapper: Entity, bone: &str) -> Option<Entity> {
+    let mut stack: Vec<Entity> = world.get::<Children>(wrapper)?.iter().collect();
+    while let Some(entity) = stack.pop() {
+        if world
+            .get::<Name>(entity)
+            .map(|name| name.as_str() == bone)
+            .unwrap_or(false)
+        {
+            return Some(entity);
+        }
+        if let Some(kids) = world.get::<Children>(entity) {
+            stack.extend(kids.iter());
+        }
+    }
+    None
+}
+
+/// Card 30: spawn the carried weapon's model as a child of the hero's right
+/// hand BONE (mixamorig:RightHand, verified offline in Blender) — the attack
+/// clip animation then carries the sword through every swing for free
+/// (acceptance feedback #1: the hand-tuned wrapper offset put the sword at
+/// the head; bone attach removes the guesswork entirely). Swaps the mesh when
+/// the logical row changes.
+fn attach_weapon(
+    mut commands: Commands,
+    players: Query<Entity, (With<Player>, With<Children>)>,
+    links: Query<(), With<AnimLink>>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    equipped: Query<&EquippedWeapon>,
+    mut visuals: Query<&mut WeaponVisual>,
+    mut worlds: Query<&mut WorldAssetRoot>,
+    assets: Res<AssetServer>,
+) {
+    let Ok(root) = players.single() else {
+        return;
+    };
+    let Ok(kids) = children.get(root) else {
+        return;
+    };
+    let wrapper = match kids.iter().find(|k| links.contains(*k)) {
+        Some(e) => e,
+        None => return, // model wrapper not spawned yet
+    };
+    let Ok(eq) = equipped.get(root) else {
+        return;
+    };
+    // query-based bone search (a `&World` param would conflict with the two
+    // &mut queries above — B0001); the World-based helper twin lives for tests
+    let Some(hand) = children
+        .iter_descendants(wrapper)
+        .find(|n| names.get(*n).map(|name| name.as_str() == HAND_BONE).unwrap_or(false))
+    else {
+        return; // model subtree not bound yet
+    };
+    // one query for both detect and mutate (B0001: two WeaponVisual params
+    // — read + write — would conflict)
+    let existing = children
+        .get(hand)
+        .ok()
+        .and_then(|wk| wk.iter().find(|k| visuals.contains(*k)));
+    match existing {
+        Some(kid) => {
+            // same slot: swap the mesh only when the logical row changed
+            if let Ok(mut vis) = visuals.get_mut(kid) {
+                if vis.kind != eq.0 {
+                    if let Ok(mut world) = worlds.get_mut(kid) {
+                        world.0 =
+                            assets.load(GltfAssetLabel::Scene(0).from_asset(weapon_glb(eq.0)));
+                        vis.kind = eq.0;
+                        info!("[presentation] weapon swapped to {:?}", eq.0);
+                    }
+                }
+            }
+        }
+        None => {
+            // grip sits at the bone origin; the fixup pass cancels the
+            // accumulated bone scale so the weapon keeps its authored meters
+            commands.spawn((
+                ChildOf(hand),
+                WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(weapon_glb(eq.0)))),
+                WeaponVisual { kind: eq.0 },
+                Transform::IDENTITY,
+            ));
+            info!("[presentation] weapon attached to {HAND_BONE}: {:?}", eq.0);
+        }
+    }
+}
+
+/// Card 30: the hand bone inherits the hero wrapper scale (1.353); cancel it
+/// once so the weapon keeps its authored meters (sword 0.9 m in the world).
+#[derive(Component)]
+pub struct WeaponScaleFixed;
+
+pub fn weapon_scale_fixup(
+    mut commands: Commands,
+    globals: Query<&GlobalTransform>,
+    weapons: Query<(Entity, &ChildOf), (With<WeaponVisual>, Without<WeaponScaleFixed>)>,
+    mut transforms: Query<&mut Transform>,
+) {
+    for (entity, child_of) in &weapons {
+        let Ok(parent_gt) = globals.get(child_of.parent()) else {
+            continue;
+        };
+        let parent_scale = parent_gt.scale();
+        if parent_scale.x.abs() < 1e-6 {
+            continue;
+        }
+        if let Ok(mut tf) = transforms.get_mut(entity) {
+            tf.scale = Vec3::ONE / parent_scale;
+            commands.entity(entity).insert(WeaponScaleFixed);
+            info!("[presentation] weapon scale compensated (bone scale {parent_scale:?})");
+        }
+    }
 }
 
 /// Model subtree landed under the wrapper: bind the 4-clip animation graph and
@@ -689,8 +836,17 @@ fn sync_walk_playback(
                         }
                         link.current = Some(desired);
                         // card 25 acceptance instrument: prove the state
-                        // machine actually switches (visual feedback loop)
-                        info!("[presentation] hero clip -> {desired:?} (speed {ground_speed:.2})");
+                        // machine actually switches (visual feedback loop).
+                        // Card 30 feedback #3: rate added so playback-speed
+                        // mis-calibration is visible in logs, not just on eyes.
+                        let rate = match desired {
+                            HeroClip::Walk => walk_rate,
+                            HeroClip::Run => run_rate,
+                            _ => 1.0,
+                        };
+                        info!(
+                            "[presentation] hero clip -> {desired:?} (speed {ground_speed:.2}, rate {rate:.2})"
+                        );
                     }
                 } else if moving {
                     // monsters chase while Playing: keep the walk loop up

@@ -12,7 +12,8 @@ use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, CollisionGroups, Group, RigidBody};
 
 use crate::components::{
-    Attack, Heading, Hp, NovaAttack, Player, PrevTranslation, Visual, WalkCycle,
+    Attack, EquippedWeapon, Heading, Hp, NovaAttack, Player, PrevTranslation, Visual, WalkCycle,
+    WeaponKind,
 };
 use crate::resources::Balance;
 
@@ -38,6 +39,8 @@ pub fn spawn_player(
         // card 18: presentation-side facing target (+Z = yaw0, model convention);
         // derive_heading updates it from displacement, the wrapper turns to it.
         Heading { dir: Vec2::Y },
+        // card 29: the definition-table weapon the player swings.
+        EquippedWeapon(WeaponKind::IronSword),
         Hp::full(100.0),
         Visual { flash: 0.0 },
         RigidBody::KinematicPositionBased,
@@ -61,7 +64,7 @@ pub fn move_player(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     balance: Res<Balance>,
-    mut q: Query<(&mut Transform, &Player, Option<&Attack>)>,
+    mut q: Query<(&mut Transform, &Player, Option<&Attack>, Option<&EquippedWeapon>)>,
 ) {
     let mut dir = Vec3::ZERO;
     // South camera sits on -Z, which mirrors screen-left/right against world X:
@@ -81,13 +84,18 @@ pub fn move_player(
     }
     let dir = dir.normalize(); // keep diagonal speed equal to straight speed
     let sprint = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    // Card 27 AttackRoot: the first ATTACK_ROOT_WINDOW seconds after a slash
-    // (cooldown still near its max) damp movement so the standing attack clip
-    // doesn't ice-skate across the ground. Anchored to the LIVE balance value
-    // (F1 retunes slash_cooldown) and clamped so a short tuned cooldown still
-    // roots for its whole duration instead of never.
-    let root_floor = (balance.slash_cooldown - ATTACK_ROOT_WINDOW).max(0.0);
-    for (mut tf, player, attack) in &mut q {
+    for (mut tf, player, attack, equipped) in &mut q {
+        // Card 27 AttackRoot: the first ATTACK_ROOT_WINDOW seconds after a
+        // slash (cooldown still near its max) damp movement so the standing
+        // attack clip doesn't ice-skate across the ground. Card 29: anchored
+        // to the equipped weapon's table cooldown × the live balance scale
+        // (F1 retunes still apply), clamped so a short tuned cooldown still
+        // roots for its whole duration instead of never.
+        let cooldown = equipped
+            .map(|e| e.0.cooldown())
+            .unwrap_or(WeaponKind::IronSword.cooldown())
+            * balance.slash_cooldown_scale;
+        let root_floor = (cooldown - ATTACK_ROOT_WINDOW).max(0.0);
         let rooted = attack.is_some_and(|a| a.cooldown >= root_floor);
         let mut speed = player.speed;
         if sprint {
