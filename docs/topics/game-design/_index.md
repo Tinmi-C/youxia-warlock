@@ -12,6 +12,8 @@
 | [[topics/game-design/blender-gltf-wash-pitfalls\|踩坑：Blender 无头 glTF 洗白五连坑]] | pitfall | draft | 幻影 Icosphere 污染测量→自检读文件 JSON；蒙皮不吃父级变换须烘焙；按名字索引防失效引用；cm 骨架烤变换后动画曲线须同比回缩；骨骼局部轴≠世界轴（In-Place 剥局部 X/Z 留 Y） |
 | [[topics/game-design/ai-3d-generation-tools\|AI 生成 3D 资产工具调研]] | reference | draft | 混元开源版+洗白站补色=定版基座；4060Ti 8GB 跑 mini/turbo；纹理短板被 palette lock 抵消；商用前人工读 LICENSE |
 | [[topics/game-design/ai-asset-pipeline\|AI 生成美术管线八站流程]] | howto | draft | 八站全景与人机分工；normalize/turntable 命令速查；玩家模型实测数据（50k→10k 面）；prompt 模板与边界 |
+| [[topics/game-design/unirig-auto-rigging-research\|UniRig 自动绑骨调研]] | reference | draft | 只绑骨不产动画；GLB/FBX 进 FBX 出；4060Ti 8GB 可跑可脚本化；许可证待人工核对；最大缺环=动画重定向（模板骨架方案先 PoC） |
+| [[topics/game-design/art-asset-catalog-tool-proposal\|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]] | reference | draft | 人操作 AI 辅助；两层资产域（库上移工作区级 `_library/`）；六模块 + 场景注册表（SC1-6 实录提炼 + 扩展位）+ 模板兼容规范层 C1-C4；评审清单全部落定；待动工 |
 
 ## 相关决策
 

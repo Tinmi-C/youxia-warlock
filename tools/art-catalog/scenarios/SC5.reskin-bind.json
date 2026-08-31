@@ -1,0 +1,16 @@
+{
+  "id": "SC5",
+  "name": "换皮接表（库 → 游戏上架）",
+  "trigger": "runner 换成 X 皮 / 把这个模型接进敌人定义表",
+  "source": "卡 19 EnemyDefinitionTable + 卡 21 HeroV2 实操",
+  "steps": [
+    { "n": 1, "executor": "human", "do": "指定库域模型（或先走 SC1 入库）与目标槽位（哪个 MonsterKind / HERO_GLB）" },
+    { "n": 2, "executor": "ai-assist", "approval": "before",
+      "do": "改定义表行（components.rs MonsterKind 的 model 字段）或 HERO_GLB 常量；老系统零改动" },
+    { "n": 3, "executor": "ai-assist", "do": "cargo test 回归；预声明漂移（被改断言）逐条核对并在卡内记录" },
+    { "n": 4, "executor": "ai-assist", "do": "art-catalog 复扫：确认 adopted 关系更新、旧皮变孤儿（R1 提示退役）" },
+    { "n": 5, "executor": "human", "do": "真机视觉验收（身高对齐/动画接入/色槽正确）" }
+  ],
+  "approval_points": ["步骤 2 改代码前", "步骤 5 真机验收"],
+  "acceptance": "定义表指向新皮；回归全绿；复扫显示新皮 adopted、旧皮进孤儿清单待退役"
+}

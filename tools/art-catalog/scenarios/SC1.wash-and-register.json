@@ -1,0 +1,23 @@
+{
+  "id": "SC1",
+  "name": "单件洗白入库",
+  "trigger": "把这个模型洗白入库 / 对这个 raw 跑一遍流水线",
+  "source": "卡 17 ArtAssetPipeline（已实现）；八站流程 5-7 站",
+  "steps": [
+    { "n": 1, "executor": "human", "do": "提供 raw 模型路径（glTF/GLB）与目标身高（米）；确认许可证可用" },
+    { "n": 2, "executor": "ai-assist", "approval": "before",
+      "do": "工单立案：art-catalog intake --game <game> create --file <raw> --name <snake_name> --license <许可> --source <来源>（状态机校验命名/许可）",
+      "on_fail": "命名不符合 snake_case 或缺许可证 → 回报人，不开工" },
+    { "n": 3, "executor": "ai-assist", "approval": "before",
+      "do": "intake set <工单id> --status washing；blender -b -P tools/art/normalize.py -- --in <raw> --out assets/models/<name>.glb --height <米> [--max-tris 预算] [--tex-size 像素]",
+      "on_fail": "看 normalize 自检输出（leaked 非空即失败），intake set --status rejected --note <原因>，回报人" },
+    { "n": 4, "executor": "ai-assist",
+      "do": "blender -b -P tools/art/turntable.py -- --in assets/models/<name>.glb --out <图册父目录>（产物自动落 <out>/<name>/；注意 blender 传绝对路径）；anim_strip.py 同理 --meta-dir <图册目录>；随后 intake set <工单id> --status review",
+      "check_paths": ["tools/art/turntable.py"] },
+    { "n": 5, "executor": "ai-assist",
+      "do": "运行 art-catalog 复扫登记，确认新资产 domain=game、无 R2/R3/R6 finding" },
+    { "n": 6, "executor": "human", "do": "翻图册复检（4 视角：全身可见/纯背景/无全黑全白）+ 3D 播放；通过 → AI intake set <工单id> --status landed；真机看效果" }
+  ],
+  "approval_points": ["步骤 1 参数与许可证（覆盖冲突工单会标注）", "步骤 6 复检验收（landed 终态，翻不了盘；重做需新工单）"],
+  "acceptance": "入库 glb 过 normalize 自检；turntable 出 4 图 + meta.json；复扫无新增 finding；工单状态全链 new→washing→review→landed 可在页面资产表/工单区查看"
+}

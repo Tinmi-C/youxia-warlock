@@ -1,7 +1,7 @@
 ---
 title: 索引地图 MOC
 type: moc
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # 🗺️ 索引地图（Map of Content）
@@ -31,6 +31,8 @@ updated: 2026-08-27
 
 ## 近期更新
 
+- [[topics/engine/ai-feature-pipeline-sop|AI 特性开发标准流程 v1（SOP）]]（新增，done：六阶段三栏 + DoD 五条 + AI 上下文包模板；试点=武器系统卡 29-31）
+- [[topics/game-design/art-asset-catalog-tool-proposal|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]]（新增，draft：人操作 AI 辅助；两层域库上移 `_library/`；场景注册表 + 模板兼容；评审清单全部落定，待动工）
 - [[topics/engine/ai-native-engine-vision|AI 原生游戏引擎——设想总纲]]（新增，draft）
 - 引入 `raw/` 层 + 维护规范 [[AGENTS]] + [[log]]（知识库 schema 升级）
 - [[decisions/0001-rust-tech-stack|ADR-0001 技术栈选型]]（proposed）
@@ -58,3 +60,4 @@ updated: 2026-08-27
 - [[topics/game-design/blender-gltf-wash-pitfalls|踩坑：Blender 无头 glTF 洗白五连坑]]（新增，pitfall：幻影网格污染测量→自检读文件 JSON；蒙皮变换烘焙；按名字索引防 StructRNA 尸体；cm 骨架动画曲线回缩；骨骼局部轴≠世界轴）
 - [[topics/game-design/ai-3d-generation-tools|AI 生成 3D 资产工具调研]]（新增，reference：混元 2.0/2.1 开源 + 4060Ti 8GB 定版 mini/turbo；形状-only + palette lock 抵消纹理短板；商用前人工读 LICENSE）
 - [[topics/game-design/ai-asset-pipeline|AI 生成美术管线八站流程]]（新增，howto：八站人机分工；normalize/turntable 速查；玩家模型 50k→10k 面/30.9→3.3MB 实测；prompt 模板）
+- [[topics/game-design/unirig-auto-rigging-research|UniRig 自动绑骨调研]]（新增，reference：绑骨+蒙皮自动化、无动画；许可证最高优先级待验证；管线缺口=动画重定向，四条路线对比）

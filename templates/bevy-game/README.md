@@ -34,11 +34,14 @@ src/
 tests/
   behavior.rs      # 行为一致性回归测试（验收闭环的可执行化）
 assets/
-  models/ textures/ audio/ fonts/ ui/   # 资产按类型分目录
+  models/ textures/ audio/ fonts/ ui/   # 资产按类型分目录（模型 snake_case，clip 统一命名）
 docs/
   capability-cards.md  # 能力卡工作流 + 卡模板（AI 开发的核心约定）
 AGENTS.md          # 给 AI 智能体的项目上下文（AI 协作方式）
 ```
+
+> 美术工作区约定：原始素材与候选图册放 `_art/`（如 `raw/`、`gallery/`），不入运行时 `assets/`。
+> 该约定来自 art-catalog 管理系统设计稿（知识库 `docs/topics/game-design/art-asset-catalog-tool-proposal.md`，**拟采用、待团队拍板**）；正式采用后本模板将预置 `_art/` 目录骨架。
 
 ## 操作
 

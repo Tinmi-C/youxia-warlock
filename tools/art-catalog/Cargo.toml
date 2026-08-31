@@ -1,0 +1,11 @@
+[package]
+name = "art-catalog"
+version = "0.1.0"
+edition = "2021"
+description = "Read-only art asset catalog: scan + checks + HTML/JSON dual output (card AC-1)"
+
+# Zero dependencies by design: builds offline anywhere; ships its own minimal JSON.
+[dependencies]
+
+[profile.release]
+opt-level = 2

@@ -1,0 +1,18 @@
+{
+  "id": "SC3",
+  "name": "套装采购拆包入库",
+  "trigger": "把这个套装里的几件拆出来入库",
+  "source": "卡 18 路线 B（KayKit/Quaternius 等 CC0 套装）；八站流程共站",
+  "steps": [
+    { "n": 1, "executor": "human", "do": "选定套装与许可（CC0/CC-BY 留档）；挑出需要的件清单" },
+    { "n": 2, "executor": "ai-assist",
+      "do": "从套装包导出选中件为独立 glTF 至 _library/raw/packs/<套装>/（记录来源与许可到 intake 单）" },
+    { "n": 3, "executor": "ai-assist", "approval": "before",
+      "do": "对每件跑 normalize.py（helper 网格剔除为内置行为）→ 洗白到 assets/models/<name>.glb",
+      "on_fail": "Quaternius 类幻影 Icosphere 由 normalize JSON 级剔除兜底；仍失败回报人" },
+    { "n": 4, "executor": "ai-assist", "do": "turntable 出图册 → art-catalog 复扫登记" },
+    { "n": 5, "executor": "human", "do": "翻图挑件拍板（20 选 1），写选谁+为什么（评审笔记）" }
+  ],
+  "approval_points": ["步骤 3 批量洗白前确认件清单", "步骤 5 拍板"],
+  "acceptance": "选中件入库且复扫全绿；未选中件留在库域不进 runtime"
+}

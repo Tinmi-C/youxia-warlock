@@ -44,7 +44,7 @@ assets/{models,textures,audio,fonts,ui}/
 - **代码注释用英文**；与人的对话、文档用中文。
 - **观察通道**：行为变化必须可被日志/测试观察——系统里打关键日志（`info!`），验收靠 `cargo test` + 日志仪表，不靠「看起来对了」。
 - **改动可回滚**：不在一行里塞多个无关改动；结构改动先立 ADR（团队 `docs/decisions/`）。
-- **资产约定**：模型/贴图放 `assets/` 对应子目录；glTF 优先（Bevy 原生）；JPEG 贴图已开特性，无需处理。
+- **资产约定**：模型/贴图等放 `assets/` 对应子目录（`models/textures/audio/fonts/ui`）；glTF 优先（Bevy 原生）；JPEG 贴图已开特性，无需处理；模型文件用 snake_case 语义名（如 `goblin.glb`）；动画 clip 统一命名 `idle`/`walk`/`attack`/`hit`/`death`；美术原始素材、候选图册放 `_art/`（`raw/gallery` 等，不入运行时）。完整规范见知识库 `docs/topics/game-design/art-asset-catalog-tool-proposal.md`（art-catalog 管理系统设计稿，**拟采用、待团队拍板**；正式采用后本模板将预置 `_art/` 目录骨架）。
 - **当前状态 / 下一步**：每次开工前更新本文件的「当前状态」小节（进行中的能力卡、已知问题）。
 
 ## 当前状态 / 下一步

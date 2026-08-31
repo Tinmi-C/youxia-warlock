@@ -26,6 +26,10 @@ run-log*.txt
 # ===== 美术流水线工作目录（卡 17：raw 原件/图册渲染产物不入库，入库只收洗白后资产）=====
 games/*/_art/
 
+# ===== art-catalog 产物（设计稿 v0.4：工作区级库的扫描输出不入库；.cargo-home 为本地构建缓存）=====
+_library/catalog/
+.cargo-home/
+
 # ===== Obsidian 个人布局（.obsidian/ 团队共享配置保留提交）=====
 docs/.obsidian/workspace.json
 docs/.obsidian/workspace-mobile.json
