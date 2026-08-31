@@ -49,102 +49,39 @@ assets/{models,textures,audio,fonts,ui}/
 
 ## 当前状态 / 下一步
 
-- **进行中**：卡 27 AttackRoot（feat `9fa855c`，2026-08-29，52 回归全绿；待人工
-  验收）。治"边走边砍滑步"（用户真机反馈：攻击 clip 原地挥砍 + 移动照常 =
-  冰面漂移）：挥砍后 0.3s 窗口内移动 ×0.25 基本站定（锚定 Balance 实时冷却，
-  F1 调参不破功；窗口≥冷却时 clamp 全程顿帧）。顺带攻击有了重量感。
-  根治方案立为卡 28 草案：上下半身遮罩分层（Bevy 0.19.1 动画 mask API 已
-  验证存在），待用户喊开工。
-- **已完成**：卡 26 SprintRebind（feat `5e12381` + fix `c3f24de`，2026-08-29，
-  **真机验收通过**——用户确认走/跑动作可辨）。Shift 疾跑 + Nova 改键 Q（E 留
-  给规划中的 Dash）：基础移速 5.0→2.5（walk 节奏），按住 Shift ×2 回到 5.0
-  战斗节奏。fix `c3f24de`（关键）：表现层改读实测位移速度（FeelState.speed，
-  locomotion_feel 逐帧测距写入）——静态 Player.speed 看不见疾跑，曾导致走/跑
-  同 clip；查询冲突以 Without<WalkCycle> 划界。数值漂移预声明入卡。
-- **已完成**：卡 25 HeroRunClip（feat `1ebf2c7` + fix `947a932`/`c3f24de`，
-  2026-08-29，**真机验收通过**——走/跑/待机三态动作用户确认可辨）。Mixamo
-  跑步动画接入（动作优化 A 路线）：mixamo_merge.py + normalize.py 管线把
-  `unarmed run forward` 嫁接进 player_hunyuan.glb（5 clip，HERO_CLIP_* 重排
-  run=3/walk=4，钉测同步）；速度门控三档（阈值 3.0）。fix `947a932`：各 clip
-  速率各归各家，待机恒原生 1.0（此前走→待机涂 2.5x 致站立抽搐）。glb 动画
-  时长已离线验证（run 0.83s / walk 1.38s / idle 1.79s）。
-- **已完成**：卡 24 LocomotionFeel（feat `f64c464`，2026-08-29，50 回归全绿，
-  随卡 25/26 真机一并确认）。动作优化 A+B 组合的 B 路线：身体前倾（随速
-  0→10°，face 之后复合 Ry×Rx 不打架）+ 步伐起伏（|sin| 4.5cm 跟步频）+
-  步频校准 1.4→1.6；英雄怪物同吃，Playing 门控冻结。
-  管线复跑配方（卡 25 素材侧）：picked5/（picked 四件 + run.fbx）→ blender -b
-  -P mixamo_merge.py --rigged extracted/player_for_mixamo.fbx（**带骨架**；根
-  目录同名文件是上传前素模，没 ARMATURE）→ normalize.py --height 1.33；本机
-  Blender 在 D:\Blender（5.2.1 LTS）。
-- **进行中**：卡 23 NovaJuice（feat `def55a3`，2026-08-28，49 回归全绿；待人工
-  视觉验收）。Nova 打击感升级：单层烟花 → 四层爆发（冲击环重调/火花上抛受重力/
-  贴地闪圈/中心白闪 0.1s）+ 镜头微抖 0.15s（确定性抖动，camera.rs 零改动全部
-  收在 vfx.rs）。事故备注：fmt 回滚误 checkout 本卡主角 vfx.rs，发现后重写——
-  回滚名单须逐次核对（已记入卡内）。
-- **进行中**：卡 22 MonsterCombatClips（feat `b853dfe`，2026-08-28，49 回归全绿；
-  待人工视觉验收）。怪物攻击/受击动画接入：定义表加 attack_clip(0)/hit_clip(3)；
-  攻击信号=距离电平触发（≤CONTACT_DIST+0.15，咬合无独立计时器故与玩家按键
-  边沿不同源）；受击=flash 上跳边沿复用；attack 0.38s/hit 0.29s 全程播放不截取。
-  通用化红利：怪物走查迁入 AnimationTransitions，单次播放机制 owner 无关，
-  was_playing 移除；暂停冻结语义不变。
-- **进行中**：卡 21 HeroV2 玩家换皮+四动画（feat `a0b1207`，2026-08-28，49 回归
-  全绿；待人工视觉验收）。hero.glb → player_hunyuan（队友卡 17 产出，自带
-  attack/hit/idle/walk 四 clip），walk↔idle 200ms 混合状态机 + 挥砍/受击单次
-  窗口（0.6s/0.4s，attack 全长 4.7s 只播前段）；暂停时 pause_all 全冻结语义不变；
-  卡 12 观察者纪律（只读 WalkCycle/Attack/Visual，逻辑零接触）。若验收通过，
-  「单走路 clip 待机定格」已知问题随之销账（怪物侧 frame-0 定格保留）。
-  真机验收反馈#1（2026-08-29）：人物走路滑步——walk clip 速率未跟随地面速度
-  （4.0 u/s vs 素材原生 ~1.4 u/s）。修复 fix `91e8279`：walk 播放速率 = 实际
-  速度 ÷ 素材原生步速（Player.speed / Chasing.speed 只读，逐帧刷新，F1 调速
-  实时生效），玩家怪物一并生效；校准常量 WALK_CLIP_AUTHORED_SPEED=1.4 待视觉
-  终审微调。
-- **进行中**：卡 19 EnemyDefinitionTable 已实现（feat `31ab6f7`，2026-08-28，48 个回归
-  全绿；待人工视觉验收）。落地 GDD 点子池[变体派生]：MonsterKind 方法族即敌人
-  定义表（model/walk_clip/wrapper_scale/色槽/数值倍率一行齐全），首批接入队友
-  四模型——grunt→green_blob / runner→mushnub / tank→yeti（世界身高与旧皮对齐），
-  新 Elite 变体（mushnub_evolved、深红槽、grunt×1.3、hp×2/speed×0.85 慢而硬），
-  w6 起每波 grunt 里 +1（上限 grunt 半数），w5 及以前组成不变。
-  预声明漂移（卡内已记）：卡 13 缩放锚定测试改锚新表值；两条卡 10 组成测试补
-  Elite 编译臂（w3/w5 断言语义不变）。
-- **已完成**：卡 18 PlayerFacing（feat `f10df37`，2026-08-27 真机视觉验收通过，46 个回归全绿）。
-  玩家模型面向移动方向：位移观测（速度>0.02/s 更新、停步保持）+ 与怪一致的
-  540°/s 最短弧平滑——`face_towards_heading` 摘掉 With<Monster> 后玩家白嫖。
-  关键取舍：玩家锚点 `PrevTranslation` 归卡 12 walk 系统所有，derive_heading
-  只读不写（写了会清零 walk 的 delta）且链上排在 update_walk_cycle 之前；
-  怪物锚点仍由 derive 自有自写。hero.glb 原生面向与约定一致，未加基准偏角。
-- **已完成**：卡 16 UiFormalization 闭环（2026-08-27 人工验收通过：feat `bb637fa` +
-  暂停冻结修复 `d44ec77`，44 个回归全绿）。补齐 GDD 清单：波次格子（顶部中央存活
-  敌数 pips）、Nova 冷却条（紫罗兰）、P 暂停遮罩；debug 提示行迁底部半透明；
-  布局/色板收敛为 ui.rs 常量组。暂停修复要点：rapier 步进不受 GameState 门控，
-  动态怪体曾带残速穿透暂停画面——`sync_physics_pause` 把
-  `RapierConfiguration.physics_pipeline_active` 镜像到游戏状态。
-  （卡片清单文件的状态翻转暂缓：该文件含队友未落库的美术侧 WIP，避免混入提交）
-- **已完成**：卡 15 MonsterFacing（feat `3a15cf2`，2026-08-27 真机视觉验收通过，40 个回归全绿）。
-  `Heading` 观测组件 + `derive_heading`（逻辑链尾）+ wrapper yaw 恒定角速度平滑
-  （540°/s 最短弧，掉头 ≈0.33s），物理零交互（只转场景子实体）。
-  阶段三第一批（卡 12–14 表现层）实现 + 真机人工验收通过（2026-08-27，
-  `c07520d` / `0c9119a` / `0ef1ca0` + 真机修正 fix×5，38 个回归全绿）。
-  首次真机跑抓出并修复：HanabiPlugin 未挂、egui 0.42 调度器、模型路径、相机方位与输入
-  镜像、玩家幽灵分组（咬合距离）、待机确定性定格——细节见 `docs/phase-3-dev-notes.md`。
-  共同架构：PresentationPlugin 只挂 `build_app`，headless 测试零渲染依赖
-  （唯一漂移：三条旧 flash 断言按 review 后的衰减公式带宽修订并注明出处）。
+> 状态索引而已——逐卡规格/验收句/反馈记录只在 `docs/capability-cards.md` 一处维护
+> （未闭环卡全文在卡清单文件，已闭环卡真相在代码+回归），本节不重复细节。
+
+- **进行中（待人工终审）**：
+  - 卡 29 武器定义表+扇形命中（56 回归全绿）：IronSword/Glaive 定义表、120°/60°
+    扇形命中、攻击自动面向最近敌人、Balance 改倍率语义（F1 保留）。真机过一遍
+    扇形+双武器差异即可闭环
+  - 卡 30 武器形体+手骨挂点（59 回归全绿）：两把 Blender 占位武器经 wash 全链
+    landed；attach_weapon 挂 mixamorig:RightHand 手骨 + weapon_scale_fixup 缩放
+    补偿。验收反馈①②③已入卡（骨骼挂点重构 / 握剑手型=素材任务 / 卡 25 债
+    RUN_CLIP_AUTHORED_SPEED 4.0→2.8 校准 + clip 日志补 rate）
+- **待人工视觉验收**（实现+回归均绿，缺人跑游戏）：卡 19 四新皮+w6 精英 /
+  卡 21 玩家四态动画 / 卡 22 怪物咬人起攻+受击 / 卡 23 Nova 四层爆发+震屏 /
+  卡 27 攻击顿帧——看什么全在卡清单各卡验收句
+- **已完成**（一卡一提交）：卡 1-8 垂直切片（08-26）→ 卡 9-11 玩法深化（08-27）→
+  卡 12-14 表现层首批（`c07520d`/`0c9119a`/`0ef1ca0`，08-27 真机验收）→ 卡 15
+  `3a15cf2` → 卡 16 `bb637fa`+`d44ec77` → 卡 18B `f10df37` → 卡 24 `f64c464` →
+  卡 25 `1ebf2c7`+`947a932` → 卡 26 `5e12381`+`c3f24de`（24/25/26 于 08-29 真机验收）
+- **草案待开工**：卡 28 上下半身分层（卡 27 根治路线）/ 卡 31 远程弹道（可选）
+- **素材任务（非代码，走管线）**：握剑手型 = Mixamo one-handed sword 动画集
+  （下载 → mixamo_merge.py → normalize → wash → R8，配方在卡 30 反馈②）；
+  怪物三态 idle；正式字体/音效（搁置）
 - **已知问题**：
-  - 单走路 clip 的待机方案（验收反馈#2，最终版 `2280cf7`）：停步瞬间确定性定格在动画第 0 帧（统一站架）——曾试「走完当前步再停」但纯走 clip 的循环末端姿势仍是迈步姿态，视觉不可区分且有预加载竞态；真 idle 待机仍需动作素材，到位后再立动画状态机卡。（朝向缺口已由卡 15 解决）
-  - 物理语义修正（验收反馈#4）：怪物由 KinematicVelocityBased 改为 Dynamic + 零重力 + 锁定旋转——kinematic-vs-kinematic 在 rapier 中不产生接触是设计行为，改后怪群互相推挤、不再穿透玩家（卡 4 的距离判定不受影响）
-  - **残余穿模（2026-08-27 验收记录，人判定影响不大，挂起后续解决）**：① 咬合瞬间玩家与怪的模型交叠是「玩家幽灵分组」的设计预期；② 重度围堵时怪群之间仍可能短暂互渗（速度直写 + 碰撞球半径小于模型包围盒）。候选方案：碰撞球按模型实际体形校准（球→胶囊）、开启 CCD、或调接触推挤刚度——届时单独立卡
-  - 本机 git 报 dubious ownership，需执行一次 `git config --global --add safe.directory F:/developSpace/warlock`
-  - 本机曾发生 PowerShell 文本管道写坏 UTF-8 注释的事故（已用 git 恢复）；改文件一律走 AI 文件工具或显式 UTF-8 编码
-- **近期目标**：卡 19 / 21 / 22 / 23 四卡视觉验收（19=四新皮 + w6 精英；21=玩家
-  新皮四态动画；22=怪物咬人起攻 + 受击反应；23=Nova 四层爆发 + 震屏）→ 闭环归档；
-  候选：第三个主动技能（推荐冲刺 Dash，纸面清单已议）；攻击时面向最近敌人（战斗
-  QoL）；「音效」搁置（2026-08-27）；挂起项等素材/时机（怪物三态 idle、残余穿模）
-- **卡片清单挂起事项**：卡 16 / 18 / 19 的清单内状态翻转 + 卡号重编号（文件内现有
-  两个「卡 18」：建议按文件序 PlayerFacing→19、EnemyDefinitionTable→20，拍板随翻转）
-  + 知识库 MOC/log 的两条新踩坑行——全部等队友美术 WIP（含其未推的卡 17 两个本地
-  提交）落库推远后一并处理，避免混入提交。两条踩坑笔记本体已入
-  `docs/topics/engine/`（rapier 步进门控 / 共享锚点只读，均待团队 review）。
-- **协作提醒**：工作区存在队友未提交的美术侧 WIP（GDD/style-bible/tools/art 等），AI 提交时只圈自己的文件，勿整目录 `git add`
-- **阶段二收尾存档**：卡 9–11 全部完成（2026-08-27，33 个回归测试全绿，见 `docs/phase-2-dev-notes.md`）
+  - 残余穿模（08-27 验收记录，影响不大挂起）：围堵时怪群短暂互渗——候选
+    碰撞球→胶囊 / CCD / 推挤刚度，届时立卡
+  - 卡清单两个「卡 18」重编号：等队友美术 WIP（卡 17/未推提交）落库后一并拍板
+  - 本机 git dubious ownership：需一次
+    `git config --global --add safe.directory F:/developSpace/warlock`
+  - PowerShell 文本管道曾写坏 UTF-8 注释：改文件一律走 AI 文件工具
+- **近期目标**：卡 29/30 终审闭环 → 待验收队列清账（19/21/22/23/27）→
+  候选 Dash 冲刺（纸面已议）；「音效」搁置（2026-08-27）
+- **协作提醒**：队友未提交的美术 WIP 在工作区（GDD/style-bible/tools/art 等），
+  AI 提交只圈自己的文件，勿整目录 `git add`
 
 ## 项目专属规则
 
