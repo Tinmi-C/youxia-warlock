@@ -24,7 +24,9 @@ related:
 
 `wave-survival` 的 ECS 分层（组件 / 资源 / 系统 / 插件）方向对，但 **玩法调度集中在 `GamePlugin` 一条 `.chain()` 上**，对后续扩展和 AI 自动插卡不友好。市面 Bevy 主流（领域 Plugin + SystemSet）与团队愿景（能力卡装配层）**不是同一套方案，可兼容**。youxia **明确不赞同「第二次用到才抽公共层」**，该条列入待改；其余区别仍需继续讨论。旧文档规则暂不改，等本篇讨论收口后统一修订。
 
-**第二轮进展（08-31）**：主链 SystemSet 拆分方案已出稿（§7，AI 专业判断）：五阶段 `Movement → Combat → Despawn → Spawn → Observe`，现有 11 系统相对顺序不变、零回归风险；玩法**不拆多 Plugin，先只加 Set**；能力卡增加「挂载 / 依赖消息」声明作为装配层自动化前置。方案待 youxia 拍板后，随 §4.1 一起收口执行。
+**第二轮进展（08-31）**：主链 SystemSet 拆分方案已出稿（§7，AI 专业判断）：五阶段 `Movement → Combat → Despawn → Spawn → Observe`；玩法**不拆多 Plugin，先只加 Set**；能力卡增加「挂载 / 依赖消息」声明作为装配层自动化前置。
+
+**§7 拍板（2026-08-31）**：youxia 已拍板 §7，按 AI 方案落地。一处修正（AI 补充）：`configure_sets` 的 `.chain()` 只保证**阶段间**顺序，**不**保证阶段内系统顺序——故每个阶段内部也要 `.chain()`（尤其 Observe 段 `derive_heading` 必须先于 `update_walk_cycle`），否则「11 系统相对顺序不变」不成立。已在 `game.rs` 落地（`src/sets.rs` 新增 `GameSet`），回归作闸（59 测试应原样全绿）。§4.1 规则文件与 §5 剩余项仍待拍板。
 
 ## 讨论日志
 
@@ -32,6 +34,7 @@ related:
 |------|------|------|
 | 2026-08-31 | 读 `build_app` / 组件 / 资源 / `GamePlugin`；对比主流 vs 愿景；Rule of Three | 进行中 |
 | 2026-08-31 | 读 `GamePlugin` 主链（11 系统 `.chain()`）；AI 出 SystemSet 阶段方案 + Plugin vs Set 决策 + 卡挂载声明 | SystemSet 方案已出（§7），待 youxia 拍板 |
+| 2026-08-31 | §7 拍板 + 落地：youxia 同意按 AI 方案实施；AI 修正段内 chain 保序（`configure_sets` 只链阶段），`game.rs` 改五阶段 `in_set` + 新增 `src/sets.rs`，回归作闸 | §7 已拍板，落地验证中 |
 
 ## 1. 当前代码结构（读代码时的快照）
 
@@ -103,10 +106,10 @@ related:
 
 ## 5. 待继续讨论（开放）
 
-- [x] 主链拆成哪些 SystemSet 阶段（对照现有 11 个系统）→ **方案已出（§7.1），待 youxia 拍板**
-- [x] 玩法要不要拆成多个 Plugin（Combat / Wave / Pickup…）还是先只加 Set → **AI 结论：先只加 Set，不拆 Plugin（§7.2）**
+- [x] 主链拆成哪些 SystemSet 阶段（对照现有 11 个系统）→ **方案已出（§7.1），youxia 已拍板（08-31）**
+- [x] 玩法要不要拆成多个 Plugin（Combat / Wave / Pickup…）还是先只加 Set → **AI 结论：先只加 Set（§7.2），youxia 认可**
 - [x] 能力卡如何声明「挂在哪个阶段 / 依赖哪些 Message」→ 方向已定（§7.3），字段格式待收口
-- [ ] **§7 方案整体确认**（五阶段命名 / 系统归位表 / 卡挂载格式）——下一会话首要拍板项
+- [x] **§7 方案整体确认**（五阶段命名 / 系统归位表 / 卡挂载格式）——youxia 拍板通过（08-31），`game.rs` 已落地
 - [ ] 「标准化框架」第一版最小交付：只改 wave-survival 接线，还是同步改模板（AI 倾向：同步，见结论）
 - [ ] ADR-0002 里「不做通用引擎」与「第一款就留接缝」的新措辞（AI 倾向：重写边界段，非整篇作废）
 - [ ] 收口后统一执行的改动清单确认（§4.1 列出的 5 个规则文件 + §7 接线）
@@ -117,9 +120,11 @@ related:
 > 本文是**工作底稿**：结论先记这里，未拍板前**不修改** AGENTS.md / ADR / 模板 / `game.rs` 调度。
 
 **下个会话的议题清单**（按优先级）：
-1. **拍板 §7**：五阶段命名、11 系统归位表（§7.1）、卡挂载声明格式（§7.3）——AI 已按专业判断出稿，默认按此执行，除非有异议
-2. **拍板 §5 剩余项**：模板是否同步改（AI 建议同步）；ADR-0002 措辞（AI 建议重写边界段）
-3. **已拍板不用再议**：§4.1 反对「第二次用到才抽」（youxia 已定）；§7.2 不拆多 Plugin（AI 结论）
+1. **§7 落地收尾**：`game.rs` 五阶段 `in_set` + `src/sets.rs` 已改，回归作闸（59 测试应原样全绿）；验证通过即本项闭环
+2. **拍板 §5 剩余项**：模板是否同步改（AI 建议同步）；ADR-0002 措辞（AI 建议重写边界段）；卡挂载声明字段格式收口（§7.3）
+3. **确认 §4.1 统一改动清单**：5 个规则文件（bevy-plugin-and-code-reuse 准则二 / ADR-0002 边界 / capability-card-workflow-deep-dive Rule of Three 段 / templates/bevy-game README+AGENTS.md / 根 AGENTS.md 转述）
+
+**已拍板不用再议**：§7 主链 SystemSet 拆分（含段内 chain 保序）；§4.1 反对「第二次用到才抽」（youxia 已定）；§7.2 不拆多 Plugin（AI 结论）。
 
 **已确认背景**（不用重新讨论）：
 - 结构痛点 = 主链 `.chain()` 手排，插入点靠人猜（§2）
@@ -179,34 +184,45 @@ pub enum GameSet { Movement, Combat, Despawn, Spawn, Observe }
 
 AI 读卡即知「挂哪个阶段、依赖什么消息」——这是装配层自动化的**最小闭环**（人不再手排，机器可安全插卡）。格式细节（字段名/是否进 frontmatter）待 §5 收口时定。
 
-### 7.4 参考代码骨架（未落地，供讨论/执行备查）
+### 7.4 参考代码骨架（已落地，见 `src/sets.rs` + `game.rs`）
 
 ```rust
-// src/systems/mod.rs 或新 src/sets.rs
-use bevy::prelude::*;
-
+// src/sets.rs
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GameSet {
-    Movement, // 写位置/速度：move_player, enemy_chase
-    Combat,   // 读位置→写 Hp/flash：player_attack, nova_slash, contact_damage
-    Despawn,  // 清死体：death_despawn
-    Spawn,    // 生成物/波次：pickup_drop, wave_system
-    Observe,  // 观测/表现驱动：decay_flash, derive_heading, update_walk_cycle
+    Movement, // move_player, enemy_chase
+    Combat,   // player_attack, nova_slash, contact_damage
+    Despawn,  // death_despawn
+    Spawn,    // pickup_drop, wave_system
+    Observe,  // decay_flash, derive_heading, update_walk_cycle
 }
 
-// GamePlugin::build 内：
-//   .configure_sets(Update, (GameSet::Movement, GameSet::Combat,
-//                            GameSet::Despawn, GameSet::Spawn, GameSet::Observe).chain())
-//   .add_systems(Update,
-//       (systems::player::move_player, systems::enemy::enemy_chase)
-//           .in_set(GameSet::Movement))
-//   .add_systems(Update,
-//       (systems::combat::player_attack, systems::nova::nova_slash,
-//        systems::contact::contact_damage).in_set(GameSet::Combat))
-//   ...
+// GamePlugin::build 内（要点：阶段间链 + 阶段内也要链）
+.configure_sets(
+    Update,
+    (GameSet::Movement, GameSet::Combat,
+     GameSet::Despawn, GameSet::Spawn, GameSet::Observe).chain(),
+)
+.add_systems(Update,
+    (systems::player::move_player, systems::enemy::enemy_chase)
+        .chain().in_set(GameSet::Movement).run_if(in_state(GameState::Playing)))
+.add_systems(Update,
+    (systems::combat::player_attack, systems::nova::nova_slash,
+     systems::contact::contact_damage)
+        .chain().in_set(GameSet::Combat).run_if(in_state(GameState::Playing)))
+.add_systems(Update,
+    systems::contact::death_despawn
+        .in_set(GameSet::Despawn).run_if(in_state(GameState::Playing)))
+.add_systems(Update,
+    (systems::pickup::pickup_drop, systems::wave::wave_system)
+        .chain().in_set(GameSet::Spawn).run_if(in_state(GameState::Playing)))
+.add_systems(Update,
+    (systems::contact::decay_flash, systems::heading::derive_heading,
+     systems::player::update_walk_cycle)
+        .chain().in_set(GameSet::Observe).run_if(in_state(GameState::Playing)))
 ```
 
-落地时注意：阶段 `.chain()` 保证顺序，现有 11 系统相对顺序不变 → 59 回归应原样全绿；若某系统需跨阶段依赖，用 `.after(GameSet::X)` 显式声明而不是塞进链中间。
+落地注意：**`configure_sets(..., chain())` 只保证阶段间顺序，不保证阶段内系统顺序**——所以每个阶段内部同样 `.chain()`（Observe 段 `derive_heading` 必须先于 `update_walk_cycle`）。若某系统需跨阶段依赖，用 `.after(GameSet::X)` 显式声明，而不是塞进链中间。
 
 ## 6. 后续怎么用本文
 

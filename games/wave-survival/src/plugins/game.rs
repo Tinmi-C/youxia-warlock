@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_rapier3d::prelude::RapierConfiguration;
 
 use crate::components::{Attack, Hp, Monster, NovaAttack, Player};
-use crate::{resources::Balance, resources::Wave, states::GameState, systems};
+use crate::{resources::Balance, resources::Wave, sets::GameSet, states::GameState, systems};
 
 pub struct GamePlugin;
 
@@ -22,17 +22,54 @@ impl Plugin for GamePlugin {
                     systems::ui::spawn_ui,
                 ),
             )
+            .configure_sets(
+                Update,
+                (
+                    GameSet::Movement,
+                    GameSet::Combat,
+                    GameSet::Despawn,
+                    GameSet::Spawn,
+                    GameSet::Observe,
+                )
+                    .chain(),
+            )
+            // Main gameplay chain, split into named stages (§7). Each stage
+            // chains its own systems to preserve the original ordering —
+            // configure_sets only orders the *stages*, not systems inside one.
+            .add_systems(
+                Update,
+                (systems::player::move_player, systems::enemy::enemy_chase)
+                    .chain()
+                    .in_set(GameSet::Movement)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 Update,
                 (
-                    systems::player::move_player,
-                    systems::enemy::enemy_chase,
                     systems::combat::player_attack,
                     systems::nova::nova_slash,
                     systems::contact::contact_damage,
-                    systems::contact::death_despawn,
-                    systems::pickup::pickup_drop,
-                    systems::wave::wave_system,
+                )
+                    .chain()
+                    .in_set(GameSet::Combat)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                systems::contact::death_despawn
+                    .in_set(GameSet::Despawn)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                (systems::pickup::pickup_drop, systems::wave::wave_system)
+                    .chain()
+                    .in_set(GameSet::Spawn)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                (
                     // card 14: decay flash AFTER all combat writers same-frame
                     systems::contact::decay_flash,
                     // card 15/18: heading observation AFTER all movers this
@@ -44,6 +81,7 @@ impl Plugin for GamePlugin {
                     systems::player::update_walk_cycle,
                 )
                     .chain()
+                    .in_set(GameSet::Observe)
                     .run_if(in_state(GameState::Playing)),
             )
             // HUD updates in every state (so the GameOver screen can show).
