@@ -13,6 +13,7 @@ impl Plugin for GamePlugin {
         app.init_resource::<Wave>()
             .init_resource::<Balance>()
             .add_message::<systems::nova::NovaFired>()
+            .add_message::<systems::damage::DamageRequest>()
             .add_systems(
                 Startup,
                 (
@@ -27,6 +28,7 @@ impl Plugin for GamePlugin {
                 (
                     GameSet::Movement,
                     GameSet::Combat,
+                    GameSet::Resolve,
                     GameSet::Despawn,
                     GameSet::Spawn,
                     GameSet::Observe,
@@ -52,6 +54,12 @@ impl Plugin for GamePlugin {
                 )
                     .chain()
                     .in_set(GameSet::Combat)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                systems::damage::apply_damage
+                    .in_set(GameSet::Resolve)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(

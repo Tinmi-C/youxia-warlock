@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod combat;
 pub mod contact;
+pub mod damage;
 pub mod enemy;
 pub mod heading;
 pub mod nova;

@@ -9,8 +9,9 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Attack, EquippedWeapon, Heading, Hp, Monster, Player, Visual};
+use crate::components::{Attack, EquippedWeapon, Heading, Monster, Player};
 use crate::resources::Balance;
+use crate::systems::damage::{DamageRequest, DamageSource};
 
 /// Damage at horizontal distance `d` for max damage `max_dmg` and the
 /// per-weapon falloff band `full..=far` (card 29: radii come from the
@@ -45,8 +46,9 @@ pub fn player_attack(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     balance: Res<Balance>,
+    mut wrt: MessageWriter<DamageRequest>,
     mut player: Query<(&mut Attack, &Transform, &mut Heading, &EquippedWeapon), With<Player>>,
-    mut monsters: Query<(&Transform, &mut Hp, &mut Visual), With<Monster>>,
+    monsters: Query<(Entity, &Transform), With<Monster>>,
 ) {
     let dt = time.delta_secs();
 
@@ -75,7 +77,7 @@ pub fn player_attack(
     // so there is no steady-state writer conflict.
     let mut aim: Option<Vec2> = None;
     let mut best_d2 = f32::MAX;
-    for (tf, _, _) in monsters.iter() {
+    for (_, tf) in monsters.iter() {
         let off = Vec2::new(
             tf.translation.x - slash_origin.x,
             tf.translation.z - slash_origin.z,
@@ -93,7 +95,9 @@ pub fn player_attack(
         slash_facing = dir;
     }
 
-    for (tf, mut hp, mut visual) in &mut monsters {
+    // Emit one damage request per target inside the fan — no `&mut Hp` here.
+    // The single `apply_damage` (GameSet::Resolve) applies them all once.
+    for (entity, tf) in monsters.iter() {
         let offset = Vec2::new(
             tf.translation.x - slash_origin.x,
             tf.translation.z - slash_origin.z,
@@ -108,14 +112,11 @@ pub fn player_attack(
             w.far_range(),
         );
         if dmg > 0.0 {
-            hp.hp -= dmg;
-            visual.flash = 1.0;
-            info!(
-                "[combat] {:?} hit monster at d={:.2}, dealt {dmg:.1}, hp now {:.1}",
-                w,
-                offset.length(),
-                hp.hp
-            );
+            wrt.write(DamageRequest {
+                target: entity,
+                amount: dmg,
+                source: DamageSource::Slash,
+            });
         }
     }
 }

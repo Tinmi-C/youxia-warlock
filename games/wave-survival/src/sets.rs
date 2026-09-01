@@ -21,6 +21,9 @@ pub enum GameSet {
     Movement,
     /// Read position -> write Hp/flash: player_attack, nova_slash, contact_damage.
     Combat,
+    /// Apply this frame's damage requests (single settlement pass, after every
+    /// Combat producer): apply_damage.
+    Resolve,
     /// Clear dead bodies (must run after all damage is settled): death_despawn.
     Despawn,
     /// Spawned entities / waves (depend on post-Despawn enemy count):
