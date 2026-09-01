@@ -1,7 +1,7 @@
 ---
 title: 索引地图 MOC
 type: moc
-updated: 2026-08-29
+updated: 2026-08-31
 ---
 
 # 🗺️ 索引地图（Map of Content）
@@ -31,6 +31,7 @@ updated: 2026-08-29
 
 ## 近期更新
 
+- [[topics/engine/project-structure-and-dev-rules-review|项目结构与开发规则复盘（进行中）]]（新增，draft：结构底稿；反对第二次才抽公共层；未改 ADR/模板，收口后统一修订）
 - [[topics/engine/ai-feature-pipeline-sop|AI 特性开发标准流程 v1（SOP）]]（新增，done：六阶段三栏 + DoD 五条 + AI 上下文包模板；试点=武器系统卡 29-31）
 - [[topics/game-design/art-asset-catalog-tool-proposal|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]]（新增，draft：人操作 AI 辅助；两层域库上移 `_library/`；场景注册表 + 模板兼容；评审清单全部落定，待动工）
 - [[topics/engine/ai-native-engine-vision|AI 原生游戏引擎——设想总纲]]（新增，draft）

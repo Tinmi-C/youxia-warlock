@@ -75,3 +75,4 @@
 - `健康检查` — 修复死链/孤立页/冲突等
 - `维护` — 改模板、改规范、改索引
 | 2026-08-30 | 维护 | 文档大扫除（目标：AI 高效开发）：`games/wave-survival/docs/capability-cards.md` 1020→265 行——状态总表补全卡 19-31（原表只到卡 18）并修正过期状态（卡 16/18B/19/24/25/26 已完成却挂着「待 review/草案」）；删除已闭环卡 2-16/18B 的历史规格全文（真相在代码+回归，git 可溯），只保留未闭环卡全文；队友卡 17/18A 原文不动单独成「勿动」区；`games/wave-survival/AGENTS.md` 152→72 行——「当前状态」从逐卡历史小说降为纯状态索引（规格唯一维护点=卡清单文件，消除双处漂移） | games/wave-survival/docs/capability-cards.md + games/wave-survival/AGENTS.md | AI 整理，youxia 授权 |
+| 2026-08-31 | 回写 | wave-survival 结构精读 + 主流 vs 愿景 + Rule of Three 异议（会话底稿，规则文件暂不改） | topics/engine/project-structure-and-dev-rules-review.md、topics/engine/_index.md、MOC.md | AI + youxia |
