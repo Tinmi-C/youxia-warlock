@@ -15,6 +15,7 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/ai-collaboration-by-phase\|游戏全生命周期的人机分工]] | reference | draft | AI 可接管程度 = 验收句可数字化程度；立项/需求/试玩/构建分工表 + 点子池模式 |
 | [[topics/engine/ai-feature-pipeline-sop\|AI 特性开发标准流程 v1（SOP）]] | howto | done | 六阶段三栏（AI/工具门禁/人关卡）+ DoD 五条 + 上下文包模板；试点=武器卡 29-31 |
 | [[topics/engine/project-structure-and-dev-rules-review\|项目结构与开发规则复盘（进行中）]] | reference | draft | 读 wave-survival 结构；主流 Plugin+Set vs 能力卡愿景；§7 主链 SystemSet 已落地（59 回归绿）；§4.1 规则已改（先留接缝不提前造）；ADR-0002 边界澄清 |
+| [[topics/engine/unified-damage-pipeline\|统一伤害结算管线——让 Hp 成为全场唯一写入者]] | howto | draft | 伤害走 DamageRequest 消息；apply_damage 唯一结算；GameSet::Resolve；加新技能发请求即可不碰 Hp |
 
 ## 相关决策
 

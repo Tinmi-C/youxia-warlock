@@ -1,7 +1,7 @@
 ---
 title: 索引地图 MOC
 type: moc
-updated: 2026-08-31
+updated: 2026-09-01
 ---
 
 # 🗺️ 索引地图（Map of Content）
@@ -31,6 +31,7 @@ updated: 2026-08-31
 
 ## 近期更新
 
+- [[topics/engine/unified-damage-pipeline|统一伤害结算管线——让 Hp 成为全场唯一写入者]]（新增，draft：伤害走 DamageRequest 消息 + apply_damage 唯一结算 + GameSet::Resolve；加新技能照发请求即可不碰 Hp；含「单系统执行/循环批处理 N 条」帧语义澄清）
 - [[topics/engine/project-structure-and-dev-rules-review|项目结构与开发规则复盘（进行中）]]（新增，draft：结构底稿；§7 主链 SystemSet 已落地（59 回归绿）；§4.1 规则改「先留接缝不提前造」；ADR-0002 边界澄清；§5 卡挂载格式定稿）
 - [[topics/engine/ai-feature-pipeline-sop|AI 特性开发标准流程 v1（SOP）]]（新增，done：六阶段三栏 + DoD 五条 + AI 上下文包模板；试点=武器系统卡 29-31）
 - [[topics/game-design/art-asset-catalog-tool-proposal|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]]（新增，draft：人操作 AI 辅助；两层域库上移 `_library/`；场景注册表 + 模板兼容；评审清单全部落定，待动工）
