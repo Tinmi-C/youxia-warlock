@@ -20,10 +20,12 @@ use bevy::prelude::*;
 use crate::components::{Hp, Visual};
 
 /// Where a damage request came from (logs / kill attribution). Grows with each
-/// new source: Slash (card 2/29), later Nova / Contact / named skills.
+/// new source: slash (card 2/29), nova (card 9/26), contact-bite (card 5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DamageSource {
     Slash,
+    Nova,
+    Contact,
 }
 
 /// One damage event = one request, applied exactly once by [`apply_damage`].

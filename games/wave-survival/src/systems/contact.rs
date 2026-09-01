@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use crate::components::{Hp, Monster, Player, Visual};
 use crate::resources::Balance;
 use crate::states::GameState;
+use crate::systems::damage::{DamageRequest, DamageSource};
 use crate::systems::pickup::spawn_pickup;
 
 /// Contact tuning (GDD / m2 ContactSystem). INVULN_TIME stays fixed by design;
@@ -20,11 +21,12 @@ pub const INVULN_TIME: f32 = 0.9;
 pub fn contact_damage(
     time: Res<Time>,
     balance: Res<Balance>,
-    mut player: Query<(&Transform, &mut Hp, &mut Visual), With<Player>>,
+    mut wrt: MessageWriter<DamageRequest>,
+    mut player: Query<(Entity, &Transform, &mut Hp), With<Player>>,
     monsters: Query<&Transform, With<Monster>>,
 ) {
     let dt = time.delta_secs();
-    let Some((player_tf, mut hp, mut visual)) = player.iter_mut().next() else {
+    let Some((player_entity, player_tf, mut hp)) = player.iter_mut().next() else {
         return; // no player (dead/despawned): nothing to bite
     };
 
@@ -37,10 +39,16 @@ pub fn contact_damage(
     for mtf in &monsters {
         let d = Vec2::new(mtf.translation.x - p.x, mtf.translation.z - p.z).length();
         if d <= CONTACT_DIST {
-            hp.hp -= balance.contact_damage;
+            // Decide the bite here (invuln gate); the actual Hp/flash is applied
+            // by the single apply_damage in GameSet::Resolve. Log the projected
+            // post-bite hp (damage is applied later in the same frame).
             hp.invuln = INVULN_TIME;
-            visual.flash = 1.0;
-            info!("[contact] player bitten, hp {:.0}", hp.hp);
+            wrt.write(DamageRequest {
+                target: player_entity,
+                amount: balance.contact_damage,
+                source: DamageSource::Contact,
+            });
+            info!("[contact] player bitten, hp {:.0}", hp.hp - balance.contact_damage);
             break; // one bite per frame
         }
     }

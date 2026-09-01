@@ -13,8 +13,9 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Hp, Monster, NovaAttack, Player, Visual};
+use crate::components::{Monster, NovaAttack, Player};
 use crate::resources::Balance;
+use crate::systems::damage::{DamageRequest, DamageSource};
 
 /// Nova defaults (GDD number table: 半径 1.6 / 伤害 60 / CD 5s); all three are
 /// Balance-tunable at run time (card 11).
@@ -36,8 +37,9 @@ pub fn nova_slash(
     time: Res<Time>,
     balance: Res<Balance>,
     mut nova_fired: MessageWriter<NovaFired>,
+    mut wrt: MessageWriter<DamageRequest>,
     mut player: Query<(&mut NovaAttack, &Transform), With<Player>>,
-    mut monsters: Query<(&Transform, &mut Hp, &mut Visual), With<Monster>>,
+    monsters: Query<(Entity, &Transform), With<Monster>>,
 ) {
     // Tick the nova's own cooldown (independent of the melee slash).
     let dt = time.delta_secs();
@@ -56,12 +58,17 @@ pub fn nova_slash(
     let origin = tf.translation;
     let radius_sq = balance.nova_radius * balance.nova_radius;
     let mut hits = 0;
-    for (mtf, mut hp, mut visual) in &mut monsters {
+    for (entity, mtf) in monsters.iter() {
         let dx = mtf.translation.x - origin.x;
         let dz = mtf.translation.z - origin.z;
         if dx * dx + dz * dz <= radius_sq {
-            hp.hp -= balance.nova_damage; // full damage inside the circle, no falloff
-            visual.flash = 1.0;
+            // Full damage inside the circle, no falloff — emit a request, let
+            // the single apply_damage in GameSet::Resolve settle it.
+            wrt.write(DamageRequest {
+                target: entity,
+                amount: balance.nova_damage,
+                source: DamageSource::Nova,
+            });
             hits += 1;
         }
     }
