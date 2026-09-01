@@ -10,11 +10,11 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/learning-roadmap\|学习路线图]] | reference | draft | 按里程碑边开发边学习 |
 | [[topics/engine/engine-direction-discussion\|引擎定位与团队方向讨论纪要]] | reference | draft | demo 策略 + 自研=AI 装配层 + 环境工作流 |
 | [[topics/engine/engine-concepts-map\|引擎概念地图]] | reference | draft | A-E 五层引擎概念速查 |
-| [[topics/engine/bevy-plugin-and-code-reuse\|Bevy 开发约定：插件决策与代码沉淀]] | reference | draft | 客观→引用插件；主观→自研沉淀；第二次用到才抽 crate |
+| [[topics/engine/bevy-plugin-and-code-reuse\|Bevy 开发约定：插件决策与代码沉淀]] | reference | draft | 客观→引用插件；主观→自研沉淀；先留可装配接缝、复用时机到再机械抽（2026-08-31 收口，原「第二次用到才抽」已改） |
 | [[topics/engine/capability-card-workflow-deep-dive\|能力卡机制深度理解]] | reference | draft | 卡=需求规格非运行时组件；成果=增量+测试+归档；切卡=可独立验收的玩法链路 |
 | [[topics/engine/ai-collaboration-by-phase\|游戏全生命周期的人机分工]] | reference | draft | AI 可接管程度 = 验收句可数字化程度；立项/需求/试玩/构建分工表 + 点子池模式 |
 | [[topics/engine/ai-feature-pipeline-sop\|AI 特性开发标准流程 v1（SOP）]] | howto | done | 六阶段三栏（AI/工具门禁/人关卡）+ DoD 五条 + 上下文包模板；试点=武器卡 29-31 |
-| [[topics/engine/project-structure-and-dev-rules-review\|项目结构与开发规则复盘（进行中）]] | reference | draft | 读 wave-survival 结构；主流 Plugin+Set vs 能力卡愿景；Rule of Three 待改；统一改规则前的底稿 |
+| [[topics/engine/project-structure-and-dev-rules-review\|项目结构与开发规则复盘（进行中）]] | reference | draft | 读 wave-survival 结构；主流 Plugin+Set vs 能力卡愿景；§7 主链 SystemSet 已落地（59 回归绿）；§4.1 规则已改（先留接缝不提前造）；ADR-0002 边界澄清 |
 
 ## 相关决策
 

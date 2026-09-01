@@ -11,7 +11,7 @@
 | `games/` | 游戏项目（m1-demo / m2-demo / m2-bevy 教学存档；bevy-spike；wave-survival 当前主线） |
 | `docs/` | 团队知识库（Obsidian vault，主题优先）：笔记 / 踩坑 / ADR |
 | `templates/` | 脚手架模板（`bevy-game/` 为新游戏默认模板） |
-| `engine/` | 团队自研 crate 仓库（玩法沉淀用，第二次用到才抽，见 docs 开发约定） |
+| `engine/` | 团队自研 crate 仓库（玩法沉淀用，先留可装配接缝、复用时机到再机械抽，见 docs 开发约定） |
 | `tools/` | 团队自研工具（按需） |
 | `assets/` | 跨项目共享素材（字体/音频/占位图等） |
 | `AGENTS.md` | 全局 AI 协作约定（给所有 AI 智能体看的规则） |

@@ -18,6 +18,8 @@
   输出: （它写什么：组件/资源/事件/命令）
 行为: （每帧/每次做什么，写规则本身，不写目的）
 验收句: （数字化、可执行、含边界条件——怎么自动/半自动验证它做对了）
+挂载: （GameSet::X 阶段名 / 插件名——玩法进 GameSet，表现/工具进对应 Plugin）
+依赖消息: （消息名数组，无则 []）
 ```
 
 ## 工作流（和 AI 一起开发）
@@ -87,6 +89,8 @@
 类型: data + system + presentation
 状态: 已实现（feat 31ab6f7，2026-08-28，48 回归全绿），待人工视觉验收
 设计来源: GDD 点子池[变体派生]；风格圣经 §2 双槽（族绿 #7AA25C / 深红 #B03A2E）§6.2 族级批次
+挂载: GameSet::Spawn
+依赖消息: []
 范围与默认方案:
   - 定义表（核心交付）: 单处常量表（const 行数组），每行 = { kind, 模型路径, 缩放,
     色槽颜色, hp倍率, speed倍率, walk clip 序号 }——「新怪 = 表加一行」
@@ -240,6 +244,8 @@
 能力卡: AttackRoot（攻击窗口内移动阻尼）
 类型: gameplay-feel
 状态: 已实现（feat，2026-08-29，52 回归全绿），待人工验收
+挂载: GameSet::Combat
+依赖消息: []
 行为:
   - 挥砍后 ATTACK_ROOT_WINDOW(0.3s) 内移动 ×ATTACK_MOVE_FACTOR(0.25)
   - 窗口锚定 Balance.slash_cooldown 实时值（F1 调冷却不破功）；
@@ -281,6 +287,8 @@
 能力卡: WeaponDefinitionTable（武器定义表 + 扇形命中）
 类型: gameplay（武器系统第一步：抽象攻击 → 实体数据表）
 状态: 已实现（待人工验收）
+挂载: GameSet::Combat
+依赖消息: []
 接口:
   - WeaponKind 枚举方法族定义表（镜像卡 19 MonsterKind 模式）：
     damage() / full_range() / far_range() / arc_deg() / cooldown()
@@ -348,6 +356,8 @@
 ```yaml
 能力卡: Projectile（投射物）
 类型: gameplay（远程武器）
+挂载: GameSet::Combat
+依赖消息: []
 接口: Projectile { vel, damage, life } 实体 + 手动步进命中（不上 rapier）
 行为: pos += vel*dt；与怪做 XZ 球 overlap；命中一次即消亡（不穿透）
 验收句:

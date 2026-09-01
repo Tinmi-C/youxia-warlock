@@ -31,7 +31,7 @@ updated: 2026-08-31
 
 ## 近期更新
 
-- [[topics/engine/project-structure-and-dev-rules-review|项目结构与开发规则复盘（进行中）]]（新增，draft：结构底稿；反对第二次才抽公共层；未改 ADR/模板，收口后统一修订）
+- [[topics/engine/project-structure-and-dev-rules-review|项目结构与开发规则复盘（进行中）]]（新增，draft：结构底稿；§7 主链 SystemSet 已落地（59 回归绿）；§4.1 规则改「先留接缝不提前造」；ADR-0002 边界澄清；§5 卡挂载格式定稿）
 - [[topics/engine/ai-feature-pipeline-sop|AI 特性开发标准流程 v1（SOP）]]（新增，done：六阶段三栏 + DoD 五条 + AI 上下文包模板；试点=武器系统卡 29-31）
 - [[topics/game-design/art-asset-catalog-tool-proposal|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]]（新增，draft：人操作 AI 辅助；两层域库上移 `_library/`；场景注册表 + 模板兼容；评审清单全部落定，待动工）
 - [[topics/engine/ai-native-engine-vision|AI 原生游戏引擎——设想总纲]]（新增，draft）
@@ -49,7 +49,7 @@ updated: 2026-08-31
 - [[topics/graphics/wgpu-ui-state-machine|wgpu 第五步：UI + 状态机]]（M2 第 3 步，UI 管线 + 游戏状态机，draft）
 - [[topics/engine/bevy-ecs-world-reset-pitfall|踩坑：bevy_ecs 重开不能重建 World]]（新增，pitfall：mismatched World / clear_all 资源缓存失配）；ADR-0003 → accepted（m2-bevy 实施完成）
 - [[decisions/0004-handwritten-renderer-to-bevy|ADR-0004 渲染底料开源化 → Bevy 全引擎]]（新增，proposed：手写 wgpu 渲染器存档封存，波次生存迁移 Bevy 并做成成品；AI 装配层 = 自研分量不变）
-- [[topics/engine/bevy-plugin-and-code-reuse|Bevy 开发约定：插件决策与代码沉淀]]（新增，reference：客观→引用生态插件；主观→自研沉淀；第二次用到才抽 crate；已固化进 templates/bevy-game）
+- [[topics/engine/bevy-plugin-and-code-reuse|Bevy 开发约定：插件决策与代码沉淀]]（新增，reference：客观→引用生态插件；主观→自研沉淀；先留可装配接缝、复用时机到再机械抽（2026-08-31 收口，原「第二次用到才抽」已改）；已固化进 templates/bevy-game）
 - [[topics/engine/bevy-windows-antivirus-build-pitfall|踩坑：Windows 杀软误报 ahash 构建脚本]]（新增，pitfall：os error 5；白名单 target/ + 工具链目录解决；模板 README 已加替换 crate 名步骤）
 - [[topics/engine/bevy-019-events-to-messages-pitfall|踩坑：Bevy 0.19 缓冲事件更名 Message]]（新增，pitfall：Event→Message / add_event→add_message，wave-survival 卡 9 编译期发现；含 hanabi Gradient 撞名等版本对齐小坑）
 - [[topics/engine/capability-card-workflow-deep-dive|能力卡机制深度理解]]（回写，reference：卡=需求规格；成果=增量+测试+归档；切卡=可独立验收的玩法链路；wave-survival 阶段一 8 卡用量表）

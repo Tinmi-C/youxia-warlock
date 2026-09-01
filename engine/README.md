@@ -1,6 +1,6 @@
 # 自研引擎
 
-团队自研 crate 仓库（玩法沉淀用，**第二次用到才抽**，见根 `AGENTS.md`）。位于整体 monorepo 内，不单独建仓：
+团队自研 crate 仓库（玩法沉淀用，**先留可装配接缝、复用时机到再机械抽**，见根 `AGENTS.md`）。位于整体 monorepo 内，不单独建仓：
 
 ```
 engine/<crate-name>/     # 例如 engine/warlock-engine/

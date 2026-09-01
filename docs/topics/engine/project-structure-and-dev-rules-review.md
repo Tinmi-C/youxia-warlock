@@ -22,7 +22,7 @@ related:
 
 ## 结论
 
-`wave-survival` 的 ECS 分层（组件 / 资源 / 系统 / 插件）方向对，但 **玩法调度集中在 `GamePlugin` 一条 `.chain()` 上**，对后续扩展和 AI 自动插卡不友好。市面 Bevy 主流（领域 Plugin + SystemSet）与团队愿景（能力卡装配层）**不是同一套方案，可兼容**。youxia **明确不赞同「第二次用到才抽公共层」**，该条列入待改；其余区别仍需继续讨论。旧文档规则暂不改，等本篇讨论收口后统一修订。
+`wave-survival` 的 ECS 分层（组件 / 资源 / 系统 / 插件）方向对，但 **玩法调度集中在 `GamePlugin` 一条 `.chain()` 上**，对后续扩展和 AI 自动插卡不友好。市面 Bevy 主流（领域 Plugin + SystemSet）与团队愿景（能力卡装配层）**不是同一套方案，可兼容**。youxia **明确不赞同「第二次用到才抽公共层」**，该条已改并落地（§4.1，2026-08-31）；§7 主链 SystemSet 接线 + §5 卡挂载声明同步落地（59 回归全绿）。剩余是 §3 的「主流 vs 愿景」消化项，youxia 继续。
 
 **第二轮进展（08-31）**：主链 SystemSet 拆分方案已出稿（§7，AI 专业判断）：五阶段 `Movement → Combat → Despawn → Spawn → Observe`；玩法**不拆多 Plugin，先只加 Set**；能力卡增加「挂载 / 依赖消息」声明作为装配层自动化前置。
 
@@ -89,51 +89,50 @@ related:
 
 **youxia：不赞同，确定要改。**
 
-拟改方向（尚未写进 ADR，仅本底稿）：
+采用方向（已落地，2026-08-31）：
 
 - 反对的是 **「必须等第二款游戏才抽」**，不是改成 **「先做没用的万能 RPG 引擎」**。
 - 中间态：**第一款就把可装配接缝留标准**（阶段、插件边界、消息/组件契约），即使暂时只有一个游戏在用。
 - 仍建议保留：无游戏消费的空想模块不要做（游戏驱动可以留，改的是抽公共层的**时间点**）。
 - 客观技术继续引用生态插件，不因「提前框架」去自研物理。
 
-**统一改规则时将触及**（先列清单，未改文件）：
+**已触及并修改**（2026-08-31）：
 
 - `docs/topics/engine/bevy-plugin-and-code-reuse.md` 准则二
-- `docs/decisions/0002-engine-scope-game-driven.md` 与「预付复杂度」相关表述（需重写边界，不是整篇作废）
+- `docs/decisions/0002-engine-scope-game-driven.md` 与「预付复杂度」相关表述（重写边界段，不是整篇作废）
 - `docs/topics/engine/capability-card-workflow-deep-dive.md` Rule of Three 段
-- `templates/bevy-game/` README + AGENTS.md 同步句
-- 根 `AGENTS.md` 若有「第二次才抽」的转述
+- `templates/bevy-game/` README 同步句
+- 转述位置核实：该句在**根 `README.md` + `engine/README.md` + `games/wave-survival/README.md`**（已改）；根 `AGENTS.md` 无该转述，未改。
 
 ## 5. 待继续讨论（开放）
 
 - [x] 主链拆成哪些 SystemSet 阶段（对照现有 11 个系统）→ **方案已出（§7.1），youxia 已拍板（08-31）**
 - [x] 玩法要不要拆成多个 Plugin（Combat / Wave / Pickup…）还是先只加 Set → **AI 结论：先只加 Set（§7.2），youxia 认可**
-- [x] 能力卡如何声明「挂在哪个阶段 / 依赖哪些 Message」→ 方向已定（§7.3），字段格式待收口
-- [x] **§7 方案整体确认**（五阶段命名 / 系统归位表 / 卡挂载格式）——youxia 拍板通过（08-31），`game.rs` 已落地
-- [ ] 「标准化框架」第一版最小交付：只改 wave-survival 接线，还是同步改模板（AI 倾向：同步，见结论）
-- [ ] ADR-0002 里「不做通用引擎」与「第一款就留接缝」的新措辞（AI 倾向：重写边界段，非整篇作废）
-- [ ] 收口后统一执行的改动清单确认（§4.1 列出的 5 个规则文件 + §7 接线）
+- [x] 能力卡如何声明「挂在哪个阶段 / 依赖哪些 Message」→ 方向已定（§7.3），**格式已定稿（08-31，挂载 + 依赖消息，写入卡模板与开放卡）**
+- [x] **§7 方案整体确认**（五阶段命名 / 系统归位表 / 卡挂载格式）——youxia 拍板通过（08-31），`game.rs` 已落地，59 回归全绿
+- [x] 「标准化框架」第一版最小交付：只改 wave-survival 接线，还是同步改模板（AI 倾向：同步）→ **已同步**（templates/bevy-game README）
+- [x] ADR-0002 里「不做通用引擎」与「第一款就留接缝」的新措辞（AI 倾向：重写边界段）→ **已加边界澄清**（决策 2）
+- [x] 收口后统一执行的改动清单确认（§4.1 列出的规则文件 + §7 接线）→ **已执行（08-31）**
 - [ ] 本节其余「主流 vs 愿景」区别，youxia 消化后再标保留/修改
 
 ## 8. 跨会话交接（下个会话先读这里）
 
 > 本文是**工作底稿**：结论先记这里，未拍板前**不修改** AGENTS.md / ADR / 模板 / `game.rs` 调度。
 
-**下个会话的议题清单**（按优先级）：
-1. **§7 落地收尾**：`game.rs` 五阶段 `in_set` + `src/sets.rs` 已改，回归作闸（59 测试应原样全绿）；验证通过即本项闭环
-2. **拍板 §5 剩余项**：模板是否同步改（AI 建议同步）；ADR-0002 措辞（AI 建议重写边界段）；卡挂载声明字段格式收口（§7.3）
-3. **确认 §4.1 统一改动清单**：5 个规则文件（bevy-plugin-and-code-reuse 准则二 / ADR-0002 边界 / capability-card-workflow-deep-dive Rule of Three 段 / templates/bevy-game README+AGENTS.md / 根 AGENTS.md 转述）
+**下个会话的议题清单**（按优先级，本文 §7/§4.1/§5 已收口落地）：
+1. **§3 其余「主流 vs 愿景」区别**：youxia 消化后标保留/修改
+2. **后续按新标准开发**：新系统声明 `in_set(GameSet::X)` 而非手排主链；新卡 yaml 带 `挂载` / `依赖消息`
 
 **已拍板不用再议**：§7 主链 SystemSet 拆分（含段内 chain 保序）；§4.1 反对「第二次用到才抽」（youxia 已定）；§7.2 不拆多 Plugin（AI 结论）。
 
 **已确认背景**（不用重新讨论）：
-- 结构痛点 = 主链 `.chain()` 手排，插入点靠人猜（§2）
+- 结构痛点 = 主链 `.chain()` 手排，插入点靠人猜（§2）——已用 Set 阶段解决
 - 主流（SystemSet）与愿景（能力卡装配层）兼容（§3）
 - 卡挂载声明 = 装配层自动化的最小闭环（§7.3）
 
 **执行纪律**（两个会话都遵守）：
-- 未收口：不改 `game.rs` 调度、不抽 `engine/` crate
-- 收口后：一次性改 §4.1 清单 + §7 接线，改动建议在 Windows 侧执行（game.rs 活跃开发中，避免双写冲突）
+- 收口已完成（§7 接线 + §4.1 规则 + §5 卡挂载格式，2026-08-31）
+- 后续在 wave-survival 加玩法系统：走 `in_set(GameSet::X)`，不再手排主链 tuple
 - 工作区有队友未提交的美术 WIP：提交只圈自己的文件，勿整目录 `git add`
 
 ## 6. 后续怎么用本文
@@ -182,7 +181,17 @@ pub enum GameSet { Movement, Combat, Despawn, Spawn, Observe }
 依赖消息: [NovaFired]
 ```
 
-AI 读卡即知「挂哪个阶段、依赖什么消息」——这是装配层自动化的**最小闭环**（人不再手排，机器可安全插卡）。格式细节（字段名/是否进 frontmatter）待 §5 收口时定。
+AI 读卡即知「挂哪个阶段、依赖什么消息」——这是装配层自动化的**最小闭环**（人不再手排，机器可安全插卡）。
+
+**格式已定稿（2026-08-31，§5 收口）**：卡 yaml 块增加 `挂载` 与 `依赖消息` 两行（进卡 yaml 块，不进 frontmatter）：
+
+```yaml
+能力卡: NovaSlash
+挂载: GameSet::Combat      # gameplay 系统用 GameSet::X；表现/工具用插件名（如 PresentationPlugin）
+依赖消息: [NovaFired]       # 无则 []
+```
+
+已写入 `games/wave-survival/docs/capability-cards.md` 的开发中玩法卡作为示例。
 
 ### 7.4 参考代码骨架（已落地，见 `src/sets.rs` + `game.rs`）
 
