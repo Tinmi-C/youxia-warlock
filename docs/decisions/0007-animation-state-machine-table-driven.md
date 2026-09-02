@@ -1,8 +1,8 @@
 ---
 title: 表现层动画状态机——采用表驱动形态（面向动画规模增长）
-status: proposed
+status: accepted
 date: 2026-09-02
-deciders: youxia（方向讨论中）+ AI 起草，待团队 review
+deciders: youxia（方向确认，2026-09-02）+ AI 起草
 supersedes: []
 related:
   - ADR-0006（否决 bevy_animation_graph 迁移，本决策是它的"采用什么形态"）
@@ -14,6 +14,8 @@ related:
 > 本 ADR 与 ADR-0006 是一对：ADR-0006 否决"换引擎用 bevy_animation_graph"，
 > 本 ADR 决定"动画状态机采用什么形态"。背景链接：Wave Survival 确认动画会
 > 持续增多（20+ 状态，多武器攻击/技能/敌人多形态/死亡受击胜利等）。
+> **2026-09-02 用户确认方向 + 阶段划分：阶段 1 = 表驱动状态机 + 轻量 egui 监控面板，
+> 阶段 2 = 可视化编辑器（后置）。故本 ADR → accepted。**
 
 ## 背景
 
@@ -75,6 +77,7 @@ related:
 - 只解决"状态机拓扑扩展"，不解决动画资产/模型本身扩展（美术管线另议）。
 
 ## 后续跟进
-1. 用户/团队 review 本 ADR + `docs/table-driven-anim-state-design.md` + 卡 33。
-2. 拍板后：① 本 ADR → `accepted`；② 按卡 33 开工迁移；③ 新增 1 个状态演示
-   只改表数据（扩展性红利证明）。
+1. **方向已确认**（2026-09-02，youxia 拍板）：阶段 1 = 表驱动状态机 + 轻量 egui
+   监控面板（卡 33）；阶段 2 = 可视化编辑器（后置单独立项）。
+2. **开工**：按卡 33 实现表驱动状态机（迁移现有 7 状态），走一卡一提交。
+3. **扩展性验证**：新增 1 个状态（如 Death）演示只改表数据、驱动零改动。

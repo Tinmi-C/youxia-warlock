@@ -466,10 +466,16 @@
   3. 扩展性演示（本卡核心红利）: 新增 1 个状态（如 Death）——只加 1 条表数据 +
      加 clip 引用，drive_anim_states 零改动，src 增量 ≤ 30 行
   4. 调参收敛: 表里一处改 RUN_SPEED_THRESHOLD(3.0)，Walk/Run 边界随之变（单测可证）
-非目标: 不换引擎、不迁 bevy_animation_graph、不动逻辑组件、不改 clip 资产
+  5. 轻量监控面板（阶段1）: F2(新增) 开一个 egui 面板，实时显示每 owner 当前
+     状态名 + 最近切换日志（谁->谁,触发条件）+ 状态机拓扑表（从表数据读出）
+非目标: 不换引擎、不迁 bevy_animation_graph、不动逻辑组件、不改 clip 资产。
+  可视化编辑器（Unreal 式节点拖拽图）为阶段 2 后置，本卡不做——阶段 1 只做
+  轻量 egui 监控面板（当前状态/日志/拓扑文本）。
 ```
 
-> 前置：用户/团队拍板（见 `docs/table-driven-anim-state-design.md` + 配套 ADR）。
+> 阶段划分（用户拍板）：**阶段 1 = 表驱动状态机 + 轻量 egui 监控面板**（本卡，
+> 核心价值：动画 20+ 少写代码 + 低成本直观）；**阶段 2 = 可视化编辑器**（后置立项）。
+> 前置：用户/团队拍板（ADR-0007 + `docs/topics/engine/table-driven-anim-state-design.md`）。
 > 卡 32 保留为被否决的技术记录，不实施。
 
 
