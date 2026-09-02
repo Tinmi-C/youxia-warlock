@@ -76,7 +76,7 @@
 | 30 | presentation+asset | 🔄 已实现，待终审（SOP 试点 #2） | 武器手骨挂点 + 缩放补偿；两把占位武器经管线 landed |
 | 31 | gameplay | 📝 草案（可选后置） | 投射物：手动步进 + 球 overlap，不上 rapier |
 | 32 | presentation | ⏸ 暂缓（ADR-0006 技术否决，由卡 33 替代） | ~~动画状态机迁 bevy_animation_graph~~：转场不支持输入条件比较，逻辑无法数据化，收益不抵复杂度 |
-| 33 | presentation | 📝 草案（ADR-0006 方案 1，待喊开工） | 重构现有动画状态机：配置表 + decide 纯函数（可单测）+ 薄执行层；不换引擎，治标治本 |
+| 33 | presentation | 📝 草案（ADR-0006 表驱动，待喊开工） | 动画状态机表驱动：状态拓扑进表数据，加状态=加一条表数据，控制流一次写好；适配动画 20+ |
 
 ## 未闭环卡全文（验收句在此，人验收照此执行）
 
@@ -425,46 +425,52 @@
 >   现 attack 0.6s 窗口；战斗边沿走 `player.send_event`，实测速度走
 >   `player.set_input_data` + 图内 `compare_f32` 条件
 
-## 卡 33：HeroAnimRefactor（动画状态机重构——不换引擎，治标治本）
+## 卡 33：TableDrivenAnimState（动画状态机表驱动——治增长，适配动画 20+）
 
-> 2026-09-02 立案（ADR-0006 方案 1，替代卡 32）。卡 32 迁 bevy_animation_graph
+> 2026-09-02 立案升级（替代卡 32 + 原方案 A）。卡 32 迁 bevy_animation_graph
 > 已被源码实证否决（转场只认事件、不支持输入条件比较，逻辑无法下沉到图）。
-> 本卡**不换引擎**，把 `sync_walk_playback`（presentation.rs ~240 行手写状态机）
-> 重构为「配置表 + decide 纯函数 + 薄执行层」，在保留全部现行为的前提下，
-> 把"改状态要改巨型函数"这个真痛点用**可单测的纯函数**解决。
+> 用户确认动画会很多（20+ 状态），故跳过"方案 A 拆纯函数"（治乱不治本），
+> 直接上**表驱动状态机**（治理增长）：把"状态机拓扑"从代码搬进表数据，
+> 加状态 = 加一条表数据，控制流一次写好、永不改。用 bevy 内置
+> `AnimationTransitions`/`AnimationPlayer` 播放，**不自建引擎**。
+> 设计详见 `docs/table-driven-anim-state-design.md`。
 
 ```yaml
-能力卡: HeroAnimRefactor（动画状态机重构）
+能力卡: TableDrivenAnimState（动画状态机表驱动）
 类型: presentation（动画架构重组，Bevy 内置 AnimationTransitions 不变）
 状态: 草案（待用户喊开工）
 挂载: PresentationPlugin（表现层系统链）
 依赖消息: []
 接口（新增符号，均在 presentation.rs 或新 anim.rs）:
-  - HeroAnimConfig（配置表）: 收敛全部散落 const——
-    HERO_CLIP_{WALK,RUN,IDLE,ATTACK,HIT} 索引、HERO_ATTACK_WINDOW(0.6)、
-    HERO_HIT_WINDOW(0.4)、HERO_BLEND(200ms)、RUN_SPEED_THRESHOLD(3.0)、
-    WALK/RUN_CLIP_AUTHORED_SPEED(1.6/2.8)、WALK_RATE_CLAMP(0.5-4.0)、
-    怪物侧 MONSTER_ATTACK/HIT_SECS(0.38/0.29)、MONSTER_ATTACK_RANGE
-  - decide_hero_state(moving, speed, cooldown_edge, flash_edge) -> HeroClip
-    # 纯函数，无 ECS/无副作用；唯一有判断逻辑的地方
-  - decide_monster_state(...) -> HeroClip（怪物走/攻击/受击）
-  - sync_walk_playback 瘦身为薄执行层: 读逻辑输入 -> 调 decide ->
-    查配置表 -> AnimationTransitions.play + 打 hero clip 日志
+  - AnimStateId（枚举）: Idle/Walk/Run/Attack/Hit(+ 怪物 Walk/Attack/Hit)/未来 Death 等
+  - AnimState（表项结构）: { name, clip, repeat, rate, transitions, on_finish, blend }
+  - Transition（转场条件枚举）:
+      SpeedAtLeast{threshold} / SpeedBelow{threshold} / Moving{want} /
+      CooldownEdge / FlashEdge / Immediate
+  - AnimStateTable（Resource）: Vec<AnimState>，一个表即完整状态机拓扑
+  - AnimLink（替换现有）: current_state: AnimStateId + 状态机运行态
+  - drive_anim_states（通用系统，取代 sync_walk_playback）:
+      读 owner 逻辑输入(moving/speed/cooldown_edge/flash_edge) -> 查当前状态
+      的 transitions -> 命中则切 -> 用 bevy AnimationTransitions.play/set_repeat/
+      set_speed + 打 hero clip 日志
 行为:
   - 现有全部状态/边沿/速率/暂停语义逐字保持（行为等价，见验收）
-  - 散落 const 收进 HeroAnimConfig；调参只改表，不改逻辑
-  - decide 纯函数成为测试单元：改它零风险、可单测
+  - 加状态 = 加一条 AnimState 表数据；drive_anim_states 控制流与状态数量无关
+  - derive_next_state(current, inputs) -> AnimStateId 为纯函数，可单测
+  - 散落 const 收进表/配置；调参只改表
   - clip 日志通道逐字兼容: `hero clip -> X (speed, rate)`
 数字化验收句:
-  1. decide 纯函数单测（headless）: feed(静止,速度0)->\\Idle、\\feed(速度5.0)->\\Run、
-     feed(速度1.6 moving)->\\Walk、feed(cooldown上跳)->\\Attack、feed(flash上跳)->\\Hit
-  2. 行为等价: 59 回归全绿 + 零警告 + hero 四态/怪物三态与迁移前肉眼一致（真机 F12 截图存证）
-  3. 调参收敛: HeroAnimConfig 一处改 RUN_SPEED_THRESHOLD，两态边界随之变（单测可证）
-  4. 散落清零: presentation.rs 顶部的 HERO_* / MONSTER_* const 全部并入 Config，无残留
+  1. derive_next_state 纯函数单测: feed(静止)->Idle、feed(速度5.0)->Run、
+     feed(速度1.6 moving)->Walk、feed(cooldown上跳)->Attack、feed(flash上跳)->Hit
+  2. 行为等价: 59 回归全绿 + 零警告 + hero 四态/怪物三态与迁移前肉眼一致（真机 F12 截图）
+  3. 扩展性演示（本卡核心红利）: 新增 1 个状态（如 Death）——只加 1 条表数据 +
+     加 clip 引用，drive_anim_states 零改动，src 增量 ≤ 30 行
+  4. 调参收敛: 表里一处改 RUN_SPEED_THRESHOLD(3.0)，Walk/Run 边界随之变（单测可证）
 非目标: 不换引擎、不迁 bevy_animation_graph、不动逻辑组件、不改 clip 资产
 ```
 
-> 前置：用户/团队拍板（ADR-0006 方向）。卡 32 保留为被否决的技术记录，不实施。
+> 前置：用户/团队拍板（见 `docs/table-driven-anim-state-design.md` + 配套 ADR）。
+> 卡 32 保留为被否决的技术记录，不实施。
 
 
 ## 卡 17：ArtAssetPipeline（资产洗白与批量出图流水线）

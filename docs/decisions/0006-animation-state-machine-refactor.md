@@ -1,19 +1,20 @@
 ---
-title: 表现层动画状态机——放弃 bevy_animation_graph 迁移，改为重构现有状态机
+title: 表现层动画状态机——放弃 bevy_animation_graph 迁移（暂缓，形态见 ADR-0007）
 status: proposed
 date: 2026-09-02
 deciders: youxia（方向讨论中）+ AI 起草，待团队 review
 supersedes: []
 related:
   - ADR-0005（原 proposal，因本证据暂缓）
-  - cards/32（原 AnimationGraphMigrate 草案，因本证据暂缓）
+  - ADR-0007（采用表驱动形态，本 ADR 的"采用什么"）
+  - cards/33（TableDrivenAnimState 实施卡）
 ---
 
-# ADR-0006：动画状态机不走 bevy_animation_graph——重构现有状态机（纯函数 + 配置表）
+# ADR-0006：动画状态机不走 bevy_animation_graph（形态见 ADR-0007）
 
 > 本 ADR 是对 ADR-0005（动画状态机迁移 bevy_animation_graph）的**技术否决记录**。
-> ADR-0005 的"数据驱动"承诺经源码级实证**无法兑现**，故暂缓迁移；改为对现有
-> `sync_walk_playback` 做**不换引擎**的重构。本文同时给出证据、结论与建议替代方案。
+> ADR-0005 的"数据驱动"承诺经源码级实证**无法兑现**，故暂缓迁移。
+> **"采用什么形态"由 ADR-0007 决定（表驱动状态机）**。本文同时给出证据、结论。
 
 ## 背景
 

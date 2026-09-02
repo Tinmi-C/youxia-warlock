@@ -17,6 +17,7 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/project-structure-and-dev-rules-review\|项目结构与开发规则复盘（进行中）]] | reference | draft | 读 wave-survival 结构；主流 Plugin+Set vs 能力卡愿景；§7 主链 SystemSet 已落地（59 回归绿）；§4.1 规则已改（先留接缝不提前造）；ADR-0002 边界澄清 |
 | [[topics/engine/unified-damage-pipeline\|统一伤害结算管线——让 Hp 成为全场唯一写入者]] | howto | draft | 伤害走 DamageRequest 消息；apply_damage 唯一结算；GameSet::Resolve；加新技能发请求即可不碰 Hp |
 | [[topics/engine/animation-graph-migration-plan\|动画状态机迁移设计蓝图——技术否决支撑]] | reference | draft | 卡32 迁 bevy_animation_graph 的可行性核验 + 为何否决（FSM 转场事件驱动、不支持输入条件比较，逻辑无法数据化）；ADR-0006 支撑材料 |
+| [[topics/engine/table-driven-anim-state-design\|表驱动动画状态机设计方案]] | reference | draft | 动画 20+ 时的状态机形态：状态拓扑进表数据，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；ADR-0007 支撑材料 |
 
 ## 相关决策
 
@@ -25,7 +26,8 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[decisions/0003-toy-ecs-to-bevy-ecs|ADR-0003 玩具 ECS → bevy_ecs 迁移]]（accepted，2026-08-21 实施完成）
 - [[decisions/0004-handwritten-renderer-to-bevy|ADR-0004 渲染底料开源化 → Bevy 全引擎]]（proposed：Bevy = 团队默认游戏底座）
 - [[decisions/0005-animation-graph-migration|ADR-0005 表现层动画状态机迁移 bevy_animation_graph]]（superseded，见 ADR-0006）
-- [[decisions/0006-animation-state-machine-refactor|ADR-0006 动画状态机不走 bevy_animation_graph——重构现有]]（proposed：FSM 转场事件驱动不支持输入条件比较，逻辑无法数据化）
+- [[decisions/0006-animation-state-machine-refactor|ADR-0006 动画状态机不走 bevy_animation_graph]]（proposed：FSM 转场事件驱动不支持输入条件比较，逻辑无法数据化）
+- [[decisions/0007-animation-state-machine-table-driven|ADR-0007 动画状态机采用表驱动形态]]（proposed：拓扑数据化，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；适配动画 20+）
 
 ## 相关踩坑
 
