@@ -75,6 +75,7 @@
 | 29 | gameplay | 🔄 已实现，待人工验收（SOP 试点 #1） | 武器定义表 + 扇形命中 + 攻击自动面向；Balance 倍率化 |
 | 30 | presentation+asset | 🔄 已实现，待终审（SOP 试点 #2） | 武器手骨挂点 + 缩放补偿；两把占位武器经管线 landed |
 | 31 | gameplay | 📝 草案（可选后置） | 投射物：手动步进 + 球 overlap，不上 rapier |
+| 32 | presentation | ⏸ 暂缓（ADR-0006 技术否决，改方案 1 重构现有） | ~~动画状态机迁 bevy_animation_graph~~：转场不支持输入条件比较，逻辑无法数据化，收益不抵复杂度 |
 
 ## 未闭环卡全文（验收句在此，人验收照此执行）
 
@@ -365,6 +366,65 @@
   2. 越过 8u 寿命自毁
   3. 同一弹体不重复结算同一目标
 ```
+
+## 卡 32：AnimationGraphMigrate（动画状态机数据化，迁 bevy_animation_graph）【暂缓】
+
+> ⏸ **2026-09-02 暂缓**。源码级实证：bevy_animation_graph 的 StateMachine 转场
+> 只认事件、不支持输入条件比较，三态门控/战斗边沿/播放速率这些核心逻辑无法下沉到图，
+> ADR-0005 的"扩状态=加节点不改巨型函数"承诺落空，迁移只会增加复杂度。详见
+> [[../../../../docs/decisions/0006-animation-state-machine-refactor|ADR-0006]]。
+> 替代方向：方案 1 重构现有 sync_walk_playback（配置表 + decide 纯函数可单测 + 薄执行层）。
+>
+> 2026-09-01 立卡草案，待用户喊开工。ADR-0005 配套实施卡。
+> 动机：presentation.rs 的 `sync_walk_playback` ~240 行手写状态机是动画扩展
+> 瓶颈；ADR-0005 已用编译 spike 验证 bevy_animation_graph 0.11.0 对
+> bevy 0.19.1 完全兼容（seldom_state 0.16.0 实测依赖 bevy 0.18.1，淘汰）。
+
+```yaml
+能力卡: AnimationGraphMigrate（动画状态机数据化迁移）
+类型: presentation（动画架构升级）
+状态: 草案（待用户喊开工）
+挂载: PresentationPlugin（表现层系统链）
+依赖消息: []
+接口:
+  - 新依赖: bevy_animation_graph 0.11.0（ADR-0005 编译验证通过）
+  - AnimLink 语义替换: 手写 HeroClip 枚举状态机 → 图节点寻址
+  - 逻辑组件零改动: 仍只读 WalkCycle/Attack/Visual/EquippedWeapon + 实测速度
+  - 调参表: blend 时长 / one-shot 窗口 / 速率常量收进图数据或
+    AnimationConfig 资源（消灭散落 const）
+行为:
+  - walk/run/idle/attack/hit（+怪物 walk/attack/hit）成为图节点；
+    三态门控（速度阈值 3.0）、战斗边沿（cooldown 上跳 / flash 上跳 /
+    距离电平）、one-shot 窗口结束回状态 clip——全部表达为图转场条件
+  - 暂停语义逐字保留: Pause/GameOver 全员冻结（hero 冻结、怪物 frame-0 定格）
+  - clip 切换日志通道逐字兼容: `hero clip -> X (speed, rate)` 格式不破
+  - 顺手铺路（非实装）: 图模型就位后，卡 28 mask 分层在图上做扩展
+数字化验收句:
+  1. 零改动红线: 既有 59 回归逐字全绿 + 零警告
+  2. 行为等价（逐条 headless 断言）: 静止→idle、<3.0→walk、≥3.0→run、
+     挥砍沿→attack(0.6s)→回、受击沿→hit(0.4s)→回、怪物攻击/受击窗口不变
+  3. 观察通道: clip 切换日志与迁移前 grep 可比（格式逐字兼容）
+  4. 扩展性演示（本卡核心红利证明）: 迁移完成后新增 1 个动画状态
+     （具体状态开工时与用户商定），验收 = 只改图数据 + src 增量 ≤ 30 行，
+     状态机控制流代码零改动
+  5. 视觉: 真机英雄四态 + 怪物三态与迁移前肉眼一致（F12 截图存证）
+非目标: 8 向混合树、root motion、卡 28 实装（本卡只铺路）、怪物 idle 三态
+```
+
+> 实现期已核实（2026-09-01 源码级研读，开工前零悬念）:
+> - **GraphClip 可程序化构造**: `GraphClip::from_bevy_clip(bevy_clip, skeleton, …)` 是
+>   公开 API——现有 `GltfAssetLabel::Animation(i)` 加载路径保留，**无需逐 clip 写
+>   .anim.ron**（位置序号 + sanity 锚测试纪律不变；日后想要按名寻址再走 .anim.ron）
+> - **AnimationGraph / StateMachine 均可程序化建**: `new()/add_node()/add_edge()`、
+>   `add_state()/add_transition_unchecked()` 全公开，.ron 资产与可视化编辑器留作可选
+> - **插件一把装**: `AnimationGraphPlugin`（core + 内置节点）；physics/final 两个
+>   schedule 参数即可接线，avian 物理是可选特性不开；该插件与 PresentationPlugin
+>   同款纪律只进 build_app——**headless 回归世界根本见不到它**
+> - **one-shot 窗口即内建语义**: `TransitionKind::Graph { timed: Some(0.6) }` 对应
+>   现 attack 0.6s 窗口；战斗边沿走 `player.send_event`，实测速度走
+>   `player.set_input_data` + 图内 `compare_f32` 条件
+
+
 
 ## 队友美术线草案（WIP，AI 勿动，等队友落库）
 

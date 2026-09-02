@@ -16,3 +16,5 @@
 | [[decisions/0002-engine-scope-game-driven\|ADR-0002]] | 引擎边界——游戏驱动、不做通用引擎、能力卡为核心资产 | proposed | 2026-08-19 |
 | [[decisions/0003-toy-ecs-to-bevy-ecs\|ADR-0003]] | 从玩具 ECS 迁移到 bevy_ecs 的时机与边界 | accepted | 2026-08-19 |
 | [[decisions/0004-handwritten-renderer-to-bevy\|ADR-0004]] | 渲染底料开源化——手写 wgpu 渲染器迁移到 Bevy 全引擎 | proposed | 2026-08-25 |
+| [[decisions/0005-animation-graph-migration\|ADR-0005]] | 表现层动画状态机迁移 bevy_animation_graph（数据驱动动画图） | superseded（见 ADR-0006） | 2026-09-01 |
+| [[decisions/0006-animation-state-machine-refactor\|ADR-0006]] | 动画状态机不走 bevy_animation_graph——重构现有状态机（纯函数+配置表） | proposed | 2026-09-02 |
