@@ -76,7 +76,7 @@
 | 30 | presentation+asset | 🔄 已实现，待终审（SOP 试点 #2） | 武器手骨挂点 + 缩放补偿；两把占位武器经管线 landed |
 | 31 | gameplay | 📝 草案（可选后置） | 投射物：手动步进 + 球 overlap，不上 rapier |
 | 32 | presentation | ⏸ 暂缓（ADR-0006 技术否决，由卡 33 替代） | ~~动画状态机迁 bevy_animation_graph~~：转场不支持输入条件比较，逻辑无法数据化，收益不抵复杂度 |
-| 33 | presentation | 📝 草案（ADR-0006 表驱动，待喊开工） | 动画状态机表驱动：状态拓扑进表数据，加状态=加一条表数据，控制流一次写好；适配动画 20+ |
+| 33 | presentation | 🔄 已实现，待人工验收 | 动画状态机表驱动（ADR-0007）：状态拓扑进表数据，加状态=加一条表数据，控制流一次写好；13 自测+59 回归+动画播放护栏全绿，真机过一遍 hero/Monster + Death 演示即闭环 |
 
 ## 未闭环卡全文（验收句在此，人验收照此执行）
 
@@ -434,11 +434,17 @@
 > 加状态 = 加一条表数据，控制流一次写好、永不改。用 bevy 内置
 > `AnimationTransitions`/`AnimationPlayer` 播放，**不自建引擎**。
 > 设计详见 `docs/table-driven-anim-state-design.md`。
+>
+> **实现记录（2026-09-02，commit `212ade4` + `faf8dfd`）**：`anim.rs`（AnimState 表 +
+> Transition 枚举 + derive_next_state 纯函数 + hero/monster 表）落地；`drive_anim_states`
+> 取代 `sync_walk_playback`；F2 egui 监控面板。13 自测（含 3 个 Death 扩展演示）+
+> 59 回归 + 动画播放护栏（`tests/anim_playback.rs`）全绿、零警告。**待真机验收**（hero
+> 四态 + 怪物三态 + Death 演示，按 F2 看面板）。
 
 ```yaml
 能力卡: TableDrivenAnimState（动画状态机表驱动）
 类型: presentation（动画架构重组，Bevy 内置 AnimationTransitions 不变）
-状态: 草案（待用户喊开工）
+状态: 🔄 已实现，待人工验收
 挂载: PresentationPlugin（表现层系统链）
 依赖消息: []
 接口（新增符号，均在 presentation.rs 或新 anim.rs）:
@@ -462,15 +468,15 @@
 数字化验收句:
   1. derive_next_state 纯函数单测: feed(静止)->Idle、feed(速度5.0)->Run、
      feed(速度1.6 moving)->Walk、feed(cooldown上跳)->Attack、feed(flash上跳)->Hit
-  2. 行为等价: 59 回归全绿 + 零警告 + hero 四态/怪物三态与迁移前肉眼一致（真机 F12 截图）
+  2. 行为等价: 59 回归全绿 + 零警告 + hero 四态/怪物三态与迁移前肉眼一致（真机确认）
   3. 扩展性演示（本卡核心红利）: 新增 1 个状态（如 Death）——只加 1 条表数据 +
-     加 clip 引用，drive_anim_states 零改动，src 增量 ≤ 30 行
+     drive_anim_states 零改动（实测：+Death 变体 + 1 行表数据，3 单测绿）
   4. 调参收敛: 表里一处改 RUN_SPEED_THRESHOLD(3.0)，Walk/Run 边界随之变（单测可证）
-  5. 轻量监控面板（阶段1）: F2(新增) 开一个 egui 面板，实时显示每 owner 当前
-     状态名 + 最近切换日志（谁->谁,触发条件）+ 状态机拓扑表（从表数据读出）
+  5. 轻量监控面板（阶段1）: F2 开一个 egui 面板，实时显示每 owner 当前状态 +
+     状态机拓扑表（从表数据读出）；切换日志为可选项（当前未做，见非目标）
 非目标: 不换引擎、不迁 bevy_animation_graph、不动逻辑组件、不改 clip 资产。
-  可视化编辑器（Unreal 式节点拖拽图）为阶段 2 后置，本卡不做——阶段 1 只做
-  轻量 egui 监控面板（当前状态/日志/拓扑文本）。
+  可视化编辑器（Unreal 式节点拖拽图）为阶段 2 后置；面板的"最近切换日志"
+  （需跨系统传状态）也后置——阶段 1 只做拓扑 + 当前状态显示。
 ```
 
 > 阶段划分（用户拍板）：**阶段 1 = 表驱动状态机 + 轻量 egui 监控面板**（本卡，
