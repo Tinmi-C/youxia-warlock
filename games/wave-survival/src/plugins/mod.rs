@@ -1,3 +1,4 @@
+pub mod anim;
 pub mod debug;
 pub mod game;
 pub mod presentation;

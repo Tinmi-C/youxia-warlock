@@ -53,6 +53,10 @@ assets/{models,textures,audio,fonts,ui}/
 > （未闭环卡全文在卡清单文件，已闭环卡真相在代码+回归），本节不重复细节。
 
 - **进行中（待人工终审）**：
+  - 卡 33 表驱动动画状态机（ADR-0007，13 自测 + 59 回归全绿）：`anim.rs`（AnimState 表 +
+    Transition 枚举 + derive_next_state 纯函数 + hero/monster 表）+ `drive_anim_states`
+    取代 `sync_walk_playback`；F2 egui 监控面板（状态拓扑 + 当前状态）。真机过一遍
+    hero 四态 + 怪物三态 + Death 演示即可闭环
   - 卡 29 武器定义表+扇形命中（56 回归全绿）：IronSword/Glaive 定义表、120°/60°
     扇形命中、攻击自动面向最近敌人、Balance 改倍率语义（F1 保留）。真机过一遍
     扇形+双武器差异即可闭环

@@ -26,11 +26,13 @@ use bevy::{
     animation::RepeatAnimation, math::VectorSpace, prelude::*,
     world_serialization::WorldInstanceReady,
 };
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::components::{
-    Attack, EquippedWeapon, Heading, Monster, MonsterKind, Player, Visual, WalkCycle, WeaponKind,
-    WeaponVisual,
+    Attack, EquippedWeapon, Heading, Hp, Monster, MonsterKind, Player, Visual, WalkCycle,
+    WeaponKind, WeaponVisual,
 };
+use crate::plugins::anim;
 use crate::states::GameState;
 
 // Assets live under assets/models/ in this project (spike kept them at the root).
@@ -110,9 +112,6 @@ const BOB_RESPONSE: f32 = 14.0;
 const WALK_CYCLE_SECS: f32 = 1.375;
 
 // --- card 25: hero run clip --------------------------------------------------
-/// Ground speed at or above which the hero plays the run clip instead of walk
-/// (player default 4.0 runs; monsters top out at 2.2 and keep walking).
-const RUN_SPEED_THRESHOLD: f32 = 3.0;
 /// Ground speed the run clip was authored for (rate 1.0 at player default);
 /// visual-acceptance knob like its walk sibling.
 /// Native stride speed of the Mixamo "unarmed run forward" clip. Eyeball-
@@ -152,22 +151,16 @@ struct FeelState {
 #[derive(Component)]
 struct MonsterBound;
 
-/// Which clip the hero state machine is addressing (card 21; Run added card 25).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum HeroClip {
-    Walk,
-    Run,
-    Idle,
-    Attack,
-    Hit,
-}
-
 /// Per-owner animation link carried on the wrapper child; the ready observers
 /// and the sync system read it to address graph/nodes/clips.
 /// Card 21 gave the hero the 4-clip state machine (walk/idle + attack/hit
 /// one-shots); card 22 fills the monsters' attack/hit slots from the
 /// definition table and routes every owner through the shared one-shot
 /// machinery — no owner-specific playback paths remain.
+/// Card 33: the "which state" decision is no longer a hand-written match but
+/// the table-driven `anim::derive_next_state`; the link still carries the
+/// per-clip node indices (resolved from the asset at skin time) plus the
+/// *current* state id.
 #[derive(Component)]
 struct AnimLink {
     graph_handle: Handle<AnimationGraph>,
@@ -177,15 +170,14 @@ struct AnimLink {
     idle: Option<AnimationNodeIndex>,
     attack: Option<AnimationNodeIndex>,
     hit: Option<AnimationNodeIndex>,
-    /// Hero state machine bookkeeping: last clip commanded (None = never, so
-    /// the first sync frame after binding always issues an initial command).
-    current: Option<HeroClip>,
-    /// Active one-shot: (clip, world elapsed at fire, display seconds). The
-    /// state machine holds the clip for the window, then blends back.
-    one_shot: Option<(HeroClip, f32, f32)>,
+    /// Last state commanded (None = never, so the first sync frame after
+    /// binding always issues an initial command).
+    current: Option<anim::AnimStateId>,
+    /// Active one-shot: (state, world elapsed at fire, display seconds).
+    one_shot: Option<(anim::AnimStateId, f32, f32)>,
     /// One-shot queued by a combat edge this frame, started by the node loop
     /// (attack wins over hit if both edges land on the same frame).
-    pending: Option<HeroClip>,
+    pending: Option<anim::AnimStateId>,
 }
 
 /// Combat-edge observation state (card 12 observer pattern: read-only view of
@@ -210,6 +202,10 @@ impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MonsterSkinCache>()
             .init_resource::<FlashAssets>()
+            // Card 33: the hero animation state machine is a data table
+            // (ADR-0007). The monster table is built per-kind in the driver
+            // (monsters share one layout, and their bite range is per-kind).
+            .insert_resource(anim::hero_state_table())
             .add_systems(
                 Startup,
                 // after spawn_player so the Player entity exists on first run
@@ -223,7 +219,7 @@ impl Plugin for PresentationPlugin {
                     skin_new_monsters,
                     bind_monster_models,
                     apply_flash_visuals,
-                    sync_walk_playback,
+                    drive_anim_states,
                     face_towards_heading,
                     // after face: composes lean pitch onto the yaw face wrote
                     locomotion_feel,
@@ -233,7 +229,11 @@ impl Plugin for PresentationPlugin {
                     weapon_scale_fixup,
                 )
                     .chain(),
-            );
+            )
+            // Card 33 phase-1: light egui monitor (F2) to see each owner's
+            // current animation state + the topology table + recent transitions.
+            .init_resource::<AnimPanelOpen>()
+            .add_systems(EguiPrimaryContextPass, anim_monitor_panel);
     }
 }
 
@@ -645,15 +645,17 @@ fn kind_ordinal(kind: MonsterKind) -> u8 {
 /// behavior): heroes pause_all(), monsters hold walk at frame 0.
 /// Combat observation follows the card-12 pattern: read-only; edges are
 /// increases because cooldown only decreases and flash only decays otherwise.
-fn sync_walk_playback(
+fn drive_anim_states(
     state: Res<State<GameState>>,
     time: Res<Time>,
+    table: Res<anim::AnimStateTable>,
     mut roots: Query<(
         Entity,
         &Transform,
         &WalkCycle,
         Option<&Attack>,
         Option<&Visual>,
+        Option<&Hp>,
         Option<&mut FxWatch>,
         &Children,
     )>,
@@ -668,7 +670,7 @@ fn sync_walk_playback(
     let now = time.elapsed_secs();
     let player_at = player_pos.single().ok().map(|t| t.translation);
 
-    for (_root, root_tf, walk, attack, visual, watch, owner_children) in &mut roots {
+    for (_root, root_tf, walk, attack, visual, hp, watch, owner_children) in &mut roots {
         // find the wrapper child carrying the animation link
         let mut found = None;
         for kid in owner_children.iter() {
@@ -684,6 +686,9 @@ fn sync_walk_playback(
         };
         let moving = walk.playing;
         let is_hero = link.idle.is_some();
+        // hp_ratio (0..1) drives the Death state demo; default 1.0 (healthy) so
+        // a missing Hp component never falsely triggers death.
+        let hp_ratio = hp.map(|h| (h.hp / h.max).clamp(0.0, 1.0)).unwrap_or(1.0);
 
         // Anti-slide calibration (card 21 feedback #1): movement clips play at
         // ground speed / authored speed so feet plant instead of skating. Read
@@ -698,8 +703,11 @@ fn sync_walk_playback(
         let walk_rate = (ground_speed / WALK_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
         let run_rate = (ground_speed / RUN_CLIP_AUTHORED_SPEED).clamp(0.5, 4.0);
 
-        // Combat bookkeeping: edges + one-shot expiry (Playing only; outside
-        // the game state everything freezes and resets in the node loop).
+        // Combat edges + one-shot expiry (Playing only; outside the game state
+        // everything freezes and resets in the node loop). Edges are exposed as
+        // this frame's flags so the table-driven decision fn can read them.
+        let mut cooldown_edge = false;
+        let mut flash_edge = false;
         if in_game && link.attack.is_some() {
             if let Some(mut w) = watch {
                 let fired = if is_hero {
@@ -716,11 +724,13 @@ fn sync_walk_playback(
                 let bitten = visual.is_some_and(|v| v.flash > w.last_flash + 1e-4);
                 w.last_cooldown = attack.map_or(0.0, |a| a.cooldown);
                 w.last_flash = visual.map_or(0.0, |v| v.flash);
+                cooldown_edge = fired;
+                flash_edge = bitten;
                 if link.one_shot.is_none() && link.pending.is_none() {
                     if fired {
-                        link.pending = Some(HeroClip::Attack);
+                        link.pending = Some(anim::AnimStateId::Attack);
                     } else if bitten {
-                        link.pending = Some(HeroClip::Hit);
+                        link.pending = Some(anim::AnimStateId::Hit);
                     }
                 }
             }
@@ -762,7 +772,7 @@ fn sync_walk_playback(
             // Shared one-shot fire: attack wins over hit on the same frame.
             if let Some(clip) = link.pending.take() {
                 let (idx, window) = match clip {
-                    HeroClip::Attack => {
+                    anim::AnimStateId::Attack => {
                         let window = if is_hero {
                             HERO_ATTACK_WINDOW
                         } else {
@@ -770,7 +780,7 @@ fn sync_walk_playback(
                         };
                         (link.attack.expect("owner carries attack"), window)
                     }
-                    HeroClip::Hit => {
+                    anim::AnimStateId::Hit => {
                         let window = if is_hero {
                             HERO_HIT_WINDOW
                         } else {
@@ -778,9 +788,7 @@ fn sync_walk_playback(
                         };
                         (link.hit.expect("owner carries hit"), window)
                     }
-                    HeroClip::Walk | HeroClip::Run | HeroClip::Idle => {
-                        unreachable!("one-shots are never state clips")
-                    }
+                    _ => unreachable!("one-shots are never state clips"),
                 };
                 trans
                     .play(&mut player, idx, HERO_BLEND)
@@ -788,98 +796,70 @@ fn sync_walk_playback(
                 link.one_shot = Some((clip, now, window));
                 link.current = Some(clip);
             } else if link.one_shot.is_none() {
-                // State clips.
-                if is_hero {
-                    // Card 25: speed-gated three-state machine — walk below
-                    // RUN_SPEED_THRESHOLD, run at or above it.
-                    let desired = if moving {
-                        if ground_speed >= RUN_SPEED_THRESHOLD {
-                            HeroClip::Run
-                        } else {
-                            HeroClip::Walk
-                        }
-                    } else {
-                        HeroClip::Idle
+                // State clips — decided by the table-driven pure function. Use
+                // the hero table, or the per-kind monster table (monsters only
+                // hold walk/attack/hit; their bite range is per-kind).
+                let inputs = anim::AnimInputs {
+                    game: *state.get(),
+                    moving,
+                    ground_speed,
+                    cooldown_edge,
+                    flash_edge,
+                    hp_ratio,
+                    dist_to_player: player_at.map(|p| {
+                        Vec2::new(root_tf.translation.x - p.x, root_tf.translation.z - p.z).length()
+                    }),
+                };
+                let current = link.current.unwrap_or(anim::AnimStateId::Idle);
+                let desired = if is_hero {
+                    anim::derive_next_state(current, &inputs, &table)
+                } else {
+                    let monster_table = anim::monster_state_table(MONSTER_ATTACK_RANGE);
+                    anim::derive_next_state(current, &inputs, &monster_table)
+                };
+                if link.current != Some(desired) {
+                    let idx = match desired {
+                        anim::AnimStateId::Walk => link.walk,
+                        anim::AnimStateId::Run => link.run.expect("hero carries run"),
+                        anim::AnimStateId::Idle => link.idle.expect("hero carries idle"),
+                        _ => unreachable!("state clips are never one-shots"),
                     };
-                    if link.current != Some(desired) {
-                        let idx = match desired {
-                            HeroClip::Walk => link.walk,
-                            HeroClip::Run => link.run.expect("hero carries run"),
-                            HeroClip::Idle => link.idle.expect("hero carries idle"),
-                            HeroClip::Attack | HeroClip::Hit => {
-                                unreachable!("state clips are never one-shots")
+                    trans
+                        .play(&mut player, idx, HERO_BLEND)
+                        .set_repeat(RepeatAnimation::Forever);
+                    // each movement clip gets its own rate; idle stays native
+                    match desired {
+                        anim::AnimStateId::Walk => {
+                            if let Some(active) = player.animation_mut(idx) {
+                                active.set_speed(walk_rate);
                             }
-                        };
-                        trans
-                            .play(&mut player, idx, HERO_BLEND)
-                            .set_repeat(RepeatAnimation::Forever);
-                        // each movement clip gets its own rate; idle stays
-                        // native (see rate comment above)
-                        match desired {
-                            HeroClip::Walk => {
-                                if let Some(active) = player.animation_mut(idx) {
-                                    active.set_speed(walk_rate);
-                                }
-                            }
-                            HeroClip::Run => {
-                                if let Some(active) = player.animation_mut(idx) {
-                                    active.set_speed(run_rate);
-                                }
-                            }
-                            // defensive: idle always plays natively
-                            HeroClip::Idle => {
-                                if let Some(active) = player.animation_mut(idx) {
-                                    active.set_speed(1.0);
-                                }
-                            }
-                            _ => {}
                         }
-                        link.current = Some(desired);
-                        // card 25 acceptance instrument: prove the state
-                        // machine actually switches (visual feedback loop).
-                        // Card 30 feedback #3: rate added so playback-speed
-                        // mis-calibration is visible in logs, not just on eyes.
-                        let rate = match desired {
-                            HeroClip::Walk => walk_rate,
-                            HeroClip::Run => run_rate,
-                            _ => 1.0,
-                        };
-                        info!(
-                            "[presentation] hero clip -> {desired:?} (speed {ground_speed:.2}, rate {rate:.2})"
-                        );
-                    }
-                } else if moving {
-                    // monsters chase while Playing: keep the walk loop up
-                    if link.current != Some(HeroClip::Walk) {
-                        trans
-                            .play(&mut player, link.walk, HERO_BLEND)
-                            .set_repeat(RepeatAnimation::Forever)
-                            .set_speed(walk_rate);
-                        link.current = Some(HeroClip::Walk);
-                    }
-                } else if let Some(active) = player.animation_mut(link.walk) {
-                    // robustness: a not-moving monster while Playing should not
-                    // happen (chasing is all they do); hold frame 0 if it does
-                    if !active.is_paused() || active.repeat_mode() != RepeatAnimation::Never {
-                        active.pause();
-                        active.seek_to(0.0);
-                    }
-                }
-
-                // live rate refresh while walking/running (anti-slide, see
-                // above); the rate targets whichever state clip is active
-                match link.current {
-                    Some(HeroClip::Walk) => {
-                        if let Some(active) = player.animation_mut(link.walk) {
-                            active.set_speed(walk_rate);
+                        anim::AnimStateId::Run => {
+                            if let Some(active) = player.animation_mut(idx) {
+                                active.set_speed(run_rate);
+                            }
                         }
-                    }
-                    Some(HeroClip::Run) => {
-                        if let Some(Some(active)) = link.run.map(|idx| player.animation_mut(idx)) {
-                            active.set_speed(run_rate);
+                        // defensive: idle always plays natively
+                        anim::AnimStateId::Idle => {
+                            if let Some(active) = player.animation_mut(idx) {
+                                active.set_speed(1.0);
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
+                    link.current = Some(desired);
+                    // card 25 acceptance instrument: prove the state machine
+                    // actually switches (visual feedback loop).
+                    // Card 30 feedback #3: rate added so playback-speed
+                    // mis-calibration is visible in logs, not just on eyes.
+                    let rate = match desired {
+                        anim::AnimStateId::Walk => walk_rate,
+                        anim::AnimStateId::Run => run_rate,
+                        _ => 1.0,
+                    };
+                    info!(
+                        "[presentation] hero clip -> {desired:?} (speed {ground_speed:.2}, rate {rate:.2})"
+                    );
                 }
             }
         }
@@ -985,7 +965,7 @@ fn locomotion_feel(
             .get(wrapper)
             .ok()
             .and_then(|link| link.current)
-            .is_some_and(|c| c == HeroClip::Run);
+            .is_some_and(|c| c == anim::AnimStateId::Run);
         let cycle_secs = if running {
             RUN_CYCLE_SECS
         } else {
@@ -1087,6 +1067,59 @@ fn apply_flash_visuals(
             }
         }
     }
+}
+
+// --- card 33 phase-1: egui monitor (F2) ------------------------------------
+
+/// Whether the animation monitor panel is shown (starts closed).
+#[derive(Resource, Default)]
+struct AnimPanelOpen {
+    open: bool,
+}
+
+/// F2 toggles a light egui panel that shows, live, the animation state machine:
+///   * the whole topology (from the AnimStateTable resource),
+///   * each owner's current state + measured speed + last transition.
+/// This is the phase-1 "visual inspection" of card 33; a full node-graph editor
+/// is deferred to phase 2.
+fn anim_monitor_panel(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut ctxs: EguiContexts,
+    mut panel: ResMut<AnimPanelOpen>,
+    table: Res<anim::AnimStateTable>,
+    links: Query<(&AnimLink, &FeelState)>,
+) {
+    if keys.just_pressed(KeyCode::F2) {
+        panel.open = !panel.open;
+    }
+    if !panel.open {
+        return;
+    }
+    let Ok(ctx) = ctxs.ctx_mut() else {
+        return;
+    };
+
+    egui::Window::new("🎞 Animation Monitor (card 33)").show(ctx, |ui| {
+        // Topology: list every state + its playback attributes.
+        ui.heading("State topology");
+        for state in &table.states {
+            ui.label(format!(
+                "{:?}  (clip {}, loop {:?}, rate {:?})",
+                state.id, state.clip, state.loop_mode, state.rate
+            ));
+        }
+        ui.separator();
+
+        // Per-owner runtime state (live).
+        ui.heading("Owners (current state)");
+        for (link, feel) in &links {
+            let speed = feel.speed.unwrap_or(0.0);
+            ui.label(format!(
+                "state = {:?} (speed {speed:.2})",
+                link.current.unwrap_or_default()
+            ));
+        }
+    });
 }
 
 #[cfg(test)]
