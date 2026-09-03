@@ -179,64 +179,15 @@
 非目标: 音效（搁置）、hit-stop、色板重定
 ```
 
-## 卡 24：LocomotionFeel（走路观感增强——前倾 + 步伐起伏 + 步频校准）
-
-> 2026-08-29 立卡即实现（B 路线：程序化修饰立刻可做）。
-
-```yaml
-能力卡: LocomotionFeel（移动感程序化增强——纯表现层）
-类型: presentation
-状态: 已完成（feat f64c464，2026-08-29，50 回归全绿；随卡 25/26 真机一并确认）
-构成:
-  - 身体前倾: 随地速 0→10°，6/s 平滑；face 之后复合 Ry×Rx 不与朝向伺服打架
-  - 步伐起伏: |sin| 4.5cm 跟步频；停步不弹跳
-  - 步频校准: WALK_CLIP_AUTHORED_SPEED 1.4→1.6
-通用性: 英雄怪物同吃；暂停/GameOver 冻结
-数字化验收句:
-  1. 零改动红线: 既有回归逐字全绿
-  2. 视觉: 跑动前倾+微弹，停步 0.5s 回正；三常量可调
-非目标: foot-IK、跑步 clip（卡 25）、倾斜时物理体积变化
-```
+## 卡 24：LocomotionFeel（走路观感——前倾 + 步伐起伏 + 步频校准）
+> ✅ 已闭环（feat `f64c464`，08-29 真机验收）。规格真相在代码+回归，本处不再保留全文。
 
 ## 卡 25：HeroRunClip（Mixamo 跑步动画接入）
-
-> 2026-08-29 实现（A 路线主力，走队友 mixamo_merge.py 管线——素材侧问题的
-> 标准解法先例）。已知校准债：RUN_CLIP_AUTHORED_SPEED 初版误用旧全局移速 4.0，
-> 卡 30 验收反馈③校准为 2.8（run 曾比 walk 步频还慢）。
-
-```yaml
-能力卡: HeroRunClip（玩家跑步动画——素材接入）
-类型: presentation（素材 + 小改）
-状态: 已完成（feat 1ebf2c7 + fix 947a932/c3f24de，2026-08-29，真机验收通过）
-内容:
-  - 素材: Mixamo run 嫁接进 player_hunyuan.glb（第 5 clip，HERO_CLIP_* 重排
-    run=3/walk=4 并钉测同步——AnimationNodeIndex 位置寻址老坑）
-  - 行为: 三态门控 speed<3.0 走 / ≥3.0 跑，各 clip 原生步速播放
-  - 速率纪律（fix 947a932）: 各 clip 速率各归各家，待机恒原生 1.0
-回归: hero_asset_matches_pinned_clip_layout 钉 5-clip 布局
-非目标: 怪物跑步、8 向混合树
-```
+> ✅ 已闭环（feat `1ebf2c7` + fix `947a932`/`c3f24de`，08-29 真机验收）。规格真相在代码+回归。
+> 已知校准债：`RUN_CLIP_AUTHORED_SPEED` 4.0→2.8（卡 30 验收反馈③，已随卡 30 落地）。
 
 ## 卡 26：SprintRebind（Shift 疾跑 + Nova 改键 Q）
-
-> 2026-08-29 立卡即实现。走/跑由玩家按键区分，结束「walk clip 倍速当跑」时代。
-
-```yaml
-能力卡: SprintRebind（疾跑机制 + Nova 改键——输入与数值）
-类型: gameplay（数值漂移已预声明）
-状态: 已完成（feat 5e12381 + fix c3f24de，2026-08-29，真机验收通过）
-行为:
-  - 疾跑: 按住 Shift ×2.0；基础移速 5.0→2.5（预声明漂移，GDD 随之修订）
-  - 动画联动: 2.5 < 3.0 阈值 → walk；5.0 ≥ 3.0 → run（速率贴原生步速）
-  - Nova 改键: Shift → Q
-  - 关键修复（c3f24de）: 表现层读实测位移速度（FeelState.speed）——静态
-    Player.speed 看不见疾跑曾致走/跑同 clip
-数字化验收句:
-  1. 走 1s 位移 = 2.5（±0.05）；Shift 1s = 5.0（±0.1）
-  2. Q 触发 Nova，旧 Shift 不再触发
-  3. 表现: 走小步/疾跑大步前倾肉眼可辨，混合 ≤200ms
-非目标: 疾跑体力条、冲刺无敌帧（未来 Dash 的事）
-```
+> ✅ 已闭环（feat `5e12381` + fix `c3f24de`，08-29 真机验收）。规格真相在代码+回归。
 
 ## 卡 27：AttackRoot（攻击顿帧，治"边走边砍滑步"）
 
