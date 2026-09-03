@@ -29,6 +29,10 @@ games/<game-name>/
 - `AGENTS.md` — 项目 AI 上下文
 - `Cargo.toml` — 依赖引擎（Bevy 0.19，见 ADR-0004）
 
+> **文档分层约定**：`games/<game>/docs/` 放**本游戏自己的**设计文档（GDD / 能力卡 / 风格圣经 / 该游戏数值平衡表）。
+> **团队共享知识库**在顶层 `docs/`（Obsidian vault）：`topics/`（跨游戏方法论/参考/踩坑）、`decisions/`（ADR，如 ADR-0008 数值数据存代码）。
+> 边界一句话：能在 ≥2 个游戏复用、或属团队方法/架构决策 → 进顶层 `docs/`（vault）；只属于一个游戏 → 进该游戏 `docs/`。
+
 ## 现有项目
 
 | 项目 | 说明 |

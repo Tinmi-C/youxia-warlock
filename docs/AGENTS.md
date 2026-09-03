@@ -55,3 +55,4 @@
 3. 每次写操作后同步更新：主题 `_index.md`、`MOC.md`、`log.md`。
 4. 命名用英文 kebab-case；frontmatter 用 `meta/templates/` 里的模板。
 5. 提交信息用英文 Conventional Commits（`docs:` 前缀）。
+6. **本知识库是团队共享、跨游戏的编译知识**（`topics/`、`decisions/`、MOC 等）。某游戏**自己的**设计文档（GDD、能力卡、风格圣经、该游戏的数值/平衡表等）进 `games/<game>/docs/`，**不进本 vault**。边界一句话：能在 ≥2 个游戏复用、或属团队方法/架构决策 → 进 vault；只属于一个游戏的 → 进那个游戏的 `docs/`。

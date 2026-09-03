@@ -37,6 +37,7 @@ assets/
   models/ textures/ audio/ fonts/ ui/   # 资产按类型分目录（模型 snake_case，clip 统一命名）
 docs/
   capability-cards.md  # 能力卡工作流 + 卡模板（AI 开发的核心约定）
+  GDD.md               # 游戏设计文档（一句话玩法/核心循环/范围/数值表/验收），填本游戏自己的
 AGENTS.md          # 给 AI 智能体的项目上下文（AI 协作方式）
 ```
 

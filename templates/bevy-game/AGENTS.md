@@ -26,6 +26,7 @@ src/plugins/*.rs     领域插件（一个领域一个 Plugin）
 src/systems/*.rs     系统（按系统分文件）
 tests/behavior.rs    行为一致性回归测试
 docs/capability-cards.md  能力卡工作流 + 卡清单
+docs/GDD.md               游戏设计文档（玩法/范围/数值表/验收，填本游戏自己的；团队方法论见 vault）
 assets/{models,textures,audio,fonts,ui}/
 ```
 
