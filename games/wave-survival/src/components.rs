@@ -36,7 +36,7 @@ impl MonsterKind {
         match self {
             MonsterKind::Grunt => 1.0,
             MonsterKind::Runner => 1.6,
-            MonsterKind::Tank => 0.6,
+            MonsterKind::Tank => 0.5,
             MonsterKind::Elite => 0.85,
         }
     }

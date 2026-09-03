@@ -1503,7 +1503,7 @@ fn wave3_spawns_runner_with_kind_stats() {
 }
 
 /// EnemyVariants — acceptance: a forced wave-5 spawn carries exactly 1 Tank
-/// (speed ≈1.50×0.6, hp ≈90×3) alongside its runners; kinds only change data.
+/// (speed ≈1.50×0.5, hp ≈90×3) alongside its runners; kinds only change data.
 #[test]
 fn wave5_spawns_tank_with_kind_stats() {
     let mut app = test_app();
@@ -1538,7 +1538,7 @@ fn wave5_spawns_tank_with_kind_stats() {
                 MonsterKind::Tank => {
                     tanks += 1;
                     assert!((hp.hp - 270.0).abs() < 1e-3, "tank hp = 90*3");
-                    assert!((chasing.speed - 0.90).abs() < 1e-3, "tank speed = 1.50*0.6");
+                    assert!((chasing.speed - 0.75).abs() < 1e-3, "tank speed = 1.50*0.5");
                 }
                 // card 19 compile-completion arm (pre-declared): no elites
                 // exist at wave 5, so this arm must never fire here.
