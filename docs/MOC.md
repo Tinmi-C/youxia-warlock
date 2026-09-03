@@ -32,9 +32,8 @@ updated: 2026-09-02
 ## 近期更新
 
 - [[topics/engine/table-driven-anim-state-design|表驱动动画状态机设计方案]]（新增，draft：动画 20+ 时的状态机形态——状态拓扑进表数据，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；ADR-0007 支撑材料）
-- [[decisions/0007-animation-state-machine-table-driven|ADR-0007 动画状态机采用表驱动形态]]（新增，proposed：拓扑数据化、适配动画 20+；配卡 33 TableDrivenAnimState）
-- [[topics/engine/animation-graph-migration-plan|动画状态机迁移设计蓝图——技术否决支撑]]（新增，draft：卡32 迁 bevy_animation_graph 可行性核验 + 为何否决——FSM 转场事件驱动、不支持输入条件比较，逻辑无法数据化；ADR-0006 支撑材料）
-- [[decisions/0006-animation-state-machine-refactor|ADR-0006 动画状态机不走 bevy_animation_graph——重构现有]]（新增，proposed：转场不支持输入条件比较 → 暂缓迁移，改方案1 重构现有 sync_walk_playback）
+- [[decisions/0007-animation-state-machine-table-driven|ADR-0007 动画状态机采用表驱动形态]]（accepted：拓扑数据化、适配动画 20+；配卡 33 TableDrivenAnimState）
+- [[decisions/0006-animation-state-machine-refactor|ADR-0006 动画状态机不走 bevy_animation_graph]]（proposed：转场不支持输入条件比较 → 否决 bevy_animation_graph，形态由 ADR-0007 表驱动承接）
 - [[topics/engine/unified-damage-pipeline|统一伤害结算管线——让 Hp 成为全场唯一写入者]]（新增，draft：伤害走 DamageRequest 消息 + apply_damage 唯一结算 + GameSet::Resolve；加新技能照发请求即可不碰 Hp；含「单系统执行/循环批处理 N 条」帧语义澄清）
 - [[topics/engine/project-structure-and-dev-rules-review|项目结构与开发规则复盘（进行中）]]（新增，draft：结构底稿；§7 主链 SystemSet 已落地（59 回归绿）；§4.1 规则改「先留接缝不提前造」；ADR-0002 边界澄清；§5 卡挂载格式定稿）
 - [[topics/engine/ai-feature-pipeline-sop|AI 特性开发标准流程 v1（SOP）]]（新增，done：六阶段三栏 + DoD 五条 + AI 上下文包模板；试点=武器系统卡 29-31）

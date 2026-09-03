@@ -71,55 +71,26 @@ bevy_animation_graph 的 `StateMachine`（high_level + low_level，见
 
 ## 决策
 
-**暂缓 ADR-0005 / 卡 32 的 bevy_animation_graph 迁移。** 改为不换引擎地重构现有状态机。
-
-### 建议替代方案（方案 1，针对你背后的真实诉求）
-把 `sync_walk_playback` 拆成三层：
-
-1. **配置表** `HeroAnimConfig`：收敛所有散落 const——
-   `HERO_CLIP_*` 索引、`HERO_ATTACK_WINDOW`/`HERO_HIT_WINDOW`、`HERO_BLEND`、
-   `RUN_SPEED_THRESHOLD 3.0`、`WALK/RUN_CLIP_AUTHORED_SPEED`、`WALK_RATE clamp`、
-   怪物侧 `MONSTER_ATTACK/HIT_SECS`、`MONSTER_ATTACK_RANGE`。
-2. **纯函数** `decide_hero_state(moving, speed, cooldown_edge, flash_edge) -> HeroClip`
-   （及怪物侧）：**唯一有逻辑的地方**，无 ECS 依赖、无副作用 → 可直接单测。
-3. **薄执行层** `sync_walk_playback`：读逻辑输入 → 调 decide 纯函数 → 查配置表
-   （clip/循环/速率/窗口）→ `AnimationTransitions` 播放 + 打 `hero clip -> X (speed, rate)` 日志。
-
-### 对照诉求
-| 诉求 | 方案 1 如何满足 |
-|---|---|
-| 降复杂度 | 240 行巨怪 → 一个可读纯函数（~30 行）+ 一张表 |
-| 方便调试 | **纯函数可直接单测**：`feed(静止)→Idle`、`feed(速度5)→Run`、`feed(cooldown上跳)→Attack`，不跑游戏 |
-| 逻辑直观 | 状态切换 = 表 + 函数，一眼看懂"什么输入→什么状态" |
-| AI 开发高效 | 改纯函数有单测保护、零风险；执行薄层几乎不动；验收句可写成纯函数断言 |
-| 成本 | 一次性重构；**不换引擎**；59 回归不受影响；真机验收照旧 |
-
-### 备选（均不推荐，附理由）
-| 方案 | 结论 | 理由 |
-|---|---|---|
-| A. 自建轻量"状态表+解释器" | ❌ | 需自命名状态机引擎，违背 ADR-0004 "不手写引擎件"；且同样解决不了判断逻辑；成本高、59 测试测不到 |
-| B. bevy_animation_graph 全量迁移 | ❌ | 本 ADR 已实证：判断逻辑下不去、复杂度反增、59 测试测不到、违背"减负"初衷 |
-| C. 方案 1 + 视觉化（bevy_egui / Mermaid 画状态机图） | 可后置 | 加分项：让"表现层逻辑直观"更进一步；用现有 F1 面板成本低；不是必须先做 |
+**暂缓 ADR-0005 / 卡 32 的 bevy_animation_graph 迁移**（已实证判断逻辑无法下沉到图）。
+**采用什么形态由 ADR-0007 决定：表驱动动画状态机**（状态拓扑进表数据，加状态=加表数据，
+控制流一次写好）。本 ADR 只保留"为何否决 bevy_animation_graph"这一条；不再重复已被
+ADR-0007 取代的替换方案细节。
 
 ## 影响 / 后果
 
-- **好**：不换引擎、不增复杂度；把"改状态要改巨型函数"这个真痛点用纯函数 + 单测解决；
-  表现层逻辑集中、可验证；AI 开发效率提升（改纯函数有保护）。
+- **好**：否决了一条"换引擎但解决不了判断逻辑"的路线，避免白白增复杂度；随后用表驱动
+  （ADR-0007）真正解决了"改状态要改巨型函数"。
 - **代价**：无 bevy_animation_graph 的图数据 / 可视化编辑器能力（若后期确需可视化编辑器
   再看，当前收益不抵复杂度）。
-- **依赖**：`Cargo.toml` 里加的 `bevy_animation_graph` 依赖——**若确认暂缓迁移，应从
-  Cargo.toml 移除**，保持依赖面干净（spike 已完成使命）。
+- **依赖（已处理）**：`Cargo.toml` 里的 `bevy_animation_graph` 依赖已移除（spike 使命完成）。
 
 ## 后续跟进
-1. **暂缓**：卡 32 草案、ADR-0005 保留为技术记录（或标为 `superseded`），不实施。
-2. **可选**：把 `tests/animation_spike.rs` 保留为"bevy_animation_graph 装配可行性"的
-   参考，或随依赖移除一起清理。
-3. **建议下一卡**：HeroAnimRefactor——按方案 1 拆 `sync_walk_playback`，验收句 = 纯函数
-   断言（各输入→期望状态）+ 真机 hero 四态/怪物三态与迁移前肉眼一致 + 59 回归全绿 + 零警告。
-4. **待用户 / 团队拍板**：本 ADR 的状态（proposed）、是否移除 bevy_animation_graph 依赖、
-   是否开工 HeroAnimRefactor。
+
+- ADR-0005 / 卡 32 保留为**被否决的技术记录**（`superseded`），不实施；卡 33（表驱动）已
+  按 ADR-0007 实现并提交。
 
 ## 与既有 ADR 的关系
-- ADR-0005：本 ADR 是其"被技术证据否定"的跟进方，方向从"迁移引擎"变为"重构现有"。
-- ADR-0004：坚守"不手写引擎件 / 用现成"边界——方案 1 重构现有 bevy 内置 AnimationTransitions，
-  仍是"用现成"，不违背。
+- ADR-0005：本 ADR 是其"被技术证据否定"的跟进方——**否定了 bevy_animation_graph 迁移**这条路线。
+- ADR-0007：本 ADR 只做"否决"，**具体采用什么形态由 ADR-0007 决定（表驱动状态机）**。
+- ADR-0004：坚守"不手写引擎件 / 用现成"边界；表驱动用 Bevy 内置 `AnimationTransitions` 播放，
+  不自建引擎，不违背。

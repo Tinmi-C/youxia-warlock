@@ -1,9 +1,12 @@
 ---
 title: ADR-0005
 type: adr
-status: proposed
+status: superseded
 date: 2026-09-01
 author: AI + youxia（方向讨论拍板，AI 起草待团队 review）
+superseded_by:
+  - ADR-0006（技术否决：转场不支持输入条件比较）
+  - ADR-0007（采用表驱动形态替代）
 ---
 
 # ADR-0005: 表现层动画状态机迁移 bevy_animation_graph（数据驱动动画图）
