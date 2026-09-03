@@ -19,3 +19,4 @@
 | [[decisions/0005-animation-graph-migration\|ADR-0005]] | 表现层动画状态机迁移 bevy_animation_graph（数据驱动动画图） | superseded（见 ADR-0006） | 2026-09-01 |
 | [[decisions/0006-animation-state-machine-refactor\|ADR-0006]] | 动画状态机不走 bevy_animation_graph（转场不支持输入条件比较；形态见 ADR-0007） | proposed | 2026-09-02 |
 | [[decisions/0007-animation-state-machine-table-driven\|ADR-0007]] | 动画状态机采用表驱动形态（面向动画规模增长 20+） | accepted | 2026-09-02 |
+| [[decisions/0008-numeric-data-in-code-not-external\|ADR-0008]] | 游戏数值数据暂留代码内，不外部化到数据文件/数据库（定迁移门槛） | accepted | 2026-09-02 |
