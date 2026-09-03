@@ -67,3 +67,4 @@ updated: 2026-09-02
 - [[topics/game-design/ai-3d-generation-tools|AI 生成 3D 资产工具调研]]（新增，reference：混元 2.0/2.1 开源 + 4060Ti 8GB 定版 mini/turbo；形状-only + palette lock 抵消纹理短板；商用前人工读 LICENSE）
 - [[topics/game-design/ai-asset-pipeline|AI 生成美术管线八站流程]]（新增，howto：八站人机分工；normalize/turntable 速查；玩家模型 50k→10k 面/30.9→3.3MB 实测；prompt 模板）
 - [[topics/game-design/unirig-auto-rigging-research|UniRig 自动绑骨调研]]（新增，reference：绑骨+蒙皮自动化、无动画；许可证最高优先级待验证；管线缺口=动画重定向，四条路线对比）
+- [[topics/game-design/design-target-anchors|设计目标锚点框架（平衡数值方法论）]]（新增，howto：先定目标体验→反推数值；5 字段锚点 + headless 读数闭环；跨游戏可复用、数值各藏；数据驱动≠外部化，见 ADR-0008）

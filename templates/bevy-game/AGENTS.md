@@ -47,6 +47,16 @@ assets/{models,textures,audio,fonts,ui}/
 - **资产约定**：模型/贴图等放 `assets/` 对应子目录（`models/textures/audio/fonts/ui`）；glTF 优先（Bevy 原生）；JPEG 贴图已开特性，无需处理；模型文件用 snake_case 语义名（如 `goblin.glb`）；动画 clip 统一命名 `idle`/`walk`/`attack`/`hit`/`death`；美术原始素材、候选图册放 `_art/`（`raw/gallery` 等，不入运行时）。完整规范见知识库 `docs/topics/game-design/art-asset-catalog-tool-proposal.md`（art-catalog 管理系统设计稿，**拟采用、待团队拍板**；正式采用后本模板将预置 `_art/` 目录骨架）。
 - **当前状态 / 下一步**：每次开工前更新本文件的「当前状态」小节（进行中的能力卡、已知问题）。
 
+## 跨游戏约定（新游戏开工前看）
+
+这些是团队沉淀的**可迁移**原则/决策，新游戏继承即可，不用重新摸索：
+
+- **数值数据暂留代码**：游戏数值（定义表 / Balance 默认值 / 波次公式 / 锚点带）放 Rust 源码，**不外部化到数据文件或数据库**。注意「数据驱动 = 数据与逻辑分离」，≠ 外部化；运行时用调试面板（F1 类）热调内存值即可。迁移门槛（何时才考虑外部化）见团队知识库 **ADR-0008**。
+- **数值平衡用「设计目标锚点框架」**：先定目标体验 → 反推数值 → 用 5 字段锚点（类别/指标/目标区间/来源/验收方式）把体感难易变成可测指标 → 配一个 headless 读数工具给 AI 照着收敛。方法见知识库 `docs/topics/game-design/design-target-anchors.md`。
+- **表现层别做 god-file**：一个插件文件别随着卡越堆越大（wave-survival 曾到 1151 行单文件）；按领域拆成子插件（挂模型/动画运行时/武器/朝向+移动感/受击表现），用 `SystemSet` 定跨插件顺序。**"一个领域一个 Plugin"** 对表现层同样适用。
+- **客观技术→插件、主观玩法→自研**、**玩法机制第 2 次用到才抽进 `engine/`**：见本文件「硬性规则」+ 团队知识库 `docs/topics/engine/bevy-plugin-and-code-reuse.md`。
+
+
 ## 当前状态 / 下一步
 
 （进行中的功能、已知问题、近期目标——每次开工前更新）

@@ -14,6 +14,7 @@
 | [[topics/game-design/ai-asset-pipeline\|AI 生成美术管线八站流程]] | howto | draft | 八站全景与人机分工；normalize/turntable 命令速查；玩家模型实测数据（50k→10k 面）；prompt 模板与边界 |
 | [[topics/game-design/unirig-auto-rigging-research\|UniRig 自动绑骨调研]] | reference | draft | 只绑骨不产动画；GLB/FBX 进 FBX 出；4060Ti 8GB 可跑可脚本化；许可证待人工核对；最大缺环=动画重定向（模板骨架方案先 PoC） |
 | [[topics/game-design/art-asset-catalog-tool-proposal\|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]] | reference | draft | 人操作 AI 辅助；两层资产域（库上移工作区级 `_library/`）；六模块 + 场景注册表（SC1-6 实录提炼 + 扩展位）+ 模板兼容规范层 C1-C4；评审清单全部落定；待动工 |
+| [[topics/game-design/design-target-anchors\|设计目标锚点框架（平衡数值方法论）]] | howto | draft | 先定目标体验→反推数值；5 字段锚点把体感难易变可测指标 + headless 读数闭环；锚点机制跨游戏通用、具体数值各藏；数据驱动≠外部化（见 ADR-0008） |
 
 ## 相关决策
 
