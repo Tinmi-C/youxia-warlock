@@ -319,3 +319,85 @@ fn choosing_stat_boost_applies_damage_mult() {
     assert!((boosts.damage_mult[2] - 1.2).abs() < 1e-6, "mage damage should be +20%");
     assert!(!app.world().resource::<WaveChoice>().pending, "choice consumed");
 }
+
+/// Capability card EN4 — acceptance: physical damage is halved against an
+/// armored (shield) enemy: 10 physical deals 5 (hp 90 -> 85).
+#[test]
+fn physical_damage_halved_vs_armored_enemy() {
+    let mut app = test_app();
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 0,
+            damage: 10.0,
+            attack_speed: 1.0,
+            range: 20.0,
+            attack_type: AttackType::Physical,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(0),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 90.0,
+            max_hp: 90.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: true,
+            next_wp: 0,
+        },
+        Transform::from_xyz(2.0, 0.5, 0.0),
+    ));
+    app.update();
+    let hp = enemy_hp(&mut app);
+    assert!(
+        (hp - 85.0).abs() < 0.01,
+        "10 physical vs armor should deal 5 (hp 90 -> 85), got {hp}"
+    );
+}
+
+/// Capability card EN4 — acceptance: magic damage ignores physical armor:
+/// 15 magic deals 15 (hp 90 -> 75).
+#[test]
+fn magic_damage_ignores_armor() {
+    let mut app = test_app();
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 2,
+            damage: 15.0,
+            attack_speed: 1.0,
+            range: 20.0,
+            attack_type: AttackType::Magic,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(2),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 90.0,
+            max_hp: 90.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: true,
+            next_wp: 0,
+        },
+        Transform::from_xyz(2.0, 0.5, 0.0),
+    ));
+    app.update();
+    let hp = enemy_hp(&mut app);
+    assert!(
+        (hp - 75.0).abs() < 0.01,
+        "15 magic should bypass armor entirely (hp 90 -> 75), got {hp}"
+    );
+}

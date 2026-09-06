@@ -160,10 +160,12 @@
 - 行为: 命中的敌人 30% 减速（壁垒炮 slow_factor 0.7，持续 1s）；`Slow` 组件计时；`tick_slow` 到期移除。
 - 验收句: 受击后敌速度变为 0.7×base，1s 后恢复（`src/systems/tower.rs`、`enemy.rs`）。
 
-### EN4 · 物理护甲（enemies）
+### EN4 · 物理护甲（enemies）—— ✅ 已实现（2026-09-03 落地，2026-09-04 钉回归）
 - 接口: 输入 敌甲 + 伤害类型；输出 实际伤害。
 - 行为: 盾兵怪对物理伤害 -50%，魔法伤害正常。
-- 验收句: 盾兵怪(hp90) 受 10 物理 → 扣 5（hp 85）；受 15 魔法 → 扣 15（hp 70）。
+- 实现: `src/systems/tower.rs::effective_damage`（一维护甲：物理减半，魔法/混合穿甲）；`Enemy.physical_armor` 数据位。
+- 验收句: 盾兵怪(hp90) 受 10 物理 → 扣 5（hp 85）；受 15 魔法 → 扣 15。已入 `tests/behavior.rs`
+  （`physical_damage_halved_vs_armored_enemy` / `magic_damage_ignores_armor`）。
 
 ### EN5 · 治疗怪回血（enemies）
 - 接口: 输入 Healer + 周围敌；输出 敌方 hp 增加。
