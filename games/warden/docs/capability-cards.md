@@ -176,10 +176,14 @@
 - 验收句: 治疗怪存活时，周围残血敌 hp 回升（10→13 一跳）；治疗怪移除后停止。已入 `tests/behavior.rs`
   （`healer_restores_nearby_enemies_and_stops_when_gone`）。
 
-### AC1 · 开局手牌（acquisition）
+### AC1 · 开局手牌（acquisition）—— ✅ 已实现（2026-09-04）
 - 接口: 输入 塔池；输出 随机 2 座基础塔（≥1 座输出塔）。
 - 行为: 开局发 2 张；保底 ≥1 输出（弓箭手/炮塔）。
-- 验收句: 多次开局，每次手牌都含 ≥1 座 {弓箭手,炮塔}，且共 2 座。
+- 实现: `RunRng` 可种子化随机资源（`resources.rs`，对齐依赖树 rand 0.10，不引入第二版本）+ `systems/acquisition.rs::deal_opening_hand`
+  （Startup 发牌，Fisher-Yates 抽 2 张互不重复，无输出时第二张换成随机输出塔）；新 `plugins/acquisition.rs`（acquisition 域，
+  `Hand`/`RunRng` 资源归此插件）；商店栏 UI 在发牌之后构建（Startup 显式 after）。
+- 验收句: 多次开局（32 个种子全量扫描），每次手牌都含 ≥1 座 {弓箭手,炮塔}，且共 2 座互不重复。已入 `tests/behavior.rs`
+  （`opening_hand_has_two_distinct_towers_with_output_guarantee`）。
 
 ### AC2 · 商店保底（acquisition）
 - 接口: 输入 玩家已有基础塔；输出 每波商店刷新，保底 1 种未拥有基础塔。

@@ -13,11 +13,12 @@ use bevy::{
 use warden::{
     components::{AttackType, Enemy, FusionKind, Healer, PlacementCursor, Tower, TowerKind},
     plugins::{
-        economy::EconomyPlugin, enemies::EnemiesPlugin, game::GamePlugin, map::MapPlugin,
-        towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
+        acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
+        game::GamePlugin, map::MapPlugin, towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
     },
     resources::{
-        BaseHp, Boosts, ChoiceKind, ChoiceOption, Economy, WaveChoice, WavePhase, WaveState,
+        BaseHp, Boosts, ChoiceKind, ChoiceOption, Economy, Hand, RunRng, SelectedTower,
+        TowerDefs, WaveChoice, WavePhase, WaveState,
     },
     states::GameState,
 };
@@ -34,6 +35,7 @@ fn test_app() -> App {
             EnemiesPlugin,
             WavesPlugin,
             EconomyPlugin,
+            AcquisitionPlugin,
             UiPlugin,
         ))
         // Headless: no winit / asset plugins, so create the resources the
@@ -127,17 +129,47 @@ fn paused_state_stops_cursor() {
 }
 
 /// Capability card TO2 — acceptance: valid placement deducts the tower cost and
-/// occupies a slot; the nearest empty slot to the cursor is used.
+/// occupies a slot; the nearest empty slot to the cursor is used. Since AC1 the
+/// opening hand is random, so we place the first dealt tower whatever it is.
 #[test]
 fn place_tower_deducts_gold_and_occupies_slot() {
     let mut app = test_app();
+    app.world_mut().insert_resource(RunRng::seeded(7));
+    app.update(); // Startup: deals the opening hand
+    let owned = app.world().resource::<Hand>().owned_towers[0];
+    let cost = app.world().resource::<TowerDefs>().list[owned].cost;
+    app.world_mut().resource_mut::<SelectedTower>().tower_index = owned;
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::KeyE);
     app.update();
     let gold = app.world().resource::<Economy>().gold;
-    assert_eq!(gold, 50, "placing an archer (cost 50) should leave 50 gold");
+    assert_eq!(
+        gold, 100 - cost,
+        "placing dealt tower {owned} (cost {cost}) should deduct exactly its cost"
+    );
     assert_eq!(count_towers(&mut app), 1, "one tower should be placed");
+}
+
+/// Capability card AC1 — acceptance: every opening hand has exactly 2 distinct
+/// towers, and at least one of them is an output tower (archer 0 / cannon 3).
+#[test]
+fn opening_hand_has_two_distinct_towers_with_output_guarantee() {
+    for seed in 0..32u64 {
+        let mut app = test_app();
+        app.world_mut().insert_resource(RunRng::seeded(seed));
+        app.update(); // Startup: deal
+        let hand = app.world().resource::<Hand>();
+        assert_eq!(hand.owned_towers.len(), 2, "seed {seed}: exactly 2 towers");
+        assert_ne!(
+            hand.owned_towers[0], hand.owned_towers[1],
+            "seed {seed}: the two cards are distinct"
+        );
+        assert!(
+            hand.owned_towers.contains(&0) || hand.owned_towers.contains(&3),
+            "seed {seed}: at least one output tower"
+        );
+    }
 }
 
 /// Capability card TO3/TO4 — acceptance: a tower within range fires at the

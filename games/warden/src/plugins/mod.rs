@@ -1,3 +1,4 @@
+pub mod acquisition;
 pub mod debug;
 pub mod economy;
 pub mod enemies;

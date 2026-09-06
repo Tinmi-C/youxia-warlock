@@ -6,8 +6,30 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::components::{AttackType, FusionKind};
+
+/// Run-scoped RNG for the acquisition rolls (AC1 opening hand / AC2 shop
+/// refresh / AC3 drops). Seeded from entropy at startup; tests replace it with
+/// `RunRng::seeded(seed)` before the first update for determinism.
+#[derive(Resource)]
+pub struct RunRng(pub StdRng);
+
+impl RunRng {
+    pub fn seeded(seed: u64) -> Self {
+        Self(StdRng::seed_from_u64(seed))
+    }
+}
+
+impl Default for RunRng {
+    fn default() -> Self {
+        // rand 0.10: make_rng is the entropy-seeded constructor (the old
+        // SeedableRng::from_entropy was removed).
+        Self(rand::make_rng::<StdRng>())
+    }
+}
 
 /// Economic pool. No interest (requirements §11): gold only enters by kill /
 /// wave reward and leaves by buying towers / fusion fee.
@@ -283,9 +305,8 @@ pub struct FusionSel {
     pub a: Option<bevy::ecs::entity::Entity>,
 }
 
-/// Open gameplay choices surfaced to the player this run (design: hand / shop /
-/// drop / three-choose / fusion). Seeded for the closed loop; specific sources
-/// are follow-on cards (AC1-4).
+/// Base tower types the player can build this run. AC1 deals 2 random types
+/// (>=1 output tower) at Startup; AC2/AC3/AC4 add more. Empty until dealt.
 #[derive(Resource)]
 pub struct Hand {
     pub owned_towers: Vec<usize>, // base tower types the player can use
@@ -293,10 +314,8 @@ pub struct Hand {
 
 impl Default for Hand {
     fn default() -> Self {
-        // Opening hand (AC1): 2 base towers with ≥1 output tower. Seed = archer
-        // (index 0, output) + mage (index 2, output). Random hand is polish.
         Self {
-            owned_towers: vec![0, 2],
+            owned_towers: Vec::new(),
         }
     }
 }

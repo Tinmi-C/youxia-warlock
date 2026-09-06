@@ -39,6 +39,7 @@ pub fn build_app() -> App {
             plugins::enemies::EnemiesPlugin,
             plugins::waves::WavesPlugin,
             plugins::economy::EconomyPlugin,
+            plugins::acquisition::AcquisitionPlugin,
             plugins::ui::UiPlugin,
             plugins::debug::DebugPlugin,
         ));
