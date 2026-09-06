@@ -66,24 +66,27 @@ assets/{models,textures,audio,fonts,ui}/
 
 > 状态索引而已——逐卡规格/验收句/反馈记录只在 `docs/capability-cards.md` 一处维护，本节不重复细节。
 
-- **已完成**（脚手架，2026-08-25 立项）：`games/warden/` 从 `templates/bevy-game/` 复制并重命名为 crate `warden`；
-  `cargo check --all-targets` 通过、`cargo test` 全绿。已搭好：lib+bin、领域插件（game/map/towers/enemies/waves/economy/ui/debug）、
-  `GameSet` 编排阶段、`Economy` 资源、放置光标（WASD 在场地 XY 面移动）、场地+边框、`P` 暂停、`F12` 截图、日志仪表（gold/lives）。
-- **需求已落档（2026-09-03）**：`docs/requirements.md`（设计源）、`docs/GDD.md`（产品总览）、`docs/capability-cards.md` 卡路书——
-  已把需求翻译成能力卡（MA/EN/TO/WA/EC/ST/AC/ME + UI），并圈出**首条可玩闭合**（★卡：MAP+EN+TO+WA+EC+ST+UI 先跑通「单塔单波·战斗」）。
-- **首条可玩闭合已实现（2026-09-03）**：`★` 卡（MA1/MA2 + EN1/2/3 + TO1/2/3/4 + WA1/2/3 + EC1 + ST1 + UI4）已落地，
-  `cargo check --all-targets` + `cargo test` 全绿（7 条断言）。已跑通「单塔单波 · 双速节奏」：L 路径+基地+8 塔位、
-  买塔放置、敌人沿路径推进、塔自动开火、命中/漏怪/基地血、金币赚/花、10 波+输赢、Intermission 锁建造。
-  **简化**：塔为即时命中（无弹体/AOE/减速）、放置走键盘（1-4+E），bevy_ui 商店为后续 UI1；敌人 speed=1.0 的
-  遍历时间未按设计锚点校准（还需按 requirements §9 定速/路径长度）。
-- **TO5 融合 + TO6 减速已实现（2026-09-03）**：`F` 自动融合第一对匹配塔（原料须在场上、各占 1 格 → 结果占 1 格，净腾 1 格；手续=原料造价 20%）；
-  4 个配方；结果塔新机制（神射手标高血/大法师 AOE/魔弓手穿甲/壁垒炮 AOE+减速）已入 `resources.rs`/`components.rs`/`tower.rs`。`cargo test` 全绿。
-  ✅ **融合 DPS 已按 §7.2 铁律校准**：原 §7.3 的大法师/魔弓手/壁垒炮 DPS 低于 90-110% 区间，已上调到位（神射手108%/大法师100%/魔弓手93%/壁垒炮98%）；这些是临时起点值，balance 卡/试玩可再调。
-- **AC4 波次间「三选一」已实现（2026-09-03）**：每波非末波结算后弹出 3 选项（`wave.rs::generate_choices` 确定性生成，占位），`1/2/3` 选择（`input.rs::choose_choice`）；效果=塔型 +20% 伤害 / 击杀金币 +20% / 获得塔（`Boosts`/`Hand`）；选择挂起时禁开下一波。`cargo test` 全绿。⚠️ 占位：非真随机、只 +20% 伤害（未做攻速/射程/结果塔加成）。
-- **下一步**：塔获取来源（AC1/开手机牌、AC2/商店保底、AC3/掉落）+ 商店 bevy_ui（UI1）+ 治疗怪（EN5）+ Meta（ME1）+ 三选一随机化/精细加成（polish）+ 平衡（待试玩）。
-- **已知问题**：无阻塞。模板遗留踩坑见表（`README.md`「踩坑备忘」）。
-- **协作提醒**：`towers`/`enemies`/`waves` 已填入首条闭合的系统；后续卡在各领域插件里**追加**组件/系统即可（塔开火/敌移动/波次系统已存在于
-  `src/systems/{tower,enemy,wave}.rs`），别堆进 `game.rs`，也尽量别改已落卡的实现（新机制=新组件+新系统）。
+- **已完成（脚手架 + 灰盒 MVP 全量，2026-08-25 立项 → 2026-09-04）**：
+  - 脚手架：从 `templates/bevy-game/` 复制改名 crate `warden`，lib+bin、领域插件、`GameSet` 编排。
+  - 需求落档：`docs/requirements.md`（设计源）/ `GDD.md` / `capability-cards.md`（卡路书）。
+  - 首条可玩闭合 ★（MA1/2、EN1-3、TO1-4、WA1-3、EC1、ST1、UI4）+ UI1 鼠标商店/点选融合 + TO5 融合（DPS 已按 §7.2 校准）
+    + TO6 减速 + EN4 物理护甲 + AC4 三选一（占位确定性）+ EN5 治疗怪（半径6/每秒3，起点值）。
+  - 塔获取 5 来源全通（requirements §8）：AC1 开局手牌（随机 2 塔，保底输出）→ AC2 商店保底刷新（含 bevy_ui 购买行）
+    → AC3 掉落塔牌（精英/BOSS 必掉、普通 10%）→ AC4 三选一 → TO5 融合。
+  - ME1 Meta 解锁链：死亡+15/通关+30 币，升级1=开局必含弓箭手（30 币）、升级2=开局+20 金（60 币），
+    key=value 文本存档 `meta_save.txt`，GameOver/Win 屏 1/2 键购买。
+  - §9 移速锚点已校准：speed 1.0 ≈ 20 秒走完 43 单位 L 路径（从实际路径动态推导）。
+  - `cargo check --all-targets` + `cargo test` 全绿零警告（21 条断言，`tests/behavior.rs`）。
+- **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
+  ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
+  ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
+  ③ AC2 商店定价：解锁费（进手牌）与建造费（每次放置）分离——现均为塔面价；
+  ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
+- **下一步**：AC4 polish（真随机 + 攻速/射程/结果塔加成）→ 真人试玩 + balance 卡（§14 速查表/锚点带收敛）
+  → UI polish（塔位悬停高亮、Game Over/Win 画面）→ 点子池（塔升级/卖塔等）。
+- **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers 变化自动重建。
+- **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
+  尽量别改已落卡实现（新机制=新组件+新系统）；跨域时序走 `GameSet` + 显式 before/after。
 
 ## 项目专属规则
 
