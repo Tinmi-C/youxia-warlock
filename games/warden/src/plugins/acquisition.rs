@@ -16,7 +16,13 @@ impl Plugin for AcquisitionPlugin {
         app.init_resource::<RunRng>()
             .init_resource::<Hand>()
             .init_resource::<ShopOffers>()
-            .add_systems(Startup, systems::acquisition::deal_opening_hand)
+            // The deal reads MetaState (upgrade 1), so it must run after the
+            // meta load/apply Startup chain.
+            .add_systems(
+                Startup,
+                systems::acquisition::deal_opening_hand
+                    .after(systems::meta::apply_meta_on_run_start),
+            )
             .add_systems(
                 Startup,
                 systems::acquisition::setup_shop_offers

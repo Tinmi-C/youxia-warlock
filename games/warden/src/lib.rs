@@ -40,6 +40,7 @@ pub fn build_app() -> App {
             plugins::waves::WavesPlugin,
             plugins::economy::EconomyPlugin,
             plugins::acquisition::AcquisitionPlugin,
+            plugins::meta::MetaPlugin,
             plugins::ui::UiPlugin,
             plugins::debug::DebugPlugin,
         ));

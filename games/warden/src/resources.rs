@@ -348,6 +348,46 @@ impl Default for ShopOffers {
     }
 }
 
+/// Cross-run Meta progression (ME1, requirements §13): currency + one upgrade
+/// chain. Persisted between runs to a tiny key=value file (starting design —
+/// no serde dependency); a missing/corrupt file falls back to defaults.
+#[derive(Resource)]
+pub struct MetaState {
+    pub coins: u32,
+    /// 升级 1: the opening hand always contains the archer.
+    pub upgrade1: bool,
+    /// 升级 2: +20 starting gold next run (100 -> 120).
+    pub upgrade2: bool,
+}
+
+impl Default for MetaState {
+    fn default() -> Self {
+        Self {
+            coins: 0,
+            upgrade1: false,
+            upgrade2: false,
+        }
+    }
+}
+
+/// Where the meta save file lives. Default `./meta_save.txt` (cwd = project
+/// dir under `cargo run`); tests point it at temp files.
+#[derive(Resource)]
+pub struct MetaSavePath(pub std::path::PathBuf);
+
+impl Default for MetaSavePath {
+    fn default() -> Self {
+        Self(std::path::PathBuf::from("meta_save.txt"))
+    }
+}
+
+/// ME1 upgrade costs (starting values — requirements §13 gives no numbers).
+pub const UPGRADE1_COST: u32 = 30;
+pub const UPGRADE2_COST: u32 = 60;
+/// ME1 payouts (requirements §13): death +15, win +30.
+pub const META_REWARD_DEATH: u32 = 15;
+pub const META_REWARD_WIN: u32 = 30;
+
 impl Default for Boosts {
     fn default() -> Self {
         Self {

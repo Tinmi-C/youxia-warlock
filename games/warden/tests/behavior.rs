@@ -14,11 +14,12 @@ use warden::{
     components::{AttackType, Enemy, FusionKind, Healer, PlacementCursor, Tower, TowerKind},
     plugins::{
         acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
-        game::GamePlugin, map::MapPlugin, towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
+        game::GamePlugin, map::MapPlugin, meta::MetaPlugin, towers::TowersPlugin, ui::UiPlugin,
+        waves::WavesPlugin,
     },
     resources::{
-        BaseHp, Boosts, ChoiceKind, ChoiceOption, Economy, Hand, RunRng, SelectedTower,
-        ShopOffers, TowerDefs, WaveChoice, WavePhase, WaveState,
+        BaseHp, Boosts, ChoiceKind, ChoiceOption, Economy, Hand, MetaSavePath, MetaState, RunRng,
+        SelectedTower, ShopOffers, TowerDefs, WaveChoice, WavePhase, WaveState,
     },
     states::GameState,
 };
@@ -36,7 +37,13 @@ fn test_app() -> App {
             WavesPlugin,
             EconomyPlugin,
             AcquisitionPlugin,
+            MetaPlugin,
             UiPlugin,
+        ))
+        // Keep meta persistence out of the repo: tests never touch
+        // ./meta_save.txt (meta-specific tests insert their own temp path).
+        .insert_resource(MetaSavePath(
+            std::env::temp_dir().join("warden_meta_shared_test.txt"),
         ))
         // Headless: no winit / asset plugins, so create the resources the
         // systems under test need (input, mesh/material asset stores).
@@ -315,6 +322,44 @@ fn normal_kills_drop_about_ten_percent() {
         (20.0 - drops as f32).abs() <= 13.0,
         "200 normal kills should drop ~20 cards (3-sigma band 20±13), got {drops}"
     );
+}
+
+/// Capability card ME1 — acceptance: dying pays +15 meta coins, persisted.
+#[test]
+fn death_awards_meta_coins_and_persists() {
+    let save = std::env::temp_dir().join("warden_meta_death_test.txt");
+    let _ = std::fs::remove_file(&save);
+    let mut app = test_app();
+    app.world_mut().insert_resource(MetaSavePath(save.clone()));
+    app.update(); // startup: load (absent) -> defaults
+    assert_eq!(app.world().resource::<MetaState>().coins, 0);
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::GameOver);
+    app.update(); // OnEnter(GameOver): +15 coins, saved to disk
+    let coins = app.world().resource::<MetaState>().coins;
+    assert_eq!(coins, 15, "death should pay exactly 15 meta coins");
+    let text = std::fs::read_to_string(&save).expect("save file written on death");
+    assert!(text.contains("coins=15"), "save must persist coins, got: {text}");
+    let _ = std::fs::remove_file(&save);
+}
+
+/// Capability card ME1 — acceptance: with upgrade 2 unlocked, the next run
+/// starts with 120 gold.
+#[test]
+fn upgrade2_boosts_next_run_starting_gold() {
+    let save = std::env::temp_dir().join("warden_meta_upg2_test.txt");
+    std::fs::write(&save, "coins=60\nupgrade1=0\nupgrade2=1\n").expect("write save file");
+    let mut app = test_app();
+    app.world_mut().insert_resource(MetaSavePath(save.clone()));
+    app.update(); // startup: load -> apply -> the run starts with 120 gold
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        120,
+        "upgrade 2 should grant +20 starting gold"
+    );
+    assert!(app.world().resource::<MetaState>().upgrade2);
+    let _ = std::fs::remove_file(&save);
 }
 
 /// Capability card TO3/TO4 — acceptance: a tower within range fires at the

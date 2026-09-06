@@ -217,10 +217,17 @@
 - 验收句: 三选项互不相同；「得塔」选项不含已拥有塔；选中后效果生效（如 +20% 伤害）。已入 `tests/behavior.rs`。
 - ⚠️ 占位：选项为**确定性生成**（非真随机）；塔强化只做「某塔型 +20% 伤害」（未做攻速/射程，也未按结果塔型加成）。随机化与精细加成是 polish 卡。
 
-### ME1 · Meta 解锁链（meta）
+### ME1 · Meta 解锁链（meta）—— ✅ 已实现（2026-09-04）
 - 接口: 读死亡/通关；输出 meta 币 + 升级效果。
 - 行为: 死亡 +15、通关 +30；升级1=弓箭手进开局手牌池；升级2=开局金币 +20。
-- 验收句: 死亡一次 meta 币+15；解锁升级2后下一局开局 gold==120。
+- 实现: 新 `plugins/meta.rs` 域（卡片路线书预告的 meta 插件）+ `systems/meta.rs`（load/apply Startup 链、
+  `OnEnter(GameOver/Win)` 发币、GameOver/Win 屏 1/2 键购买）+ `MetaState`/`MetaSavePath` 资源。
+  **持久化=极简 key=value 文本**（`meta_save.txt`，无 serde 依赖；缺失/损坏回落默认值）。
+  **起点值（requirements 未给数）**：升级1=30 币、升级2=60 币（发币节奏 15/次死亡 → 约 2~4 局解锁一个，可调）。
+  **升级1 语义取「开局手牌必含弓箭手」**（§13 原文「弓箭手进开局手牌池」有歧义，取更强解释，请设计负责人复核）。
+  升级1 生效点=发牌（deal 显式 after meta apply）；HUD 显示 meta 币与购买提示。
+- 验收句: 死亡一次 meta 币+15（含落盘断言）；解锁升级2后下一局开局 gold==120。已入 `tests/behavior.rs`
+  （`death_awards_meta_coins_and_persists` / `upgrade2_boosts_next_run_starting_gold`）。
 
 ---
 

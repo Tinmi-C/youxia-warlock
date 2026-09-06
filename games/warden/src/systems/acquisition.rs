@@ -6,15 +6,20 @@ use bevy::prelude::*;
 use rand::RngExt; // rand 0.10: random_range / random_bool live on RngExt
 
 use crate::components::Enemy;
-use crate::resources::{Hand, RunRng, ShopOffers, WavePhase, WaveState};
+use crate::resources::{Hand, MetaState, RunRng, ShopOffers, WavePhase, WaveState};
 
 /// Chance for a normal kill to drop a tower card (requirements §8 / AC3).
 const NORMAL_DROP_CHANCE: f32 = 0.10;
 
 /// AC1: deal the opening hand — 2 distinct random base towers, guaranteeing
 /// >=1 output tower (archer 0 / cannon 3) so a run can't start unkillable.
+/// Meta upgrade 1 (ME1) additionally forces the archer into the hand.
 /// Runs once at Startup, replacing the empty placeholder hand.
-pub fn deal_opening_hand(mut hand: ResMut<Hand>, mut rng: ResMut<RunRng>) {
+pub fn deal_opening_hand(
+    mut hand: ResMut<Hand>,
+    mut rng: ResMut<RunRng>,
+    meta: Res<MetaState>,
+) {
     if !hand.owned_towers.is_empty() {
         return; // already dealt (idempotent guard)
     }
@@ -28,6 +33,9 @@ pub fn deal_opening_hand(mut hand: ResMut<Hand>, mut rng: ResMut<RunRng>) {
     if !(picked.contains(&0) || picked.contains(&3)) {
         // Guarantee: the second card becomes a random output tower.
         picked[1] = if rng.0.random_bool(0.5) { 0 } else { 3 };
+    }
+    if meta.upgrade1 && !picked.contains(&0) {
+        picked[1] = 0; // 升级1: archer is always in the opening hand
     }
     hand.owned_towers = picked;
     info!("[acquisition] opening hand {:?}", hand.owned_towers);
