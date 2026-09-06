@@ -1,5 +1,5 @@
-//! EnemiesPlugin: enemy definitions + movement/leak and kill/gold systems.
-//! Capability cards: EN1 (defs), EN2 (move/leak), EN3 (death/gold).
+//! EnemiesPlugin: enemy definitions + movement/leak + kill/gold + healer aura.
+//! Capability cards: EN1 (defs), EN2 (move/leak), EN3 (death/gold), EN5 (healer).
 
 use bevy::prelude::*;
 
@@ -16,6 +16,12 @@ impl Plugin for EnemiesPlugin {
             .add_systems(
                 Update,
                 systems::enemy::move_enemy
+                    .in_set(GameSet::Simulate)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                systems::enemy::heal_aura
                     .in_set(GameSet::Simulate)
                     .run_if(in_state(GameState::Playing)),
             )

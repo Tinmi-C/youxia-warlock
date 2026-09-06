@@ -11,7 +11,7 @@ use bevy::{
 };
 
 use warden::{
-    components::{AttackType, Enemy, FusionKind, PlacementCursor, Tower, TowerKind},
+    components::{AttackType, Enemy, FusionKind, Healer, PlacementCursor, Tower, TowerKind},
     plugins::{
         economy::EconomyPlugin, enemies::EnemiesPlugin, game::GamePlugin, map::MapPlugin,
         towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
@@ -238,6 +238,71 @@ fn fused_kind(app: &mut App) -> Option<TowerKind> {
     } else {
         Some(kind)
     }
+}
+
+/// HP of the single non-healer enemy (filters the healer out).
+fn non_healer_hp(app: &mut App) -> f32 {
+    let mut q = app.world_mut().query_filtered::<&Enemy, Without<Healer>>();
+    q.single(app.world()).expect("one non-healer enemy").hp
+}
+
+/// Capability card EN5 — acceptance: a living healer restores nearby damaged
+/// enemies; once the healer is gone the healing stops.
+#[test]
+fn healer_restores_nearby_enemies_and_stops_when_gone() {
+    let mut app = test_app();
+    let healer = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                hp: 45.0,
+                max_hp: 45.0,
+                speed: 0.0,
+                leak: 0,
+                kill_gold: 0,
+                physical_armor: false,
+                next_wp: 0,
+            },
+            Healer {
+                radius: 6.0,
+                period: 1.0,
+                heal_per_tick: 3.0,
+                tick_timer: 1.0,
+            },
+            Transform::from_xyz(0.0, 0.4, 0.0),
+        ))
+        .id();
+    app.world_mut().spawn((
+        Enemy {
+            hp: 10.0,
+            max_hp: 30.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            next_wp: 0,
+        },
+        Transform::from_xyz(2.0, 0.4, 0.0),
+    ));
+    // ~1.17s: exactly one heal tick (period 1s) reaches the damaged ally.
+    for _ in 0..70 {
+        app.update();
+    }
+    let healed = non_healer_hp(&mut app);
+    assert!(
+        (healed - 13.0).abs() < 0.01,
+        "one heal tick (+3) should bring hp 10 -> 13, got {healed}"
+    );
+    // Remove the healer: healing must stop.
+    assert!(app.world_mut().despawn(healer), "healer despawned");
+    for _ in 0..70 {
+        app.update();
+    }
+    let after = non_healer_hp(&mut app);
+    assert!(
+        (after - healed).abs() < 1e-6,
+        "healing must stop without the healer ({healed} -> {after})"
+    );
 }
 
 /// Capability card TO5 — acceptance: fusing two archers yields one Marksman and

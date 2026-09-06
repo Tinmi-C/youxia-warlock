@@ -79,6 +79,16 @@ pub struct Slow {
     pub factor: f32,
 }
 
+/// Healer aura (EN5): periodically restores hp of nearby damaged allies.
+/// Attached at spawn to enemies whose `EnemyDef::healer` is true.
+#[derive(Component)]
+pub struct Healer {
+    pub radius: f32,
+    pub period: f32, // seconds between heal ticks
+    pub heal_per_tick: f32,
+    pub tick_timer: f32,
+}
+
 /// One of the 8 buildable cells beside the path.
 #[derive(Component)]
 pub struct TowerSlot {

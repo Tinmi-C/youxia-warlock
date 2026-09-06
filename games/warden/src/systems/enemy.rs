@@ -1,10 +1,17 @@
-//! Enemies: spawn, movement along the path, leak (base damage), and kill
-//! (gold). Capability cards: EN1 (defs), EN2 (move/leak), EN3 (death/gold).
+//! Enemies: spawn, movement along the path, leak (base damage), kill (gold),
+//! and the healer aura (EN5).
+//! Capability cards: EN1 (defs), EN2 (move/leak), EN3 (death/gold), EN5 (healer).
 
 use bevy::prelude::*;
 
-use crate::components::{Enemy, Slow};
+use crate::components::{Enemy, Healer, Slow};
 use crate::resources::{BaseHp, Boosts, Economy, EnemyDefs, PathInfo, WaveState};
+
+/// EN5 starting values (requirements §9 gives no numbers — tunable on the
+/// balance card): heal 3 hp every second within 6 world units.
+const HEALER_RADIUS: f32 = 6.0;
+const HEALER_PERIOD: f32 = 1.0;
+const HEALER_HEAL_PER_TICK: f32 = 3.0;
 
 /// Spawn one enemy of archetype `index` at the path entry.
 pub fn spawn_enemy(
@@ -19,25 +26,37 @@ pub fn spawn_enemy(
         return;
     };
     let start = path.waypoints.first().copied().unwrap_or(Vec3::ZERO);
-    let color = if def.physical_armor {
+    let color = if def.healer {
+        Color::srgb(0.25, 0.75, 0.35) // healer: green so the aura is observable
+    } else if def.physical_armor {
         Color::srgb(0.55, 0.55, 0.6)
     } else {
         Color::srgb(0.8, 0.25, 0.25)
     };
-    commands.spawn((
-        Enemy {
-            hp: def.hp,
-            max_hp: def.hp,
-            speed: def.speed,
-            leak: def.leak,
-            kill_gold: def.kill_gold,
-            physical_armor: def.physical_armor,
-            next_wp: 1,
-        },
-        Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
-        MeshMaterial3d(materials.add(color)),
-        Transform::from_xyz(start.x, 0.4, start.z),
-    ));
+    let eid = commands
+        .spawn((
+            Enemy {
+                hp: def.hp,
+                max_hp: def.hp,
+                speed: def.speed,
+                leak: def.leak,
+                kill_gold: def.kill_gold,
+                physical_armor: def.physical_armor,
+                next_wp: 1,
+            },
+            Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
+            MeshMaterial3d(materials.add(color)),
+            Transform::from_xyz(start.x, 0.4, start.z),
+        ))
+        .id();
+    if def.healer {
+        commands.entity(eid).insert(Healer {
+            radius: HEALER_RADIUS,
+            period: HEALER_PERIOD,
+            heal_per_tick: HEALER_HEAL_PER_TICK,
+            tick_timer: HEALER_PERIOD,
+        });
+    }
 }
 
 /// Advance every live enemy toward its next waypoint. On reaching the last one
@@ -95,6 +114,31 @@ pub fn resolve_death(
             wave.active = wave.active.saturating_sub(1);
             commands.entity(eid).despawn();
             info!("[enemy] killed, gold={}", economy.gold);
+        }
+    }
+}
+
+/// EN5: healers periodically restore hp of nearby damaged allies (never
+/// themselves). Overheal is clamped to max_hp.
+pub fn heal_aura(
+    time: Res<Time>,
+    mut healers: Query<(Entity, &Transform, &mut Healer)>,
+    mut enemies: Query<(Entity, &mut Enemy, &Transform)>,
+) {
+    for (healer_e, htf, mut healer) in &mut healers {
+        healer.tick_timer -= time.delta_secs();
+        if healer.tick_timer > 0.0 {
+            continue;
+        }
+        healer.tick_timer = healer.period;
+        for (eid, mut enemy, etf) in &mut enemies {
+            if eid == healer_e || enemy.hp <= 0.0 || enemy.hp >= enemy.max_hp {
+                continue;
+            }
+            if htf.translation.distance(etf.translation) <= healer.radius {
+                enemy.hp = (enemy.hp + healer.heal_per_tick).min(enemy.max_hp);
+                info!("[enemy] healer aura -> hp={:.0}", enemy.hp);
+            }
         }
     }
 }

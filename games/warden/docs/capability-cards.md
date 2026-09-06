@@ -167,10 +167,14 @@
 - 验收句: 盾兵怪(hp90) 受 10 物理 → 扣 5（hp 85）；受 15 魔法 → 扣 15。已入 `tests/behavior.rs`
   （`physical_damage_halved_vs_armored_enemy` / `magic_damage_ignores_armor`）。
 
-### EN5 · 治疗怪回血（enemies）
+### EN5 · 治疗怪回血（enemies）—— ✅ 已实现（2026-09-04）
 - 接口: 输入 Healer + 周围敌；输出 敌方 hp 增加。
 - 行为: 治疗怪周期给周围敌回血。
-- 验收句: 治疗怪存活时，周围残血敌 hp 回升；治疗怪死亡后停止。
+- 实现: `Healer` 组件（`components.rs`）+ `heal_aura` 系统（`systems/enemy.rs`，挂 `GameSet::Simulate`）；
+  `spawn_enemy` 按 `def.healer` 挂组件，治疗怪绿色可视化（观察通道）。**起点值（requirements 未给数，balance 卡可调）**：
+  半径 6 / 每 1s 一跳 / 每跳 +3 hp，不过量治疗（clamp 到 max_hp），不治疗自己、不治疗尸体。
+- 验收句: 治疗怪存活时，周围残血敌 hp 回升（10→13 一跳）；治疗怪移除后停止。已入 `tests/behavior.rs`
+  （`healer_restores_nearby_enemies_and_stops_when_gone`）。
 
 ### AC1 · 开局手牌（acquisition）
 - 接口: 输入 塔池；输出 随机 2 座基础塔（≥1 座输出塔）。
