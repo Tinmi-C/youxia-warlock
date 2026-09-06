@@ -1,6 +1,6 @@
 //! UiPlugin: live HUD status line + the mouse shop bar.
-//! Capability cards: UI1 (shop), UI4 (HUD). The shop bar reads `Hand`, which
-//! AC1 deals at Startup — so it is built strictly after the deal.
+//! Capability cards: UI1 (shop), UI4 (HUD). The shop bar rebuilds itself from
+//! `Hand`/`ShopOffers` (AC1 deal / AC2 refresh / AC3 drops feed it).
 
 use bevy::prelude::*;
 
@@ -15,10 +15,12 @@ impl Plugin for UiPlugin {
         app.init_resource::<SelectedTower>()
             .add_systems(Startup, systems::hud::spawn_hud)
             .add_systems(
-                Startup,
-                systems::pointer::spawn_shop_bar
-                    .after(systems::acquisition::deal_opening_hand),
-            )
-            .add_systems(Update, systems::hud::update_hud.in_set(GameSet::Observe));
+                Update,
+                (
+                    systems::hud::update_hud,
+                    systems::pointer::refresh_shop_bar,
+                )
+                    .in_set(GameSet::Observe),
+            );
     }
 }

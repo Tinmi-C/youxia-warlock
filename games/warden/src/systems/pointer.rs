@@ -1,5 +1,7 @@
 //! Mouse-first interaction (UI1 + pointer place / point-select fusion).
-//!   - A bottom shop bar (bevy_ui) selects which owned base tower to build.
+//!   - A bottom shop bar (bevy_ui) shows the owned tower types (build mode) and
+//!     the current shop offers (buy to unlock, AC2); it rebuilds automatically
+//!     whenever the hand or the offer changes.
 //!   - Left click on a slot places the armed tower (Intermission only).
 //!   - Left click on a tower selects it as a fusion ingredient; clicking a second
 //!     tower fuses them if they match a recipe.
@@ -8,33 +10,64 @@
 //!
 //! Split into three small systems: Bevy caps a single system at 16 params.
 
+use std::collections::BTreeSet;
+
 use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::window::Window;
 
 use crate::components::{AttackType, FusionKind, ShopButton, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    BuildMode, Economy, FusionDefs, FusionSel, Hand, SelectedTower, TowerDefs, WavePhase, WaveState,
+    BuildMode, Economy, FusionDefs, FusionSel, Hand, SelectedTower, ShopOffers, TowerDefs,
+    WavePhase, WaveState,
 };
 
-/// Spawn the bottom shop bar: one button per owned base tower type.
-pub fn spawn_shop_bar(mut commands: Commands, defs: Res<TowerDefs>, hand: Res<Hand>) {
+/// Marker on the shop bar root so it can be despawned on rebuild (Bevy 0.19
+/// despawn removes children recursively).
+#[derive(Component)]
+pub struct ShopBarRoot;
+
+/// A bevy_ui shop offer button: buys (unlocks) that base tower type (AC2).
+#[derive(Component)]
+pub struct OfferButton {
+    pub tower_index: usize,
+}
+
+/// Spawn the bottom shop bar: owned types row (UI1) + offers row (AC2).
+fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand) {
+    // Dedupe for display: AC3 drops may push a type that is already owned.
+    let owned: Vec<usize> = hand
+        .owned_towers
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(12.0),
-            left: Val::Px(12.0),
-            flex_direction: FlexDirection::Row,
-            column_gap: Val::Px(8.0),
-            ..default()
-        })
-        .with_children(|parent| {
-            for &i in &hand.owned_towers {
-                let Some(def) = defs.list.get(i) else {
-                    continue;
-                };
-                parent
-                    .spawn((
+        .spawn((
+            ShopBarRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(12.0),
+                left: Val::Px(12.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(6.0),
+                ..default()
+            },
+        ))
+        .with_children(|root| {
+            // Row 1: owned types — click arms build mode (UI1).
+            root.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(8.0),
+                ..default()
+            })
+            .with_children(|row| {
+                for i in owned {
+                    let Some(def) = defs.list.get(i) else {
+                        continue;
+                    };
+                    row.spawn((
                         Button,
                         ShopButton { tower_index: i },
                         Interaction::None,
@@ -57,8 +90,66 @@ pub fn spawn_shop_bar(mut commands: Commands, defs: Res<TowerDefs>, hand: Res<Ha
                             TextColor(Color::WHITE),
                         ));
                     });
-            }
+                }
+            });
+            // Row 2: shop offers — click buys (unlocks) the type (AC2).
+            root.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(8.0),
+                ..default()
+            })
+            .with_children(|row| {
+                for &i in &offers.offers {
+                    let Some(def) = defs.list.get(i) else {
+                        continue;
+                    };
+                    row.spawn((
+                        Button,
+                        OfferButton { tower_index: i },
+                        Interaction::None,
+                        Node {
+                            width: Val::Px(96.0),
+                            height: Val::Px(40.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.45, 0.35, 0.15)),
+                    ))
+                    .with_children(|p| {
+                        p.spawn((
+                            Text::new(format!("[shop] {} {}g", def.name, def.cost)),
+                            TextFont {
+                                font_size: FontSize::Px(12.0),
+                                ..default()
+                            },
+                            TextColor(Color::srgb(1.0, 0.9, 0.6)),
+                        ));
+                    });
+                }
+            });
         });
+}
+
+/// Rebuild the shop bar whenever the hand or the offer changes (AC1 deal /
+/// AC2 refresh / AC3 drops / AC4 get-tower). Cached key avoids per-frame work.
+pub fn refresh_shop_bar(
+    mut commands: Commands,
+    defs: Res<TowerDefs>,
+    offers: Res<ShopOffers>,
+    hand: Res<Hand>,
+    mut cache: Local<(u32, usize)>,
+    roots: Query<Entity, With<ShopBarRoot>>,
+) {
+    let key = (offers.version, hand.owned_towers.len());
+    if *cache == key {
+        return;
+    }
+    *cache = key;
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
+    build_shop_bar(&mut commands, &defs, &offers, &hand);
 }
 
 /// A pressed shop button arms build mode with that tower type.
@@ -73,6 +164,42 @@ pub fn handle_shop_buttons(
             build.armed = true;
             info!("[mouse] build mode armed for tower {}", btn.tower_index);
         }
+    }
+}
+
+/// AC2: clicking an offer buys (unlocks) that base tower type. The purchase
+/// pays the tower cost once; each later placement of the unlocked type still
+/// pays per build (TO2 rule unchanged).
+pub fn handle_offer_buttons(
+    mut q: Query<(&Interaction, &OfferButton), Changed<Interaction>>,
+    defs: Res<TowerDefs>,
+    mut economy: ResMut<Economy>,
+    mut hand: ResMut<Hand>,
+) {
+    for (inter, btn) in &mut q {
+        if *inter != Interaction::Pressed {
+            continue;
+        }
+        if hand.owned_towers.contains(&btn.tower_index) {
+            info!("[mouse] offer {}: already owned", btn.tower_index);
+            continue;
+        }
+        let Some(def) = defs.list.get(btn.tower_index) else {
+            continue;
+        };
+        if economy.gold < def.cost {
+            info!(
+                "[mouse] offer {}: not enough gold ({} < {})",
+                def.name, economy.gold, def.cost
+            );
+            continue;
+        }
+        economy.gold -= def.cost;
+        hand.owned_towers.push(btn.tower_index);
+        info!(
+            "[mouse] bought {} for {} (hand {:?})",
+            def.name, def.cost, hand.owned_towers
+        );
     }
 }
 

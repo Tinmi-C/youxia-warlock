@@ -329,6 +329,25 @@ pub struct Boosts {
     pub kill_mult: f32,
 }
 
+/// The between-waves shop offer (AC2): 3 base-tower types refreshed each
+/// intermission; while the player does not own all four, at least one offer is
+/// a type they do not own yet. `version` bumps on every refresh so the UI can
+/// detect when to rebuild.
+#[derive(Resource)]
+pub struct ShopOffers {
+    pub offers: Vec<usize>,
+    pub version: u32,
+}
+
+impl Default for ShopOffers {
+    fn default() -> Self {
+        Self {
+            offers: Vec::new(),
+            version: 0,
+        }
+    }
+}
+
 impl Default for Boosts {
     fn default() -> Self {
         Self {

@@ -44,6 +44,7 @@ impl Plugin for GamePlugin {
                 systems::input::choose_choice.in_set(GameSet::Input),
                 systems::input::start_next_wave.in_set(GameSet::Input),
                 systems::pointer::handle_shop_buttons.in_set(GameSet::Input),
+                systems::pointer::handle_offer_buttons.in_set(GameSet::Input),
                 systems::pointer::mouse_cancel.in_set(GameSet::Input),
                 systems::pointer::mouse_place_system.in_set(GameSet::Input),
                 systems::pointer::mouse_fuse_system.in_set(GameSet::Input),

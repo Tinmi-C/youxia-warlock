@@ -1,10 +1,12 @@
 //! AcquisitionPlugin: how towers enter the player's pool (requirements §8).
-//! Capability cards: AC1 (opening hand; AC2 shop / AC3 drops fill this in).
-//! Resource ownership: `Hand` and `RunRng` live here; the UI reads them.
+//! Capability cards: AC1 (opening hand), AC2 (shop refresh; AC3 drops fill
+//! this in). Resource ownership: `Hand`, `RunRng`, `ShopOffers` live here.
 
 use bevy::prelude::*;
 
-use crate::resources::{Hand, RunRng};
+use crate::resources::{Hand, RunRng, ShopOffers};
+use crate::sets::GameSet;
+use crate::states::GameState;
 use crate::systems;
 
 pub struct AcquisitionPlugin;
@@ -13,6 +15,18 @@ impl Plugin for AcquisitionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RunRng>()
             .init_resource::<Hand>()
-            .add_systems(Startup, systems::acquisition::deal_opening_hand);
+            .init_resource::<ShopOffers>()
+            .add_systems(Startup, systems::acquisition::deal_opening_hand)
+            .add_systems(
+                Startup,
+                systems::acquisition::setup_shop_offers
+                    .after(systems::acquisition::deal_opening_hand),
+            )
+            .add_systems(
+                Update,
+                systems::acquisition::refresh_shop_on_intermission
+                    .in_set(GameSet::Observe)
+                    .run_if(in_state(GameState::Playing)),
+            );
     }
 }

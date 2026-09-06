@@ -137,7 +137,7 @@
 - 行为: 底部 bevy_ui 商店栏按钮（每座已拥有基础塔一颗），点它进入建造模式；左键点塔位放置（仅经营期）。
 - 实现（2026-09-03）：`systems/pointer.rs`（`spawn_shop_bar`/`handle_shop_buttons`/`mouse_input`）+ 世界坐标拾取（`Camera::world_to_viewport` 屏幕投影→最近塔位/塔）。左键点塔=选塔，再点另一塔配方匹配即融合；右键取消。
 - 验收句: 点商店按钮→建造模式；左键点空格→扣钱占格；金不足/占格→不放置。已按鼠标为主、键盘为辅实现。
-- ⚠️ 占位/后续：商店栏在 Startup 按初始手牌生成（新获得塔暂不自动加按钮，后续 polish）；塔位悬停高亮未做。
+- ⚠️ 占位/后续：~~商店栏在 Startup 按初始手牌生成~~ 已改为按 Hand/ShopOffers 变化自动重建（AC2）；塔位悬停高亮未做。
 
 ### UI4 · HUD（ui）
 - 接口: 读 Economy/波/基地；输出 顶部/底部文字。
@@ -185,10 +185,16 @@
 - 验收句: 多次开局（32 个种子全量扫描），每次手牌都含 ≥1 座 {弓箭手,炮塔}，且共 2 座互不重复。已入 `tests/behavior.rs`
   （`opening_hand_has_two_distinct_towers_with_output_guarantee`）。
 
-### AC2 · 商店保底（acquisition）
+### AC2 · 商店保底（acquisition）—— ✅ 已实现（2026-09-04）
 - 接口: 输入 玩家已有基础塔；输出 每波商店刷新，保底 1 种未拥有基础塔。
 - 行为: 波次间刷新；保证玩家未拥有的基础塔至少出现 1 种。
-- 验收句: 玩家未拥有弓箭手时，商店刷新后必含弓箭手；已全拥有则无保底约束。
+- 实现: `ShopOffers{offers,version}` 资源 + `systems/acquisition.rs`（`refresh_shop_offers` 核心 / `setup_shop_offers`
+  Startup 首刷 / `refresh_shop_on_intermission` 挂 `GameSet::Observe`，波次清完回 Intermission 即刷新）；
+  UI 侧商店栏改为**按 Hand/ShopOffers 变化自动重建**（`pointer.rs::refresh_shop_bar`，缓存 key 防每帧重建），
+  新增第二行「商店」报价按钮（`OfferButton`，点击=花塔价解锁该类型进手牌；之后每次放置仍按 TO2 扣建造费——
+  解锁费与建造费分离是起点设计，balance 卡可调）。
+- 验收句: 玩家未拥有弓箭手时，商店刷新后必含弓箭手；已全拥有则无保底约束。已入 `tests/behavior.rs`
+  （`shop_refresh_guarantees_unowned_type` 32 种子扫描 / `wave_resolve_refreshes_shop_offer`）。
 
 ### AC3 · 掉落塔牌（acquisition）
 - 接口: 输入 击杀事件；输出 掉落塔牌（精英/BOSS 必掉；普通波 10%）。

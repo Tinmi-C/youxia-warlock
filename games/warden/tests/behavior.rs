@@ -18,7 +18,7 @@ use warden::{
     },
     resources::{
         BaseHp, Boosts, ChoiceKind, ChoiceOption, Economy, Hand, RunRng, SelectedTower,
-        TowerDefs, WaveChoice, WavePhase, WaveState,
+        ShopOffers, TowerDefs, WaveChoice, WavePhase, WaveState,
     },
     states::GameState,
 };
@@ -170,6 +170,52 @@ fn opening_hand_has_two_distinct_towers_with_output_guarantee() {
             "seed {seed}: at least one output tower"
         );
     }
+}
+
+/// Capability card AC2 — acceptance: while the player does not own all four
+/// base towers, every shop refresh offers at least one un-owned type.
+#[test]
+fn shop_refresh_guarantees_unowned_type() {
+    for seed in 0..32u64 {
+        let mut app = test_app();
+        app.world_mut().insert_resource(RunRng::seeded(seed));
+        app.update(); // Startup: deal + initial offer
+        let hand = app.world().resource::<Hand>();
+        let shop = app.world().resource::<ShopOffers>();
+        assert_eq!(shop.offers.len(), 3, "seed {seed}: exactly three offers");
+        let owns_all = (0..4).all(|t| hand.owned_towers.contains(&t));
+        if !owns_all {
+            assert!(
+                shop.offers.iter().any(|t| !hand.owned_towers.contains(t)),
+                "seed {seed}: offer must contain an un-owned type (hand={:?} offers={:?})",
+                hand.owned_towers,
+                shop.offers
+            );
+        }
+    }
+}
+
+/// Capability card AC2 — acceptance: clearing a wave (back to Intermission)
+/// refreshes the shop offer.
+#[test]
+fn wave_resolve_refreshes_shop_offer() {
+    let mut app = test_app();
+    app.update(); // startup: initial offer
+    let v0 = app.world().resource::<ShopOffers>().version;
+    {
+        let mut ws = app.world_mut().resource_mut::<WaveState>();
+        ws.current = 0;
+        ws.phase = WavePhase::Combat;
+        ws.spawn_queue.clear();
+        ws.active = 0;
+    }
+    app.update(); // wave resolves -> Intermission -> offer refreshes
+    let shop = app.world().resource::<ShopOffers>();
+    assert!(shop.version > v0, "offer must refresh after a wave clears");
+    assert_eq!(
+        app.world().resource::<WaveState>().phase,
+        WavePhase::Intermission
+    );
 }
 
 /// Capability card TO3/TO4 — acceptance: a tower within range fires at the
