@@ -218,6 +218,37 @@ fn wave_resolve_refreshes_shop_offer() {
     );
 }
 
+/// requirements §9 anchor — acceptance: an ordinary enemy (speed 1.0) crosses
+/// the L-shaped path (43 world units) in ≈20 s; leaks cost 1 base hp.
+#[test]
+fn ordinary_enemy_crosses_path_in_about_twenty_seconds() {
+    let mut app = test_app();
+    app.update(); // startup: PathInfo + systems live
+    {
+        let mut ws = app.world_mut().resource_mut::<WaveState>();
+        ws.phase = WavePhase::Combat;
+        ws.spawn_queue.push_back(0); // one ordinary enemy
+        ws.spawn_timer = 0.0;
+    }
+    app.update(); // spawns the enemy at the path entry
+    let mut frames = 0;
+    while frames < 2400 && app.world().resource::<BaseHp>().hp == 10 {
+        app.update();
+        frames += 1;
+    }
+    assert!(frames > 0, "the enemy should reach the base and leak");
+    let elapsed = app.world().resource::<Time>().elapsed_secs();
+    assert_eq!(
+        app.world().resource::<BaseHp>().hp,
+        9,
+        "an ordinary leak costs exactly 1 base hp"
+    );
+    assert!(
+        (elapsed - 20.0).abs() < 1.0,
+        "ordinary enemy should cross the path in ≈20s (§9 anchor), took {elapsed:.2}s"
+    );
+}
+
 /// Dead ordinary enemy spawn helper for the drop tests.
 fn spawn_dead_normal(app: &mut App) {
     app.world_mut().spawn((

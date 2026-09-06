@@ -13,6 +13,11 @@ const HEALER_RADIUS: f32 = 6.0;
 const HEALER_PERIOD: f32 = 1.0;
 const HEALER_HEAL_PER_TICK: f32 = 3.0;
 
+/// requirements §9 anchor: speed 1.0 should cross the entry->base path in
+/// ~20 seconds. The per-point unit rate is derived from the actual path length
+/// at spawn time, so changing the map keeps the anchor meaningful.
+const ANCHOR_TRAVERSE_SECS: f32 = 20.0;
+
 /// Spawn one enemy of archetype `index` at the path entry.
 pub fn spawn_enemy(
     commands: &mut Commands,
@@ -26,6 +31,14 @@ pub fn spawn_enemy(
         return;
     };
     let start = path.waypoints.first().copied().unwrap_or(Vec3::ZERO);
+    // §9 anchor calibration (2026-09-04): def.speed is a multiplier; the world
+    // rate comes from the path length so speed 1.0 traverses it in ~20 s.
+    let path_len: f32 = path
+        .waypoints
+        .windows(2)
+        .map(|w| w[0].distance(w[1]))
+        .sum();
+    let units_per_point = path_len / ANCHOR_TRAVERSE_SECS;
     let color = if def.healer {
         Color::srgb(0.25, 0.75, 0.35) // healer: green so the aura is observable
     } else if def.physical_armor {
@@ -38,7 +51,7 @@ pub fn spawn_enemy(
             Enemy {
                 hp: def.hp,
                 max_hp: def.hp,
-                speed: def.speed,
+                speed: def.speed * units_per_point,
                 leak: def.leak,
                 kill_gold: def.kill_gold,
                 physical_armor: def.physical_armor,
