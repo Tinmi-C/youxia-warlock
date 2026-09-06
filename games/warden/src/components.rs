@@ -50,6 +50,7 @@ pub struct Enemy {
     pub leak: u32,          // base HP lost when this enemy reaches the base
     pub kill_gold: u32,     // gold earned when this enemy dies
     pub physical_armor: bool, // shield enemy: physical damage -50%
+    pub def_index: usize,   // archetype index into EnemyDefs (AC3 drop rules)
     pub next_wp: usize,     // index of the next waypoint to head toward
 }
 

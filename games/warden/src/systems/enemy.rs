@@ -42,6 +42,7 @@ pub fn spawn_enemy(
                 leak: def.leak,
                 kill_gold: def.kill_gold,
                 physical_armor: def.physical_armor,
+                def_index: index,
                 next_wp: 1,
             },
             Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),

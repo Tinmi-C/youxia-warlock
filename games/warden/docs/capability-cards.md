@@ -196,10 +196,16 @@
 - 验收句: 玩家未拥有弓箭手时，商店刷新后必含弓箭手；已全拥有则无保底约束。已入 `tests/behavior.rs`
   （`shop_refresh_guarantees_unowned_type` 32 种子扫描 / `wave_resolve_refreshes_shop_offer`）。
 
-### AC3 · 掉落塔牌（acquisition）
+### AC3 · 掉落塔牌（acquisition）—— ✅ 已实现（2026-09-04）
 - 接口: 输入 击杀事件；输出 掉落塔牌（精英/BOSS 必掉；普通波 10%）。
 - 行为: 击杀精英/BOSS 必掉 1 张；普通击杀按 10% 概率掉；掉落池=全塔池。
-- 验收句: 击杀精英必出 1 张塔牌；普通击杀 100 次掉落在约 10 次（±3σ 容差）。
+- 实现: `Enemy.def_index` 数据位 + `systems/acquisition.rs::roll_drops`（挂 `GameSet::Cleanup`、显式先于
+  `resolve_death`，直接读 hp≤0 尸体，无需消息）；走 `RunRng` 可种子化。
+- ⚠️ **需求冲突待拍板**：requirements §8 写「掉落池=全塔池（含高级塔）」，但 §7.1 明确「融合结果只能融合获得，
+  商店不卖、不掉落」——两条矛盾。现按更具体的 §7.1 执行：掉落池=4 基础塔；且掉落**优先补未拥有类型**
+  （牌池有空缺时掉落永不浪费，全拥有后才可能重复）。请设计负责人裁决后改文档。
+- 验收句: 击杀精英必出 1 张塔牌（8 种子全过）；普通击杀 200 次掉落在 ≈20 次（±3σ 带）。已入 `tests/behavior.rs`
+  （`elite_kill_always_drops_tower_card` / `normal_kills_drop_about_ten_percent`）。
 
 ### AC4 · 三选一（acquisition/ui）—— ✅ 已实现（简化）
 - 接口: 输入 波结算 + 已有塔；输出 3 个选项（塔强化/金币/得塔），避重避已有。选择挂起时禁开下一波。

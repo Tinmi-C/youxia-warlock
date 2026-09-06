@@ -1,6 +1,6 @@
 //! AcquisitionPlugin: how towers enter the player's pool (requirements §8).
-//! Capability cards: AC1 (opening hand), AC2 (shop refresh; AC3 drops fill
-//! this in). Resource ownership: `Hand`, `RunRng`, `ShopOffers` live here.
+//! Capability cards: AC1 (opening hand), AC2 (shop refresh), AC3 (kill drops).
+//! Resource ownership: `Hand`, `RunRng`, `ShopOffers` live here.
 
 use bevy::prelude::*;
 
@@ -26,6 +26,14 @@ impl Plugin for AcquisitionPlugin {
                 Update,
                 systems::acquisition::refresh_shop_on_intermission
                     .in_set(GameSet::Observe)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            // Drops read dead enemies before resolve_death despawns them.
+            .add_systems(
+                Update,
+                systems::acquisition::roll_drops
+                    .in_set(GameSet::Cleanup)
+                    .before(systems::enemy::resolve_death)
                     .run_if(in_state(GameState::Playing)),
             );
     }

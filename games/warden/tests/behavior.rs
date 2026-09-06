@@ -218,6 +218,74 @@ fn wave_resolve_refreshes_shop_offer() {
     );
 }
 
+/// Dead ordinary enemy spawn helper for the drop tests.
+fn spawn_dead_normal(app: &mut App) {
+    app.world_mut().spawn((
+        Enemy {
+            hp: 0.0,
+            max_hp: 30.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            def_index: 0,
+            next_wp: 0,
+        },
+        Transform::from_xyz(0.0, 0.4, 0.0),
+    ));
+}
+
+/// Capability card AC3 — acceptance: an elite kill ALWAYS drops a tower card.
+#[test]
+fn elite_kill_always_drops_tower_card() {
+    for seed in 0..8u64 {
+        let mut app = test_app();
+        app.world_mut().insert_resource(RunRng::seeded(seed));
+        app.update(); // startup: deal gives 2 types
+        let before = app.world().resource::<Hand>().owned_towers.len();
+        app.world_mut().spawn((
+            Enemy {
+                hp: 0.0,
+                max_hp: 200.0,
+                speed: 0.0,
+                leak: 0,
+                kill_gold: 0,
+                physical_armor: false,
+                def_index: 4, // elite
+                next_wp: 0,
+            },
+            Transform::from_xyz(0.0, 0.4, 0.0),
+        ));
+        app.update(); // roll_drops sees the corpse, then resolve_death cleans it
+        let hand = app.world().resource::<Hand>();
+        assert_eq!(
+            hand.owned_towers.len(),
+            before + 1,
+            "seed {seed}: elite kill must drop exactly one card"
+        );
+    }
+}
+
+/// Capability card AC3 — acceptance: normal kills drop ~10% of the time
+/// (200 kills -> ~20 drops, asserted within a 3-sigma band of ±13).
+#[test]
+fn normal_kills_drop_about_ten_percent() {
+    let mut app = test_app();
+    app.world_mut().insert_resource(RunRng::seeded(2024));
+    app.update(); // startup: deal
+    let mut drops: u32 = 0;
+    for _ in 0..200 {
+        spawn_dead_normal(&mut app);
+        let before = app.world().resource::<Hand>().owned_towers.len() as u32;
+        app.update();
+        drops += app.world().resource::<Hand>().owned_towers.len() as u32 - before;
+    }
+    assert!(
+        (20.0 - drops as f32).abs() <= 13.0,
+        "200 normal kills should drop ~20 cards (3-sigma band 20±13), got {drops}"
+    );
+}
+
 /// Capability card TO3/TO4 — acceptance: a tower within range fires at the
 /// nearest enemy, dealing its damage (cooldown resets to 1/attack_speed).
 #[test]
@@ -247,6 +315,7 @@ fn tower_fires_at_enemy_in_range() {
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
+            def_index: 0,
             next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
@@ -269,6 +338,7 @@ fn leaked_enemy_deducts_base_hp() {
             leak: 1,
             kill_gold: 0,
             physical_armor: false,
+            def_index: 0,
             next_wp: 4, // == waypoints.len(), so it counts as reached the base
         },
         Transform::from_xyz(12.0, 0.4, -9.0),
@@ -339,6 +409,7 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
                 leak: 0,
                 kill_gold: 0,
                 physical_armor: false,
+                def_index: 3,
                 next_wp: 0,
             },
             Healer {
@@ -358,6 +429,7 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
+            def_index: 0,
             next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.4, 0.0),
@@ -492,6 +564,7 @@ fn physical_damage_halved_vs_armored_enemy() {
             leak: 0,
             kill_gold: 0,
             physical_armor: true,
+            def_index: 2,
             next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
@@ -533,6 +606,7 @@ fn magic_damage_ignores_armor() {
             leak: 0,
             kill_gold: 0,
             physical_armor: true,
+            def_index: 2,
             next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),

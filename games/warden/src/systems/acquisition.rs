@@ -5,7 +5,11 @@
 use bevy::prelude::*;
 use rand::RngExt; // rand 0.10: random_range / random_bool live on RngExt
 
+use crate::components::Enemy;
 use crate::resources::{Hand, RunRng, ShopOffers, WavePhase, WaveState};
+
+/// Chance for a normal kill to drop a tower card (requirements §8 / AC3).
+const NORMAL_DROP_CHANCE: f32 = 0.10;
 
 /// AC1: deal the opening hand — 2 distinct random base towers, guaranteeing
 /// >=1 output tower (archer 0 / cannon 3) so a run can't start unkillable.
@@ -67,4 +71,36 @@ pub fn refresh_shop_on_intermission(
         return;
     }
     refresh_shop_offers(&mut shop, &hand, &mut rng);
+}
+
+/// AC3: kill drops. Elite (4) / boss (5) kills always drop a tower card; every
+/// other kill drops with a 10% chance. The card unlocks a random base tower
+/// type — preferring un-owned types so a drop never fizzles while the pool has
+/// gaps (fusion-result towers stay fusion-only per requirements §7.1, which is
+/// more specific than §8's "全塔池" wording; flag for the design owner).
+pub fn roll_drops(
+    enemies: Query<&Enemy>,
+    mut hand: ResMut<Hand>,
+    mut rng: ResMut<RunRng>,
+) {
+    for enemy in &enemies {
+        if enemy.hp > 0.0 {
+            continue; // alive; corpses are despawned by resolve_death after this
+        }
+        let guaranteed = matches!(enemy.def_index, 4 | 5);
+        if !(guaranteed || rng.0.random::<f32>() < NORMAL_DROP_CHANCE) {
+            continue;
+        }
+        let unowned: Vec<usize> = (0..4).filter(|t| !hand.owned_towers.contains(t)).collect();
+        let tower = if unowned.is_empty() {
+            rng.0.random_range(0..4usize) // pool exhausted: any type (dup possible)
+        } else {
+            unowned[rng.0.random_range(0..unowned.len())]
+        };
+        hand.owned_towers.push(tower);
+        info!(
+            "[acquisition] drop! tower {tower} (guaranteed={guaranteed}, hand {:?})",
+            hand.owned_towers
+        );
+    }
 }
