@@ -37,7 +37,7 @@ games/<game-name>/
 
 | 项目 | 说明 |
 |------|------|
-| `warden/` | 新立项：塔防游戏（Bevy 0.19，能力卡驱动） |
+| `warden/` | 塔防游戏（Bevy 0.19，能力卡驱动）：灰盒 MVP 全量可玩一局（5 塔来源+融合+Meta+中文面板 UI），23 断言全绿 |
 | `wave-survival/` | 当前主线，成品向开发中 |
 | `bevy-spike/` | Bevy 0.19 冒烟验证（ADR-0004 证据） |
 | `m2-bevy/` | bevy_ecs 迁移教学存档 |

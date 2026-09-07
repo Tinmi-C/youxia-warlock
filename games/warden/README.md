@@ -40,7 +40,7 @@ src/
     enemy.rs       # 敌人沿路径移动/漏怪/死亡金币（EN1/2/3）
     tower.rs       # 塔自动开火/索敌/护甲（TO3/TO4）
     wave.rs        # 波次生成/结算/输赢（WA1/2/3）
-    input.rs       # 选塔/放置/开波控制（键盘，UI1 以 bevy_ui 商店为后续卡）
+    input.rs       # 选塔/放置/开波/三选一控制（键盘快捷键；鼠标主流程在 pointer.rs）
     hud.rs         # 实时状态行（UI4）
 tests/
   behavior.rs      # 行为一致性回归测试（验收闭环的可执行化）
