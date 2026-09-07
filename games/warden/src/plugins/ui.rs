@@ -1,6 +1,8 @@
-//! UiPlugin: live HUD status line + the mouse shop bar.
-//! Capability cards: UI1 (shop), UI4 (HUD). The shop bar rebuilds itself from
-//! `Hand`/`ShopOffers` (AC1 deal / AC2 refresh / AC3 drops feed it).
+//! UiPlugin: live HUD status line + the mouse shop bar + the UI2 panels
+//! (start-wave button, choice cards, tower info + range ring).
+//! Capability cards: UI1 (shop), UI2 (panel + Chinese copy), UI4 (HUD). The
+//! shop bar rebuilds itself from `Hand`/`ShopOffers` (AC1 deal / AC2 refresh /
+//! AC3 drops feed it).
 
 use bevy::prelude::*;
 
@@ -19,6 +21,9 @@ impl Plugin for UiPlugin {
                 (
                     systems::hud::update_hud,
                     systems::pointer::refresh_shop_bar,
+                    systems::pointer::refresh_control_bar,
+                    systems::pointer::refresh_choice_cards,
+                    systems::pointer::refresh_tower_info,
                 )
                     .in_set(GameSet::Observe),
             );

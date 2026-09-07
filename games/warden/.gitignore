@@ -1,1 +1,5 @@
 /target
+
+# runtime meta save + screenshots (ME1/UI), never commit
+/meta_save.txt
+/screenshot.png

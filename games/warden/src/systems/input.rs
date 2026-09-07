@@ -65,6 +65,16 @@ pub fn choose_choice(
     let Some(i) = idx else {
         return;
     };
+    apply_choice(&mut choice, &mut boosts, &mut hand, i);
+}
+
+/// Shared choice application for the digit keys and the UI choice cards (UI2).
+pub fn apply_choice(
+    choice: &mut WaveChoice,
+    boosts: &mut Boosts,
+    hand: &mut Hand,
+    i: usize,
+) {
     let Some(opt) = choice.options.get(i) else {
         return;
     };
@@ -167,8 +177,8 @@ pub fn place_tower(
     }
 }
 
-/// Space begins the next wave (only from Intermission). Builds the spawn queue
-/// from the current wave config and flips the phase to Combat.
+/// Space begins the next wave (only from Intermission). Delegates to the shared
+/// `try_start_wave` so the on-screen button (UI2) behaves identically.
 pub fn start_next_wave(
     keys: Res<ButtonInput<KeyCode>>,
     mut wave: ResMut<WaveState>,
@@ -176,15 +186,28 @@ pub fn start_next_wave(
     choice: Res<WaveChoice>,
     state: Res<State<GameState>>,
 ) {
-    if !keys.just_pressed(KeyCode::Space)
-        || wave.phase != WavePhase::Intermission
+    if !keys.just_pressed(KeyCode::Space) {
+        return;
+    }
+    try_start_wave(&mut wave, &schedule, &choice, &state);
+}
+
+/// Shared wave-start logic for the Space key and the "开始下一波" button (UI2).
+/// Returns true when the wave actually started.
+pub fn try_start_wave(
+    wave: &mut WaveState,
+    schedule: &WaveSchedule,
+    choice: &WaveChoice,
+    state: &State<GameState>,
+) -> bool {
+    if wave.phase != WavePhase::Intermission
         || choice.pending
         || *state.get() != GameState::Playing
     {
-        return;
+        return false;
     }
     if (wave.current as usize) >= schedule.waves.len() {
-        return;
+        return false;
     }
     let wave_def = &schedule.waves[wave.current as usize];
     let mut q = VecDeque::new();
@@ -198,6 +221,7 @@ pub fn start_next_wave(
     wave.active = 0;
     wave.spawn_timer = 0.0;
     info!("[wave] wave {} started", wave.current + 1);
+    true
 }
 
 /// F fuses the first matching pair of field towers (TO5). Two ingredient towers

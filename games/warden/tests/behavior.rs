@@ -10,6 +10,7 @@ use bevy::{
     time::TimeUpdateStrategy,
 };
 
+use warden::systems::pointer;
 use warden::{
     components::{AttackType, Enemy, FusionKind, Healer, PlacementCursor, Tower, TowerKind},
     plugins::{
@@ -597,7 +598,7 @@ fn choosing_stat_boost_applies_damage_mult() {
     {
         let mut choice = app.world_mut().resource_mut::<WaveChoice>();
         choice.options = vec![ChoiceOption {
-            label: "x",
+            label: "x".to_string(),
             kind: ChoiceKind::StatBoost { tower_type: 2 },
         }];
         choice.pending = true;
@@ -609,6 +610,77 @@ fn choosing_stat_boost_applies_damage_mult() {
     let boosts = app.world().resource::<Boosts>();
     assert!((boosts.damage_mult[2] - 1.2).abs() < 1e-6, "mage damage should be +20%");
     assert!(!app.world().resource::<WaveChoice>().pending, "choice consumed");
+}
+
+/// Capability card UI2 — acceptance: the on-screen "开始下一波" button starts the
+/// wave exactly like the Space key, and a pending three-choose-one blocks it.
+#[test]
+fn start_wave_button_click_starts_wave_like_space() {
+    let mut app = test_app();
+    app.update(); // startup: deal hand etc.
+    // A pending choice blocks the button click.
+    app.world_mut().resource_mut::<WaveChoice>().pending = true;
+    app.world_mut().spawn((
+        pointer::StartWaveButton,
+        bevy::ui::Interaction::Pressed,
+    ));
+    app.update();
+    assert_eq!(
+        app.world().resource::<WaveState>().phase,
+        WavePhase::Intermission,
+        "the start button must be a no-op while a choice is pending"
+    );
+    // Choose, then click the button: the wave must start like Space would.
+    app.world_mut().resource_mut::<WaveChoice>().pending = false;
+    app.world_mut().spawn((
+        pointer::StartWaveButton,
+        bevy::ui::Interaction::Pressed,
+    ));
+    app.update();
+    let wave = app.world().resource::<WaveState>();
+    assert_eq!(wave.phase, WavePhase::Combat, "button click must start the wave");
+    // The spawn system runs in the same frame right after Input, so the first
+    // enemy is already out the door: total (queued + active) must be 5.
+    assert_eq!(
+        wave.spawn_queue.len() + wave.active as usize,
+        5,
+        "wave 1 totals 5 enemies (same as Space)"
+    );
+    assert_eq!(wave.active, 1, "first enemy spawns on the starting frame");
+}
+
+/// Capability card UI2 — acceptance: clicking a three-choose-one card applies
+/// that option and closes the choice, exactly like pressing its digit key.
+#[test]
+fn choice_card_click_applies_option_and_closes() {
+    let mut app = test_app();
+    app.update();
+    {
+        let mut choice = app.world_mut().resource_mut::<WaveChoice>();
+        choice.options = vec![
+            ChoiceOption {
+                label: "弓箭手塔 伤害 +20%".to_string(),
+                kind: ChoiceKind::StatBoost { tower_type: 0 },
+            },
+            ChoiceOption {
+                label: "击杀金币 +20%".to_string(),
+                kind: ChoiceKind::GoldBoost,
+            },
+            ChoiceOption {
+                label: "获得 炮塔（入手牌）".to_string(),
+                kind: ChoiceKind::GetTower { tower_type: 3 },
+            },
+        ];
+        choice.pending = true;
+    }
+    app.world_mut().spawn((
+        pointer::ChoiceCardButton { index: 1 },
+        bevy::ui::Interaction::Pressed,
+    ));
+    app.update();
+    assert!(!app.world().resource::<WaveChoice>().pending, "card click consumed the choice");
+    let boosts = app.world().resource::<Boosts>();
+    assert!((boosts.kill_mult - 1.2).abs() < 1e-6, "gold-boost card must apply kill_mult");
 }
 
 /// Capability card EN4 — acceptance: physical damage is halved against an

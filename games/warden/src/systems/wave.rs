@@ -5,8 +5,8 @@
 use bevy::prelude::*;
 
 use crate::resources::{
-    BaseHp, ChoiceKind, ChoiceOption, Economy, EnemyDefs, Hand, PathInfo, WaveChoice, WavePhase,
-    WaveSchedule, WaveState,
+    BaseHp, ChoiceKind, ChoiceOption, Economy, EnemyDefs, Hand, PathInfo, TowerDefs, WaveChoice,
+    WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
 use crate::systems::enemy::spawn_enemy;
@@ -47,6 +47,7 @@ pub fn wave_spawn(
 pub fn wave_resolve(
     mut wave: ResMut<WaveState>,
     schedule: Res<WaveSchedule>,
+    defs: Res<TowerDefs>,
     mut economy: ResMut<Economy>,
     hand: Res<Hand>,
     mut choice: ResMut<WaveChoice>,
@@ -67,13 +68,14 @@ pub fn wave_resolve(
         next.set(GameState::Win);
         info!("[wave] all waves cleared -> Win");
     } else {
-        generate_choices(&mut *choice, &*hand, wave.current);
+        generate_choices(&mut *choice, &*defs, &*hand, wave.current);
     }
 }
 
 /// Build a deterministic 3-option choice (AC4). Full randomness is a polish card;
 /// this guarantees 3 distinct options and a get-tower that avoids owned towers.
-fn generate_choices(choice: &mut WaveChoice, hand: &Hand, salt: u32) {
+/// Labels are Chinese (UI2) and embed the affected tower's display name.
+fn generate_choices(choice: &mut WaveChoice, defs: &TowerDefs, hand: &Hand, salt: u32) {
     let stat_type = base_type(salt, 0);
     let mut get_type = base_type(salt, 2);
     // Avoid handing out a tower the player already owns.
@@ -84,15 +86,15 @@ fn generate_choices(choice: &mut WaveChoice, hand: &Hand, salt: u32) {
     }
     choice.options = vec![
         ChoiceOption {
-            label: "Tower damage +20%",
+            label: format!("{} 伤害 +20%", defs.list[stat_type].label),
             kind: ChoiceKind::StatBoost { tower_type: stat_type },
         },
         ChoiceOption {
-            label: "Kill gold +20%",
+            label: "击杀金币 +20%".to_string(),
             kind: ChoiceKind::GoldBoost,
         },
         ChoiceOption {
-            label: "Get a tower",
+            label: format!("获得 {}（入手牌）", defs.list[get_type].label),
             kind: ChoiceKind::GetTower { tower_type: get_type },
         },
     ];

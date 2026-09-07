@@ -1,14 +1,17 @@
-//! Mouse-first interaction (UI1 + pointer place / point-select fusion).
+//! Mouse-first interaction (UI1 + pointer place / point-select fusion, UI2 panel).
 //!   - A bottom shop bar (bevy_ui) shows the owned tower types (build mode) and
 //!     the current shop offers (buy to unlock, AC2); it rebuilds automatically
-//!     whenever the hand or the offer changes.
+//!     whenever the hand, the offer, or gold changes; unaffordable cards grey out.
+//!   - A control bar (bottom right) hosts the "开始下一波" start-wave button (UI2).
+//!   - Pending three-choose-one options appear as clickable cards (UI2, = keys 1/2/3).
 //!   - Left click on a slot places the armed tower (Intermission only).
-//!   - Left click on a tower selects it as a fusion ingredient; clicking a second
-//!     tower fuses them if they match a recipe.
+//!   - Left click on a tower selects it: info panel + range ring appear (UI2);
+//!     clicking a second tower fuses them if they match a recipe.
 //!   - Right click cancels build mode / clears fusion selection.
+//! All player-facing copy is Chinese (UI2); code identifiers and logs stay English.
 //! Keyboard hotkeys (1-4 / E / F / Space) remain as fallback.
 //!
-//! Split into three small systems: Bevy caps a single system at 16 params.
+//! Split into small systems: Bevy caps a single system at 16 params.
 
 use std::collections::BTreeSet;
 
@@ -18,9 +21,12 @@ use bevy::window::Window;
 
 use crate::components::{AttackType, FusionKind, ShopButton, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    BuildMode, Economy, FusionDefs, FusionSel, Hand, SelectedTower, ShopOffers, TowerDefs,
-    WavePhase, WaveState,
+    Boosts, BuildMode, Economy, FusionDefs, FusionSel, Hand, SelectedTower, ShopOffers, TowerDefs,
+    WaveChoice, WavePhase, WaveSchedule, WaveState,
 };
+use crate::states::GameState;
+use crate::systems::hud::ui_font;
+use crate::systems::input::{apply_choice, try_start_wave};
 
 /// Marker on the shop bar root so it can be despawned on rebuild (Bevy 0.19
 /// despawn removes children recursively).
@@ -33,8 +39,35 @@ pub struct OfferButton {
     pub tower_index: usize,
 }
 
+/// Marker on the start-wave control bar root (UI2).
+#[derive(Component)]
+pub struct ControlBarRoot;
+
+/// "开始下一波" button (UI2): same effect as the Space key.
+#[derive(Component)]
+pub struct StartWaveButton;
+
+/// Marker on the three-choose-one card panel root (UI2).
+#[derive(Component)]
+pub struct ChoiceCardsRoot;
+
+/// One clickable three-choose-one option card (UI2).
+#[derive(Component)]
+pub struct ChoiceCardButton {
+    pub index: usize,
+}
+
+/// Marker on the selected-tower info panel (UI2).
+#[derive(Component)]
+pub struct TowerInfoPanel;
+
+/// Marker on the selected tower's ground range ring (UI2).
+#[derive(Component)]
+pub struct TowerRangeRing;
+
 /// Spawn the bottom shop bar: owned types row (UI1) + offers row (AC2).
-fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand) {
+/// Chinese labels (UI2); a card greys out when gold cannot afford its cost.
+fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand, economy: &Economy) {
     // Dedupe for display: AC3 drops may push a type that is already owned.
     let owned: Vec<usize> = hand
         .owned_towers
@@ -67,6 +100,7 @@ fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers
                     let Some(def) = defs.list.get(i) else {
                         continue;
                     };
+                    let affordable = economy.gold >= def.cost;
                     row.spawn((
                         Button,
                         ShopButton { tower_index: i },
@@ -82,12 +116,13 @@ fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers
                     ))
                     .with_children(|p| {
                         p.spawn((
-                            Text::new(format!("{} {}g", def.name, def.cost)),
+                            Text::new(format!("{} {}金", def.label, def.cost)),
                             TextFont {
+                                font: ui_font(),
                                 font_size: FontSize::Px(13.0),
                                 ..default()
                             },
-                            TextColor(Color::WHITE),
+                            TextColor(card_color(affordable, Color::WHITE)),
                         ));
                     });
                 }
@@ -103,6 +138,7 @@ fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers
                     let Some(def) = defs.list.get(i) else {
                         continue;
                     };
+                    let affordable = economy.gold >= def.cost;
                     row.spawn((
                         Button,
                         OfferButton { tower_index: i },
@@ -118,12 +154,13 @@ fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers
                     ))
                     .with_children(|p| {
                         p.spawn((
-                            Text::new(format!("[shop] {} {}g", def.name, def.cost)),
+                            Text::new(format!("[商店] {} {}金", def.label, def.cost)),
                             TextFont {
+                                font: ui_font(),
                                 font_size: FontSize::Px(12.0),
                                 ..default()
                             },
-                            TextColor(Color::srgb(1.0, 0.9, 0.6)),
+                            TextColor(card_color(affordable, Color::srgb(1.0, 0.9, 0.6))),
                         ));
                     });
                 }
@@ -131,17 +168,28 @@ fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers
         });
 }
 
-/// Rebuild the shop bar whenever the hand or the offer changes (AC1 deal /
-/// AC2 refresh / AC3 drops / AC4 get-tower). Cached key avoids per-frame work.
+/// Normal color when affordable, dim grey otherwise (UI2 affordability cue).
+fn card_color(affordable: bool, normal: Color) -> Color {
+    if affordable {
+        normal
+    } else {
+        Color::srgb(0.45, 0.45, 0.45)
+    }
+}
+
+/// Rebuild the shop bar whenever the hand, the offer, or gold changes (AC1/2/3
+/// feed it; gold changes refresh the affordability grey-out). Cached key avoids
+/// per-frame work.
 pub fn refresh_shop_bar(
     mut commands: Commands,
     defs: Res<TowerDefs>,
     offers: Res<ShopOffers>,
     hand: Res<Hand>,
-    mut cache: Local<(u32, usize)>,
+    economy: Res<Economy>,
+    mut cache: Local<(u32, usize, u32)>,
     roots: Query<Entity, With<ShopBarRoot>>,
 ) {
-    let key = (offers.version, hand.owned_towers.len());
+    let key = (offers.version, hand.owned_towers.len(), economy.gold);
     if *cache == key {
         return;
     }
@@ -149,7 +197,7 @@ pub fn refresh_shop_bar(
     for root in &roots {
         commands.entity(root).despawn();
     }
-    build_shop_bar(&mut commands, &defs, &offers, &hand);
+    build_shop_bar(&mut commands, &defs, &offers, &hand, &economy);
 }
 
 /// A pressed shop button arms build mode with that tower type.
@@ -201,6 +249,259 @@ pub fn handle_offer_buttons(
             def.name, def.cost, hand.owned_towers
         );
     }
+}
+
+/// Spawn the bottom-right control bar with the "开始下一波" button (UI2).
+fn build_control_bar(commands: &mut Commands) {
+    commands
+        .spawn((
+            ControlBarRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(12.0),
+                right: Val::Px(12.0),
+                ..default()
+            },
+        ))
+        .with_children(|root| {
+            root.spawn((
+                Button,
+                StartWaveButton,
+                Interaction::None,
+                Node {
+                    width: Val::Px(150.0),
+                    height: Val::Px(48.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.15, 0.5, 0.25)),
+            ))
+            .with_children(|p| {
+                p.spawn((
+                    Text::new("▶ 开始下一波"),
+                    TextFont {
+                        font: ui_font(),
+                        font_size: FontSize::Px(15.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            });
+        });
+}
+
+/// Spawn the control bar once, then toggle the start button's visibility:
+/// shown during the build window only (Intermission, no pending choice).
+pub fn refresh_control_bar(
+    mut commands: Commands,
+    wave: Res<WaveState>,
+    choice: Res<WaveChoice>,
+    state: Res<State<GameState>>,
+    mut spawned: Local<bool>,
+    mut buttons: Query<&mut Node, With<StartWaveButton>>,
+) {
+    if !*spawned {
+        *spawned = true;
+        build_control_bar(&mut commands);
+        return;
+    }
+    let show = wave.phase == WavePhase::Intermission
+        && !choice.pending
+        && *state.get() == GameState::Playing;
+    for mut node in &mut buttons {
+        node.display = if show { Display::Flex } else { Display::None };
+    }
+}
+
+/// Clicking "开始下一波" starts the next wave — identical to the Space key (UI2).
+pub fn handle_start_wave_button(
+    mut q: Query<(&Interaction, &StartWaveButton), Changed<Interaction>>,
+    mut wave: ResMut<WaveState>,
+    schedule: Res<WaveSchedule>,
+    choice: Res<WaveChoice>,
+    state: Res<State<GameState>>,
+) {
+    for (inter, _) in &mut q {
+        if *inter == Interaction::Pressed {
+            try_start_wave(&mut wave, &schedule, &choice, &state);
+        }
+    }
+}
+
+/// Show/hide the three-choose-one option cards with `WaveChoice::pending` (UI2).
+/// Cards are clickable equivalents of the 1/2/3 keys.
+pub fn refresh_choice_cards(
+    mut commands: Commands,
+    choice: Res<WaveChoice>,
+    mut cache: Local<bool>,
+    roots: Query<Entity, With<ChoiceCardsRoot>>,
+) {
+    if *cache == choice.pending {
+        return;
+    }
+    *cache = choice.pending;
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
+    if !choice.pending {
+        return;
+    }
+    commands
+        .spawn((
+            ChoiceCardsRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(110.0),
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(12.0),
+                ..default()
+            },
+        ))
+        .with_children(|root| {
+            for (i, opt) in choice.options.iter().enumerate() {
+                root.spawn((
+                    Button,
+                    ChoiceCardButton { index: i },
+                    Interaction::None,
+                    Node {
+                        width: Val::Px(230.0),
+                        height: Val::Px(64.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.25, 0.22, 0.45)),
+                ))
+                .with_children(|p| {
+                    p.spawn((
+                        Text::new(format!("[{}] {}", i + 1, opt.label)),
+                        TextFont {
+                            font: ui_font(),
+                            font_size: FontSize::Px(14.0),
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                    ));
+                });
+            }
+        });
+    info!("[ui2] choice cards shown: {}", choice.options.len());
+}
+
+/// Clicking a choice card applies that option — identical to pressing its digit.
+pub fn handle_choice_card_buttons(
+    mut q: Query<(&Interaction, &ChoiceCardButton), Changed<Interaction>>,
+    mut choice: ResMut<WaveChoice>,
+    mut boosts: ResMut<Boosts>,
+    mut hand: ResMut<Hand>,
+) {
+    for (inter, btn) in &mut q {
+        if *inter == Interaction::Pressed {
+            apply_choice(&mut choice, &mut boosts, &mut hand, btn.index);
+        }
+    }
+}
+
+/// Rebuild the tower info panel + ground range ring whenever the fusion
+/// selection changes (UI2): select a tower to inspect it, deselect to close.
+pub fn refresh_tower_info(
+    mut commands: Commands,
+    fusion_sel: Res<FusionSel>,
+    towers: Query<(Entity, &Tower, &Transform)>,
+    defs: Res<TowerDefs>,
+    fusion_defs: Res<FusionDefs>,
+    panels: Query<Entity, With<TowerInfoPanel>>,
+    rings: Query<Entity, With<TowerRangeRing>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !fusion_sel.is_changed() {
+        return;
+    }
+    for p in &panels {
+        commands.entity(p).despawn();
+    }
+    for r in &rings {
+        commands.entity(r).despawn();
+    }
+    let Some(sel) = fusion_sel.a else {
+        return;
+    };
+    let Ok((_, tower, tf)) = towers.get(sel) else {
+        return;
+    };
+    let kind_label = match tower.kind {
+        TowerKind::Base(i) => defs
+            .list
+            .get(i)
+            .map(|d| d.label)
+            .unwrap_or("基础塔"),
+        TowerKind::Fused(k) => fusion_defs
+            .list
+            .iter()
+            .find(|r| r.kind == k)
+            .map(|r| r.label)
+            .unwrap_or("融合塔"),
+    };
+    let damage_label = match tower.attack_type {
+        AttackType::Physical => "物理",
+        AttackType::Magic => "魔法",
+        AttackType::Mixed => "混合·无视护甲",
+    };
+    let mut lines = format!(
+        "{} · {}\n伤害 {:.0} · 攻速 {:.1}/秒 · 射程 {:.1}",
+        kind_label, damage_label, tower.damage, tower.attack_speed, tower.range
+    );
+    lines.push_str(&match tower.kind {
+        TowerKind::Fused(FusionKind::Archmage) => "\n特技：AOE 爆炸（半径 3.0）".to_string(),
+        TowerKind::Fused(FusionKind::Bastion) => "\n特技：AOE + 减速30%（1秒）".to_string(),
+        TowerKind::Fused(FusionKind::Marksman) => "\n特技：优先攻击血量最高的怪".to_string(),
+        TowerKind::Fused(FusionKind::Hybrid) => "\n特技：混合伤害穿透物理护甲".to_string(),
+        TowerKind::Base(_) => String::new(),
+    });
+    lines.push_str("\n点另一座塔=尝试融合 · 右键=取消");
+    commands
+        .spawn((
+            TowerInfoPanel,
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(12.0),
+                top: Val::Px(60.0),
+                width: Val::Px(240.0),
+                padding: UiRect::all(Val::Px(8.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
+        ))
+        .with_children(|p| {
+            p.spawn((
+                Text::new(lines),
+                TextFont {
+                    font: ui_font(),
+                    font_size: FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+        });
+    // Ground ring showing the tower's range (flat, semi-transparent).
+    commands.spawn((
+        TowerRangeRing,
+        Mesh3d(meshes.add(Circle::new(tower.range))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.3, 0.8, 1.0, 0.22),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        })),
+        Transform::from_xyz(tf.translation.x, 0.05, tf.translation.z)
+            .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+    ));
+    info!("[ui2] tower info panel shown for {}", kind_label);
 }
 
 /// Right click cancels build mode and clears the fusion selection.

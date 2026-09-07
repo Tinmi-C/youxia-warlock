@@ -15,10 +15,15 @@ pub fn spawn_placement_cursor(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // UI2: the yellow cursor cube is hidden by default — the mouse flow (UI1)
+    // replaced its visual role and players found it confusing. The entity and
+    // movement stay (CursorMove card regression tests still pin them); the
+    // legacy keyboard flow (E to place near the cursor) works without visuals.
     commands.spawn((
         PlacementCursor { speed: 8.0 },
         Mesh3d(meshes.add(Cuboid::new(0.9, 0.4, 0.9))),
         MeshMaterial3d(materials.add(Color::srgb(0.9, 0.7, 0.15))),
+        Visibility::Hidden,
         Transform::from_xyz(0.0, 0.3, 0.0),
     ));
 }

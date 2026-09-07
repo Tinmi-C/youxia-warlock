@@ -70,7 +70,10 @@ pub struct PathInfo {
 /// One tower archetype (requirements §5).
 #[derive(Clone)]
 pub struct TowerDef {
+    /// English identifier (logs / code); the UI shows `label` (Chinese, UI2).
     pub name: &'static str,
+    /// Player-facing display name (Chinese, default UI language per UI2).
+    pub label: &'static str,
     pub cost: u32,
     pub damage: f32,
     pub attack_speed: f32, // shots per second
@@ -88,10 +91,10 @@ impl TowerDefs {
     pub fn palette() -> Self {
         Self {
             list: vec![
-                TowerDef { name: "archer", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical },
-                TowerDef { name: "shield", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical },
-                TowerDef { name: "mage", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic },
-                TowerDef { name: "cannon", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical },
+                TowerDef { name: "archer", label: "弓箭手塔", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical },
+                TowerDef { name: "shield", label: "盾塔", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical },
+                TowerDef { name: "mage", label: "法师塔", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic },
+                TowerDef { name: "cannon", label: "炮塔", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical },
             ],
         }
     }
@@ -106,7 +109,10 @@ impl TowerDefs {
 /// the balance card / playtest.
 #[derive(Clone)]
 pub struct FusionDef {
+    /// English identifier (logs / code); the UI shows `label` (Chinese, UI2).
     pub name: &'static str,
+    /// Player-facing display name (Chinese).
+    pub label: &'static str,
     pub ingredients: [usize; 2],
     pub fee_ratio: f32,
     pub damage: f32,
@@ -130,28 +136,28 @@ impl FusionDefs {
             list: vec![
                 // 神射手: 2×archer(0) — range +40%, highest-HP priority.
                 FusionDef {
-                    name: "marksman", ingredients: [0, 0], fee_ratio: 0.2,
+                    name: "marksman", label: "神射手塔", ingredients: [0, 0], fee_ratio: 0.2,
                     damage: 18.0, attack_speed: 1.2, range: 12.6,
                     attack_type: AttackType::Physical, kind: FusionKind::Marksman,
                     aoe_radius: 0.0, slow_factor: 0.0, slow_duration: 0.0,
                 },
                 // 大法师: 2×mage(2) — AOE blast. DPS 15 = 100% of 2×mage(15).
                 FusionDef {
-                    name: "archmage", ingredients: [2, 2], fee_ratio: 0.2,
+                    name: "archmage", label: "大法师塔", ingredients: [2, 2], fee_ratio: 0.2,
                     damage: 25.0, attack_speed: 0.6, range: 16.0,
                     attack_type: AttackType::Magic, kind: FusionKind::Archmage,
                     aoe_radius: 3.0, slow_factor: 0.0, slow_duration: 0.0,
                 },
                 // 魔弓手: archer(0)+mage(2) — mixed damage bypasses armor. DPS 16.2 ≈ 93%.
                 FusionDef {
-                    name: "hybrid", ingredients: [0, 2], fee_ratio: 0.2,
+                    name: "hybrid", label: "魔弓手塔", ingredients: [0, 2], fee_ratio: 0.2,
                     damage: 18.0, attack_speed: 0.9, range: 11.0,
                     attack_type: AttackType::Mixed, kind: FusionKind::Hybrid,
                     aoe_radius: 0.0, slow_factor: 0.0, slow_duration: 0.0,
                 },
                 // 壁垒炮: shield(1)+cannon(3) — AOE + 30% slow. DPS 14.0 ≈ 98%.
                 FusionDef {
-                    name: "bastion", ingredients: [1, 3], fee_ratio: 0.2,
+                    name: "bastion", label: "壁垒炮塔", ingredients: [1, 3], fee_ratio: 0.2,
                     damage: 40.0, attack_speed: 0.35, range: 9.0,
                     attack_type: AttackType::Physical, kind: FusionKind::Bastion,
                     aoe_radius: 3.5, slow_factor: 0.7, slow_duration: 1.0,
@@ -410,7 +416,8 @@ pub enum ChoiceKind {
 
 #[derive(Clone)]
 pub struct ChoiceOption {
-    pub label: &'static str,
+    /// Player-facing label (Chinese, UI2); built dynamically with tower labels.
+    pub label: String,
     pub kind: ChoiceKind,
 }
 
