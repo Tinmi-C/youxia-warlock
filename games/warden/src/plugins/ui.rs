@@ -24,6 +24,7 @@ impl Plugin for UiPlugin {
                     systems::pointer::refresh_control_bar,
                     systems::pointer::refresh_choice_cards,
                     systems::pointer::refresh_tower_info,
+                    systems::pointer::update_hover_ghost,
                 )
                     .in_set(GameSet::Observe),
             );

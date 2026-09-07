@@ -246,6 +246,7 @@
 | 融合 | 融合塔 DPS | 原塔和 90-110%（§7.2 铁律已达标） | §7.2 | 塔表校验 |
 
 - 待办：设计负责人定区间 → AI 把上表转断言（BAL2 回归）→ 用 §14 起点值收敛（先解决早战压力：加大开局经济/降第 1-3 波强度/增强盾塔射程等）。
+- ⚠️ **数值收敛暂缓**（2026-09-06 负责人意见：数值等有时间再调）。锚点表+读数工具已就绪，随时可恢复；期间先推进非数值项（UI polish）。
 
 ### UI2 · 操作面板化 + 中文化（ui）—— ✅ 已实现（2026-09-06）
 - 接口: 读 WaveState/WaveChoice/FusionSel/Hand/ShopOffers/Economy；输出 bevy_ui 控件 + 中文文案。
@@ -261,6 +262,13 @@
   - `start_wave_button_click_starts_wave`：Intermission 点「开始下一波」→ 进入 Combat 且第 1 波 spawn_queue=5 条；三选一挂起时点击无效（仍在 Intermission）。
   - `choice_card_click_applies_option_and_closes`：挂起时点第 2 张卡 → kill_mult=1.2 且 pending=false（与数字键等效）。
   - 既有键盘路径回归全绿。人工验收项：中文正常渲染、射程圈跟随选中塔、置灰状态正确。
+
+### UI3 · 塔位悬停高亮 + 放置幽灵预览（ui）—— ✅ 已实现（2026-09-06）
+- 接口: 读 BuildMode/SelectedTower/TowerDefs/WaveState/GameState + 光标/相机；输出一个可复用的半透明幽灵塔实体（HoverGhost）。
+- 行为: 建造模式（点了底部卡片）且处于建造期时，光标悬停到**空塔位**上 → 该塔位显示一座**半透明幽灵预览塔**（颜色随所选塔型：物理灰/魔法紫/混合绿），玩家先看到「往哪放、放什么」；悬停到已占格或非建造期 → 幽灵隐藏。
+- 实现(2026-09-06)：`pointer::update_hover_ghost`（Observe 集合）：复用单实体（Local 缓存 `(塔型, entity)`），仅当所选塔型变化才重生成（颜色同步）；用 `nearest_slot_screen` 找光标最近塔位，仅在空位显示。新标记组件 `HoverGhost`（+网格+半透明 blend 材质）。
+- 验收句（已入 `tests/behavior.rs`）：`hover_ghost_stays_absent_without_cursor` —— 无窗口/光标 headless 下幽灵不出现且不 panic，解除建造后仍不出现（不变量钉死）。
+- ⚠️ 视觉正确性（幽灵随光标移动、塔位高亮的呈现）属**人工验收项**（需真窗口），HEADLESS 只锁「不可凭空出现/不 panic」不变量。
 
 ### ME1 · Meta 解锁链（meta）—— ✅ 已实现（2026-09-04）
 - 接口: 读死亡/通关；输出 meta 币 + 升级效果。

@@ -19,8 +19,9 @@ use warden::{
         waves::WavesPlugin,
     },
     resources::{
-        BaseHp, Boosts, ChoiceKind, ChoiceOption, Economy, Hand, MetaSavePath, MetaState, RunRng,
-        SelectedTower, ShopOffers, StatKind, TowerDefs, WaveChoice, WavePhase, WaveState,
+        BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, MetaSavePath,
+        MetaState, RunRng, SelectedTower, ShopOffers, StatKind, TowerDefs, WaveChoice, WavePhase,
+        WaveState,
     },
     states::GameState,
 };
@@ -612,6 +613,29 @@ fn attack_speed_boost_shortens_cooldown() {
         "cooldown should be 1/(1 * 2) = 0.5, got {}",
         cooldown
     );
+}
+
+/// Capability card UI3 — acceptance: the build-mode ghost preview never appears
+/// unless a build is armed *and* a cursor/slot resolves; headless (no Window)
+/// it must stay absent and must not panic. The visual correctness (ghost
+/// follows the cursor on a real window) is a manual/playtest item.
+#[test]
+fn hover_ghost_stays_absent_without_cursor() {
+    let mut app = test_app();
+    app.update();
+    app.world_mut().resource_mut::<BuildMode>().armed = true;
+    // No Window resource headless -> no cursor resolution -> no ghost, no panic.
+    app.update();
+    let mut ghosts = app.world_mut().query_filtered::<Entity, With<pointer::HoverGhost>>();
+    assert_eq!(
+        ghosts.iter(app.world()).count(),
+        0,
+        "no ghost without a cursor/window"
+    );
+    app.world_mut().resource_mut::<BuildMode>().armed = false;
+    app.update();
+    let mut ghosts = app.world_mut().query_filtered::<Entity, With<pointer::HoverGhost>>();
+    assert_eq!(ghosts.iter(app.world()).count(), 0, "still no ghost when disarmed");
 }
 
 /// Capability card EN2 — acceptance: an enemy that reaches the base deducts its

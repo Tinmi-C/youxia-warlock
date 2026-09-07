@@ -65,6 +65,10 @@ pub struct TowerInfoPanel;
 #[derive(Component)]
 pub struct TowerRangeRing;
 
+/// Marker on the build-mode ghost preview at the hovered slot (UI3).
+#[derive(Component)]
+pub struct HoverGhost;
+
 /// Spawn the bottom shop bar: owned types row (UI1) + offers row (AC2).
 /// Chinese labels (UI2); a card greys out when gold cannot afford its cost.
 fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand, economy: &Economy) {
@@ -502,6 +506,91 @@ pub fn refresh_tower_info(
             .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
     ));
     info!("[ui2] tower info panel shown for {}", kind_label);
+}
+
+/// Build-mode ghost preview (UI3): while a build is armed, show a translucent
+/// copy of the armed tower on the slot under the cursor, so the player sees
+/// exactly where and what will be placed. Hidden otherwise (or on an occupied
+/// slot). A single entity is reused; it is respawned only when the armed tower
+/// type changes (so the colour stays in sync).
+pub fn update_hover_ghost(
+    mut commands: Commands,
+    windows: Query<&Window>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+    build: Res<BuildMode>,
+    selected: Res<SelectedTower>,
+    defs: Res<TowerDefs>,
+    wave: Res<WaveState>,
+    state: Res<State<GameState>>,
+    slots: Query<(Entity, &mut TowerSlot, &Transform)>,
+    mut cache: Local<(usize, Option<Entity>)>, // (last tower type, ghost entity)
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let armed = build.armed
+        && wave.phase == WavePhase::Intermission
+        && *state.get() == GameState::Playing;
+
+    // Pick the slot under the cursor when armed and the slot is free.
+    let mut target: Option<Vec3> = None;
+    if armed {
+        let cam = camera.single().ok();
+        let cursor = windows.single().ok().and_then(|w| w.cursor_position());
+        if let (Some((cam, cam_tf)), Some(cursor)) = (cam, cursor) {
+            if let Some((slot_e, pos)) = nearest_slot_screen(&slots, cursor, cam, cam_tf) {
+                if let Ok((_, slot, _)) = slots.get(slot_e) {
+                    if !slot.occupied {
+                        target = Some(pos);
+                    }
+                }
+            }
+        }
+    }
+
+    // When not armed / no free slot: hide the ghost, if any.
+    if target.is_none() {
+        if let Some(e) = cache.1 {
+            commands.entity(e).insert(Visibility::Hidden);
+        }
+        return;
+    }
+    let pos = target.unwrap();
+
+    // Respawn when the armed tower type changed (colour must follow it).
+    if cache.0 != selected.tower_index || cache.1.is_none() {
+        if let Some(e) = cache.1 {
+            commands.entity(e).despawn();
+        }
+        let def = defs.list.get(selected.tower_index);
+        let (r, g, b) = match def.map(|d| d.attack_type) {
+            Some(AttackType::Physical) => (0.7, 0.7, 0.8),
+            Some(AttackType::Magic) => (0.5, 0.4, 0.9),
+            Some(AttackType::Mixed) => (0.6, 0.9, 0.6),
+            None => (0.8, 0.8, 0.8),
+        };
+        let mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
+        let mat = materials.add(StandardMaterial {
+            base_color: Color::srgba(r, g, b, 0.35),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        });
+        let e = commands
+            .spawn((
+                HoverGhost,
+                Mesh3d(mesh),
+                MeshMaterial3d(mat),
+                Visibility::Visible,
+                Transform::from_xyz(pos.x, 0.6, pos.z),
+            ))
+            .id();
+        *cache = (selected.tower_index, Some(e));
+    } else if let Some(e) = cache.1 {
+        commands
+            .entity(e)
+            .insert(Visibility::Visible)
+            .insert(Transform::from_xyz(pos.x, 0.6, pos.z));
+    }
 }
 
 /// Right click cancels build mode and clears the fusion selection.
