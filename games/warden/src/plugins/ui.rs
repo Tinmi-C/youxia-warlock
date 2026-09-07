@@ -25,8 +25,13 @@ impl Plugin for UiPlugin {
                     systems::pointer::refresh_choice_cards,
                     systems::pointer::refresh_tower_info,
                     systems::pointer::update_hover_ghost,
+                    systems::pointer::refresh_end_screen,
                 )
                     .in_set(GameSet::Observe),
-            );
+            )
+            // End-screen interactions must run on GameOver/Win (not gated to
+            // Playing like the gameplay Input systems).
+            .add_systems(Update, systems::pointer::handle_retry_button)
+            .add_systems(Update, systems::pointer::handle_meta_upgrade_buttons);
     }
 }

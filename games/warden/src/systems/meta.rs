@@ -67,22 +67,36 @@ pub fn buy_upgrades(
     if !matches!(state.get(), GameState::GameOver | GameState::Win) {
         return;
     }
-    let mut bought = false;
-    if keys.just_pressed(KeyCode::Digit1) && !meta.upgrade1 && meta.coins >= UPGRADE1_COST {
-        meta.coins -= UPGRADE1_COST;
-        meta.upgrade1 = true;
-        bought = true;
-        info!("[meta] bought upgrade1 (archer guaranteed in opening hand)");
+    if keys.just_pressed(KeyCode::Digit1) {
+        buy_upgrade(&mut meta, &path, 1);
     }
-    if keys.just_pressed(KeyCode::Digit2) && !meta.upgrade2 && meta.coins >= UPGRADE2_COST {
-        meta.coins -= UPGRADE2_COST;
-        meta.upgrade2 = true;
-        bought = true;
-        info!("[meta] bought upgrade2 (+20 starting gold)");
+    if keys.just_pressed(KeyCode::Digit2) {
+        buy_upgrade(&mut meta, &path, 2);
     }
+}
+
+/// Shared upgrade purchase for the digit keys and the UI5 buttons. Spends the
+/// cost if the upgrade is not owned and affordable, then persists. Returns true
+/// if the upgrade was applied. `which` is 1 or 2.
+pub fn buy_upgrade(meta: &mut MetaState, path: &MetaSavePath, which: usize) -> bool {
+    let bought = match which {
+        1 if !meta.upgrade1 && meta.coins >= UPGRADE1_COST => {
+            meta.coins -= UPGRADE1_COST;
+            meta.upgrade1 = true;
+            true
+        }
+        2 if !meta.upgrade2 && meta.coins >= UPGRADE2_COST => {
+            meta.coins -= UPGRADE2_COST;
+            meta.upgrade2 = true;
+            true
+        }
+        _ => false,
+    };
     if bought {
-        save(&meta, &path);
+        save(meta, path);
+        info!("[meta] bought upgrade{which}");
     }
+    bought
 }
 
 /// Write the tiny key=value save file. I/O errors are logged, never fatal.

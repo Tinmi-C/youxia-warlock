@@ -86,7 +86,9 @@ assets/{models,textures,audio,fonts,ui}/
     （`cargo test --test balance -- --nocapture`）；首批读数暴露第 3 波是难度尖峰（常规阵容漏 4）。
   - BAL2 balance 锚点表（2026-09-06，已起草待确认）：把 §15 定性信号转成可测指标（存活波数/漏怪/余钱/三选一价值/融合 DPS）；
     全波读数**暴露早战经济压力**——自动布阵从 100g 起步第 2 波即败（基地 0/10），是 balance 卡首要收敛项。
-  - `cargo check --all-targets` + `cargo test` 全绿零警告（30 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
+  - UI3 塔位悬停高亮+幽灵预览（2026-09-06）：建造模式悬停空塔位显示半透明幽灵塔（颜色随塔型），放哪放什么一目了然。
+  - UI5 结算画面（2026-09-06）：GameOver/Win 显示「本局结束」横幅 + 再来一局按钮 + 两个 Meta 购买按钮（与 1/2 键等效）。
+  - `cargo check --all-targets` + `cargo test` 全绿零警告（34 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；

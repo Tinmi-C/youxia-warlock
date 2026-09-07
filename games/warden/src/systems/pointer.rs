@@ -21,12 +21,12 @@ use bevy::window::Window;
 
 use crate::components::{AttackType, FusionKind, ShopButton, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    Boosts, BuildMode, Economy, FusionDefs, FusionSel, Hand, SelectedTower, ShopOffers, TowerDefs,
-    WaveChoice, WavePhase, WaveSchedule, WaveState,
+    Boosts, BuildMode, Economy, FusionDefs, FusionSel, Hand, MetaSavePath, MetaState, SelectedTower,
+    ShopOffers, TowerDefs, UPGRADE1_COST, UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule,
+    WaveState,
 };
 use crate::states::GameState;
-use crate::systems::hud::ui_font;
-use crate::systems::input::{apply_choice, try_start_wave};
+use crate::systems::{hud::ui_font, input::{apply_choice, try_start_wave}, meta::buy_upgrade};
 
 /// Marker on the shop bar root so it can be despawned on rebuild (Bevy 0.19
 /// despawn removes children recursively).
@@ -68,6 +68,20 @@ pub struct TowerRangeRing;
 /// Marker on the build-mode ghost preview at the hovered slot (UI3).
 #[derive(Component)]
 pub struct HoverGhost;
+
+/// Marker on the GameOver/Win result screen root (UI5).
+#[derive(Component)]
+pub struct EndScreenRoot;
+
+/// "再来一局" button on the result screen (UI5 = the P/retry key).
+#[derive(Component)]
+pub struct RetryButton;
+
+/// A meta-upgrade purchase button on the result screen (UI5 = the 1/2 keys).
+#[derive(Component)]
+pub struct MetaUpgradeButton {
+    pub which: usize, // 1 or 2
+}
 
 /// Spawn the bottom shop bar: owned types row (UI1) + offers row (AC2).
 /// Chinese labels (UI2); a card greys out when gold cannot afford its cost.
@@ -590,6 +604,162 @@ pub fn update_hover_ghost(
             .entity(e)
             .insert(Visibility::Visible)
             .insert(Transform::from_xyz(pos.x, 0.6, pos.z));
+    }
+}
+
+/// Build the GameOver/Win result screen: a centered banner + the retry button
+/// and the two meta-upgrade purchase buttons (UI5). Starts hidden; the
+/// `refresh_end_screen` system toggles its visibility with the game state.
+fn build_end_screen(commands: &mut Commands) {
+    commands
+        .spawn((
+            EndScreenRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                top: Val::Px(36.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(10.0),
+                display: Display::None,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
+        ))
+        .with_children(|root| {
+            root.spawn((
+                Text::new("🏁 本局结束"),
+                TextFont {
+                    font: ui_font(),
+                    font_size: FontSize::Px(34.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 0.85, 0.4)),
+            ));
+            root.spawn((
+                Text::new("按 1/2 购买 Meta 升级，或点「再来一局」"),
+                TextFont {
+                    font: ui_font(),
+                    font_size: FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+            root.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(10.0),
+                ..default()
+            })
+            .with_children(|row| {
+                for (which, label) in [
+                    (1usize, format!("升级1 开局必含弓箭手塔（{}币）", UPGRADE1_COST)),
+                    (2usize, format!("升级2 开局+20金（{}币）", UPGRADE2_COST)),
+                ] {
+                    row.spawn((
+                        Button,
+                        MetaUpgradeButton { which },
+                        Interaction::None,
+                        Node {
+                            width: Val::Px(210.0),
+                            height: Val::Px(44.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.2, 0.35, 0.5)),
+                    ))
+                    .with_children(|p| {
+                        p.spawn((
+                            Text::new(label),
+                            TextFont {
+                                font: ui_font(),
+                                font_size: FontSize::Px(13.0),
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                        ));
+                    });
+                }
+                row.spawn((
+                    Button,
+                    RetryButton,
+                    Interaction::None,
+                    Node {
+                        width: Val::Px(130.0),
+                        height: Val::Px(44.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.15, 0.5, 0.25)),
+                ))
+                .with_children(|p| {
+                    p.spawn((
+                        Text::new("再来一局"),
+                        TextFont {
+                            font: ui_font(),
+                            font_size: FontSize::Px(15.0),
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                    ));
+                });
+            });
+        });
+}
+
+/// Show the result screen only on GameOver/Win, hide it otherwise (UI5). The
+/// panel is built once and its visibility toggled with the game state.
+pub fn refresh_end_screen(
+    mut commands: Commands,
+    state: Res<State<GameState>>,
+    mut spawned: Local<bool>,
+    mut roots: Query<&mut Node, With<EndScreenRoot>>,
+) {
+    if !*spawned {
+        *spawned = true;
+        build_end_screen(&mut commands);
+        return;
+    }
+    let show = matches!(state.get(), GameState::GameOver | GameState::Win);
+    for mut node in &mut roots {
+        node.display = if show { Display::Flex } else { Display::None };
+    }
+}
+
+/// Clicking "再来一局" restarts from a terminal state (UI5 = the P/retry key).
+pub fn handle_retry_button(
+    mut q: Query<(&Interaction, &RetryButton), Changed<Interaction>>,
+    state: Res<State<GameState>>,
+    mut next: ResMut<NextState<GameState>>,
+) {
+    for (inter, _) in &mut q {
+        if *inter != Interaction::Pressed {
+            continue;
+        }
+        if matches!(state.get(), GameState::GameOver | GameState::Win) {
+            next.set(GameState::Playing);
+            info!("[ui5] retry -> Playing");
+        }
+    }
+}
+
+/// Clicking a meta-upgrade button buys that upgrade (UI5 = the 1/2 keys).
+pub fn handle_meta_upgrade_buttons(
+    mut q: Query<(&Interaction, &MetaUpgradeButton), Changed<Interaction>>,
+    state: Res<State<GameState>>,
+    mut meta: ResMut<MetaState>,
+    path: Res<MetaSavePath>,
+) {
+    if !matches!(state.get(), GameState::GameOver | GameState::Win) {
+        return;
+    }
+    for (inter, btn) in &mut q {
+        if *inter != Interaction::Pressed {
+            continue;
+        }
+        buy_upgrade(&mut meta, &path, btn.which);
     }
 }
 

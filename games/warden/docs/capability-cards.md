@@ -270,6 +270,13 @@
 - 验收句（已入 `tests/behavior.rs`）：`hover_ghost_stays_absent_without_cursor` —— 无窗口/光标 headless 下幽灵不出现且不 panic，解除建造后仍不出现（不变量钉死）。
 - ⚠️ 视觉正确性（幽灵随光标移动、塔位高亮的呈现）属**人工验收项**（需真窗口），HEADLESS 只锁「不可凭空出现/不 panic」不变量。
 
+### UI5 · 结算画面（GameOver/Win）—— ✅ 已实现（2026-09-06）
+- 接口: 读 State<GameState>；输出居中结算面板（EndScreenRoot，含重试 + 两个 Meta 购买按钮）。
+- 行为: 仅 GameOver/Win 显示「🏁 本局结束」横幅 + 提示 + 三个可点按钮（升级1 开局必含弓箭手塔(30币)/升级2 开局+20金(60币)/再来一局）；Playing/Paused 隐藏。按钮与键盘等效（1/2 买 Meta、P/按钮 重开）。
+- 实现(2026-09-06)：`pointer::build_end_screen`（面板，Display::None 起始）+ `refresh_end_screen`（Observe，按 State 切换 Display:Flex/None）；`handle_retry_button`/`handle_meta_upgrade_buttons` 注册于 ui.rs Update（**不 gate 到 Playing**，结算屏也能点）；`) meta::buy_upgrade` 抽成共享函数供数字键与按钮双入口（复用 pattern）。
+- 验收句（已入 `tests/behavior.rs`）：`end_screen_shows_only_on_terminal_state`（GameOver 显示 Flex / Playing 隐藏 None）、`retry_button_restarts_from_game_over`（点按钮回到 Playing）、`meta_upgrade_button_grants_purchase`（点升级1按钮 upgrade1=true 且 coins-30）。
+- ⚠️ 视觉/排版的呈现效果属人工验收项；HEADLESS 锁「状态驱动显隐 + 按钮行为」回归。测试用唯一临时存档路径（避免共享 meta 文件污染——曾踩共享 `warden_meta_shared_test.txt` 被 `load_meta` 误读的坑）。
+
 ### ME1 · Meta 解锁链（meta）—— ✅ 已实现（2026-09-04）
 - 接口: 读死亡/通关；输出 meta 币 + 升级效果。
 - 行为: 死亡 +15、通关 +30；升级1=弓箭手进开局手牌池；升级2=开局金币 +20。

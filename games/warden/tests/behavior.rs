@@ -638,6 +638,84 @@ fn hover_ghost_stays_absent_without_cursor() {
     assert_eq!(ghosts.iter(app.world()).count(), 0, "still no ghost when disarmed");
 }
 
+/// Capability card UI5 — acceptance: the result screen is visible only on
+/// GameOver/Win, hidden while Playing.
+#[test]
+fn end_screen_shows_only_on_terminal_state() {
+    let mut app = test_app();
+    app.update(); // Playing, panel not yet spawned
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::GameOver);
+    app.update();
+    app.update(); // second frame toggles visibility
+    let show = {
+        let world = app.world_mut();
+        let mut q = world.query_filtered::<&Node, With<pointer::EndScreenRoot>>();
+        q.iter(world)
+            .next()
+            .map(|n| n.display == Display::Flex)
+            .expect("result screen should be spawned on GameOver")
+    };
+    assert!(show, "result screen must show on GameOver");
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Playing);
+    app.update();
+    app.update();
+    let hidden = {
+        let world = app.world_mut();
+        let mut q = world.query_filtered::<&Node, With<pointer::EndScreenRoot>>();
+        q.iter(world)
+            .next()
+            .map(|n| n.display == Display::None)
+            .expect("result screen should still exist")
+    };
+    assert!(hidden, "result screen must hide while Playing");
+}
+
+/// Capability card UI5 — acceptance: the "再来一局" button restarts from GameOver.
+#[test]
+fn retry_button_restarts_from_game_over() {
+    let mut app = test_app();
+    app.update();
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::GameOver);
+    app.update();
+    app.world_mut().spawn((
+        pointer::RetryButton,
+        bevy::ui::Interaction::Pressed,
+    ));
+    app.update(); // handler sets NextState(Playing)
+    app.update(); // StateTransition applies the state change
+    assert_eq!(*app.world().resource::<State<GameState>>(), GameState::Playing);
+}
+
+/// Capability card UI5 — acceptance: a meta-upgrade button buys that upgrade.
+#[test]
+fn meta_upgrade_button_grants_purchase() {
+    let save = std::env::temp_dir().join("warden_meta_btn_test.txt");
+    let _ = std::fs::remove_file(&save);
+    let mut app = test_app();
+    app.world_mut().insert_resource(MetaSavePath(save.clone()));
+    app.update();
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::GameOver);
+    app.update(); // applies GameOver (which pays the death reward)
+    app.world_mut().resource_mut::<MetaState>().coins = 40;
+    app.world_mut().spawn((
+        pointer::MetaUpgradeButton { which: 1 },
+        bevy::ui::Interaction::Pressed,
+    ));
+    app.update();
+    let meta = app.world().resource::<MetaState>();
+    assert!(meta.upgrade1, "upgrade 1 should be bought by the button");
+    assert_eq!(meta.coins, 10, "expected 10, got {}", meta.coins);
+    let _ = std::fs::remove_file(&save);
+}
+
 /// Capability card EN2 — acceptance: an enemy that reaches the base deducts its
 /// leak amount from base HP and despawns.
 #[test]
