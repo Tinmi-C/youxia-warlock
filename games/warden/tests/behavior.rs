@@ -20,7 +20,7 @@ use warden::{
     },
     resources::{
         BaseHp, Boosts, ChoiceKind, ChoiceOption, Economy, Hand, MetaSavePath, MetaState, RunRng,
-        SelectedTower, ShopOffers, TowerDefs, WaveChoice, WavePhase, WaveState,
+        SelectedTower, ShopOffers, StatKind, TowerDefs, WaveChoice, WavePhase, WaveState,
     },
     states::GameState,
 };
@@ -402,6 +402,218 @@ fn tower_fires_at_enemy_in_range() {
     assert!((hp - 40.0).abs() < 0.01, "one hit should reduce hp to 40, got {hp}");
 }
 
+/// Capability card AC4 polish — acceptance: three-choose-one options are drawn
+/// from three *distinct* random categories and a get-tower never offers a type
+/// the player already owns (when a free type exists). Ran across many seeds.
+#[test]
+fn three_choose_one_offers_distinct_random_categories() {
+    for seed in 1..=32u64 {
+        let mut app = test_app();
+        app.world_mut().insert_resource(RunRng::seeded(seed));
+        app.update(); // startup: deal hand
+        // Own one type so get-tower has a constraint to respect.
+        app.world_mut().resource_mut::<Hand>().owned_towers.push(2);
+        // Force a cleared wave so wave_resolve deals the choice.
+        {
+            let mut wave = app.world_mut().resource_mut::<WaveState>();
+            wave.phase = WavePhase::Combat;
+            wave.spawn_queue.clear();
+            wave.active = 0;
+            wave.current = 0;
+        }
+        app.update();
+        let choice = app.world().resource::<WaveChoice>();
+        assert!(choice.pending, "seed {seed}: choice should be pending");
+        assert_eq!(choice.options.len(), 3, "seed {seed}: exactly 3 options");
+        let owned = app.world().resource::<Hand>().owned_towers.clone();
+        let mut seen = std::collections::HashSet::new();
+        for opt in &choice.options {
+            let key = match &opt.kind {
+                ChoiceKind::StatBoost { stat, .. } => format!("stat:{stat:?}"),
+                ChoiceKind::GoldBoost => "gold".to_string(),
+                ChoiceKind::GetTower { .. } => "get".to_string(),
+            };
+            assert!(
+                seen.insert(key),
+                "seed {seed}: options must be from distinct categories, got {seen:?}"
+            );
+            if let ChoiceKind::GetTower { tower_type } = &opt.kind {
+                assert!(
+                    !owned.contains(tower_type),
+                    "seed {seed}: get-tower must avoid an owned type, got {tower_type} (owned {owned:?})"
+                );
+            }
+        }
+    }
+}
+
+/// Capability card AC4 polish — acceptance: `apply_choice` sets the correct
+/// boost multiplier for each StatBoost kind (damage / attack speed / range).
+#[test]
+fn stat_boost_kinds_set_the_right_mults() {
+    let mut choice = WaveChoice {
+        options: vec![
+            ChoiceOption {
+                label: "d".to_string(),
+                kind: ChoiceKind::StatBoost { tower_type: 1, stat: StatKind::Damage },
+            },
+            ChoiceOption {
+                label: "s".to_string(),
+                kind: ChoiceKind::StatBoost { tower_type: 2, stat: StatKind::AttackSpeed },
+            },
+            ChoiceOption {
+                label: "r".to_string(),
+                kind: ChoiceKind::StatBoost { tower_type: 3, stat: StatKind::Range },
+            },
+        ],
+        pending: true,
+    };
+    let mut boosts = Boosts::default();
+    let mut hand = Hand::default();
+    warden::systems::input::apply_choice(&mut choice, &mut boosts, &mut hand, 0);
+    assert!((boosts.damage_mult[1] - 1.2).abs() < 1e-6, "damage boost should be +20%");
+    warden::systems::input::apply_choice(&mut choice, &mut boosts, &mut hand, 1);
+    assert!(
+        (boosts.attack_speed_mult[2] - 1.2).abs() < 1e-6,
+        "attack-speed boost should be +20%"
+    );
+    warden::systems::input::apply_choice(&mut choice, &mut boosts, &mut hand, 2);
+    assert!((boosts.range_mult[3] - 1.15).abs() < 1e-6, "range boost should be +15%");
+}
+
+/// Capability card AC4 polish — acceptance: a fused tower reads the boost of
+/// its first-ingredient type (`tower_index`), so it benefits from boosts.
+#[test]
+fn fused_tower_receives_tower_index_damage_boost() {
+    let mut app = test_app();
+    app.update();
+    app.world_mut().resource_mut::<Boosts>().damage_mult[0] = 2.0;
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 0,
+            damage: 18.0,
+            attack_speed: 1.0,
+            range: 20.0,
+            attack_type: AttackType::Physical,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Fused(FusionKind::Marksman),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 60.0,
+            max_hp: 60.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            def_index: 0,
+            next_wp: 0,
+        },
+        Transform::from_xyz(2.0, 0.5, 0.0),
+    ));
+    app.update();
+    // 18 * 2.0 = 36 damage -> 60 - 36 = 24 (fused reads index-0 boost).
+    let hp = enemy_hp(&mut app);
+    assert!((hp - 24.0).abs() < 0.01, "fused tower must read its tower_index boost, got {hp}");
+}
+
+/// Capability card AC4 polish — acceptance: a range boost extends the tower's
+/// effective reach (base range 10 * 1.5 = 15 reaches a target at distance 13).
+#[test]
+fn range_boost_extends_reach() {
+    let mut app = test_app();
+    app.update();
+    app.world_mut().resource_mut::<Boosts>().range_mult[0] = 1.5;
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 0,
+            damage: 9.0,
+            attack_speed: 1.0,
+            range: 10.0,
+            attack_type: AttackType::Physical,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(0),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 20.0,
+            max_hp: 20.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            def_index: 0,
+            next_wp: 0,
+        },
+        Transform::from_xyz(13.0, 0.5, 0.0),
+    ));
+    app.update();
+    // 9 damage, one hit -> 20 - 9 = 11.
+    let hp = enemy_hp(&mut app);
+    assert!((hp - 11.0).abs() < 0.01, "range 10 * 1.5 = 15 must reach d=13, got {hp}");
+}
+
+/// Capability card AC4 polish — acceptance: an attack-speed boost shortens the
+/// cooldown interval to 1 / (speed * mult).
+#[test]
+fn attack_speed_boost_shortens_cooldown() {
+    let mut app = test_app();
+    app.update();
+    app.world_mut().resource_mut::<Boosts>().attack_speed_mult[0] = 2.0;
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 0,
+            damage: 9.0,
+            attack_speed: 1.0,
+            range: 20.0,
+            attack_type: AttackType::Physical,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(0),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 200.0,
+            max_hp: 200.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            def_index: 0,
+            next_wp: 0,
+        },
+        Transform::from_xyz(2.0, 0.5, 0.0),
+    ));
+    app.update();
+    let cooldown = {
+        let world = app.world_mut();
+        let mut q = world.query::<&Tower>();
+        q.single(world).unwrap().cooldown
+    };
+    assert!(
+        (cooldown - 0.5).abs() < 0.01,
+        "cooldown should be 1/(1 * 2) = 0.5, got {}",
+        cooldown
+    );
+}
+
 /// Capability card EN2 — acceptance: an enemy that reaches the base deducts its
 /// leak amount from base HP and despawns.
 #[test]
@@ -599,7 +811,7 @@ fn choosing_stat_boost_applies_damage_mult() {
         let mut choice = app.world_mut().resource_mut::<WaveChoice>();
         choice.options = vec![ChoiceOption {
             label: "x".to_string(),
-            kind: ChoiceKind::StatBoost { tower_type: 2 },
+            kind: ChoiceKind::StatBoost { tower_type: 2, stat: StatKind::Damage },
         }];
         choice.pending = true;
     }
@@ -660,7 +872,7 @@ fn choice_card_click_applies_option_and_closes() {
         choice.options = vec![
             ChoiceOption {
                 label: "弓箭手塔 伤害 +20%".to_string(),
-                kind: ChoiceKind::StatBoost { tower_type: 0 },
+                kind: ChoiceKind::StatBoost { tower_type: 0, stat: StatKind::Damage },
             },
             ChoiceOption {
                 label: "击杀金币 +20%".to_string(),

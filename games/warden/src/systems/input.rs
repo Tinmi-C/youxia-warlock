@@ -11,7 +11,7 @@ use bevy::prelude::*;
 
 use crate::components::{AttackType, FusionKind, PlacementCursor, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    Boosts, ChoiceKind, Economy, FusionDefs, Hand, SelectedTower, TowerDefs, WaveChoice,
+    Boosts, ChoiceKind, Economy, FusionDefs, Hand, SelectedTower, StatKind, TowerDefs, WaveChoice,
     WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
@@ -81,9 +81,11 @@ pub fn apply_choice(
     // Clone the kind out so we can mutate `choice` and still log it.
     let kind = opt.kind.clone();
     match &kind {
-        ChoiceKind::StatBoost { tower_type } => {
-            boosts.damage_mult[*tower_type] *= 1.2;
-        }
+        ChoiceKind::StatBoost { tower_type, stat } => match stat {
+            StatKind::Damage => boosts.damage_mult[*tower_type] *= 1.2,
+            StatKind::AttackSpeed => boosts.attack_speed_mult[*tower_type] *= 1.2,
+            StatKind::Range => boosts.range_mult[*tower_type] *= 1.15,
+        },
         ChoiceKind::GoldBoost => {
             boosts.kill_mult *= 1.2;
         }

@@ -327,11 +327,14 @@ impl Default for Hand {
 }
 
 /// Per-type multipliers applied by the wave-intermission "三选一" boost (AC4).
-/// Index = base tower type (0..3); fused towers gain no base boost (placeholder —
-/// full per-tower stat boosts are a polish card).
+/// Index = base tower type (0..3); a fused tower reads the multiplier of its
+/// first ingredient type (`tower_index`) so it too benefits (AC4 polish). The
+/// +% values are starting points, tuned on the balance card.
 #[derive(Resource)]
 pub struct Boosts {
     pub damage_mult: [f32; 4],
+    pub attack_speed_mult: [f32; 4],
+    pub range_mult: [f32; 4],
     pub kill_mult: f32,
 }
 
@@ -398,6 +401,8 @@ impl Default for Boosts {
     fn default() -> Self {
         Self {
             damage_mult: [1.0; 4],
+            attack_speed_mult: [1.0; 4],
+            range_mult: [1.0; 4],
             kill_mult: 1.0,
         }
     }
@@ -406,12 +411,20 @@ impl Default for Boosts {
 /// One "三选一" option, shown between waves (AC4).
 #[derive(Clone, Debug)]
 pub enum ChoiceKind {
-    /// +20% damage to a base tower type.
-    StatBoost { tower_type: usize },
+    /// A stat boost to a base tower type (AC4 polish: chooses which stat).
+    StatBoost { tower_type: usize, stat: StatKind },
     /// +20% kill gold for the rest of the run.
     GoldBoost,
     /// Add a base tower type to the owned pool (avoiding owned towers).
     GetTower { tower_type: usize },
+}
+
+/// Which base-stat a `StatBoost` option boosts (AC4 polish).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatKind {
+    Damage,
+    AttackSpeed,
+    Range,
 }
 
 #[derive(Clone)]

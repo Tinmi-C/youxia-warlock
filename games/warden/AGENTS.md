@@ -79,14 +79,17 @@ assets/{models,textures,audio,fonts,ui}/
   - UI2 操作面板化+中文化（2026-09-06）：「▶ 开始下一波」按钮、三选一可点击卡片（与数字键等效）、
     商店卡片缺钱置灰、点已放塔出属性面板+射程圈、黄色键盘光标默认隐藏；UI 文案默认中文——
     塔名中文 label 字段 + `bevy_text/system_font_discovery` 运行时用系统微软雅黑（不带字体文件）。
-  - `cargo check --all-targets` + `cargo test` 全绿零警告（23 条断言，`tests/behavior.rs`）。
+  - AC4 polish（2026-09-06）：三选一改 `RunRng` **真随机**（伤害/攻速/射程/金币/获得塔 5 类抽 3 个不重复）；
+    `StatKind` 三态 + `Boosts` 增 `attack_speed_mult`/`range_mult`；tower_fire 对攻速(冷却)与射程(瞄准)生效；
+    **融合塔也按 `tower_index`(=原料0) 吃加成**。
+  - `cargo check --all-targets` + `cargo test` 全绿零警告（28 条断言，`tests/behavior.rs`）。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
   ③ AC2 商店定价：解锁费（进手牌）与建造费（每次放置）分离——现均为塔面价；
   ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
-- **下一步**：AC4 polish（真随机 + 攻速/射程/结果塔加成）→ 真人试玩 + balance 卡（§14 速查表/锚点带收敛）
-  → UI polish（塔位悬停高亮、Game Over/Win 画面、语言选项切换——见 GDD 点子池）→ 分发考虑自带开源中文字体 → 点子池（塔升级/卖塔等）。
+- **下一步**：真人试玩 + balance 卡（§14 速查表/锚点带收敛，含 AC4 各 +% 与 EN5/ME1 数值定值）→ UI polish
+  （塔位悬停高亮、Game Over/Win 画面、语言选项切换——见 GDD 点子池）→ 分发考虑自带开源中文字体 → 点子池（塔升级/卖塔等）。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers 变化自动重建。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
   尽量别改已落卡实现（新机制=新组件+新系统）；跨域时序走 `GameSet` + 显式 before/after。

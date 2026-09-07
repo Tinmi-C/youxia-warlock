@@ -29,12 +29,15 @@ pub fn tower_fire(
 
         let marksman = tower.kind == TowerKind::Fused(FusionKind::Marksman);
 
-        // AC4 stats boost: +% damage for a base tower type.
-        let base_dmg = tower.damage
-            * match tower.kind {
-                TowerKind::Base(i) => boost.damage_mult.get(i).copied().unwrap_or(1.0),
-                _ => 1.0,
-            };
+        // AC4 stat boosts (polish): a tower reads the multiplier of its
+        // `tower_index` — for a base tower that is its own type; for a fused
+        // tower it is the first ingredient's type, so fused towers also benefit.
+        let idx = tower.tower_index;
+        let dmg_mult = boost.damage_mult.get(idx).copied().unwrap_or(1.0);
+        let speed_mult = boost.attack_speed_mult.get(idx).copied().unwrap_or(1.0);
+        let range_mult = boost.range_mult.get(idx).copied().unwrap_or(1.0);
+        let base_dmg = tower.damage * dmg_mult;
+        let effective_range = tower.range * range_mult;
 
         // Pick target: nearest, or highest-HP for the Marksman.
         let mut best: Option<(Entity, f32, f32)> = None; // (eid, dist, hp)
@@ -43,7 +46,7 @@ pub fn tower_fire(
                 continue;
             }
             let d = ttf.translation.distance(etf.translation);
-            if d > tower.range {
+            if d > effective_range {
                 continue;
             }
             let better = match best {
@@ -98,7 +101,7 @@ pub fn tower_fire(
         // Slow: refresh a slow effect on every enemy within tower range.
         if tower.slow_factor > 0.0 {
             for (eid, etf, _) in &enemies {
-                if etf.translation.distance(ttf.translation) <= tower.range {
+                if etf.translation.distance(ttf.translation) <= effective_range {
                     commands.entity(eid).insert(Slow {
                         timer: tower.slow_duration,
                         factor: tower.slow_factor,
@@ -107,7 +110,7 @@ pub fn tower_fire(
             }
         }
 
-        tower.cooldown = 1.0 / tower.attack_speed;
+        tower.cooldown = 1.0 / (tower.attack_speed * speed_mult);
     }
 }
 

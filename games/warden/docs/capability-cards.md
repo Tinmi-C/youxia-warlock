@@ -210,12 +210,18 @@
 - 验收句: 击杀精英必出 1 张塔牌（8 种子全过）；普通击杀 200 次掉落在 ≈20 次（±3σ 带）。已入 `tests/behavior.rs`
   （`elite_kill_always_drops_tower_card` / `normal_kills_drop_about_ten_percent`）。
 
-### AC4 · 三选一（acquisition/ui）—— ✅ 已实现（简化）
-- 接口: 输入 波结算 + 已有塔；输出 3 个选项（塔强化/金币/得塔），避重避已有。选择挂起时禁开下一波。
-- 行为: 每波结算抽 3 个供选 1；给塔选项避开玩家已有塔；1/2/3 选择。
-- 实现（2026-09-03）：`wave.rs::generate_choices`（确定性生成，占位）→ `input.rs::choose_choice` 应用；效果：塔型 +20% 伤害（`Boosts.damage_mult`）/击杀金币 +20%（`Boosts.kill_mult`）/获得塔（`Hand.owned_towers`）。结果塔不加成（结果塔型 no boost，占位）。`start_next_wave` 在 `WaveChoice.pending` 时停用。
-- 验收句: 三选项互不相同；「得塔」选项不含已拥有塔；选中后效果生效（如 +20% 伤害）。已入 `tests/behavior.rs`。
-- ⚠️ 占位：选项为**确定性生成**（非真随机）；塔强化只做「某塔型 +20% 伤害」（未做攻速/射程，也未按结果塔型加成）。随机化与精细加成是 polish 卡。
+### AC4 · 三选一（acquisition/ui）—— ✅ 已实现（2026-09-06 随机化 + 加成扩展）
+- 接口: 输入 波结算 + 已有塔 + `RunRng`；输出 3 个选项（塔强化[伤害/攻速/射程]/金币/得塔），避重避已有。选择挂起时禁开下一波。
+- 行为: 每波结算用 `RunRng` **真随机**从 5 类收益（伤害+20% / 攻速+20% / 射程+15% / 击杀金币+20% / 获得塔）中抽 **3 个互不重复类别**；stat/get 的目标塔型随机抽；「得塔」避开玩家已有塔（有可用塔型时）；`1/2/3` 或点击卡片选择（UI2）。
+- 实现（09-03 首版 → 09-06 polish）：
+  - 09-03 占位：`wave.rs::generate_choices` 确定性生成，仅「某塔型 +20% 伤害」。
+  - 09-06 polish：`generate_choices` 改用 `RunRng` 抽 3 个不重复类别（`sample_distinct`）；`ChoiceKind::StatBoost` 增 `stat: StatKind{Damage|AttackSpeed|Range}`；`Boosts` 增 `attack_speed_mult`/`range_mult`（指数=塔型）；`tower_fire` 对攻速（冷却 = 1/(攻速×mult)）与射程（瞄准 `d > range×mult`）生效；**融合塔也按 `tower_index`(=原料0塔型) 吃对应加成**（此前融合塔不吃）；中文标签沿用 UI2。
+- 验收句（已入 `tests/behavior.rs`）:
+  - 三选一选项类别互不重复（多种子跑不违反）；「得塔」选项不含已拥有塔型。
+  - `apply_choice` 对伤害/攻速/射程 StatBoost 正确设置 `damage_mult`/`attack_speed_mult`/`range_mult`。
+  - 融合塔吃 `tower_index` 加成（伤害/攻速/射程生效）。
+  - 既有键盘/按钮选择路径与 UI2 回归不受影响（23→N 断言全绿）。
+- ⚠️ 设计取值：+20% 伤害 / +20% 攻速 / +15% 射程 / +20% 金币 / 获得塔 —— 各为体验量，balance 卡/试玩再调；「结果塔加成」按原料0映射，非每塔独立（细化也是 polish 候选）。
 
 ### UI2 · 操作面板化 + 中文化（ui）—— ✅ 已实现（2026-09-06）
 - 接口: 读 WaveState/WaveChoice/FusionSel/Hand/ShopOffers/Economy；输出 bevy_ui 控件 + 中文文案。
