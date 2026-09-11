@@ -1195,3 +1195,49 @@ fn lang_preference_persists_across_restart() {
     );
     let _ = std::fs::remove_file(&path);
 }
+
+// --- UI8: next-wave preview -------------------------------------------------
+
+/// Capability card UI8 — acceptance: the build window previews the next wave's
+/// composition and reward; combat hides it; English follows the toggle.
+#[test]
+fn hud_preview_lists_next_wave_composition() {
+    let mut app = test_app();
+    let path = std::env::temp_dir().join("warden_lang_preview_test.txt");
+    let _ = std::fs::remove_file(&path);
+    app.world_mut().insert_resource(UiPrefsPath(path.clone()));
+    app.update();
+    let text = hud_text(&mut app);
+    assert!(
+        text.contains("下一波"),
+        "intermission HUD must preview the next wave: {text}"
+    );
+    assert!(text.contains("普通×5"), "wave 1 is 5x ordinary: {text}");
+    assert!(
+        text.contains("奖励20金"),
+        "the preview includes the wave reward: {text}"
+    );
+
+    // English preview follows the language toggle.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyL);
+    app.update();
+    let text = hud_text(&mut app);
+    assert!(
+        text.contains("Next wave") && text.contains("Normal×5"),
+        "English preview after toggle: {text}"
+    );
+
+    // Start the wave: the preview must disappear during combat.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Space);
+    app.update();
+    let text = hud_text(&mut app);
+    assert!(
+        !text.contains("Next wave") && !text.contains("下一波"),
+        "combat must hide the preview: {text}"
+    );
+    let _ = std::fs::remove_file(&path);
+}

@@ -36,6 +36,19 @@ pub fn fusion_label(def: &FusionDef, lang: Lang) -> &'static str {
     pick2(def.label, def.label_en, lang)
 }
 
+pub fn enemy_label(def: &crate::resources::EnemyDef, lang: Lang) -> &'static str {
+    pick2(def.label, def.label_en, lang)
+}
+
+/// The between-waves "next wave" preview (UI8): composition + reward, so the
+/// slow-phase economy/placement decisions are informed (requirements §3/§10).
+pub fn next_wave_preview(lang: Lang, composition: &str, reward: u32) -> String {
+    match lang {
+        Lang::Zh => format!("下一波：{} · 奖励{}金", composition, reward),
+        Lang::En => format!("Next wave: {} · reward {}g", composition, reward),
+    }
+}
+
 // --- Static copy ------------------------------------------------------------
 
 pub const HELP_LINE: Bi = Bi(

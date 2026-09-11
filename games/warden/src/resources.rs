@@ -217,6 +217,10 @@ impl FusionDefs {
 #[derive(Clone)]
 pub struct EnemyDef {
     pub name: &'static str,
+    /// Player-facing display name (Chinese, UI8 wave preview).
+    pub label: &'static str,
+    /// Player-facing display name (English, UI7/UI8).
+    pub label_en: &'static str,
     pub hp: f32,
     pub speed: f32,
     pub leak: u32,
@@ -236,17 +240,17 @@ impl EnemyDefs {
         Self {
             list: vec![
                 // 0 ordinary
-                EnemyDef { name: "ordinary", hp: 30.0, speed: 1.0, leak: 1, kill_gold: 6, physical_armor: false, healer: false },
+                EnemyDef { name: "ordinary", label: "普通", label_en: "Normal", hp: 30.0, speed: 1.0, leak: 1, kill_gold: 6, physical_armor: false, healer: false },
                 // 1 fast
-                EnemyDef { name: "fast", hp: 20.0, speed: 1.8, leak: 1, kill_gold: 8, physical_armor: false, healer: false },
+                EnemyDef { name: "fast", label: "快速", label_en: "Fast", hp: 20.0, speed: 1.8, leak: 1, kill_gold: 8, physical_armor: false, healer: false },
                 // 2 shield (physical armor -50%)
-                EnemyDef { name: "shield", hp: 90.0, speed: 0.6, leak: 2, kill_gold: 12, physical_armor: true, healer: false },
+                EnemyDef { name: "shield", label: "盾兵", label_en: "Shield", hp: 90.0, speed: 0.6, leak: 2, kill_gold: 12, physical_armor: true, healer: false },
                 // 3 healer
-                EnemyDef { name: "healer", hp: 45.0, speed: 1.0, leak: 1, kill_gold: 10, physical_armor: false, healer: true },
+                EnemyDef { name: "healer", label: "治疗", label_en: "Healer", hp: 45.0, speed: 1.0, leak: 1, kill_gold: 10, physical_armor: false, healer: true },
                 // 4 elite
-                EnemyDef { name: "elite", hp: 200.0, speed: 0.8, leak: 3, kill_gold: 50, physical_armor: false, healer: false },
+                EnemyDef { name: "elite", label: "精英", label_en: "Elite", hp: 200.0, speed: 0.8, leak: 3, kill_gold: 50, physical_armor: false, healer: false },
                 // 5 boss
-                EnemyDef { name: "boss", hp: 600.0, speed: 0.5, leak: 5, kill_gold: 100, physical_armor: false, healer: false },
+                EnemyDef { name: "boss", label: "BOSS", label_en: "Boss", hp: 600.0, speed: 0.5, leak: 5, kill_gold: 100, physical_armor: false, healer: false },
             ],
         }
     }

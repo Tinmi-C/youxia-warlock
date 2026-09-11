@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use bevy::text::FontSource;
 
 use crate::resources::{
-    BaseHp, Economy, Hand, Lang, MetaState, SelectedTower, TowerDefs, UPGRADE1_COST, UPGRADE2_COST,
-    WaveChoice, WavePhase, WaveSchedule, WaveState,
+    BaseHp, Economy, EnemyDefs, Hand, Lang, MetaState, SelectedTower, TowerDefs, UPGRADE1_COST,
+    UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
 use crate::systems::l10n;
@@ -93,6 +93,7 @@ pub fn update_hud(
     choice: Res<WaveChoice>,
     meta: Res<MetaState>,
     schedule: Res<WaveSchedule>,
+    enemy_defs: Res<EnemyDefs>,
     state: Res<State<GameState>>,
     lang: Res<Lang>,
     mut help: Query<&mut Text, (With<HelpText>, Without<HudText>)>,
@@ -152,6 +153,27 @@ pub fn update_hud(
             .collect::<Vec<_>>()
             .join("  ");
         text.push_str(&format!("  | {}{opts}", l10n::CHOICE.pick(lang)));
+    }
+    // UI8: during the build window, preview the next wave's composition and
+    // reward so the slow-phase decisions are informed (requirements §3/§10).
+    if *state.get() == GameState::Playing && wave.phase == WavePhase::Intermission {
+        if let Some(next) = schedule.waves.get(wave.current as usize) {
+            let composition = next
+                .entries
+                .iter()
+                .filter_map(|e| {
+                    enemy_defs
+                        .list
+                        .get(e.enemy_index)
+                        .map(|d| format!("{}×{}", l10n::enemy_label(d, lang), e.count))
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            text.push_str(&format!(
+                "  | {}",
+                l10n::next_wave_preview(lang, &composition, next.reward)
+            ));
+        }
     }
     if matches!(state.get(), GameState::GameOver | GameState::Win) {
         text.push_str("  | ");

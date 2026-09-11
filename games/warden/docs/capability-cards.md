@@ -295,7 +295,7 @@
 - 验收句（已入 `tests/behavior.rs`）: ① `lang_toggle_switches_hud_and_shop_copy`（切 En 后 HUD 含 "Gold="、商店卡含
   "Archer"，切回含 "金币"）；② `lang_preference_persists_across_restart`（ui_prefs.txt 落盘+新 App 读回）。
 
-### UI8 · 下一波组成预览（ui）—— 🟡 实现中（2026-09-11 立卡开工）
+### UI8 · 下一波组成预览（ui）—— ✅ 已实现（2026-09-11）
 - 接口: 读 WaveSchedule/WaveState/WavePhase/GameState；HUD 状态行追加「下一波」段（数据来自 requirements §10，纯展示）。
 - 行为: 建造期（Intermission + Playing）显示下一波敌人构成与奖励（如「下一波：普通×10 快速×3 · 奖励30金」），
   服务 §3「慢思考」——玩家带着信息做经营决策；战斗期不显示；无下一波（Win 态）不显示。
