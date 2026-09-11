@@ -88,15 +88,23 @@ assets/{models,textures,audio,fonts,ui}/
     全波读数**暴露早战经济压力**——自动布阵从 100g 起步第 2 波即败（基地 0/10），是 balance 卡首要收敛项。
   - UI3 塔位悬停高亮+幽灵预览（2026-09-06）：建造模式悬停空塔位显示半透明幽灵塔（颜色随塔型），放哪放什么一目了然。
   - UI5 结算画面（2026-09-06）：GameOver/Win 显示「本局结束」横幅 + 再来一局按钮 + 两个 Meta 购买按钮（与 1/2 键等效）。
-  - `cargo check --all-targets` + `cargo test` 全绿零警告（34 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
+  - UI6 自带开源中文字体（2026-09-11）：`assets/fonts/` 内置 Noto Sans SC（SIL OFL 1.1）+ `UiFont` 资源（headless 回落默认字体），
+    移除 `bevy_text/system_font_discovery`——不再依赖系统微软雅黑/苹方，跨平台渲染一致、分发无版权问题
+    （**开发机已迁到 macOS arm64**，2026-09-11 实测 cargo run/中文渲染正常；raw.githubusercontent 直连下载易断流，走 jsdelivr CDN）。
+  - UI7 语言切换 中/英（2026-09-11）：`L` 键/右上按钮切换，全部玩家文案走 `systems/l10n.rs`（`Bi(zh,en)` 双语常量 + 按语言 format 辅助），
+    商店/控制条/三选一/属性面板/结算屏随语言即时重建；偏好持久化 `ui_prefs.txt`（key=value，测试用独立临时路径）。
+  - UI8 下一波组成预览（2026-09-11）：建造期 HUD 显示下一波敌人构成与奖励（如「下一波：普通×10 快速×3 · 奖励30金」），
+    服务 §3「慢思考」；战斗期隐藏；EnemyDef 增双语 `label`。
+  - `cargo check --all-targets` + `cargo test` 全绿零警告（39 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
   ③ AC2 商店定价：解锁费（进手牌）与建造费（每次放置）分离——现均为塔面价；
   ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
-- **下一步**：**balance 数值按负责人意见「暂缓，等有时间再调」**（BAL2 锚点表+读数工具已备好，随时可收敛「早战经济压力」）→ 先做**非数值项**：UI polish
-  （塔位悬停高亮/幽灵预览、Game Over/Win 画面、语言切换——见 GDD 点子池）→ 真人试玩盯 §15 信号 → 待有精力再收敛数值。
-- **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers 变化自动重建。
+- **下一步**：**balance 数值按负责人意见「暂缓，等有时间再调」**（BAL2 锚点表+读数工具已备好，随时可收敛「早战经济压力」）→
+  非数值 UI polish 已清完既定项（UI3/5/6/7/8 落地；GDD 点子池剩 塔升级/卖塔、多路径等需先立验收句）→ **真人试玩盯 §15 信号**（下一波预览已上线，试玩体验更完整）→ 待有精力再收敛数值。
+- **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
+  macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
   尽量别改已落卡实现（新机制=新组件+新系统）；跨域时序走 `GameSet` + 显式 before/after。
 
