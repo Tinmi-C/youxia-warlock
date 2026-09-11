@@ -15,7 +15,10 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectedTower>()
-            .add_systems(Startup, systems::hud::spawn_hud)
+            .add_systems(
+                Startup,
+                (systems::hud::setup_ui_font, systems::hud::spawn_hud).chain(),
+            )
             .add_systems(
                 Update,
                 (

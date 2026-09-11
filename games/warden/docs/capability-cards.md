@@ -277,6 +277,30 @@
 - 验收句（已入 `tests/behavior.rs`）：`end_screen_shows_only_on_terminal_state`（GameOver 显示 Flex / Playing 隐藏 None）、`retry_button_restarts_from_game_over`（点按钮回到 Playing）、`meta_upgrade_button_grants_purchase`（点升级1按钮 upgrade1=true 且 coins-30）。
 - ⚠️ 视觉/排版的呈现效果属人工验收项；HEADLESS 锁「状态驱动显隐 + 按钮行为」回归。测试用唯一临时存档路径（避免共享 meta 文件污染——曾踩共享 `warden_meta_shared_test.txt` 被 `load_meta` 误读的坑）。
 
+### UI6 · 自带开源中文字体（ui）—— ✅ 已实现（2026-09-11）
+- 接口: `assets/fonts/NotoSansSC-VariableFont_wght.ttf`（SIL OFL 1.1，附 `OFL.txt`）经 AssetServer 加载；
+  输出 `UiFont` 资源（`FontSource::Handle`），全部 UI 文本统一引用；headless（无 AssetServer）回落 `FontSource::Default`。
+- 行为: UI 文本不再依赖系统「微软雅黑」（Windows 专属）或平台回退（macOS 萍方），换机器/出包分发渲染一致；
+  移除 `bevy_text/system_font_discovery` 依赖（不再查系统字体）。
+- 验收句（已入 `tests/behavior.rs`）: ① `bundled_cjk_font_file_is_present`（字体+许可文件在库，防误删）；
+  ② `ui_font_falls_back_to_default_without_asset_server`（headless 不 panic、回落默认字体）。
+- 人工验收项: 真窗口中文渲染正常（2026-09-11 macOS arm64 实测通过）。分发体积优化（子集化）留点子池。
+- 备注: 字体先放项目内（首次使用）；第 2 个游戏用到再沉根 `assets/`（团队 rule of three）。
+
+### UI7 · 语言切换 中/英（ui）—— 🟡 实现中（2026-09-11 立卡开工）
+- 接口: 新 `Lang` 资源（Zh/En，默认 Zh）+ `ui_prefs.txt` 持久化（key=value，同 meta_save 约定）；
+  TowerDef/FusionDef 增 `label_en`，EnemyDef 增 `label`/`label_en`；全部玩家文案经 `systems/l10n.rs`（`Bi(zh,en)` 双语常量）。
+- 行为: 按 `L` 或点右上角语言按钮 → HUD/帮助行/商店卡/三选一卡/属性面板/结算屏全部在中/英间切换并即时重建；
+  重启记住选择；代码标识符与日志保持英文（团队规则）。
+- 验收句（已入 `tests/behavior.rs`）: ① `lang_toggle_switches_hud_and_shop_copy`（切 En 后 HUD 含 "Gold="、商店卡含
+  "Archer"，切回含 "金币"）；② `lang_preference_persists_across_restart`（ui_prefs.txt 落盘+新 App 读回）。
+
+### UI8 · 下一波组成预览（ui）—— 🟡 实现中（2026-09-11 立卡开工）
+- 接口: 读 WaveSchedule/WaveState/WavePhase/GameState；HUD 状态行追加「下一波」段（数据来自 requirements §10，纯展示）。
+- 行为: 建造期（Intermission + Playing）显示下一波敌人构成与奖励（如「下一波：普通×10 快速×3 · 奖励30金」），
+  服务 §3「慢思考」——玩家带着信息做经营决策；战斗期不显示；无下一波（Win 态）不显示。
+- 验收句（已入 `tests/behavior.rs`）: ① 初始建造期 HUD 含「下一波」且列出第 1 波构成（普通×5）；② 开波后该段消失。
+
 ### ME1 · Meta 解锁链（meta）—— ✅ 已实现（2026-09-04）
 - 接口: 读死亡/通关；输出 meta 币 + 升级效果。
 - 行为: 死亡 +15、通关 +30；升级1=弓箭手进开局手牌池；升级2=开局金币 +20。

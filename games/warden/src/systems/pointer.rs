@@ -26,7 +26,7 @@ use crate::resources::{
     WaveState,
 };
 use crate::states::GameState;
-use crate::systems::{hud::ui_font, input::{apply_choice, try_start_wave}, meta::buy_upgrade};
+use crate::systems::{hud::UiFont, input::{apply_choice, try_start_wave}, meta::buy_upgrade};
 
 /// Marker on the shop bar root so it can be despawned on rebuild (Bevy 0.19
 /// despawn removes children recursively).
@@ -85,7 +85,7 @@ pub struct MetaUpgradeButton {
 
 /// Spawn the bottom shop bar: owned types row (UI1) + offers row (AC2).
 /// Chinese labels (UI2); a card greys out when gold cannot afford its cost.
-fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand, economy: &Economy) {
+fn build_shop_bar(commands: &mut Commands, font: &UiFont, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand, economy: &Economy) {
     // Dedupe for display: AC3 drops may push a type that is already owned.
     let owned: Vec<usize> = hand
         .owned_towers
@@ -136,7 +136,7 @@ fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers
                         p.spawn((
                             Text::new(format!("{} {}金", def.label, def.cost)),
                             TextFont {
-                                font: ui_font(),
+                                font: font.0.clone(),
                                 font_size: FontSize::Px(13.0),
                                 ..default()
                             },
@@ -174,7 +174,7 @@ fn build_shop_bar(commands: &mut Commands, defs: &TowerDefs, offers: &ShopOffers
                         p.spawn((
                             Text::new(format!("[商店] {} {}金", def.label, def.cost)),
                             TextFont {
-                                font: ui_font(),
+                                font: font.0.clone(),
                                 font_size: FontSize::Px(12.0),
                                 ..default()
                             },
@@ -200,6 +200,7 @@ fn card_color(affordable: bool, normal: Color) -> Color {
 /// per-frame work.
 pub fn refresh_shop_bar(
     mut commands: Commands,
+    font: Res<UiFont>,
     defs: Res<TowerDefs>,
     offers: Res<ShopOffers>,
     hand: Res<Hand>,
@@ -215,7 +216,7 @@ pub fn refresh_shop_bar(
     for root in &roots {
         commands.entity(root).despawn();
     }
-    build_shop_bar(&mut commands, &defs, &offers, &hand, &economy);
+    build_shop_bar(&mut commands, &font, &defs, &offers, &hand, &economy);
 }
 
 /// A pressed shop button arms build mode with that tower type.
@@ -270,7 +271,7 @@ pub fn handle_offer_buttons(
 }
 
 /// Spawn the bottom-right control bar with the "开始下一波" button (UI2).
-fn build_control_bar(commands: &mut Commands) {
+fn build_control_bar(commands: &mut Commands, font: &UiFont) {
     commands
         .spawn((
             ControlBarRoot,
@@ -299,7 +300,7 @@ fn build_control_bar(commands: &mut Commands) {
                 p.spawn((
                     Text::new("▶ 开始下一波"),
                     TextFont {
-                        font: ui_font(),
+                        font: font.0.clone(),
                         font_size: FontSize::Px(15.0),
                         ..default()
                     },
@@ -313,6 +314,7 @@ fn build_control_bar(commands: &mut Commands) {
 /// shown during the build window only (Intermission, no pending choice).
 pub fn refresh_control_bar(
     mut commands: Commands,
+    font: Res<UiFont>,
     wave: Res<WaveState>,
     choice: Res<WaveChoice>,
     state: Res<State<GameState>>,
@@ -321,7 +323,7 @@ pub fn refresh_control_bar(
 ) {
     if !*spawned {
         *spawned = true;
-        build_control_bar(&mut commands);
+        build_control_bar(&mut commands, &font);
         return;
     }
     let show = wave.phase == WavePhase::Intermission
@@ -351,6 +353,7 @@ pub fn handle_start_wave_button(
 /// Cards are clickable equivalents of the 1/2/3 keys.
 pub fn refresh_choice_cards(
     mut commands: Commands,
+    font: Res<UiFont>,
     choice: Res<WaveChoice>,
     mut cache: Local<bool>,
     roots: Query<Entity, With<ChoiceCardsRoot>>,
@@ -398,7 +401,7 @@ pub fn refresh_choice_cards(
                     p.spawn((
                         Text::new(format!("[{}] {}", i + 1, opt.label)),
                         TextFont {
-                            font: ui_font(),
+                            font: font.0.clone(),
                             font_size: FontSize::Px(14.0),
                             ..default()
                         },
@@ -428,6 +431,7 @@ pub fn handle_choice_card_buttons(
 /// selection changes (UI2): select a tower to inspect it, deselect to close.
 pub fn refresh_tower_info(
     mut commands: Commands,
+    font: Res<UiFont>,
     fusion_sel: Res<FusionSel>,
     towers: Query<(Entity, &Tower, &Transform)>,
     defs: Res<TowerDefs>,
@@ -499,7 +503,7 @@ pub fn refresh_tower_info(
             p.spawn((
                 Text::new(lines),
                 TextFont {
-                    font: ui_font(),
+                    font: font.0.clone(),
                     font_size: FontSize::Px(13.0),
                     ..default()
                 },
@@ -610,7 +614,7 @@ pub fn update_hover_ghost(
 /// Build the GameOver/Win result screen: a centered banner + the retry button
 /// and the two meta-upgrade purchase buttons (UI5). Starts hidden; the
 /// `refresh_end_screen` system toggles its visibility with the game state.
-fn build_end_screen(commands: &mut Commands) {
+fn build_end_screen(commands: &mut Commands, font: &UiFont) {
     commands
         .spawn((
             EndScreenRoot,
@@ -631,7 +635,7 @@ fn build_end_screen(commands: &mut Commands) {
             root.spawn((
                 Text::new("🏁 本局结束"),
                 TextFont {
-                    font: ui_font(),
+                    font: font.0.clone(),
                     font_size: FontSize::Px(34.0),
                     ..default()
                 },
@@ -640,7 +644,7 @@ fn build_end_screen(commands: &mut Commands) {
             root.spawn((
                 Text::new("按 1/2 购买 Meta 升级，或点「再来一局」"),
                 TextFont {
-                    font: ui_font(),
+                    font: font.0.clone(),
                     font_size: FontSize::Px(14.0),
                     ..default()
                 },
@@ -673,7 +677,7 @@ fn build_end_screen(commands: &mut Commands) {
                         p.spawn((
                             Text::new(label),
                             TextFont {
-                                font: ui_font(),
+                                font: font.0.clone(),
                                 font_size: FontSize::Px(13.0),
                                 ..default()
                             },
@@ -698,7 +702,7 @@ fn build_end_screen(commands: &mut Commands) {
                     p.spawn((
                         Text::new("再来一局"),
                         TextFont {
-                            font: ui_font(),
+                            font: font.0.clone(),
                             font_size: FontSize::Px(15.0),
                             ..default()
                         },
@@ -713,13 +717,14 @@ fn build_end_screen(commands: &mut Commands) {
 /// panel is built once and its visibility toggled with the game state.
 pub fn refresh_end_screen(
     mut commands: Commands,
+    font: Res<UiFont>,
     state: Res<State<GameState>>,
     mut spawned: Local<bool>,
     mut roots: Query<&mut Node, With<EndScreenRoot>>,
 ) {
     if !*spawned {
         *spawned = true;
-        build_end_screen(&mut commands);
+        build_end_screen(&mut commands, &font);
         return;
     }
     let show = matches!(state.get(), GameState::GameOver | GameState::Win);

@@ -1080,3 +1080,39 @@ fn magic_damage_ignores_armor() {
         "15 magic should bypass armor entirely (hp 90 -> 75), got {hp}"
     );
 }
+
+// --- UI6: bundled CJK font -------------------------------------------------
+
+/// The bundled font file (and its OFL license) must stay in the repo so every
+/// machine renders the same CJK text (UI6). Guards against accidental deletes.
+#[test]
+fn bundled_cjk_font_file_is_present() {
+    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+    assert!(
+        base.join("NotoSansSC-VariableFont_wght.ttf").is_file(),
+        "assets/fonts/NotoSansSC-VariableFont_wght.ttf must exist (UI6 bundled font)"
+    );
+    assert!(
+        base.join("OFL.txt").is_file(),
+        "assets/fonts/OFL.txt must exist (SIL OFL 1.1 license travels with the font)"
+    );
+}
+
+/// Headless apps have no AssetServer, so `setup_ui_font` must fall back to
+/// `FontSource::Default` instead of panicking (UI6).
+#[test]
+fn ui_font_falls_back_to_default_without_asset_server() {
+    let mut app = test_app();
+    app.update(); // Startup: setup_ui_font + spawn_hud run
+    let font = app.world().resource::<warden::systems::hud::UiFont>();
+    assert!(
+        matches!(font.0, bevy::text::FontSource::Handle(ref h) if h == &bevy::asset::Handle::default()),
+        "headless must resolve the default font handle, got {:?}",
+        font.0
+    );
+    // The HUD still spawns with that font (no panic, entities exist).
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&Text, With<warden::systems::hud::HudText>>();
+    assert_eq!(q.iter(app.world()).count(), 1, "the HUD status line must exist in headless too");
+}

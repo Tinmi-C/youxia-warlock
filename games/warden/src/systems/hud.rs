@@ -1,7 +1,7 @@
 //! HUD: a Chinese status line + a static help line (UI2). Dynamic UI is the
 //! observation channel for the closed loop. The status line also shows the
 //! meta purchase hints on the GameOver/Win screens (ME1).
-//! Capability cards: UI4 (HUD), UI2 (panel + Chinese copy).
+//! Capability cards: UI4 (HUD), UI2 (panel + Chinese copy), UI6 (bundled font).
 
 use bevy::prelude::*;
 use bevy::text::FontSource;
@@ -16,20 +16,36 @@ use crate::states::GameState;
 #[derive(Component)]
 pub struct HudText;
 
-/// The UI font: resolve the system "Microsoft YaHei" family via
-/// `bevy_text/system_font_discovery` so Chinese text renders (parley fontique
-/// falls back automatically if the family is missing). Ships no font file;
-/// bundling an open CJK font for distribution is a follow-up card.
-pub fn ui_font() -> FontSource {
-    FontSource::Family("Microsoft YaHei".into())
+/// The bundled open-source CJK font (UI6): Noto Sans SC under SIL OFL 1.1
+/// (license at `assets/fonts/OFL.txt`). Shipping the file makes rendering
+/// identical on every machine (Windows used Microsoft YaHei, macOS fell back
+/// to PingFang) and keeps distribution licensing clean. Headless tests have
+/// no AssetServer, so `setup_ui_font` falls back to `FontSource::Default`.
+#[derive(Resource)]
+pub struct UiFont(pub FontSource);
+
+/// Asset path of the bundled font, relative to the `assets/` root.
+pub const UI_FONT_PATH: &str = "fonts/NotoSansSC-VariableFont_wght.ttf";
+
+/// Startup: resolve the UI font once; runs before any UI-building system.
+pub fn setup_ui_font(mut commands: Commands, server: Option<Res<AssetServer>>) {
+    let source = match &server {
+        Some(s) => FontSource::Handle(s.load(UI_FONT_PATH)),
+        None => FontSource::default(),
+    };
+    commands.insert_resource(UiFont(source));
+    info!(
+        "[ui6] ui font ready ({})",
+        if server.is_some() { "bundled asset" } else { "default fallback" }
+    );
 }
 
-pub fn spawn_hud(mut commands: Commands) {
+pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>) {
     commands.spawn((
         HudText,
         Text::new(""),
         TextFont {
-            font: ui_font(),
+            font: font.0.clone(),
             font_size: FontSize::Px(14.0),
             ..default()
         },
@@ -47,7 +63,7 @@ pub fn spawn_hud(mut commands: Commands) {
             "点底部卡片选塔 → 点绿格放置 · 右键取消 · 点两座已放塔尝试融合 · 右下按钮或空格 开下一波",
         ),
         TextFont {
-            font: ui_font(),
+            font: font.0.clone(),
             font_size: FontSize::Px(12.0),
             ..default()
         },
