@@ -85,19 +85,15 @@ enum Category {
 }
 
 impl Category {
-    fn label(&self, defs: &TowerDefs, tower_type: usize) -> String {
+    /// The `ChoiceKind` this category produces for a given tower type.
+    fn kind(&self, tower_type: usize) -> ChoiceKind {
         match self {
-            Category::Stat(StatKind::Damage) => {
-                format!("{} 伤害 +20%", defs.list[tower_type].label)
-            }
-            Category::Stat(StatKind::AttackSpeed) => {
-                format!("{} 攻速 +20%", defs.list[tower_type].label)
-            }
-            Category::Stat(StatKind::Range) => {
-                format!("{} 射程 +15%", defs.list[tower_type].label)
-            }
-            Category::Gold => "击杀金币 +20%".to_string(),
-            Category::Get => format!("获得 {}（入手牌）", defs.list[tower_type].label),
+            Category::Stat(stat) => ChoiceKind::StatBoost {
+                tower_type,
+                stat: *stat,
+            },
+            Category::Gold => ChoiceKind::GoldBoost,
+            Category::Get => ChoiceKind::GetTower { tower_type },
         }
     }
 }
@@ -129,30 +125,21 @@ fn generate_choices(choice: &mut WaveChoice, defs: &TowerDefs, hand: &Hand, rng:
     choice.options = pool[..3]
         .iter()
         .map(|cat| {
-            let (label, kind) = match cat {
+            // Build the kind first, then derive both language labels from the
+            // same mapping (l10n::choice_label is the single source of truth).
+            let kind = match cat {
                 Category::Stat(_) => {
                     let t = rng.0.random_range(0..4);
-                    let stat = match cat {
-                        Category::Stat(s) => s,
-                        _ => unreachable!(),
-                    };
-                    let label = cat.label(defs, t);
-                    let kind = ChoiceKind::StatBoost {
-                        tower_type: t,
-                        stat: *stat,
-                    };
-                    (label, kind)
+                    cat.kind(t)
                 }
-                Category::Gold => {
-                    let label = cat.label(defs, 0);
-                    (label, ChoiceKind::GoldBoost)
-                }
-                Category::Get => {
-                    let label = cat.label(defs, get_type);
-                    (label, ChoiceKind::GetTower { tower_type: get_type })
-                }
+                Category::Gold => cat.kind(0),
+                Category::Get => cat.kind(get_type),
             };
-            ChoiceOption { label, kind }
+            ChoiceOption {
+                label: crate::systems::l10n::choice_label(&kind, defs, crate::resources::Lang::Zh),
+                label_en: crate::systems::l10n::choice_label(&kind, defs, crate::resources::Lang::En),
+                kind,
+            }
         })
         .collect();
     choice.pending = true;

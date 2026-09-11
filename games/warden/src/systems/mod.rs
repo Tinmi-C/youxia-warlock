@@ -4,6 +4,7 @@ pub mod cursor;
 pub mod enemy;
 pub mod hud;
 pub mod input;
+pub mod l10n;
 pub mod map;
 pub mod meta;
 pub mod pointer;

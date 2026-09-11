@@ -287,7 +287,7 @@
 - 人工验收项: 真窗口中文渲染正常（2026-09-11 macOS arm64 实测通过）。分发体积优化（子集化）留点子池。
 - 备注: 字体先放项目内（首次使用）；第 2 个游戏用到再沉根 `assets/`（团队 rule of three）。
 
-### UI7 · 语言切换 中/英（ui）—— 🟡 实现中（2026-09-11 立卡开工）
+### UI7 · 语言切换 中/英（ui）—— ✅ 已实现（2026-09-11）
 - 接口: 新 `Lang` 资源（Zh/En，默认 Zh）+ `ui_prefs.txt` 持久化（key=value，同 meta_save 约定）；
   TowerDef/FusionDef 增 `label_en`，EnemyDef 增 `label`/`label_en`；全部玩家文案经 `systems/l10n.rs`（`Bi(zh,en)` 双语常量）。
 - 行为: 按 `L` 或点右上角语言按钮 → HUD/帮助行/商店卡/三选一卡/属性面板/结算屏全部在中/英间切换并即时重建；

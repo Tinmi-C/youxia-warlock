@@ -7,14 +7,19 @@ use bevy::prelude::*;
 use bevy::text::FontSource;
 
 use crate::resources::{
-    BaseHp, Economy, Hand, MetaState, SelectedTower, TowerDefs, UPGRADE1_COST, UPGRADE2_COST,
+    BaseHp, Economy, Hand, Lang, MetaState, SelectedTower, TowerDefs, UPGRADE1_COST, UPGRADE2_COST,
     WaveChoice, WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
+use crate::systems::l10n;
 
 /// Marker on the live status line (updated every frame by `update_hud`).
 #[derive(Component)]
 pub struct HudText;
+
+/// Marker on the static help line (rewritten only when the language changes).
+#[derive(Component)]
+pub struct HelpText;
 
 /// The bundled open-source CJK font (UI6): Noto Sans SC under SIL OFL 1.1
 /// (license at `assets/fonts/OFL.txt`). Shipping the file makes rendering
@@ -40,7 +45,7 @@ pub fn setup_ui_font(mut commands: Commands, server: Option<Res<AssetServer>>) {
     );
 }
 
-pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>) {
+pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>, lang: Res<Lang>) {
     commands.spawn((
         HudText,
         Text::new(""),
@@ -58,10 +63,10 @@ pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>) {
         },
     ));
     // Static operation help (UI2): pure-mouse flow first, keys as fallback.
+    // The text is re-picked in `update_hud` when the language toggles (UI7).
     commands.spawn((
-        Text::new(
-            "点底部卡片选塔 → 点绿格放置 · 右键取消 · 点两座已放塔尝试融合 · 右下按钮或空格 开下一波",
-        ),
+        HelpText,
+        Text::new(l10n::HELP_LINE.pick(*lang)),
         TextFont {
             font: font.0.clone(),
             font_size: FontSize::Px(12.0),
@@ -89,30 +94,44 @@ pub fn update_hud(
     meta: Res<MetaState>,
     schedule: Res<WaveSchedule>,
     state: Res<State<GameState>>,
+    lang: Res<Lang>,
+    mut help: Query<&mut Text, (With<HelpText>, Without<HudText>)>,
 ) {
+    let lang = *lang;
     let sel_name = defs
         .list
         .get(selected.tower_index)
-        .map(|d| d.label)
+        .map(|d| l10n::tower_label(d, lang))
         .unwrap_or("?");
     let phase_label = match wave.phase {
-        WavePhase::Intermission => "建造期",
-        WavePhase::Combat => "战斗期",
+        WavePhase::Intermission => l10n::PHASE_BUILD.pick(lang),
+        WavePhase::Combat => l10n::PHASE_COMBAT.pick(lang),
     };
-    let mut text = format!(
-        "金币={} · 基地={}/{} · 第{}波/共{}（{}） · 选中:{} · 手牌:[{}] · 仓库币={}",
-        economy.gold,
-        base.hp,
-        base.max_hp,
-        wave.current + 1,
+    let wave_seg = l10n::hud_wave(
+        lang,
+        (wave.current + 1) as usize,
         schedule.waves.len(),
         phase_label,
+    );
+    let hand_seg = hand
+        .owned_towers
+        .iter()
+        .map(|i| l10n::tower_label(&defs.list[*i], lang))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut text = format!(
+        "{}{} · {}{}/{} · {} · {}{} · {}[{}] · {}{}",
+        l10n::GOLD_EQ.pick(lang),
+        economy.gold,
+        l10n::BASE_EQ.pick(lang),
+        base.hp,
+        base.max_hp,
+        wave_seg,
+        l10n::SEL.pick(lang),
         sel_name,
-        hand.owned_towers
-            .iter()
-            .map(|i| defs.list[*i].label)
-            .collect::<Vec<_>>()
-            .join(","),
+        l10n::HAND.pick(lang),
+        hand_seg,
+        l10n::COINS_EQ.pick(lang),
         meta.coins,
     );
     if choice.pending {
@@ -120,18 +139,32 @@ pub fn update_hud(
             .options
             .iter()
             .enumerate()
-            .map(|(i, o)| format!("[{}]{}", i + 1, o.label))
+            .map(|(i, o)| {
+                format!(
+                    "[{}]{}",
+                    i + 1,
+                    match lang {
+                        Lang::Zh => o.label.as_str(),
+                        Lang::En => o.label_en.as_str(),
+                    }
+                )
+            })
             .collect::<Vec<_>>()
             .join("  ");
-        text.push_str(&format!("  | 三选一：{opts}"));
+        text.push_str(&format!("  | {}{opts}", l10n::CHOICE.pick(lang)));
     }
     if matches!(state.get(), GameState::GameOver | GameState::Win) {
-        text.push_str(&format!(
-            "  | 结算：按1 开局必含弓箭手塔（{}币） · 按2 开局+20金（{}币） · P 再来一局",
-            UPGRADE1_COST, UPGRADE2_COST
-        ));
+        text.push_str("  | ");
+        text.push_str(&l10n::hud_settle(lang, UPGRADE1_COST, UPGRADE2_COST));
     }
     for mut t in &mut q {
         t.0 = text.clone();
+    }
+    // The help line only rewrites when the language actually changed (UI7).
+    for mut h in &mut help {
+        let want = l10n::HELP_LINE.pick(lang);
+        if h.0 != want {
+            h.0 = want.to_string();
+        }
     }
 }

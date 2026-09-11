@@ -21,11 +21,12 @@ use bevy::window::Window;
 
 use crate::components::{AttackType, FusionKind, ShopButton, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    Boosts, BuildMode, Economy, FusionDefs, FusionSel, Hand, MetaSavePath, MetaState, SelectedTower,
-    ShopOffers, TowerDefs, UPGRADE1_COST, UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule,
-    WaveState,
+    Boosts, BuildMode, Economy, FusionDefs, FusionSel, Hand, Lang, MetaSavePath, MetaState,
+    SelectedTower, ShopOffers, TowerDefs, UiPrefsPath, UPGRADE1_COST, UPGRADE2_COST, WaveChoice,
+    WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
+use crate::systems::l10n;
 use crate::systems::{hud::UiFont, input::{apply_choice, try_start_wave}, meta::buy_upgrade};
 
 /// Marker on the shop bar root so it can be despawned on rebuild (Bevy 0.19
@@ -83,9 +84,13 @@ pub struct MetaUpgradeButton {
     pub which: usize, // 1 or 2
 }
 
+/// The top-right UI-language toggle button (UI7 = the L key).
+#[derive(Component)]
+pub struct LangToggleButton;
+
 /// Spawn the bottom shop bar: owned types row (UI1) + offers row (AC2).
-/// Chinese labels (UI2); a card greys out when gold cannot afford its cost.
-fn build_shop_bar(commands: &mut Commands, font: &UiFont, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand, economy: &Economy) {
+/// Labels follow `Lang` (UI7); a card greys out when gold cannot afford it.
+fn build_shop_bar(commands: &mut Commands, font: &UiFont, lang: Lang, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand, economy: &Economy) {
     // Dedupe for display: AC3 drops may push a type that is already owned.
     let owned: Vec<usize> = hand
         .owned_towers
@@ -134,7 +139,7 @@ fn build_shop_bar(commands: &mut Commands, font: &UiFont, defs: &TowerDefs, offe
                     ))
                     .with_children(|p| {
                         p.spawn((
-                            Text::new(format!("{} {}金", def.label, def.cost)),
+                            Text::new(l10n::card_cost(lang, l10n::tower_label(def, lang), def.cost)),
                             TextFont {
                                 font: font.0.clone(),
                                 font_size: FontSize::Px(13.0),
@@ -172,7 +177,7 @@ fn build_shop_bar(commands: &mut Commands, font: &UiFont, defs: &TowerDefs, offe
                     ))
                     .with_children(|p| {
                         p.spawn((
-                            Text::new(format!("[商店] {} {}金", def.label, def.cost)),
+                            Text::new(l10n::offer_cost(lang, l10n::tower_label(def, lang), def.cost)),
                             TextFont {
                                 font: font.0.clone(),
                                 font_size: FontSize::Px(12.0),
@@ -195,20 +200,21 @@ fn card_color(affordable: bool, normal: Color) -> Color {
     }
 }
 
-/// Rebuild the shop bar whenever the hand, the offer, or gold changes (AC1/2/3
-/// feed it; gold changes refresh the affordability grey-out). Cached key avoids
-/// per-frame work.
+/// Rebuild the shop bar whenever the hand, the offer, gold, or the language
+/// changes (AC1/2/3 feed it; gold refreshes the affordability grey-out; UI7
+/// rebuilds the copy). Cached key avoids per-frame work.
 pub fn refresh_shop_bar(
     mut commands: Commands,
     font: Res<UiFont>,
+    lang: Res<Lang>,
     defs: Res<TowerDefs>,
     offers: Res<ShopOffers>,
     hand: Res<Hand>,
     economy: Res<Economy>,
-    mut cache: Local<(u32, usize, u32)>,
+    mut cache: Local<(u32, usize, u32, Lang)>,
     roots: Query<Entity, With<ShopBarRoot>>,
 ) {
-    let key = (offers.version, hand.owned_towers.len(), economy.gold);
+    let key = (offers.version, hand.owned_towers.len(), economy.gold, *lang);
     if *cache == key {
         return;
     }
@@ -216,7 +222,7 @@ pub fn refresh_shop_bar(
     for root in &roots {
         commands.entity(root).despawn();
     }
-    build_shop_bar(&mut commands, &font, &defs, &offers, &hand, &economy);
+    build_shop_bar(&mut commands, &font, *lang, &defs, &offers, &hand, &economy);
 }
 
 /// A pressed shop button arms build mode with that tower type.
@@ -270,8 +276,8 @@ pub fn handle_offer_buttons(
     }
 }
 
-/// Spawn the bottom-right control bar with the "开始下一波" button (UI2).
-fn build_control_bar(commands: &mut Commands, font: &UiFont) {
+/// Spawn the bottom-right control bar with the start-wave button (UI2).
+fn build_control_bar(commands: &mut Commands, font: &UiFont, lang: Lang) {
     commands
         .spawn((
             ControlBarRoot,
@@ -298,7 +304,7 @@ fn build_control_bar(commands: &mut Commands, font: &UiFont) {
             ))
             .with_children(|p| {
                 p.spawn((
-                    Text::new("▶ 开始下一波"),
+                    Text::new(l10n::START_WAVE.pick(lang)),
                     TextFont {
                         font: font.0.clone(),
                         font_size: FontSize::Px(15.0),
@@ -312,18 +318,24 @@ fn build_control_bar(commands: &mut Commands, font: &UiFont) {
 
 /// Spawn the control bar once, then toggle the start button's visibility:
 /// shown during the build window only (Intermission, no pending choice).
+/// A language toggle rebuilds the bar so its label follows (UI7).
 pub fn refresh_control_bar(
     mut commands: Commands,
     font: Res<UiFont>,
+    lang: Res<Lang>,
     wave: Res<WaveState>,
     choice: Res<WaveChoice>,
     state: Res<State<GameState>>,
-    mut spawned: Local<bool>,
+    mut spawned: Local<Option<Lang>>,
+    roots: Query<Entity, With<ControlBarRoot>>,
     mut buttons: Query<&mut Node, With<StartWaveButton>>,
 ) {
-    if !*spawned {
-        *spawned = true;
-        build_control_bar(&mut commands, &font);
+    if *spawned != Some(*lang) {
+        for root in &roots {
+            commands.entity(root).despawn();
+        }
+        build_control_bar(&mut commands, &font, *lang);
+        *spawned = Some(*lang);
         return;
     }
     let show = wave.phase == WavePhase::Intermission
@@ -350,18 +362,21 @@ pub fn handle_start_wave_button(
 }
 
 /// Show/hide the three-choose-one option cards with `WaveChoice::pending` (UI2).
-/// Cards are clickable equivalents of the 1/2/3 keys.
+/// Cards are clickable equivalents of the 1/2/3 keys; a language toggle
+/// rebuilds them so labels follow (UI7).
 pub fn refresh_choice_cards(
     mut commands: Commands,
     font: Res<UiFont>,
+    lang: Res<Lang>,
     choice: Res<WaveChoice>,
-    mut cache: Local<bool>,
+    mut cache: Local<(bool, Lang)>,
     roots: Query<Entity, With<ChoiceCardsRoot>>,
 ) {
-    if *cache == choice.pending {
+    let key = (choice.pending, *lang);
+    if *cache == key {
         return;
     }
-    *cache = choice.pending;
+    *cache = key;
     for root in &roots {
         commands.entity(root).despawn();
     }
@@ -399,7 +414,14 @@ pub fn refresh_choice_cards(
                 ))
                 .with_children(|p| {
                     p.spawn((
-                        Text::new(format!("[{}] {}", i + 1, opt.label)),
+                        Text::new(format!(
+                            "[{}] {}",
+                            i + 1,
+                            match *lang {
+                                Lang::Zh => opt.label.as_str(),
+                                Lang::En => opt.label_en.as_str(),
+                            }
+                        )),
                         TextFont {
                             font: font.0.clone(),
                             font_size: FontSize::Px(14.0),
@@ -428,10 +450,12 @@ pub fn handle_choice_card_buttons(
 }
 
 /// Rebuild the tower info panel + ground range ring whenever the fusion
-/// selection changes (UI2): select a tower to inspect it, deselect to close.
+/// selection or the UI language changes (UI2/UI7): select a tower to inspect
+/// it, deselect to close.
 pub fn refresh_tower_info(
     mut commands: Commands,
     font: Res<UiFont>,
+    lang: Res<Lang>,
     fusion_sel: Res<FusionSel>,
     towers: Query<(Entity, &Tower, &Transform)>,
     defs: Res<TowerDefs>,
@@ -440,10 +464,13 @@ pub fn refresh_tower_info(
     rings: Query<Entity, With<TowerRangeRing>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut last_lang: Local<Option<Lang>>,
 ) {
-    if !fusion_sel.is_changed() {
+    if !fusion_sel.is_changed() && *last_lang == Some(*lang) {
         return;
     }
+    *last_lang = Some(*lang);
+    let lang = *lang;
     for p in &panels {
         commands.entity(p).despawn();
     }
@@ -460,32 +487,26 @@ pub fn refresh_tower_info(
         TowerKind::Base(i) => defs
             .list
             .get(i)
-            .map(|d| d.label)
-            .unwrap_or("基础塔"),
+            .map(|d| l10n::tower_label(d, lang))
+            .unwrap_or(l10n::BASE_TOWER_FALLBACK.pick(lang)),
         TowerKind::Fused(k) => fusion_defs
             .list
             .iter()
             .find(|r| r.kind == k)
-            .map(|r| r.label)
-            .unwrap_or("融合塔"),
-    };
-    let damage_label = match tower.attack_type {
-        AttackType::Physical => "物理",
-        AttackType::Magic => "魔法",
-        AttackType::Mixed => "混合·无视护甲",
+            .map(|r| l10n::fusion_label(r, lang))
+            .unwrap_or(l10n::FUSED_TOWER_FALLBACK.pick(lang)),
     };
     let mut lines = format!(
-        "{} · {}\n伤害 {:.0} · 攻速 {:.1}/秒 · 射程 {:.1}",
-        kind_label, damage_label, tower.damage, tower.attack_speed, tower.range
+        "{} · {}\n{}",
+        kind_label,
+        l10n::attack_label(tower.attack_type, lang),
+        l10n::tower_stats(lang, tower.damage, tower.attack_speed, tower.range),
     );
-    lines.push_str(&match tower.kind {
-        TowerKind::Fused(FusionKind::Archmage) => "\n特技：AOE 爆炸（半径 3.0）".to_string(),
-        TowerKind::Fused(FusionKind::Bastion) => "\n特技：AOE + 减速30%（1秒）".to_string(),
-        TowerKind::Fused(FusionKind::Marksman) => "\n特技：优先攻击血量最高的怪".to_string(),
-        TowerKind::Fused(FusionKind::Hybrid) => "\n特技：混合伤害穿透物理护甲".to_string(),
-        TowerKind::Base(_) => String::new(),
-    });
-    lines.push_str("\n点另一座塔=尝试融合 · 右键=取消");
+    if let TowerKind::Fused(k) = tower.kind {
+        lines.push('\n');
+        lines.push_str(&l10n::fusion_trait(k, lang));
+    }
+    lines.push_str(&format!("\n{}", l10n::FUSE_HINT.pick(lang)));
     commands
         .spawn((
             TowerInfoPanel,
@@ -614,7 +635,7 @@ pub fn update_hover_ghost(
 /// Build the GameOver/Win result screen: a centered banner + the retry button
 /// and the two meta-upgrade purchase buttons (UI5). Starts hidden; the
 /// `refresh_end_screen` system toggles its visibility with the game state.
-fn build_end_screen(commands: &mut Commands, font: &UiFont) {
+fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
     commands
         .spawn((
             EndScreenRoot,
@@ -633,7 +654,7 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont) {
         ))
         .with_children(|root| {
             root.spawn((
-                Text::new("🏁 本局结束"),
+                Text::new(l10n::END_BANNER.pick(lang)),
                 TextFont {
                     font: font.0.clone(),
                     font_size: FontSize::Px(34.0),
@@ -642,7 +663,7 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont) {
                 TextColor(Color::srgb(1.0, 0.85, 0.4)),
             ));
             root.spawn((
-                Text::new("按 1/2 购买 Meta 升级，或点「再来一局」"),
+                Text::new(l10n::END_HINT.pick(lang)),
                 TextFont {
                     font: font.0.clone(),
                     font_size: FontSize::Px(14.0),
@@ -657,8 +678,8 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont) {
             })
             .with_children(|row| {
                 for (which, label) in [
-                    (1usize, format!("升级1 开局必含弓箭手塔（{}币）", UPGRADE1_COST)),
-                    (2usize, format!("升级2 开局+20金（{}币）", UPGRADE2_COST)),
+                    (1usize, l10n::upgrade1_label(lang, UPGRADE1_COST)),
+                    (2usize, l10n::upgrade2_label(lang, UPGRADE2_COST)),
                 ] {
                     row.spawn((
                         Button,
@@ -700,7 +721,7 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont) {
                 ))
                 .with_children(|p| {
                     p.spawn((
-                        Text::new("再来一局"),
+                        Text::new(l10n::RETRY.pick(lang)),
                         TextFont {
                             font: font.0.clone(),
                             font_size: FontSize::Px(15.0),
@@ -714,21 +735,26 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont) {
 }
 
 /// Show the result screen only on GameOver/Win, hide it otherwise (UI5). The
-/// panel is built once and its visibility toggled with the game state.
+/// panel is rebuilt when the language toggles so its copy follows (UI7).
 pub fn refresh_end_screen(
     mut commands: Commands,
     font: Res<UiFont>,
+    lang: Res<Lang>,
     state: Res<State<GameState>>,
-    mut spawned: Local<bool>,
-    mut roots: Query<&mut Node, With<EndScreenRoot>>,
+    mut built: Local<Option<Lang>>,
+    mut roots: Query<(Entity, &mut Node), With<EndScreenRoot>>,
 ) {
-    if !*spawned {
-        *spawned = true;
-        build_end_screen(&mut commands, &font);
+    if *built != Some(*lang) {
+        for (e, mut node) in &mut roots {
+            commands.entity(e).despawn();
+            node.display = Display::None; // rebuilt hidden; state re-applies below
+        }
+        build_end_screen(&mut commands, &font, *lang);
+        *built = Some(*lang);
         return;
     }
     let show = matches!(state.get(), GameState::GameOver | GameState::Win);
-    for mut node in &mut roots {
+    for (_, mut node) in &mut roots {
         node.display = if show { Display::Flex } else { Display::None };
     }
 }
@@ -778,6 +804,67 @@ pub fn mouse_cancel(
         build.armed = false;
         fusion_sel.a = None;
         info!("[mouse] cleared build/fusion selection");
+    }
+}
+
+/// Spawn the top-right language toggle button once; its label always shows the
+/// *other* language (what a click switches to, UI7).
+pub fn refresh_lang_button(
+    mut commands: Commands,
+    font: Res<UiFont>,
+    lang: Res<Lang>,
+    mut built: Local<Option<Lang>>,
+    roots: Query<Entity, With<LangToggleButton>>,
+) {
+    if *built == Some(*lang) {
+        return;
+    }
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
+    commands
+        .spawn((
+            LangToggleButton,
+            Button,
+            Interaction::None,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(8.0),
+                right: Val::Px(12.0),
+                width: Val::Px(56.0),
+                height: Val::Px(28.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.25, 0.25, 0.35)),
+        ))
+        .with_children(|p| {
+            p.spawn((
+                Text::new(l10n::lang_button_label(*lang)),
+                TextFont {
+                    font: font.0.clone(),
+                    font_size: FontSize::Px(12.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.85, 0.9, 1.0)),
+            ));
+        });
+    *built = Some(*lang);
+}
+
+/// Clicking the language button toggles zh/en and persists (UI7 = the L key).
+pub fn handle_lang_button(
+    mut q: Query<&Interaction, (Changed<Interaction>, With<LangToggleButton>)>,
+    mut lang: ResMut<Lang>,
+    path: Res<UiPrefsPath>,
+) {
+    for inter in &mut q {
+        if *inter == Interaction::Pressed {
+            *lang = lang.next();
+            l10n::save_ui_prefs(&lang, &path);
+            info!("[ui7] lang toggled to {:?} (button)", *lang);
+        }
     }
 }
 

@@ -19,9 +19,9 @@ use warden::{
         waves::WavesPlugin,
     },
     resources::{
-        BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, MetaSavePath,
-        MetaState, RunRng, SelectedTower, ShopOffers, StatKind, TowerDefs, WaveChoice, WavePhase,
-        WaveState,
+        BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, Lang, MetaSavePath,
+        MetaState, RunRng, SelectedTower, ShopOffers, StatKind, TowerDefs, UiPrefsPath,
+        WaveChoice, WavePhase, WaveState,
     },
     states::GameState,
 };
@@ -46,6 +46,11 @@ fn test_app() -> App {
         // ./meta_save.txt (meta-specific tests insert their own temp path).
         .insert_resource(MetaSavePath(
             std::env::temp_dir().join("warden_meta_shared_test.txt"),
+        ))
+        // Same isolation for the UI language pref (UI7): never read the dev's
+        // own ./ui_prefs.txt (lang-sensitive tests insert their own temp path).
+        .insert_resource(UiPrefsPath(
+            std::env::temp_dir().join("warden_ui_prefs_shared_test.txt"),
         ))
         // Headless: no winit / asset plugins, so create the resources the
         // systems under test need (input, mesh/material asset stores).
@@ -456,14 +461,17 @@ fn stat_boost_kinds_set_the_right_mults() {
         options: vec![
             ChoiceOption {
                 label: "d".to_string(),
+                label_en: "d".to_string(),
                 kind: ChoiceKind::StatBoost { tower_type: 1, stat: StatKind::Damage },
             },
             ChoiceOption {
                 label: "s".to_string(),
+                label_en: "s".to_string(),
                 kind: ChoiceKind::StatBoost { tower_type: 2, stat: StatKind::AttackSpeed },
             },
             ChoiceOption {
                 label: "r".to_string(),
+                label_en: "r".to_string(),
                 kind: ChoiceKind::StatBoost { tower_type: 3, stat: StatKind::Range },
             },
         ],
@@ -913,6 +921,7 @@ fn choosing_stat_boost_applies_damage_mult() {
         let mut choice = app.world_mut().resource_mut::<WaveChoice>();
         choice.options = vec![ChoiceOption {
             label: "x".to_string(),
+            label_en: "x".to_string(),
             kind: ChoiceKind::StatBoost { tower_type: 2, stat: StatKind::Damage },
         }];
         choice.pending = true;
@@ -974,14 +983,17 @@ fn choice_card_click_applies_option_and_closes() {
         choice.options = vec![
             ChoiceOption {
                 label: "弓箭手塔 伤害 +20%".to_string(),
+                label_en: "弓箭手塔 伤害 +20%".to_string(),
                 kind: ChoiceKind::StatBoost { tower_type: 0, stat: StatKind::Damage },
             },
             ChoiceOption {
                 label: "击杀金币 +20%".to_string(),
+                label_en: "击杀金币 +20%".to_string(),
                 kind: ChoiceKind::GoldBoost,
             },
             ChoiceOption {
                 label: "获得 炮塔（入手牌）".to_string(),
+                label_en: "获得 炮塔（入手牌）".to_string(),
                 kind: ChoiceKind::GetTower { tower_type: 3 },
             },
         ];
@@ -1115,4 +1127,71 @@ fn ui_font_falls_back_to_default_without_asset_server() {
         .world_mut()
         .query_filtered::<&Text, With<warden::systems::hud::HudText>>();
     assert_eq!(q.iter(app.world()).count(), 1, "the HUD status line must exist in headless too");
+}
+
+// --- UI7: language toggle ---------------------------------------------------
+
+fn hud_text(app: &mut App) -> String {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&Text, With<warden::systems::hud::HudText>>();
+    q.single(app.world()).expect("hud status line").0.clone()
+}
+
+/// Capability card UI7 — acceptance: pressing L flips the whole UI copy
+/// (HUD + shop cards) between Chinese and English.
+#[test]
+fn lang_toggle_switches_hud_and_shop_copy() {
+    let mut app = test_app();
+    let path = std::env::temp_dir().join("warden_lang_toggle_test.txt");
+    let _ = std::fs::remove_file(&path);
+    app.world_mut().insert_resource(UiPrefsPath(path.clone()));
+    app.update(); // startup + first frame: shop bar built (Chinese)
+
+    assert!(hud_text(&mut app).contains("金币"), "default lang is Chinese");
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyL);
+    app.update();
+    let text = hud_text(&mut app);
+    assert!(
+        text.contains("Gold="),
+        "L must switch the HUD to English, got: {text}"
+    );
+    // The shop bar rebuilds in English (offer cards carry the [Shop] prefix).
+    let mut q = app.world_mut().query::<&Text>();
+    assert!(
+        q.iter(app.world()).any(|t| t.0.contains("[Shop]")),
+        "shop offer cards must rebuild in English after the toggle"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Capability card UI7 — acceptance: the chosen language persists across
+/// restarts via ui_prefs.txt (save on toggle, load at startup).
+#[test]
+fn lang_preference_persists_across_restart() {
+    let path = std::env::temp_dir().join("warden_lang_pref_test.txt");
+    let _ = std::fs::remove_file(&path);
+    {
+        let mut app = test_app();
+        app.world_mut().insert_resource(UiPrefsPath(path.clone()));
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyL);
+        app.update();
+        assert_eq!(*app.world().resource::<Lang>(), Lang::En);
+    }
+    let mut app2 = test_app();
+    app2.world_mut().insert_resource(UiPrefsPath(path.clone()));
+    app2.update();
+    assert_eq!(
+        *app2.world().resource::<Lang>(),
+        Lang::En,
+        "the saved language must load at startup"
+    );
+    let _ = std::fs::remove_file(&path);
 }
