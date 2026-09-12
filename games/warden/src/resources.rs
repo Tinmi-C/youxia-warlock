@@ -355,12 +355,6 @@ impl Default for BuildMode {
     }
 }
 
-/// Tower selected for fusion (mouse): the first chosen tower, awaiting a second.
-#[derive(Resource, Default)]
-pub struct FusionSel {
-    pub a: Option<bevy::ecs::entity::Entity>,
-}
-
 /// UI9 selection state (requirements §16.2/§16.3): what the bottom command
 /// card is about. Left-click selects (tower or empty slot), a blank left
 /// click / right click / Esc clears it. `FusionTarget(a)` means base tower
@@ -468,6 +462,9 @@ pub const UPGRADE2_COST: u32 = 60;
 /// ME1 payouts (requirements §13): death +15, win +30.
 pub const META_REWARD_DEATH: u32 = 15;
 pub const META_REWARD_WIN: u32 = 30;
+/// TO7 sell refund ratio (requirements §16.5): refund = invested × 0.7,
+/// floored. Any sell→rebuy loop loses ≥30% — no arbitrage. Tune via §14.
+pub const SELL_REFUND_RATIO: f32 = 0.7;
 
 impl Default for Boosts {
     fn default() -> Self {

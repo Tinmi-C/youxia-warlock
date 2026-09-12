@@ -101,6 +101,15 @@ pub const FUSE_TARGET_HINT: Bi = Bi(
     "Pick another tower to fuse · Esc cancels",
 );
 pub const FUSE_CANCEL: Bi = Bi("取消", "Cancel");
+pub const FUSE_NONE: Bi = Bi("无可配对塔", "No pairable tower");
+
+/// Fusion recipe preview line for the info zone (UI11, §16.6).
+pub fn fusion_preview(lang: Lang, recipe: &str, fee: u32) -> String {
+    match lang {
+        Lang::Zh => format!("配方：{} · 手续费{}金", recipe, fee),
+        Lang::En => format!("Recipe: {} · fee {}g", recipe, fee),
+    }
+}
 
 pub const ATTACK_PHYSICAL: Bi = Bi("物理", "Physical");
 pub const ATTACK_MAGIC: Bi = Bi("魔法", "Magic");

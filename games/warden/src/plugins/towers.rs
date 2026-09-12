@@ -1,8 +1,8 @@
 //! TowersPlugin: tower archetypes + fusion recipes + auto-fire/targeting + slow
-//! ticking. Placement and the keyboard fuse action live in systems/input.rs so
-//! they can gate on the build window.
-//! Capability cards: TO1 (defs), TO3 (fire), TO4 (targeting), TO5 (fusion),
-//! TO6 (slow).
+//! ticking. Fusion now runs through the command card (UI11, command.rs);
+//! the F-key auto-fuse retired with it.
+//! Capability cards: TO1 (defs), TO3 (fire), TO4 (targeting), TO5 (fusion,
+//! trigger reworked by UI11), TO6 (slow).
 
 use bevy::prelude::*;
 
@@ -26,12 +26,6 @@ impl Plugin for TowersPlugin {
                 )
                     .chain()
                     .in_set(GameSet::Simulate)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                Update,
-                systems::input::fuse_towers
-                    .in_set(GameSet::Placement)
                     .run_if(in_state(GameState::Playing)),
             );
     }

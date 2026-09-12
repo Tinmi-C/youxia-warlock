@@ -20,7 +20,7 @@ use warden::{
     },
     resources::{
         BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, Lang, MetaSavePath,
-        MetaState, RunRng, SelectedTower, ShopOffers, StatKind, TowerDefs, UiPrefsPath,
+        MetaState, RunRng, ShopOffers, StatKind, TowerDefs, UiPrefsPath,
         WaveChoice, WavePhase, WaveState,
     },
     states::GameState,
@@ -297,6 +297,7 @@ fn tower_fires_at_enemy_in_range() {
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            invested: 0,
         },
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
@@ -420,6 +421,7 @@ fn fused_tower_receives_tower_index_damage_boost() {
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            invested: 0,
         },
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
@@ -462,6 +464,7 @@ fn range_boost_extends_reach() {
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            invested: 0,
         },
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
@@ -504,6 +507,7 @@ fn attack_speed_boost_shortens_cooldown() {
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            invested: 0,
         },
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
@@ -764,34 +768,89 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
     );
 }
 
-/// Capability card TO5 — acceptance: fusing two archers yields one Marksman and
-/// costs a 20% fee (of 2×archer cost), freeing one field-slot worth of towers.
+/// Capability card TO5/UI11 — acceptance: the three-step fusion (select A →
+/// Fuse command → click B) yields one Marksman, costs a 20% fee (2×archer),
+/// lands the result on B's slot and frees A's slot.
 #[test]
 fn fusing_two_archers_creates_marksman_and_costs_fee() {
     let mut app = test_app();
     app.world_mut().resource_mut::<Economy>().gold = 200;
-    for pos in [Vec3::new(-11.5, 0.6, 11.0), Vec3::new(-7.5, 0.6, 11.0)] {
-        app.world_mut().spawn((
-            Tower {
-                tower_index: 0,
-                damage: 10.0,
-                attack_speed: 1.0,
-                range: 9.0,
-                attack_type: AttackType::Physical,
-                cooldown: 0.0,
-                target: None,
-                kind: TowerKind::Base(0),
-                aoe_radius: 0.0,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-            },
-            Transform::from_xyz(pos.x, pos.y, pos.z),
-        ));
+    let positions = [Vec3::new(-11.5, 0.6, 11.0), Vec3::new(-7.5, 0.6, 11.0)];
+    let mut tower_ids = Vec::new();
+    for pos in positions {
+        let id = app
+            .world_mut()
+            .spawn((
+                Tower {
+                    tower_index: 0,
+                    damage: 10.0,
+                    attack_speed: 1.0,
+                    range: 9.0,
+                    attack_type: AttackType::Physical,
+                    cooldown: 0.0,
+                    target: None,
+                    kind: TowerKind::Base(0),
+                    aoe_radius: 0.0,
+                    slow_factor: 0.0,
+                    slow_duration: 0.0,
+                    invested: 50,
+                },
+                Transform::from_xyz(pos.x, pos.y, pos.z),
+            ))
+            .id();
+        tower_ids.push(id);
     }
+    // Mark both slots under the towers as occupied (as placement would).
+    {
+        let mut occupied = vec![];
+        {
+            let mut q = app.world_mut().query::<(&TowerSlot, &Transform)>();
+            for (slot, stf) in q.iter(app.world()) {
+                if positions.iter().any(|p| p.xz().distance(stf.translation.xz()) < 1.0) {
+                    occupied.push(slot.index);
+                }
+            }
+        }
+        let mut q = app.world_mut().query::<&mut TowerSlot>();
+        for mut slot in q.iter_mut(app.world_mut()) {
+            if occupied.contains(&slot.index) {
+                slot.occupied = true;
+            }
+        }
+    }
+    // Step 1+2: select A, press the Fuse command -> FusionTarget picking.
     app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::KeyF);
+        .insert_resource(warden::resources::Selection::Tower(tower_ids[0]));
+    app.update(); // rebuild card with the Fuse button
+    assert!(
+        press_command_button(&mut app, CommandAction::Fuse),
+        "the Fuse command must appear for a base tower with a pairable partner"
+    );
     app.update();
+    assert_eq!(
+        app.world().resource::<warden::resources::Selection>(),
+        &warden::resources::Selection::FusionTarget(tower_ids[0]),
+        "the Fuse command enters target picking"
+    );
+    let highlights = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<warden::systems::command::PairHighlight>>();
+        q.iter(app.world()).count()
+    };
+    assert_eq!(highlights, 1, "the pairable partner B must be highlighted");
+
+    // Step 3: post the confirm intent (the map click stand-in) and let the
+    // chained apply_pending_fusion system execute it.
+    app.world_mut().insert_resource(
+        warden::systems::command::PendingFusionConfirm(tower_ids[1]),
+    );
+    app.update();
+    let result = matches!(
+        app.world().resource::<warden::resources::Selection>(),
+        warden::resources::Selection::Tower(_)
+    );
+    assert!(result, "archer+archer must fuse into a Marksman");
     assert_eq!(
         app.world().resource::<Economy>().gold,
         180,
@@ -802,6 +861,28 @@ fn fusing_two_archers_creates_marksman_and_costs_fee() {
         fused_kind(&mut app),
         Some(TowerKind::Fused(FusionKind::Marksman))
     );
+    // §16.6 落位规则: the result lands on B's slot; A's slot is free.
+    let (a_slot_free, b_slot_taken) = {
+        let mut q = app.world_mut().query::<(&TowerSlot, &Transform)>();
+        let mut out = (true, false);
+        for (slot, stf) in q.iter(app.world()) {
+            if stf.translation.xz().distance(positions[0].xz()) < 1.0 {
+                out.0 = !slot.occupied;
+            }
+            if stf.translation.xz().distance(positions[1].xz()) < 1.0 {
+                out.1 = slot.occupied;
+            }
+        }
+        out
+    };
+    assert!(a_slot_free, "A's slot must free after the fusion");
+    assert!(b_slot_taken, "the result must occupy B's slot");
+    // The fused tower's invested total is ingredients + fee (TO7 bookkeeping).
+    let invested = {
+        let mut q = app.world_mut().query::<&Tower>();
+        q.iter(app.world()).next().map(|t| t.invested).unwrap()
+    };
+    assert_eq!(invested, 120, "invested = 50 + 50 + 20 fee");
 }
 
 /// Capability card WA1/WA2/AC4 — acceptance: clearing a non-final wave returns
@@ -937,6 +1018,7 @@ fn physical_damage_halved_vs_armored_enemy() {
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            invested: 0,
         },
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
@@ -979,6 +1061,7 @@ fn magic_damage_ignores_armor() {
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            invested: 0,
         },
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
@@ -1194,6 +1277,7 @@ fn command_card_states_follow_selection() {
                 aoe_radius: 0.0,
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                invested: 0,
             },
             Transform::from_xyz(0.0, 0.5, 0.0),
         ))
@@ -1457,4 +1541,198 @@ fn hovering_build_button_previews_on_selected_slot() {
             .count()
     };
     assert_eq!(visible_rings, 0, "leaving the hover must hide the preview");
+}
+
+// --- TO7/UI11: sell + fusion target picking ----------------------------------
+
+/// Place a tower on a free slot manually and select it (test fixture).
+fn place_and_select(app: &mut App, tower_index: usize, invested: u32, fused: Option<FusionKind>) -> Entity {
+    let slot = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(Entity, &TowerSlot), ()>();
+        let mut free = q
+            .iter(app.world())
+            .filter(|(_, s)| !s.occupied)
+            .map(|(e, _)| e);
+        free.next().expect("a free slot")
+    };
+    let pos = *app.world().get::<Transform>(slot).expect("slot tf");
+    app.world_mut().get_mut::<TowerSlot>(slot).unwrap().occupied = true;
+    let def = app.world().resource::<TowerDefs>().list[tower_index].clone();
+    let e = app
+        .world_mut()
+        .spawn((
+            Tower {
+                tower_index,
+                damage: def.damage,
+                attack_speed: def.attack_speed,
+                range: def.range,
+                attack_type: def.attack_type,
+                cooldown: 0.0,
+                target: None,
+                kind: match fused {
+                    Some(k) => TowerKind::Fused(k),
+                    None => TowerKind::Base(tower_index),
+                },
+                aoe_radius: 0.0,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+                invested,
+            },
+            Transform::from_xyz(pos.translation.x, 0.6, pos.translation.z),
+        ))
+        .id();
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::Tower(e));
+    e
+}
+
+/// Capability card TO7 — acceptance: selling refunds invested × 70% floored,
+/// frees the slot and despawns the tower; combat rejects the sale.
+#[test]
+fn sell_refunds_seventy_percent_and_frees_slot() {
+    let mut app = test_app();
+    app.update();
+    let e = place_and_select(&mut app, 0, 50, None);
+    app.update(); // rebuild the card for the selection
+    let slot = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<TowerSlot>>();
+        q.iter(app.world()).next().expect("slot")
+    };
+    assert!(
+        press_command_button(&mut app, CommandAction::Sell),
+        "the Sell command must appear for a selected tower"
+    );
+    app.update();
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        100 + 35,
+        "archer invested 50 -> refund floor(50*0.7)=35"
+    );
+    assert_eq!(count_towers(&mut app), 0, "the sold tower must despawn");
+    assert!(
+        !app.world().get::<TowerSlot>(slot).unwrap().occupied,
+        "selling must free the slot"
+    );
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        135,
+        "gold settled after the sale"
+    );
+    let _ = e;
+
+    // Combat rejects the sale (locked button = no gold change, tower stays).
+    let e2 = place_and_select(&mut app, 0, 50, None);
+    {
+        let mut wave = app.world_mut().resource_mut::<WaveState>();
+        wave.phase = WavePhase::Combat;
+        wave.spawn_queue.push_back(0);
+    }
+    app.update(); // card rebuilds with Sell disabled in combat
+    let pressed = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<CommandButton>>();
+        let hit = q.iter(app.world()).find(|&e| {
+            app.world().get::<CommandButton>(e).map(|b| b.action)
+                == Some(CommandAction::Sell)
+        });
+        match hit {
+            Some(e) => {
+                assert!(
+                    !app.world().get::<CommandButton>(e).unwrap().enabled,
+                    "combat must grey the Sell button"
+                );
+                app.world_mut()
+                    .entity_mut(e)
+                    .insert(bevy::ui::Interaction::Pressed);
+                true
+            }
+            None => false,
+        }
+    };
+    assert!(pressed, "sell button exists in combat (visible but disabled)");
+    app.update();
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        135,
+        "combat sale must be rejected (no refund)"
+    );
+    assert_eq!(count_towers(&mut app), 1, "the tower must survive the combat sale attempt");
+    let _ = e2;
+}
+
+/// Capability card TO7 — acceptance: a fused tower refunds 70% of its total
+/// investment (ingredients + fee), e.g. Marksman 50+50+20=120 -> +84.
+#[test]
+fn fused_tower_sell_uses_total_invested() {
+    let mut app = test_app();
+    app.update();
+    place_and_select(&mut app, 0, 120, Some(FusionKind::Marksman));
+    app.update(); // rebuild the card for the selection
+    assert!(
+        press_command_button(&mut app, CommandAction::Sell),
+        "a fused tower offers Sell"
+    );
+    app.update();
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        100 + 84,
+        "invested 120 -> refund floor(120*0.7)=84"
+    );
+    // A selected fused tower offers no Fuse command (cannot fuse again).
+    // (Fresh fixture: another fused tower selected.)
+    place_and_select(&mut app, 0, 120, Some(FusionKind::Archmage));
+    app.update();
+    let has_fuse = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&CommandButton, ()>();
+        q.iter(app.world())
+            .any(|b| b.action == CommandAction::Fuse)
+    };
+    assert!(!has_fuse, "fused towers must not offer the Fuse command");
+}
+
+/// Capability card UI11 — acceptance: during fusion picking, clicking an
+/// unpairable tower only switches the selection — nothing fuses.
+#[test]
+fn clicking_unpairable_tower_switches_selection_without_fusing() {
+    let mut app = test_app();
+    app.update();
+    // shield(1) + archer(0) is not a recipe (bastion needs shield+cannon).
+    let shield = place_and_select(&mut app, 1, 40, None);
+    let archer = {
+        // place a second tower without selecting it
+        let sel = app
+            .world_mut()
+            .remove_resource::<warden::resources::Selection>()
+            .unwrap();
+        let e = place_and_select(&mut app, 0, 50, None);
+        app.world_mut().insert_resource(sel);
+        e
+    };
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::FusionTarget(shield));
+    app.update();
+    app.world_mut().insert_resource(
+        warden::systems::command::PendingFusionConfirm(archer),
+    );
+    app.update();
+    assert_eq!(
+        app.world().resource::<warden::resources::Selection>(),
+        &warden::resources::Selection::Tower(archer),
+        "an unpairable click must fall back to plain selection"
+    );
+    assert_eq!(
+        count_towers(&mut app),
+        2,
+        "no fusion may happen on an unpairable click"
+    );
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        100,
+        "no fee may be charged on an unpairable click"
+    );
 }

@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::resources::{BuildMode, FusionSel};
+use crate::resources::BuildMode;
 use crate::sets::GameSet;
 use crate::states::GameState;
 use crate::systems;
@@ -28,7 +28,6 @@ impl Plugin for GamePlugin {
                 .chain(),
         )
         .init_resource::<BuildMode>()
-        .init_resource::<FusionSel>()
         .add_systems(Startup, systems::camera::spawn_camera)
         .add_systems(
             Update,
@@ -38,8 +37,11 @@ impl Plugin for GamePlugin {
                 systems::command::handle_command_buttons.in_set(GameSet::Input),
                 systems::pointer::handle_start_wave_button.in_set(GameSet::Input),
                 systems::pointer::handle_choice_card_buttons.in_set(GameSet::Input),
-                systems::command::select_object.in_set(GameSet::Input),
+                systems::command::select_object
+                    .in_set(GameSet::Input)
+                    .before(systems::command::apply_pending_fusion),
                 systems::pointer::mouse_place_system.in_set(GameSet::Input),
+                systems::command::apply_pending_fusion.in_set(GameSet::Input),
             )
                 .run_if(in_state(GameState::Playing)),
         )

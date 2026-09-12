@@ -65,6 +65,10 @@ pub struct Tower {
     /// 0 => no slow; else 0 < factor <= 1 speed multiplier for `slow_duration` s.
     pub slow_factor: f32,
     pub slow_duration: f32,
+    /// Total gold invested in this tower (TO7, requirements §16.5): the build
+    /// cost for a base tower; ingredient costs + fusion fee for a fused one.
+    /// Selling refunds `invested × 70%` floored.
+    pub invested: u32,
 }
 
 /// A temporary slow effect on an enemy (e.g. from the shield / bastion tower).

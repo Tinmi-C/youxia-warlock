@@ -105,6 +105,7 @@ fn place_one(app: &mut App, tower_type: usize, occupied: &mut usize) -> bool {
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            invested: 0,
         },
         Transform::from_xyz(pos.x, 0.6, pos.z),
     ));

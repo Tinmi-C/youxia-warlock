@@ -484,6 +484,7 @@ pub fn mouse_place_system(
                 aoe_radius: 0.0,
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                invested: def.cost,
             },
             Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
             MeshMaterial3d(materials.add(match def.attack_type {

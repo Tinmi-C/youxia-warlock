@@ -17,8 +17,8 @@ use bevy::window::Window;
 
 use crate::components::{Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    BuildMode, Economy, FusionDefs, FusionSel, Hand, Lang, Selection, ShopOffers, TowerDefs,
-    WavePhase, WaveState,
+    BuildMode, Economy, FusionDefs, Hand, Lang, Selection, ShopOffers, SELL_REFUND_RATIO,
+    TowerDefs, WavePhase, WaveState,
 };
 use crate::states::GameState;
 use crate::systems::hud::UiFont;
@@ -81,6 +81,11 @@ pub struct SelectionRing;
 /// button with an empty slot selected (UI10, §16.4).
 #[derive(Component)]
 pub struct PreviewRing;
+
+/// Marker on the ground discs highlighting pairable fusion targets while the
+/// selection is `FusionTarget` (UI11, §16.6).
+#[derive(Component)]
+pub struct PairHighlight;
 
 /// Spawn the persistent three-zone bottom bar (§16.1). Zone contents are
 /// filled/refreshed by the per-frame systems below.
@@ -345,7 +350,8 @@ pub fn refresh_command_card(
     offers: Res<ShopOffers>,
     economy: Res<Economy>,
     defs: Res<TowerDefs>,
-    towers: Query<&Tower>,
+    fusion_defs: Res<FusionDefs>,
+    towers: Query<(Entity, &Tower)>,
     bars: Query<Entity, With<CommandBarRoot>>,
     cards: Query<Entity, With<CommandCardRoot>>,
     mut cache: Local<Option<CardKey>>,
@@ -409,7 +415,7 @@ pub fn refresh_command_card(
         Selection::Tower(e) => {
             let fused = towers
                 .get(e)
-                .map(|t| matches!(t.kind, TowerKind::Fused(_)))
+                .map(|(_, t)| matches!(t.kind, TowerKind::Fused(_)))
                 .unwrap_or(false);
             let can_act = !combat;
             command_button(
@@ -417,16 +423,24 @@ pub fn refresh_command_card(
                 &font,
                 CommandAction::Sell,
                 l10n::SELL.pick(*lang).to_string(),
-                can_act, // wired in UI11+TO7
+                can_act,
             );
             if !fused {
-                // Fused towers cannot fuse again (§16.6 / UI11).
+                // Fused towers cannot fuse again (§16.6 / UI11). The Fuse
+                // command greys out while no *other* tower pairs with it.
+                let pairable = match towers.get(e).ok().map(|(_, t)| t.kind) {
+                    Some(TowerKind::Base(ka)) => towers.iter().any(|(eid2, t)| {
+                        eid2 != e
+                            && matches!(t.kind, TowerKind::Base(kb) if recipe_matches(&fusion_defs, ka, kb).is_some())
+                    }),
+                    _ => false,
+                };
                 command_button(
                     card,
                     &font,
                     CommandAction::Fuse,
                     l10n::FUSE.pick(*lang).to_string(),
-                    can_act, // wired in UI11
+                    can_act && pairable,
                 );
             }
             for _ in 0..2 {
@@ -482,7 +496,7 @@ pub fn refresh_command_card(
 pub fn refresh_info_zone(
     mut q: Query<&mut Text, With<InfoZoneText>>,
     mut selection: ResMut<Selection>,
-    towers: Query<&Tower>,
+    towers: Query<(Entity, &Tower)>,
     defs: Res<TowerDefs>,
     fusion_defs: Res<FusionDefs>,
     lang: Res<Lang>,
@@ -495,9 +509,34 @@ pub fn refresh_info_zone(
     let text = match *selection {
         Selection::None => l10n::INFO_NONE.pick(*lang).to_string(),
         Selection::EmptySlot(_) => l10n::INFO_SLOT.pick(*lang).to_string(),
-        Selection::FusionTarget(_) => l10n::FUSE_TARGET_HINT.pick(*lang).to_string(),
+        Selection::FusionTarget(a) => {
+            // §16.6: show the recipe (+fee) the picking would produce.
+            let ka = towers
+                .get(a)
+                .ok()
+                .and_then(|(_, t)| match t.kind {
+                    TowerKind::Base(i) => Some(i),
+                    _ => None,
+                })
+                .unwrap_or(usize::MAX);
+            let pair = towers.iter().find_map(|(eid, t)| match t.kind {
+                TowerKind::Base(kb) if eid != a => {
+                    recipe_matches(&fusion_defs, ka, kb).map(|r| (r, kb))
+                }
+                _ => None,
+            });
+            match pair {
+                Some((recipe, _)) => {
+                    let cost_ing =
+                        defs.list[recipe.ingredients[0]].cost + defs.list[recipe.ingredients[1]].cost;
+                    let fee = (cost_ing as f32 * recipe.fee_ratio).round() as u32;
+                    format!("{}\n{}", l10n::FUSE_TARGET_HINT.pick(*lang), l10n::fusion_preview(*lang, l10n::fusion_label(recipe, *lang), fee))
+                }
+                None => l10n::FUSE_NONE.pick(*lang).to_string(),
+            }
+        }
         Selection::Tower(e) => match towers.get(e) {
-            Ok(tower) => {
+            Ok((_, tower)) => {
             let kind_label = match tower.kind {
                 TowerKind::Base(i) => defs
                     .list
@@ -533,19 +572,27 @@ pub fn refresh_info_zone(
     }
 }
 
+/// Intent resource: the tower clicked while fusion picking is active (UI11).
+/// `select_object` posts it; `apply_pending_fusion` (chained right after)
+/// executes the fusion or falls back to plain re-selection.
+#[derive(Resource)]
+pub struct PendingFusionConfirm(pub Entity);
+
 /// Left click selects (§16.3): tower first (threshold), then the nearest
-/// empty slot, blank ground cancels. No-op while a build is armed (that
-/// click is a placement click). Runs in Playing only, both phases — viewing
-/// attributes during combat is unrestricted (§16.2).
+/// empty slot, blank ground cancels. During fusion target picking a tower
+/// click posts `PendingFusionConfirm`; the chained `apply_pending_fusion`
+/// confirms the fusion or falls back to plain selection (no accidental
+/// fusing, §16.6).
 #[allow(clippy::type_complexity)]
 pub fn select_object(
+    mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
     build: Res<BuildMode>,
     state: Res<State<GameState>>,
     mut selection: ResMut<Selection>,
-    towers: Query<(Entity, &Transform), With<Tower>>,
+    towers: Query<(Entity, &Tower, &Transform)>,
     slots: Query<(Entity, &TowerSlot, &Transform)>,
 ) {
     if build.armed || !buttons.just_pressed(MouseButton::Left) || *state.get() != GameState::Playing
@@ -560,7 +607,7 @@ pub fn select_object(
     };
     // 1) A tower under the cursor?
     let mut best_tower: Option<(Entity, f32)> = None;
-    for (eid, ttf) in towers.iter() {
+    for (eid, _, ttf) in towers.iter() {
         if let Ok(sp) = cam.world_to_viewport(cam_tf, ttf.translation) {
             let d = sp.distance(cursor);
             if d <= 45.0 && best_tower.map_or(true, |(_, bd)| d < bd) {
@@ -568,38 +615,85 @@ pub fn select_object(
             }
         }
     }
-    *selection = if let Some((e, _)) = best_tower {
-        Selection::Tower(e)
-    } else {
-        // 2) The nearest slot (screen-space)?
-        let mut best_slot: Option<(Entity, f32, bool)> = None;
-        for (eid, slot, stf) in slots.iter() {
-            if let Ok(sp) = cam.world_to_viewport(cam_tf, stf.translation) {
-                let d = sp.distance(cursor);
-                if d <= 45.0 && best_slot.map_or(true, |(_, bd, _)| d < bd) {
-                    best_slot = Some((eid, d, slot.occupied));
-                }
+    if let Some((e, _)) = best_tower {
+        if matches!(*selection, Selection::FusionTarget(_)) {
+            // Defer to the chained applier (keeps this system lean).
+            commands.insert_resource(PendingFusionConfirm(e));
+        } else {
+            *selection = Selection::Tower(e);
+        }
+        return;
+    }
+    // 2) The nearest slot (screen-space)?
+    let mut best_slot: Option<(Entity, f32, bool)> = None;
+    for (eid, slot, stf) in slots.iter() {
+        if let Ok(sp) = cam.world_to_viewport(cam_tf, stf.translation) {
+            let d = sp.distance(cursor);
+            if d <= 45.0 && best_slot.map_or(true, |(_, bd, _)| d < bd) {
+                best_slot = Some((eid, d, slot.occupied));
             }
         }
-        match best_slot {
-            Some((e, _, false)) => Selection::EmptySlot(e),
-            Some((e, _, true)) => {
-                // Occupied slot: select the tower standing on it (nearest).
-                let Ok((_, _, stf)) = slots.get(e) else {
-                    return;
-                };
-                let mut tower_here: Option<(Entity, f32)> = None;
-                for (eid, ttf) in towers.iter() {
-                    let d = ttf.translation.distance(stf.translation);
-                    if tower_here.map_or(true, |(_, bd)| d < bd) {
-                        tower_here = Some((eid, d));
-                    }
+    }
+    *selection = match best_slot {
+        Some((e, _, false)) => Selection::EmptySlot(e),
+        Some((e, _, true)) => {
+            // Occupied slot: select the tower standing on it (nearest).
+            let Ok((_, _, stf)) = slots.get(e) else {
+                return;
+            };
+            let mut tower_here: Option<(Entity, f32)> = None;
+            for (eid, _, ttf) in towers.iter() {
+                let d = ttf.translation.distance(stf.translation);
+                if tower_here.map_or(true, |(_, bd)| d < bd) {
+                    tower_here = Some((eid, d));
                 }
-                tower_here.map(|(e, _)| Selection::Tower(e)).unwrap_or(Selection::None)
             }
-            None => Selection::None, // 3) blank ground cancels (§16.3)
+            tower_here.map(|(e, _)| Selection::Tower(e)).unwrap_or(Selection::None)
         }
+        None => Selection::None, // 3) blank ground cancels (§16.3)
     };
+}
+
+/// Executes a posted fusion confirm (UI11 step 3, §16.6): fuses the picked
+/// source with the clicked target when they pair; otherwise simply selects
+/// the clicked tower. Chained right after `select_object`.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_pending_fusion(
+    mut commands: Commands,
+    pending: Option<Res<PendingFusionConfirm>>,
+    mut selection: ResMut<Selection>,
+    fusion_defs: Res<FusionDefs>,
+    defs: Res<TowerDefs>,
+    towers: Query<(Entity, &Tower, &Transform)>,
+    mut economy: ResMut<Economy>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
+) {
+    let Some(pending) = pending else {
+        return;
+    };
+    let b = pending.0;
+    commands.remove_resource::<PendingFusionConfirm>();
+    if confirm_fusion_target(
+        &mut selection,
+        b,
+        &fusion_defs,
+        &defs,
+        &towers,
+        &mut economy,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut slots,
+    )
+    .is_none()
+    {
+        // Not a recipe (or unaffordable): fall back to plain selection.
+        if towers.get(b).is_ok() {
+            *selection = Selection::Tower(b);
+        }
+    }
 }
 
 /// Unified cancel (§16.3): right click or Esc clears the armed build, the
@@ -609,12 +703,10 @@ pub fn cancel_modes(
     mouse: Res<ButtonInput<MouseButton>>,
     mut build: ResMut<BuildMode>,
     mut selection: ResMut<Selection>,
-    mut fusion_sel: ResMut<FusionSel>,
 ) {
     if mouse.just_pressed(MouseButton::Right) || keys.just_pressed(KeyCode::Escape) {
         build.armed = false;
         *selection = Selection::None;
-        fusion_sel.a = None; // legacy F-key flow until UI11 retires it
         info!("[ui9] cancelled modes/selection");
     }
 }
@@ -725,6 +817,7 @@ fn spawn_base_tower(
                 aoe_radius: 0.0,
                 slow_factor: 0.0,
                 slow_duration: 0.0,
+                invested: def.cost,
             },
             Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
             MeshMaterial3d(materials.add(match def.attack_type {
@@ -737,8 +830,9 @@ fn spawn_base_tower(
         .id()
 }
 
-/// Command-card button actions (UI10): the two build entries (§16.4) and the
-/// AC2 shop purchase. Greyed buttons (enabled=false) never act.
+/// Command-card button actions (UI10/UI11): the two build entries (§16.4),
+/// AC2 shop purchase, TO7 sell and the fusion step-in (§16.6). Greyed buttons
+/// (enabled=false) never act.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_command_buttons(
     mut commands: Commands,
@@ -751,6 +845,7 @@ pub fn handle_command_buttons(
     mut economy: ResMut<Economy>,
     wave: Res<WaveState>,
     state: Res<State<GameState>>,
+    towers: Query<(&Tower, &Transform)>,
     mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -813,11 +908,224 @@ pub fn handle_command_buttons(
                 hand.owned_towers.push(i);
                 info!("[ui10] bought {} for {} (hand {:?})", def.name, def.cost, hand.owned_towers);
             }
+            CommandAction::Sell => {
+                // TO7 (§16.5): intermission only; refund = invested × 70%.
+                if !intermission {
+                    continue;
+                }
+                let Selection::Tower(e) = *selection else { continue };
+                let Ok((tower, tf)) = towers.get(e) else { continue };
+                let refund = (tower.invested as f32 * SELL_REFUND_RATIO).floor() as u32;
+                economy.gold += refund;
+                if let Some((slot_e, _)) = nearest_slot_world(&slots, tf.translation) {
+                    if let Ok((_, mut slot, _)) = slots.get_mut(slot_e) {
+                        slot.occupied = false;
+                    }
+                }
+                commands.entity(e).despawn();
+                *selection = Selection::None;
+                info!("[to7] sold tower (invested {} -> refund {}), gold={}", tower.invested, refund, economy.gold);
+            }
+            CommandAction::Fuse => {
+                // UI11 step 2 (§16.6): enter fusion target picking.
+                if !intermission {
+                    continue;
+                }
+                if let Selection::Tower(e) = *selection {
+                    *selection = Selection::FusionTarget(e);
+                    info!("[ui11] fusion target picking for {e:?}");
+                }
+            }
             CommandAction::FuseCancel => {
                 *selection = Selection::None;
             }
-            _ => {}
+            CommandAction::Reserved => {}
         }
+    }
+}
+
+/// Nearest slot (world-space) to a position — used to free/occupy the slot a
+/// tower stands on.
+fn nearest_slot_world(
+    slots: &Query<(Entity, &mut TowerSlot, &Transform)>,
+    pos: Vec3,
+) -> Option<(Entity, Vec3)> {
+    let mut best: Option<(Entity, f32, Vec3)> = None;
+    for (eid, _slot, stf) in slots.iter() {
+        let d = stf.translation.distance(pos);
+        if best.map_or(true, |(_, bd, _)| d < bd) {
+            best = Some((eid, d, stf.translation));
+        }
+    }
+    best.map(|(e, _, p)| (e, p))
+}
+
+/// Does a recipe match the (order-free) pair of base kinds {ka, kb}?
+fn recipe_matches(
+    fusion_defs: &FusionDefs,
+    ka: usize,
+    kb: usize,
+) -> Option<&crate::resources::FusionDef> {
+    fusion_defs.list.iter().find(|r| {
+        let mut need = r.ingredients.to_vec();
+        for k in [ka, kb] {
+            if let Some(i) = need.iter().position(|&x| x == k) {
+                need.remove(i);
+            }
+        }
+        need.is_empty()
+    })
+}
+
+/// UI11 step 3 (§16.6): confirm the fusion on target tower `b` while `a` is
+/// in `FusionTarget` picking. Deducts the 20% fee, despawns both, frees both
+/// slots and lands the result on B's slot (A's slot frees — net one slot
+/// gained, unchanged). Returns the result entity, or None when the pair is
+/// not a recipe / unaffordable (caller then simply re-selects `b`).
+#[allow(clippy::too_many_arguments)]
+pub fn confirm_fusion_target(
+    selection: &mut Selection,
+    b: Entity,
+    fusion_defs: &FusionDefs,
+    defs: &TowerDefs,
+    towers: &Query<(Entity, &Tower, &Transform)>,
+    economy: &mut Economy,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    slots: &mut Query<(Entity, &mut TowerSlot, &Transform)>,
+) -> Option<Entity> {
+    let a = match *selection {
+        Selection::FusionTarget(a) => a,
+        _ => return None,
+    };
+    let (ka, pos_a) = towers.get(a).ok().and_then(|(_, t, tf)| match t.kind {
+        TowerKind::Base(i) => Some((i, tf.translation)),
+        _ => None,
+    })?;
+    let (kb, pos_b) = towers.get(b).ok().and_then(|(_, t, tf)| match t.kind {
+        TowerKind::Base(i) => Some((i, tf.translation)),
+        _ => None,
+    })?;
+    let recipe = recipe_matches(fusion_defs, ka, kb)?;
+    let cost_ing = defs.list[recipe.ingredients[0]].cost + defs.list[recipe.ingredients[1]].cost;
+    let fee = (cost_ing as f32 * recipe.fee_ratio).round() as u32;
+    if economy.gold < fee {
+        info!("[ui11] fusion fee {fee} unaffordable",);
+        return None;
+    }
+    economy.gold -= fee;
+
+    commands.entity(a).despawn();
+    commands.entity(b).despawn();
+    // Free A's slot, then land the result on B's slot (§16.6 落位规则).
+    if let Some((sa, _)) = nearest_slot_world(slots, pos_a) {
+        if let Ok((_, mut slot, _)) = slots.get_mut(sa) {
+            slot.occupied = false;
+        }
+    }
+    let result_slot = nearest_slot_world(slots, pos_b)?;
+    if let Ok((_, mut slot, _)) = slots.get_mut(result_slot.0) {
+        slot.occupied = true;
+    }
+    let result = commands
+        .spawn((
+            Tower {
+                tower_index: recipe.ingredients[0],
+                damage: recipe.damage,
+                attack_speed: recipe.attack_speed,
+                range: recipe.range,
+                attack_type: recipe.attack_type,
+                cooldown: 0.0,
+                target: None,
+                kind: TowerKind::Fused(recipe.kind),
+                aoe_radius: recipe.aoe_radius,
+                slow_factor: recipe.slow_factor,
+                slow_duration: recipe.slow_duration,
+                invested: cost_ing + fee,
+            },
+            Mesh3d(meshes.add(Cuboid::new(1.2, 1.2, 1.2))),
+            MeshMaterial3d(materials.add(match recipe.kind {
+                crate::components::FusionKind::Marksman => Color::srgb(0.2, 0.8, 1.0),
+                crate::components::FusionKind::Archmage => Color::srgb(0.7, 0.2, 1.0),
+                crate::components::FusionKind::Hybrid => Color::srgb(0.2, 0.9, 0.4),
+                crate::components::FusionKind::Bastion => Color::srgb(1.0, 0.6, 0.1),
+            })),
+            Transform::from_xyz(pos_b.x, 0.6, pos_b.z),
+        ))
+        .id();
+    *selection = Selection::Tower(result);
+    info!("[ui11] fused {} (fee {fee}), result on B slot", recipe.name);
+    Some(result)
+}
+
+/// Highlight every tower that pairs with the picked fusion source (§16.6):
+/// flat discs under the candidates, rebuilt only when the candidate set
+/// changes (towers may appear/vanish while picking).
+pub fn refresh_fusion_candidates(
+    mut commands: Commands,
+    selection: Res<Selection>,
+    fusion_defs: Res<FusionDefs>,
+    towers: Query<(Entity, &Tower, &Transform)>,
+    highlights: Query<Entity, With<PairHighlight>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cache: Local<Vec<Entity>>, // highlighted tower entities
+) {
+    // Candidate towers that pair with the picked source (sorted for compare).
+    let candidates: Vec<Entity> = match *selection {
+        Selection::FusionTarget(a) => {
+            let ka = towers
+                .get(a)
+                .ok()
+                .and_then(|(_, t, _)| match t.kind {
+                    TowerKind::Base(i) => Some(i),
+                    _ => None,
+                })
+                .unwrap_or(usize::MAX);
+            let mut v: Vec<Entity> = towers
+                .iter()
+                .filter(|&(eid, t, _)| {
+                    eid != a
+                        && matches!(t.kind, TowerKind::Base(_))
+                        && recipe_matches(
+                            &fusion_defs,
+                            ka,
+                            match t.kind {
+                                TowerKind::Base(i) => i,
+                                _ => usize::MAX,
+                            },
+                        )
+                        .is_some()
+                })
+                .map(|(eid, _, _)| eid)
+                .collect();
+            v.sort_unstable_by_key(|e| e.to_bits());
+            v
+        }
+        _ => Vec::new(),
+    };
+    if candidates == *cache {
+        return;
+    }
+    *cache = candidates.clone();
+    for h in &highlights {
+        commands.entity(h).despawn();
+    }
+    for eid in candidates {
+        let Ok((_, _, tf)) = towers.get(eid) else { continue };
+        commands.spawn((
+            PairHighlight,
+            Mesh3d(meshes.add(Circle::new(0.8))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgba(1.0, 0.85, 0.2, 0.55),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            })),
+            Transform::from_xyz(tf.translation.x, 0.08, tf.translation.z)
+                .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        ));
     }
 }
 
