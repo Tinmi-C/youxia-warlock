@@ -41,6 +41,7 @@ impl Plugin for UiPlugin {
                     systems::command::refresh_info_zone,
                     systems::command::refresh_selection_ring,
                     systems::command::refresh_fusion_candidates,
+                    systems::command::refresh_tooltip,
                     systems::command::hover_build_preview,
                     systems::command::refresh_start_wave_button,
                     systems::command::refresh_bar_visibility,

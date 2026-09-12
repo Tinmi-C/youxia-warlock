@@ -123,6 +123,10 @@ pub struct TowerDef {
     pub attack_speed: f32, // shots per second
     pub range: f32,        // world units
     pub attack_type: AttackType,
+    /// One-line role summary for tooltips (requirements §5 定位 column).
+    pub role: &'static str,
+    /// English role line (UI12 tooltip).
+    pub role_en: &'static str,
 }
 
 #[derive(Resource)]
@@ -135,10 +139,10 @@ impl TowerDefs {
     pub fn palette() -> Self {
         Self {
             list: vec![
-                TowerDef { name: "archer", label: "弓箭手塔", label_en: "Archer Tower", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical },
-                TowerDef { name: "shield", label: "盾塔", label_en: "Shield Tower", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical },
-                TowerDef { name: "mage", label: "法师塔", label_en: "Mage Tower", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic },
-                TowerDef { name: "cannon", label: "炮塔", label_en: "Cannon Tower", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical },
+                TowerDef { name: "archer", label: "弓箭手塔", label_en: "Archer Tower", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical, role: "单体输出（点杀精英/BOSS/治疗）", role_en: "Single-target DPS (elites / bosses / healers)" },
+                TowerDef { name: "shield", label: "盾塔", label_en: "Shield Tower", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical, role: "控制/减速（攻击附 30% 减速）", role_en: "Control / 30% slow on hit" },
+                TowerDef { name: "mage", label: "法师塔", label_en: "Mage Tower", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic, role: "范围输出（魔法穿物理护甲）", role_en: "AOE (magic pierces armor)" },
+                TowerDef { name: "cannon", label: "炮塔", label_en: "Cannon Tower", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical, role: "大范围清群（攻速慢是平衡点）", role_en: "Wide AOE clear (slow firing)" },
             ],
         }
     }

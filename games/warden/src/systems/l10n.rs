@@ -103,6 +103,21 @@ pub const FUSE_TARGET_HINT: Bi = Bi(
 pub const FUSE_CANCEL: Bi = Bi("取消", "Cancel");
 pub const FUSE_NONE: Bi = Bi("无可配对塔", "No pairable tower");
 
+// --- Tooltip (UI12, requirements §16.8) ---------------------------------------
+
+pub const TT_HOTKEY: Bi = Bi("热键", "Hotkey");
+pub const TT_COST: Bi = Bi("造价", "Cost");
+pub const TT_SELL_FOR: Bi = Bi("卖出回收", "Sells for");
+pub const TT_FUSE_DESC: Bi = Bi(
+    "与另一座塔融合成高级塔（手续费=原料造价 20%）",
+    "Fuse with another tower (fee = 20% of ingredients)",
+);
+pub const TT_RESERVED: Bi = Bi("预留格（后续升级/技能）", "Reserved (upgrades / skills later)");
+
+pub fn tower_role(def: &crate::resources::TowerDef, lang: Lang) -> &'static str {
+    pick2(def.role, def.role_en, lang)
+}
+
 /// Fusion recipe preview line for the info zone (UI11, §16.6).
 pub fn fusion_preview(lang: Lang, recipe: &str, fee: u32) -> String {
     match lang {

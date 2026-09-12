@@ -66,11 +66,30 @@ pub enum CommandAction {
     Reserved,
 }
 
-/// One command-card button: its action plus the enabled flag (combat greying).
+/// One command-card button: its action, the enabled flag (combat greying)
+/// and its grid slot (§16.7: row-major Q W E R / A S D F).
 #[derive(Component, Clone, Debug)]
 pub struct CommandButton {
     pub action: CommandAction,
     pub enabled: bool,
+    pub grid: u8,
+}
+
+/// The grid hotkey letters in row-major order (§16.7).
+pub const GRID_KEYS: [KeyCode; 8] = [
+    KeyCode::KeyQ,
+    KeyCode::KeyW,
+    KeyCode::KeyE,
+    KeyCode::KeyR,
+    KeyCode::KeyA,
+    KeyCode::KeyS,
+    KeyCode::KeyD,
+    KeyCode::KeyF,
+];
+
+/// Badge letter for a grid slot (printed on the button corner, §16.7).
+pub fn grid_badge(grid: u8) -> char {
+    "QWERASDF".as_bytes()[grid as usize % 8] as char
 }
 
 /// Marker on the selected tower's ground range ring (selection-driven, UI9).
@@ -159,11 +178,12 @@ fn command_button(
     action: CommandAction,
     label: String,
     enabled: bool,
+    grid: u8,
 ) {
     parent
         .spawn((
             Button,
-            CommandButton { action, enabled },
+            CommandButton { action, enabled, grid },
             Interaction::None,
             Node {
                 width: Val::Px(104.0),
@@ -191,6 +211,22 @@ fn command_button(
                 } else {
                     Color::srgb(0.45, 0.45, 0.45)
                 }),
+            ));
+            // Hotkey corner badge (§16.7).
+            p.spawn((
+                Text::new(grid_badge(grid).to_string()),
+                TextFont {
+                    font: font.0.clone(),
+                    font_size: FontSize::Px(9.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.6, 0.8, 1.0)),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(2.0),
+                    right: Val::Px(4.0),
+                    ..default()
+                },
             ));
         });
 }
@@ -410,6 +446,7 @@ pub fn refresh_command_card(
                 CommandAction::FuseCancel,
                 l10n::FUSE_CANCEL.pick(*lang).to_string(),
                 true,
+                0,
             );
         }
         Selection::Tower(e) => {
@@ -424,6 +461,7 @@ pub fn refresh_command_card(
                 CommandAction::Sell,
                 l10n::SELL.pick(*lang).to_string(),
                 can_act,
+                0,
             );
             if !fused {
                 // Fused towers cannot fuse again (§16.6 / UI11). The Fuse
@@ -441,15 +479,17 @@ pub fn refresh_command_card(
                     CommandAction::Fuse,
                     l10n::FUSE.pick(*lang).to_string(),
                     can_act && pairable,
+                    1,
                 );
             }
-            for _ in 0..2 {
+            for grid in 2..4u8 {
                 command_button(
                     card,
                     &font,
                     CommandAction::Reserved,
                     l10n::RESERVED.pick(*lang).to_string(),
                     false,
+                    grid,
                 );
             }
         }
@@ -463,6 +503,7 @@ pub fn refresh_command_card(
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
                 .collect();
+            let mut grid: u8 = 0;
             for i in owned {
                 let Some(def) = defs.list.get(i) else { continue };
                 let afford = economy.gold >= def.cost;
@@ -472,18 +513,25 @@ pub fn refresh_command_card(
                     CommandAction::Build(i),
                     l10n::card_cost(*lang, l10n::tower_label(def, *lang), def.cost),
                     !combat && afford,
+                    grid,
                 );
+                grid = grid.saturating_add(1);
             }
             for &i in &offers.offers {
                 let Some(def) = defs.list.get(i) else { continue };
                 let afford = economy.gold >= def.cost && !hand.owned_towers.contains(&i);
+                if grid >= GRID_KEYS.len() as u8 {
+                    break; // the 2x4 grid is full
+                }
                 command_button(
                     card,
                     &font,
                     CommandAction::Buy(i),
                     l10n::offer_cost(*lang, l10n::tower_label(def, *lang), def.cost),
                     !combat && afford,
+                    grid,
                 );
+                grid = grid.saturating_add(1);
             }
         }
     });
@@ -1219,4 +1267,131 @@ pub fn hover_build_preview(
             }
         }
     }
+}
+
+// --- UI12: grid hotkeys + tooltip (§16.7/§16.8) -------------------------------
+
+/// Grid hotkeys (§16.7): QWER/ASDF press the button at that grid slot by
+/// injecting `Interaction::Pressed` — the regular click handler then runs the
+/// exact same path, so hotkeys and clicks can never diverge. Chained before
+/// `handle_command_buttons`.
+pub fn command_grid_hotkeys(
+    keys: Res<ButtonInput<KeyCode>>,
+    buttons: Query<(Entity, &CommandButton)>,
+    mut commands: Commands,
+) {
+    for (i, key) in GRID_KEYS.iter().enumerate() {
+        if !keys.just_pressed(*key) {
+            continue;
+        }
+        // The button at this grid slot (unique within the card).
+        if let Some((e, _)) = buttons
+            .iter()
+            .find(|(_, b)| b.grid as usize == i && b.enabled)
+        {
+            commands.entity(e).insert(Interaction::Pressed);
+        }
+    }
+}
+
+/// Marker on the tooltip panel text (UI12).
+#[derive(Component)]
+pub struct TooltipText;
+
+/// Tooltip (§16.8): hovering any command-card button shows the full info —
+/// name / hotkey / price (or refund/fee) / attributes / one-line role. The
+/// panel sits above the bottom bar; content rebuilds on hover change.
+#[allow(clippy::too_many_arguments)]
+pub fn refresh_tooltip(
+    mut commands: Commands,
+    font: Res<UiFont>,
+    lang: Res<Lang>,
+    buttons: Query<(&Interaction, &CommandButton)>,
+    selection: Res<Selection>,
+    towers: Query<&Tower>,
+    defs: Res<TowerDefs>,
+    panels: Query<Entity, With<TooltipText>>,
+    mut cache: Local<Option<(CommandAction, Lang)>>,
+) {
+    let hovered = buttons
+        .iter()
+        .find(|(inter, _)| **inter == Interaction::Hovered)
+        .map(|(_, b)| b.action);
+    if *cache == hovered.map(|a| (a, *lang)).filter(|_| hovered.is_some()) && hovered.is_some() {
+        return;
+    }
+    *cache = hovered.map(|a| (a, *lang));
+    for p in &panels {
+        commands.entity(p).despawn();
+    }
+    let Some(action) = hovered else {
+        return;
+    };
+    let (title, body) = match action {
+        CommandAction::Build(i) | CommandAction::Buy(i) => {
+            let Some(def) = defs.list.get(i) else {
+                return;
+            };
+            (
+                l10n::tower_label(def, *lang).to_string(),
+                format!(
+                    "{}: {} · {}: {}{}\n{} · {}\n{}",
+                    l10n::TT_HOTKEY.pick(*lang),
+                    grid_badge(buttons.iter().find(|(_, b)| b.action == action).map(|(_, b)| b.grid).unwrap_or(0)),
+                    l10n::TT_COST.pick(*lang),
+                    def.cost,
+                    if matches!(action, CommandAction::Buy(_)) { "" } else { "" },
+                    l10n::tower_stats(*lang, def.damage, def.attack_speed, def.range),
+                    l10n::attack_label(def.attack_type, *lang),
+                    l10n::tower_role(def, *lang),
+                ),
+            )
+        }
+        CommandAction::Sell => {
+            let refund = match *selection {
+                Selection::Tower(e) => towers
+                    .get(e)
+                    .map(|t| (t.invested as f32 * crate::resources::SELL_REFUND_RATIO).floor() as u32)
+                    .unwrap_or(0),
+                _ => 0,
+            };
+            (
+                l10n::SELL.pick(*lang).to_string(),
+                format!("{}: {}{}", l10n::TT_SELL_FOR.pick(*lang), refund, if *lang == Lang::Zh { "金" } else { "g" }),
+            )
+        }
+        CommandAction::Fuse => (
+            l10n::FUSE.pick(*lang).to_string(),
+            l10n::TT_FUSE_DESC.pick(*lang).to_string(),
+        ),
+        CommandAction::FuseCancel => (l10n::FUSE_CANCEL.pick(*lang).to_string(), String::new()),
+        CommandAction::Reserved => (
+            l10n::RESERVED.pick(*lang).to_string(),
+            l10n::TT_RESERVED.pick(*lang).to_string(),
+        ),
+    };
+    let mut text = title;
+    if !body.is_empty() {
+        text.push_str("\n");
+        text.push_str(&body);
+    }
+    commands.spawn((
+        TooltipText,
+        Text::new(text),
+        TextFont {
+            font: font.0.clone(),
+            font_size: FontSize::Px(12.0),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(128.0),
+            left: Val::Px(240.0),
+            width: Val::Px(360.0),
+            padding: UiRect::all(Val::Px(8.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.05, 0.06, 0.1, 0.92)),
+    ));
 }

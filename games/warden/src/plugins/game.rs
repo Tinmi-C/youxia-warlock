@@ -35,6 +35,9 @@ impl Plugin for GamePlugin {
                 systems::input::choose_choice.in_set(GameSet::Input),
                 systems::input::start_next_wave.in_set(GameSet::Input),
                 systems::command::handle_command_buttons.in_set(GameSet::Input),
+                systems::command::command_grid_hotkeys
+                    .in_set(GameSet::Input)
+                    .before(systems::command::handle_command_buttons),
                 systems::pointer::handle_start_wave_button.in_set(GameSet::Input),
                 systems::pointer::handle_choice_card_buttons.in_set(GameSet::Input),
                 systems::command::select_object

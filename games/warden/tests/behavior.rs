@@ -1222,7 +1222,11 @@ fn hud_preview_lists_next_wave_composition() {
         "English preview after toggle: {text}"
     );
 
-    // Start the wave: the preview must disappear during combat.
+    // Start the wave: the preview must disappear during combat. (clear()
+    // first: headless keeps just_pressed true across frames.)
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::Space);
@@ -1734,5 +1738,107 @@ fn clicking_unpairable_tower_switches_selection_without_fusing() {
         app.world().resource::<Economy>().gold,
         100,
         "no fee may be charged on an unpairable click"
+    );
+}
+
+// --- UI12: tooltip + grid hotkeys ---------------------------------------------
+
+/// Helper: hover the command button for an action.
+fn hover_command_button(app: &mut App, want: CommandAction) -> bool {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<Entity, With<CommandButton>>();
+    let hit = q
+        .iter(app.world())
+        .find(|&e| app.world().get::<CommandButton>(e).map(|b| b.action) == Some(want));
+    match hit {
+        Some(e) => {
+            app.world_mut()
+                .entity_mut(e)
+                .insert(bevy::ui::Interaction::Hovered);
+            true
+        }
+        None => false,
+    }
+}
+
+fn tooltip_text(app: &mut App) -> Option<String> {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&Text, With<warden::systems::command::TooltipText>>();
+    q.iter(app.world()).next().map(|t| t.0.clone())
+}
+
+/// Capability card UI12 — acceptance: hovering the Mage build button shows a
+/// tooltip with damage / attack speed / range and its AOE role, in both
+/// languages (requirements §16.8).
+#[test]
+fn tooltip_shows_full_tower_info_in_both_languages() {
+    let mut app = test_app();
+    let path = std::env::temp_dir().join("warden_lang_tooltip_test.txt");
+    let _ = std::fs::remove_file(&path);
+    app.world_mut().insert_resource(UiPrefsPath(path.clone()));
+    app.update();
+    // Force the mage into the hand so its Build button is on the card.
+    app.world_mut().resource_scope(|_world, mut hand: Mut<Hand>| {
+        hand.owned_towers = vec![2, 0];
+    });
+    app.world_mut()
+        .resource_mut::<ShopOffers>()
+        .version += 1; // force a card rebuild
+    app.update();
+    assert!(hover_command_button(&mut app, CommandAction::Build(2)));
+    app.update();
+    let zh = tooltip_text(&mut app).expect("zh tooltip appears");
+    assert!(
+        zh.contains("法师塔") && zh.contains("伤害") && zh.contains("射程") && zh.contains("魔法"),
+        "zh tooltip must carry full attributes, got: {zh}"
+    );
+    assert!(zh.contains("范围输出"), "zh tooltip must carry the role line");
+
+    // English after the toggle.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyL);
+    app.update();
+    // Headless has no InputPlugin: just_pressed stays true across frames
+    // (release() does not reset it), so clear the input to stop re-toggles.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+    assert!(hover_command_button(&mut app, CommandAction::Build(2)));
+    app.update();
+    let en = tooltip_text(&mut app).expect("en tooltip appears");
+    assert!(
+        en.contains("Mage Tower") && en.contains("Damage") && en.contains("Range") && en.contains("AOE"),
+        "en tooltip must carry full attributes + AOE role, got: {en}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Capability card UI12 — acceptance: in the idle card, pressing Q acts like
+/// clicking the first grid button (arms the build for the first owned type).
+#[test]
+fn grid_hotkey_q_triggers_first_build_button() {
+    let mut app = test_app();
+    app.update();
+    let first = {
+        let hand = app.world().resource::<Hand>();
+        let mut owned = hand.owned_towers.clone();
+        owned.sort_unstable();
+        owned[0]
+    };
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyQ);
+    app.update();
+    assert!(
+        app.world().resource::<BuildMode>().armed,
+        "Q must arm build mode like clicking the first grid button"
+    );
+    assert_eq!(
+        app.world().resource::<warden::resources::SelectedTower>().tower_index,
+        first,
+        "Q must select the first owned tower type (BTreeSet order)"
     );
 }
