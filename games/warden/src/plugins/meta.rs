@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::resources::{MetaSavePath, MetaState};
+use crate::resources::{DebugRun, MetaSavePath, MetaState};
 use crate::states::GameState;
 use crate::systems;
 
@@ -14,6 +14,9 @@ impl Plugin for MetaPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MetaState>()
             .init_resource::<MetaSavePath>()
+            // Debug-run marker (DB1): registered unconditionally (the award
+            // systems read it in release too); only debug builds ever set it.
+            .init_resource::<DebugRun>()
             .add_systems(
                 Startup,
                 (

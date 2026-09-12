@@ -18,6 +18,15 @@ bevy = { version = "0.19.1", features = [
 # bevy_rapier = "0.29"   # 物理（碰撞/刚体/重力）
 rand = "0.10"    # 随机（AC1 开局手牌/AC2 商店刷新/AC3 掉落）；对齐 Bevy 0.19 依赖树内的 rand 0.10，不引入第二版本
 
+# DB1 debug panel (F1, egui). Version per the bevy_egui README support table:
+# Bevy 0.19 <-> bevy_egui 0.40-0.42 (we take 0.42.0, which depends on egui 0.36).
+# Note: cargo cannot gate a dependency by build profile (a cfg(debug_assertions)
+# target table is invalid — warned and ignored), so the dependency itself is
+# declared unconditionally. **The gate lives in the code**: all debug code is
+# #[cfg(debug_assertions)] and release never references any bevy_egui symbol
+# (zero debug surface in release builds — see the DB1 card for the check).
+bevy_egui = "0.42"
+
 # 迭代友好：依赖开优化（编译一次后运行快），自身代码保持快编译
 [profile.dev]
 opt-level = 1

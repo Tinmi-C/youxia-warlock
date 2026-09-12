@@ -512,6 +512,28 @@ pub struct ChoiceOption {
     pub kind: ChoiceKind,
 }
 
+/// Debug-run marker (DB1): set the first time any debug cheat / scenario is
+/// used in a run. A marked run pays NO meta coins and never writes
+/// `meta_save.txt` (test-run isolation — see `systems/meta.rs`). The flag is
+/// inert data compiled in release too (nothing can set it there: all cheat
+/// code is `#[cfg(debug_assertions)]`); it stays set across debug restarts
+/// and only a fresh app launch clears it.
+#[derive(Resource, Default)]
+pub struct DebugRun {
+    pub marked: bool,
+}
+
+/// Debug-panel input capture (DB1), written every frame by the debug panel
+/// (debug builds only; release never writes it, so both flags stay false):
+/// `pointer` = cursor is over the egui window (world picking must swallow the
+/// click, same rule as `BlocksWorldInput`), `keyboard` = egui wants keyboard
+/// input (typing in a panel field must not fire world hotkeys).
+#[derive(Resource, Default)]
+pub struct DebugPanelCapture {
+    pub pointer: bool,
+    pub keyboard: bool,
+}
+
 /// A pending "三选一" (three-choose-one) between waves. While pending, the next
 /// wave cannot start. Generated after each non-final wave clears (AC4).
 #[derive(Resource)]

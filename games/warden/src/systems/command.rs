@@ -38,13 +38,16 @@ pub struct CommandBarRoot;
 #[derive(Component)]
 pub struct BlocksWorldInput;
 
-/// True while the cursor hovers any `BlocksWorldInput` root. The flags are
-/// maintained by `ui_focus_system` (DefaultPlugins build); headless tests
-/// set the component by hand.
+/// True while the cursor hovers any `BlocksWorldInput` root, or while the
+/// F1 debug panel (debug builds) is under the pointer (DB1): world picking
+/// and armed placement stay idle then. The bevy_ui flags are maintained by
+/// `ui_focus_system` (DefaultPlugins build); headless tests set the
+/// component by hand; the panel flag is written by the egui panel itself.
 pub fn cursor_over_blocking_ui(
     roots: &Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
+    panel: &crate::resources::DebugPanelCapture,
 ) -> bool {
-    roots.iter().any(|r| r.cursor_over())
+    panel.pointer || roots.iter().any(|r| r.cursor_over())
 }
 
 /// Marker on the center command-card zone (rebuilt on state changes).
@@ -659,6 +662,7 @@ pub fn select_object(
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
     blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
+    panel: Res<crate::resources::DebugPanelCapture>,
     build: Res<BuildMode>,
     state: Res<State<GameState>>,
     mut selection: ResMut<Selection>,
@@ -669,7 +673,7 @@ pub fn select_object(
     {
         return;
     }
-    if cursor_over_blocking_ui(&blocking) {
+    if cursor_over_blocking_ui(&blocking, &panel) {
         return;
     }
     let Some((cam, cam_tf)) = camera.single().ok() else {
@@ -1302,9 +1306,14 @@ pub fn hover_build_preview(
 /// `handle_command_buttons`.
 pub fn command_grid_hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
+    panel: Res<crate::resources::DebugPanelCapture>,
     buttons: Query<(Entity, &CommandButton)>,
     mut commands: Commands,
 ) {
+    // Typing into a debug-panel text field must not fire world hotkeys (DB1).
+    if panel.keyboard {
+        return;
+    }
     for (i, key) in GRID_KEYS.iter().enumerate() {
         if !keys.just_pressed(*key) {
             continue;

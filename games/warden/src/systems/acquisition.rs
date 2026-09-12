@@ -20,6 +20,13 @@ pub fn deal_opening_hand(
     mut rng: ResMut<RunRng>,
     meta: Res<MetaState>,
 ) {
+    deal_opening_hand_into(&mut hand, &mut rng, &meta);
+}
+
+/// The deal logic as a free function so the debug restart (DB1) can re-deal
+/// a fresh hand without re-running the Startup system. Expects an *empty*
+/// hand (same idempotence guard as the system).
+pub fn deal_opening_hand_into(hand: &mut Hand, rng: &mut RunRng, meta: &MetaState) {
     if !hand.owned_towers.is_empty() {
         return; // already dealt (idempotent guard)
     }

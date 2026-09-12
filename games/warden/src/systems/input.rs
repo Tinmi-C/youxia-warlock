@@ -17,11 +17,16 @@ use crate::states::GameState;
 /// 1/2/3 picks the pending "三选一" option (AC4) and applies its effect.
 pub fn choose_choice(
     keys: Res<ButtonInput<KeyCode>>,
+    panel: Res<crate::resources::DebugPanelCapture>,
     mut choice: ResMut<WaveChoice>,
     mut boosts: ResMut<Boosts>,
     mut hand: ResMut<Hand>,
 ) {
     if !choice.pending {
+        return;
+    }
+    // Typing into a debug-panel field must not pick options (DB1).
+    if panel.keyboard {
         return;
     }
     let idx = if keys.just_pressed(KeyCode::Digit1) {
@@ -74,11 +79,16 @@ pub fn apply_choice(
 /// `try_start_wave` so the on-screen button (UI2) behaves identically.
 pub fn start_next_wave(
     keys: Res<ButtonInput<KeyCode>>,
+    panel: Res<crate::resources::DebugPanelCapture>,
     mut wave: ResMut<WaveState>,
     schedule: Res<WaveSchedule>,
     choice: Res<WaveChoice>,
     state: Res<State<GameState>>,
 ) {
+    // Typing (space) into a debug-panel field must not start waves (DB1).
+    if panel.keyboard {
+        return;
+    }
     if !keys.just_pressed(KeyCode::Space) {
         return;
     }

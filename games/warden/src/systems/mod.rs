@@ -1,6 +1,10 @@
 pub mod acquisition;
 pub mod camera;
 pub mod command;
+// Debug cheat core (DB1/DB2): the whole module is debug-only — release
+// builds have zero debug surface (panel, cheats, scenarios).
+#[cfg(debug_assertions)]
+pub mod debug;
 pub mod enemy;
 pub mod fx;
 pub mod hud;

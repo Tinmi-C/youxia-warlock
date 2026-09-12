@@ -11,8 +11,47 @@
 use bevy::prelude::*;
 
 use crate::components::{AttackType, Enemy, FusionKind, Projectile, Slow, Tower, TowerKind};
-use crate::systems::fx::HitFlash;
-use crate::resources::{Boosts, PROJECTILE_SPEED};
+use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
+use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
+
+/// Spawn a placed base tower of archetype `def` at world position `pos`
+/// (DB1/DB2 debug scenarios; identical construction to a player placement —
+/// the player-flow systems keep their own inline builds untouched).
+/// Returns the spawned entity.
+pub fn spawn_base_tower(
+    commands: &mut Commands,
+    def: &TowerDef,
+    tower_index: usize,
+    pos: Vec3,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) -> bevy::ecs::entity::Entity {
+    commands
+        .spawn((
+            Tower {
+                tower_index,
+                damage: def.damage,
+                attack_speed: def.attack_speed,
+                range: def.range,
+                attack_type: def.attack_type,
+                cooldown: 0.0,
+                target: None,
+                kind: TowerKind::Base(tower_index),
+                aoe_radius: 0.0,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+                invested: def.cost,
+            },
+            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+            MeshMaterial3d(materials.add(match def.attack_type {
+                AttackType::Physical => Color::srgb(0.7, 0.7, 0.8),
+                AttackType::Magic => Color::srgb(0.5, 0.4, 0.9),
+                AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
+            })),
+            Transform::from_xyz(pos.x, 0.6, pos.z),
+        ))
+        .id()
+}
 
 /// Resolve one-axis armor: physical is halved vs armored enemies; magic and
 /// mixed (穿甲) bypass it.
@@ -91,7 +130,7 @@ pub fn tower_fire(
                 let applied = effective_damage(tower.attack_type, en.physical_armor, base_dmg);
                 en.hp -= applied;
                 commands.entity(target).insert(HitFlash {
-                    timer: 0.15,
+                    timer: HIT_FLASH_SECS,
                     original: None,
                 });
                 if tower.slow_factor > 0.0 {

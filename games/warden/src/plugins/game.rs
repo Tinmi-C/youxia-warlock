@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::resources::BuildMode;
+use crate::resources::{BuildMode, DebugPanelCapture};
 use crate::sets::GameSet;
 use crate::states::GameState;
 use crate::systems;
@@ -28,6 +28,9 @@ impl Plugin for GamePlugin {
                 .chain(),
         )
         .init_resource::<BuildMode>()
+        // Debug-panel input capture (DB1): registered unconditionally (the
+        // guard systems read it in release too); only debug builds write it.
+        .init_resource::<DebugPanelCapture>()
         .add_systems(Startup, systems::camera::spawn_camera)
         .add_systems(
             Update,
@@ -68,9 +71,14 @@ pub fn apply_pause(state: &State<GameState>, next: &mut NextState<GameState>) {
 /// P toggles Playing/Paused (GameOver/Win reset to Playing).
 fn toggle_pause(
     keys: Res<ButtonInput<KeyCode>>,
+    panel: Res<DebugPanelCapture>,
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
 ) {
+    // Typing into a debug-panel field must not pause the game (DB1).
+    if panel.keyboard {
+        return;
+    }
     if keys.just_pressed(KeyCode::KeyP) {
         apply_pause(&state, &mut next);
     }

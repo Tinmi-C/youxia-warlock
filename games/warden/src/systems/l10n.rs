@@ -283,9 +283,14 @@ pub fn load_ui_prefs(mut lang: ResMut<Lang>, path: Res<UiPrefsPath>) {
 /// `L` toggles the UI language and persists the choice immediately.
 pub fn toggle_lang(
     keys: Res<ButtonInput<KeyCode>>,
+    panel: Res<crate::resources::DebugPanelCapture>,
     mut lang: ResMut<Lang>,
     path: Res<UiPrefsPath>,
 ) {
+    // Typing into a debug-panel field must not toggle the language (DB1).
+    if panel.keyboard {
+        return;
+    }
     if keys.just_pressed(KeyCode::KeyL) {
         *lang = lang.next();
         save_ui_prefs(&lang, &path);

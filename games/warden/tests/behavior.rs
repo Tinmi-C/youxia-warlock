@@ -2623,3 +2623,299 @@ fn armored_enemy_carries_shield_badge() {
     assert_eq!(badge_count, 1, "exactly the armored enemy carries a badge");
     let _ = (armored, ordinary);
 }
+
+// --- DB1: debug panel + cheat core ---------------------------------------------
+//
+// All debug-card tests are debug-build-only (the debug module itself is
+// `#[cfg(debug_assertions)]`; `cargo test --release` skips them by design —
+// release has zero debug surface).
+
+#[cfg(debug_assertions)]
+mod debug_cheats {
+    use super::*;
+    use warden::resources::{DebugPanelCapture, DebugRun};
+    use warden::sets::GameSet;
+    use warden::systems::debug::{
+        debug_cheat_executor, debug_panel_toggle, DebugAction, DebugPanel, DebugQueue, DebugSeed,
+    };
+
+    /// Headless app wired the way `DebugPlugin` wires the cheat core (debug
+    /// builds only, no egui needed — tests push actions straight into the
+    /// queue, the exact path the panel buttons take).
+    fn debug_app() -> App {
+        let mut app = test_app();
+        app.init_resource::<DebugQueue>()
+            .init_resource::<DebugPanel>()
+            .init_resource::<DebugSeed>()
+            .add_systems(
+                Update,
+                (debug_cheat_executor.in_set(GameSet::Input), debug_panel_toggle),
+            );
+        app
+    }
+
+    fn push(app: &mut App, action: DebugAction) {
+        app.world_mut()
+            .resource_mut::<DebugQueue>()
+            .0
+            .push(action);
+    }
+
+    fn count_enemies(app: &mut App) -> usize {
+        let mut q = app.world_mut().query::<&Enemy>();
+        q.iter(app.world()).count()
+    }
+
+    /// DB1 acceptance: "+100 gold" takes effect in the same frame, and using
+    /// any cheat marks the run as debug (no meta payout later).
+    #[test]
+    fn debug_gold_cheat_applies_same_frame_and_marks_run() {
+        let mut app = debug_app();
+        app.update(); // startup: economy 100
+        push(&mut app, DebugAction::GoldAdd(100));
+        app.update(); // executor (Input) -> gold settled this same frame
+        assert_eq!(
+            app.world().resource::<Economy>().gold,
+            200,
+            "+100 gold must land in the same frame"
+        );
+        assert!(
+            app.world().resource::<DebugRun>().marked,
+            "any cheat must mark the run as debug"
+        );
+    }
+
+    /// DB1 acceptance: "jump to wave 5" lands in wave 5's BUILD phase with the
+    /// rewards of waves 1-4 auto-granted (real economy).
+    #[test]
+    fn debug_jump_to_wave_lands_in_build_phase_with_rewards() {
+        let mut app = debug_app();
+        app.update(); // gold 100, wave 1 build phase
+        push(&mut app, DebugAction::JumpToWave(5));
+        app.update();
+        {
+            let wave = app.world().resource::<WaveState>();
+            assert_eq!(wave.current, 4, "jump to wave 5 -> current index 4");
+            assert_eq!(wave.phase, WavePhase::Intermission, "must be build phase");
+            assert!(wave.spawn_queue.is_empty());
+            assert_eq!(wave.active, 0);
+        }
+        // Rewards of waves 1..=4: 20+25+30+35 = 110 on top of the 100 start.
+        assert_eq!(
+            app.world().resource::<Economy>().gold,
+            100 + 20 + 25 + 30 + 35,
+            "skipped-wave rewards must be auto-granted"
+        );
+    }
+
+    /// DB1 acceptance: a cheated run's settlement pays NO meta coins and the
+    /// existing meta_save.txt content is byte-for-byte unchanged (test-run
+    /// isolation — the save is never even opened for writing).
+    #[test]
+    fn debug_cheat_run_skips_meta_payout_and_save() {
+        let save = std::env::temp_dir().join("warden_meta_debugrun_test.txt");
+        let original = "coins=123\nupgrade1=1\nupgrade2=0\n";
+        std::fs::write(&save, original).unwrap();
+        let mut app = debug_app();
+        app.world_mut().insert_resource(MetaSavePath(save.clone()));
+        app.update(); // startup: loads the file above
+        let before = app.world().resource::<MetaState>().coins;
+        assert_eq!(before, 123, "sanity: save loaded");
+        push(&mut app, DebugAction::GoldAdd(1));
+        app.update(); // marks the run as debug
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::GameOver);
+        app.update(); // OnEnter(GameOver): payout must be SKIPPED
+        assert_eq!(
+            app.world().resource::<MetaState>().coins,
+            before,
+            "debug run must pay no meta coins"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&save).unwrap_or_default(),
+            original,
+            "debug run must leave meta_save.txt content unchanged"
+        );
+        let _ = std::fs::remove_file(&save);
+    }
+
+    /// DB1 acceptance (regression side): a NORMAL run's meta settlement is
+    /// untouched by the isolation gate.
+    #[test]
+    fn normal_run_meta_payout_unaffected_by_isolation() {
+        let save = std::env::temp_dir().join("warden_meta_normalrun_test.txt");
+        let _ = std::fs::remove_file(&save);
+        let mut app = debug_app();
+        app.world_mut().insert_resource(MetaSavePath(save.clone()));
+        app.update();
+        assert!(!app.world().resource::<DebugRun>().marked);
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::GameOver);
+        app.update();
+        assert_eq!(app.world().resource::<MetaState>().coins, 15);
+        assert!(save.exists(), "normal run still writes the save");
+        let _ = std::fs::remove_file(&save);
+    }
+
+    /// DB1 acceptance: "clear current wave" settles through the normal
+    /// wave_resolve (reward + intermission), same frame.
+    #[test]
+    fn debug_clear_wave_settles_through_normal_resolve() {
+        let mut app = debug_app();
+        app.update();
+        {
+            let mut ws = app.world_mut().resource_mut::<WaveState>();
+            ws.phase = WavePhase::Combat;
+            ws.spawn_queue = [0usize; 5].into(); // wave 1 still spawning
+            ws.active = 3;
+        }
+        push(&mut app, DebugAction::ClearWave);
+        app.update();
+        let wave = app.world().resource::<WaveState>();
+        assert_eq!(wave.current, 1, "wave 1 settled -> next is wave 2");
+        assert_eq!(wave.phase, WavePhase::Intermission);
+        assert_eq!(
+            app.world().resource::<Economy>().gold,
+            120,
+            "wave-1 reward (+20) granted through the normal resolve"
+        );
+    }
+
+    /// DB1 acceptance: summoning N enemies at the entry puts the wave machinery
+    /// into combat with N active enemies.
+    #[test]
+    fn debug_summon_spawns_at_entry_and_engages_combat() {
+        let mut app = debug_app();
+        app.update();
+        push(
+            &mut app,
+            DebugAction::SummonEnemy {
+                def_index: 0,
+                count: 3,
+            },
+        );
+        app.update();
+        assert_eq!(count_enemies(&mut app), 3, "three ordinary enemies");
+        let wave = app.world().resource::<WaveState>();
+        assert_eq!(wave.active, 3);
+        assert_eq!(wave.phase, WavePhase::Combat);
+    }
+
+    /// DB1: unlock-all and grant-tower cheats manage the hand; instant
+    /// lose/win drive the state machine (the NextState set inside Update is
+    /// applied by the StateTransition schedule at the top of the NEXT frame).
+    #[test]
+    fn debug_hand_and_ending_cheats() {
+        let mut app = debug_app();
+        app.update();
+        push(&mut app, DebugAction::UnlockAllTowers);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Hand>().owned_towers,
+            vec![0, 1, 2, 3]
+        );
+
+        push(&mut app, DebugAction::InstantLose);
+        app.update(); // executor queues the transition
+        app.update(); // StateTransition applies it
+        assert_eq!(
+            app.world().resource::<State<GameState>>().get(),
+            &GameState::GameOver,
+            "instant lose reaches GameOver"
+        );
+
+        // Restore the base hp the instant lose zeroed BEFORE re-entering
+        // Playing (check_lose would otherwise re-trigger GameOver on the very
+        // frame the state returns), then back to Playing (P) and instant win.
+        push(&mut app, DebugAction::BaseHpSet(10));
+        app.update(); // executor applies the hp restore while still GameOver
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyP);
+        app.update(); // toggle: GameOver -> Playing (NextState queued)
+        // Headless has no InputPlugin: just_pressed survives frames, so clear
+        // it or the next update would toggle P AGAIN (UI7 test pattern).
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
+        app.update(); // StateTransition applies Playing (hp 10 -> no re-lose)
+        assert_eq!(
+            app.world().resource::<State<GameState>>().get(),
+            &GameState::Playing
+        );
+        push(&mut app, DebugAction::InstantWin);
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<State<GameState>>().get(),
+            &GameState::Win,
+            "instant win reaches Win"
+        );
+    }
+
+    /// DB1 acceptance: the debug restart resets the run fully (economy / wave /
+    /// board) and — with a recorded seed — replays the exact opening hand.
+    /// The debug mark intentionally survives a restart.
+    #[test]
+    fn debug_restart_resets_run_and_replays_seed() {
+        let mut app = debug_app();
+        app.world_mut().insert_resource(RunRng::seeded(42));
+        app.world_mut().resource_mut::<DebugSeed>().0 = Some(42);
+        app.update();
+        let opening_hand = app.world().resource::<Hand>().owned_towers.clone();
+
+        push(&mut app, DebugAction::JumpToWave(3)); // gold 100+20+25=145
+        app.update();
+        assert_eq!(app.world().resource::<Economy>().gold, 145);
+
+        push(&mut app, DebugAction::Restart);
+        app.update();
+        assert_eq!(app.world().resource::<Economy>().gold, 100, "fresh economy");
+        let wave = app.world().resource::<WaveState>();
+        assert_eq!(wave.current, 0);
+        assert_eq!(wave.phase, WavePhase::Intermission);
+        assert_eq!(
+            app.world().resource::<Hand>().owned_towers, opening_hand,
+            "seeded restart must replay the same opening hand"
+        );
+        assert!(
+            app.world().resource::<DebugRun>().marked,
+            "the debug mark survives a restart"
+        );
+    }
+
+    /// DB1: F1 toggles the panel; closing it clears the input-capture flags so
+    /// world input resumes immediately.
+    #[test]
+    fn debug_f1_toggles_panel_and_clears_capture_on_close() {
+        let mut app = debug_app();
+        app.update();
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::F1);
+        }
+        app.update();
+        assert!(app.world().resource::<DebugPanel>().open, "F1 opens");
+        // Simulate the panel reporting hover/keyboard capture, then close.
+        {
+            let mut cap = app.world_mut().resource_mut::<DebugPanelCapture>();
+            cap.pointer = true;
+            cap.keyboard = true;
+        }
+        {
+            // Headless has no InputPlugin: `pressed` is never auto-released
+            // and `clear()` only resets the just_* flags — so a second F1
+            // press needs release() first or `press()` is a no-op.
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear(); // drop the stale just_pressed from frame 1
+            keys.release(KeyCode::F1); // end the frame-1 key hold
+            keys.press(KeyCode::F1); // a fresh key-down
+        }
+        app.update();
+        assert!(!app.world().resource::<DebugPanel>().open, "F1 closes");
+        let cap = app.world().resource::<DebugPanelCapture>();
+        assert!(!cap.pointer && !cap.keyboard, "capture flags reset on close");
+    }
+}

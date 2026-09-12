@@ -426,7 +426,7 @@
 > 插队拍板（2026-09-12）：**DB1 → DB2 → 命令卡 UI9-12 → DB3 → PR1/PR2 → FX1-3 → 真人试玩**。
 > 不引 bevy-inspector-egui（版本对齐未核实，手写 egui 面板够用）；bevy_egui 选型 ADR-0008 已覆盖。
 
-### DB1 · 调试面板 + 作弊核心（debug）—— ▶ 待实现
+### DB1 · 调试面板 + 作弊核心（debug）—— ✅ 已实现（2026-09-12）
 - 接口: F1 开关（egui 窗口，仅 debug 构建）；读/写 Economy/基地血/WaveState/Hand/GameState；输出 作弊操作与调试局标记。
 - 行为: `#[cfg(debug_assertions)]` 门控。面板项：①经济：金币 +100/-100/设定、基地血设定；②波次：跳到第 N 波建造期
   （中间波次奖励自动补发）、立刻清完当前波、入口召唤指定敌人 ×N；③获取：解锁全部塔型、手牌塞任意塔；
@@ -436,6 +436,17 @@
 - 验收句: F1 开面板点「跳到第 5 波」→ 1s 内处于第 5 波建造期且中间波次奖励已入账；「+100 金」当帧生效；
   作弊局结算后 `meta_save.txt` 内容不变（headless 断言）；正常局 Meta 结算回归不受影响；
   `cargo build --release` 构建无调试面板/作弊/场景代码路径（cfg 抽除，用编译级手段断言或检查脚本说明）。
+- 实现: `systems/debug.rs`（全模块 cfg 门控）= `DebugAction` 意图队列 + **单一 drain 系统**
+  `debug_cheat_executor`（GameSet::Input，处理动作时置 `DebugRun.marked`）；egui 面板（`plugins/debug.rs`，
+  bevy_egui 0.42，面板按钮只推 action 不做逻辑——headless 测试推同一队列即同一代码路径）。
+  存档隔离 = `award_on_death/award_on_win` 读 `DebugRun` 提前返回；`DebugPanelCapture`（pointer/keyboard）
+  让面板悬停/输入吞掉世界拾取与热键（复用 UI 点击泄漏修法的同一判定口）。**关键取舍**：cargo 无法按 profile
+  门控依赖 → bevy_egui 无条件声明、门控全在代码层（任何未门控引用直接让 release 编译失败——实测抓到过
+  9 处）；`DebugRun`/`DebugPanelCapture` 资源本身不门控（release 恒 false，守卫系统可无条件读）。
+  **release 零调试面断言手段**：编译级（模块 cfg 抽除 + `cargo build --release` 必须过）+ 二进制级
+  （`scripts/check_release_debug_surface.sh`：构建 release 后 grep 独有调试字符串，命中即失败）。
+  验收句已入 `tests/behavior.rs`（`debug_cheats::*` 8 条：跳波+奖励补发/当帧金币/存档内容逐字节不变/
+  正常局回归/清波走正常结算/召唤/结局/种子重开/F1 开关）。
 
 ### DB2 · 测试场景直达（debug）—— ▶ 待实现（依赖 DB1）
 - 接口: 读 CLI 参数（`--scenario NAME --seed N`）或 F1 面板按钮；输出 预置场景状态 + 调试局标记。

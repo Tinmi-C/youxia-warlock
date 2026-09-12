@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 
 use crate::resources::{
-    Economy, MetaSavePath, MetaState, META_REWARD_DEATH, META_REWARD_WIN, UPGRADE1_COST,
+    DebugRun, Economy, MetaSavePath, MetaState, META_REWARD_DEATH, META_REWARD_WIN, UPGRADE1_COST,
     UPGRADE2_COST,
 };
 use crate::states::GameState;
@@ -44,14 +44,25 @@ pub fn apply_meta_on_run_start(meta: Res<MetaState>, mut economy: ResMut<Economy
 }
 
 /// GameOver: +15 meta coins (requirements §13), persisted immediately.
-pub fn award_on_death(mut meta: ResMut<MetaState>, path: Res<MetaSavePath>) {
+/// DB1 run isolation: a debug (cheated) run pays nothing and never touches
+/// the save file — test runs must not pollute the real save.
+pub fn award_on_death(mut meta: ResMut<MetaState>, path: Res<MetaSavePath>, run: Res<DebugRun>) {
+    if run.marked {
+        info!("[meta] death in debug run -> payout skipped, save untouched");
+        return;
+    }
     meta.coins += META_REWARD_DEATH;
     save(&meta, &path);
     info!("[meta] death reward, coins={}", meta.coins);
 }
 
 /// Win: +30 meta coins (requirements §13), persisted immediately.
-pub fn award_on_win(mut meta: ResMut<MetaState>, path: Res<MetaSavePath>) {
+/// Same debug-run isolation as `award_on_death`.
+pub fn award_on_win(mut meta: ResMut<MetaState>, path: Res<MetaSavePath>, run: Res<DebugRun>) {
+    if run.marked {
+        info!("[meta] win in debug run -> payout skipped, save untouched");
+        return;
+    }
     meta.coins += META_REWARD_WIN;
     save(&meta, &path);
     info!("[meta] win reward, coins={}", meta.coins);

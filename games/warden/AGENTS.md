@@ -114,8 +114,14 @@ assets/{models,textures,audio,fonts,ui}/
     `select_object`/`mouse_place_system` 入口吞掉悬停 UI 的点击；新增 live 光标路径回归 4 条（headless
     真 Window+相机投影，详见 capability-cards UI9 卡）。测试补遗：UI10 待机态点建造按钮 armed、UI11 无可配对
     融合按钮置灰两条验收句钉死。
-  - `cargo check --all-targets` + `cargo test` 全绿（61 条断言，`tests/behavior.rs` + `tests/balance.rs`；
-  存量 1 条 `fx.rs` dead-const 警告待清，非阻塞）。
+  - **DB1 调试面板 + 作弊核心（2026-09-12）**：F1 开关 bevy_egui 0.42 面板（版本依据其 README 兼容表 Bevy 0.19 ↔ 0.40-0.42），
+    面板按钮只推 `DebugAction` 意图、`systems/debug.rs`（全模块 cfg 门控）单一 executor 统一生效——headless 测试推同一队列；
+    金币/基地血/跳波（中间奖励补发）/清波/召唤/解锁/塞塔/立即败胜/种子重开全量；**调试局存档隔离**：用过任何作弊即
+    `DebugRun.marked` → 结算不发 Meta 币、`meta_save.txt` 一字不动；F12 截图/日志仪表同门控收口；
+    release 零调试面 = 编译级 cfg 抽除 + `scripts/check_release_debug_surface.sh` 二进制字符串扫描（实测通过）。
+    `DebugPanelCapture` 吞面板悬停点击/键盘，防泄漏进世界拾取与热键（复用 UI 点击泄漏修法判定口）。
+  - `cargo check --all-targets` + `cargo test` 全绿（70 条断言，`tests/behavior.rs` 68 + `tests/balance.rs` 2；
+  fx.rs 存量 dead-const 警告已清，HIT_FLASH_SECS 转共享常量）。
 - **交互范式 + 投射物/战斗表现两批需求（2026-09-12 定稿）已同日实现**（见上方「已完成」两条实现记录）；
   规格存档：requirements §16（命令卡交互规范）/ §5.1（攻击结算模型，含**拍板不上物理插件**）；
   「伤害数字飘字」仍留 GDD 点子池。
@@ -124,9 +130,9 @@ assets/{models,textures,audio,fonts,ui}/
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
   ③ AC2 商店定价：解锁费（进手牌）与建造费（每次放置）分离——现均为塔面价；
   ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
-- **下一步**：**测试便利化三卡 DB1（F1 调试面板+作弊）→ DB2（场景直达）→ DB3（时间控制/叠层）**——2026-09-12 定稿；
-  立卡时命令卡与 PR/FX 批尚未实现故「插队」，现两批已落地，DB 三卡即当前唯一前置批（为继续真人试玩提速）。
-  bevy_egui 为新依赖，引入前先核版本对齐 Bevy 0.19.1（选型 ADR-0008 已覆盖；无兼容版本则回报，勿强凑）→
+- **下一步**：**DB2（测试场景直达：CLI `--scenario NAME --seed N` + F1 面板按钮双入口）→ DB3（时间控制/叠层）**——
+  DB1 已落地（F1 面板 + 作弊 + 调试局存档隔离），DB2/DB3 复用其门控与 DebugQueue 骨架；
+  bevy_egui 版本已核实（README 兼容表：Bevy 0.19 ↔ 0.40-0.42，取 0.42；其 Cargo.toml 依赖 egui 0.36）。
   之后继续**真人试玩盯 §15 信号**（点击泄漏已修，UI9-12/PR/FX 均已上线）→
   balance 数值仍按负责人意见暂缓（BAL1 基线已在 PR/FX 后重取；BAL2 锚点表随时可收敛「早战经济压力」）。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；

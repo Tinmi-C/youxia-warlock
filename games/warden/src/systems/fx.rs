@@ -91,7 +91,8 @@ pub struct HitFlash {
     pub original: Option<Color>,
 }
 
-const HIT_FLASH_SECS: f32 = 0.15;
+/// FX2 acceptance: the hit flash lasts <0.15 s (shared by the injectors).
+pub const HIT_FLASH_SECS: f32 = 0.15;
 const BLAST_RING_SECS: f32 = 0.5;
 const DEATH_SHELL_SECS: f32 = 0.4;
 

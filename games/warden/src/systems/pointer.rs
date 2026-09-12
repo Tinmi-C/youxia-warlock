@@ -441,6 +441,7 @@ pub fn mouse_place_system(
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
     blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
+    panel: Res<crate::resources::DebugPanelCapture>,
     selected: Res<SelectedTower>,
     defs: Res<TowerDefs>,
     wave: Res<WaveState>,
@@ -456,7 +457,7 @@ pub fn mouse_place_system(
     {
         return;
     }
-    if cursor_over_blocking_ui(&blocking) {
+    if cursor_over_blocking_ui(&blocking, &panel) {
         return;
     }
     let Some((cam_comp, cam_tf)) = camera.single().ok() else {

@@ -43,30 +43,61 @@ pub fn spawn_enemy(
         return;
     };
     let start = path.waypoints.first().copied().unwrap_or(Vec3::ZERO);
-    // §9 anchor calibration (2026-09-04): def.speed is a multiplier; the world
-    // rate comes from the path length so speed 1.0 traverses it in ~20 s.
+    spawn_enemy_at(
+        commands,
+        def,
+        index,
+        start,
+        1,
+        None,
+        path_units_per_point(path),
+        meshes,
+        materials,
+    );
+}
+
+/// World units per speed point for this path (§9 anchor: speed 1.0 crosses
+/// the whole path in ~20 s, derived from the actual path length at spawn).
+pub fn path_units_per_point(path: &PathInfo) -> f32 {
     let path_len: f32 = path
         .waypoints
         .windows(2)
         .map(|w| w[0].distance(w[1]))
         .sum();
-    let units_per_point = path_len / ANCHOR_TRAVERSE_SECS;
+    path_len / ANCHOR_TRAVERSE_SECS
+}
+
+/// Spawn one enemy at an explicit position (debug scenarios, DB2): same
+/// construction as `spawn_enemy`, plus overrides for the spawn point, the
+/// first waypoint to head toward and the starting HP (残血 setups for FX).
+pub fn spawn_enemy_at(
+    commands: &mut Commands,
+    def: &crate::resources::EnemyDef,
+    index: usize,
+    pos: Vec3,
+    next_wp: usize,
+    hp_override: Option<f32>,
+    units_per_point: f32,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
     let color = enemy_base_color(def);
+    let hp = hp_override.unwrap_or(def.hp);
     let eid = commands
         .spawn((
             Enemy {
-                hp: def.hp,
+                hp,
                 max_hp: def.hp,
                 speed: def.speed * units_per_point,
                 leak: def.leak,
                 kill_gold: def.kill_gold,
                 physical_armor: def.physical_armor,
                 def_index: index,
-                next_wp: 1,
+                next_wp,
             },
             Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
             MeshMaterial3d(materials.add(color)),
-            Transform::from_xyz(start.x, 0.4, start.z),
+            Transform::from_xyz(pos.x, 0.4, pos.z),
         ))
         .id();
     if def.healer {
