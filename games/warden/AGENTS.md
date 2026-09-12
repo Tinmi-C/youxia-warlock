@@ -95,10 +95,21 @@ assets/{models,textures,audio,fonts,ui}/
     商店/控制条/三选一/属性面板/结算屏随语言即时重建；偏好持久化 `ui_prefs.txt`（key=value，测试用独立临时路径）。
   - UI8 下一波组成预览（2026-09-11）：建造期 HUD 显示下一波敌人构成与奖励（如「下一波：普通×10 快速×3 · 奖励30金」），
     服务 §3「慢思考」；战斗期隐藏；EnemyDef 增双语 `label`。
-  - `cargo check --all-targets` + `cargo test` 全绿零警告（39 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
+  - **交互范式重做（2026-09-12，需求会话定稿 → 同日实现）**：War3 式选中态命令卡（requirements §16）——
+    常驻三区底栏（左·信息 / 中·命令卡 / 右·控制），命令卡五态随 `Selection` 状态机切换（待机/空塔位/已放塔/融合目标选择/战斗期置灰）；
+    UI9 骨架+Esc 统一取消、UI10 建造双入口（点卡→点位 / 点位→点卡，悬停按钮实时幽灵塔+射程圈）、
+    UI11+TO7 卖塔（投入×70% 向下取整，`Tower.invested` 追踪）+融合三步链路（结果落 B 位、可配对塔高亮、点错不误融）、
+    UI12 Tooltip 全信息（中英）+ Grid 热键 QWER/ASDF（角标；热键注入 Pressed 复用点击处理器）。
+    退役：旧底部商店栏、右上信息面板、WASD 光标（cursor.rs/PlacementCursor）、1-4/E/F 键盘流、FusionSel；断言随卡迁移。
+  - `cargo check --all-targets` + `cargo test` 全绿零警告（46 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
 - **需求定稿待实现（2026-09-12 交互讨论）**：War3 式选中态命令卡范式——requirements 新增 §16 交互规范，
   卡路书新增 UI9-UI12 + TO7（卖塔回收 70%、融合三步链路+落位 B 位、建造双入口、QWER/ASDF Grid 热键、tooltip 全信息、
   Esc 统一取消、控制区含 2x 快进置灰占位）。**尚未实现**，规格以 requirements §16 为准。
+- **需求定稿待实现·二（2026-09-12 战斗表现讨论）**：真投射物+战斗反馈——requirements 新增 §5.1 攻击结算模型
+  （混合模型：盾兵塔即时命中/其余塔追踪弹必中；弹速 10 起点；伤害发射时快照、护甲命中时结算；
+  目标死亡→单体弹消散/AOE 弹落点爆炸；波末清弹；弹体做通用实体给技能系统复用；**拍板不上物理插件**），
+  卡路书新增 PR1/PR2 + FX1-3（血条受伤才显示；伤害数字暂不做入点子池）。
+  已知影响：有效 DPS 因飞行/overkill 下降属预期，落地后仅重取 BAL1 基线、勿当回归失败。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
@@ -106,8 +117,10 @@ assets/{models,textures,audio,fonts,ui}/
   ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
 - **下一步**：**交互范式重做（2026-09-12 定稿，UI9→UI10→UI11(+TO7)→UI12 四卡已立）**——War3 式选中态命令卡，
   规格见 requirements §16；实现时 UI1/UI2 商店栏与右上信息面板收编退役、回归断言随卡迁移、旧键盘流（WASD/1-4/E/F）退役
-  → 之后 **真人试玩盯 §15 信号**（建议在命令卡落地后试玩，操作面才代表最终形态）→
-  balance 数值仍按负责人意见暂缓（BAL2 锚点表+读数工具已备好，随时可收敛「早战经济压力」）。
+  → **战斗表现批（PR1/PR2 投射物 + FX1-3 反馈，requirements §5.1）** → 之后 **真人试玩盯 §15 信号**
+  （经营操作面 + 战斗可读性都到位再试）→
+  balance 数值仍按负责人意见暂缓（BAL2 锚点表+读数工具已备好，随时可收敛「早战经济压力」；
+  PR 落地后仅重取 BAL1 基线，勿当回归失败）。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
