@@ -84,6 +84,24 @@ pub const END_HINT: Bi = Bi(
 );
 pub const RETRY: Bi = Bi("再来一局", "Retry");
 
+// --- Command card (UI9, requirements §16) ------------------------------------
+
+pub const INFO_NONE: Bi = Bi(
+    "左键选择塔或空塔位 · 点空白处取消",
+    "Left-click a tower or a slot · click blank to cancel",
+);
+pub const INFO_SLOT: Bi = Bi("空塔位 · 从命令卡选塔建造", "Empty slot · pick a tower from the card");
+pub const SELL: Bi = Bi("卖出", "Sell");
+pub const FUSE: Bi = Bi("融合", "Fuse");
+pub const RESERVED: Bi = Bi("预留", "Reserved");
+pub const SPEED_2X: Bi = Bi("2x", "2x");
+pub const PAUSE: Bi = Bi("暂停", "Pause");
+pub const FUSE_TARGET_HINT: Bi = Bi(
+    "选择另一座塔进行融合 · Esc 取消",
+    "Pick another tower to fuse · Esc cancels",
+);
+pub const FUSE_CANCEL: Bi = Bi("取消", "Cancel");
+
 pub const ATTACK_PHYSICAL: Bi = Bi("物理", "Physical");
 pub const ATTACK_MAGIC: Bi = Bi("魔法", "Magic");
 pub const ATTACK_MIXED: Bi = Bi("混合·无视护甲", "Mixed (ignores armor)");

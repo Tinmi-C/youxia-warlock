@@ -1,5 +1,6 @@
 pub mod acquisition;
 pub mod camera;
+pub mod command;
 pub mod cursor;
 pub mod enemy;
 pub mod hud;

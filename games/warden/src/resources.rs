@@ -361,6 +361,28 @@ pub struct FusionSel {
     pub a: Option<bevy::ecs::entity::Entity>,
 }
 
+/// UI9 selection state (requirements §16.2/§16.3): what the bottom command
+/// card is about. Left-click selects (tower or empty slot), a blank left
+/// click / right click / Esc clears it. `FusionTarget(a)` means base tower
+/// `a` is chosen and a fusion target click is awaited (§16.6).
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Selection {
+    /// Idle: nothing selected; the command card shows the build list.
+    None,
+    /// An empty tower slot is selected: the build-on-this-slot entry (§16.4).
+    EmptySlot(bevy::ecs::entity::Entity),
+    /// A placed tower is selected: sell / fuse commands (§16.5/§16.6).
+    Tower(bevy::ecs::entity::Entity),
+    /// Fusion target picking: `a` awaits the confirming click on tower B.
+    FusionTarget(bevy::ecs::entity::Entity),
+}
+
+impl Default for Selection {
+    fn default() -> Self {
+        Selection::None
+    }
+}
+
 /// Base tower types the player can build this run. AC1 deals 2 random types
 /// (>=1 output tower) at Startup; AC2/AC3/AC4 add more. Empty until dealt.
 #[derive(Resource)]

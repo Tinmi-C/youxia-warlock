@@ -1,8 +1,8 @@
-//! UiPlugin: live HUD status line + the mouse shop bar + the UI2 panels
-//! (start-wave button, choice cards, tower info + range ring).
-//! Capability cards: UI1 (shop), UI2 (panel + Chinese copy), UI4 (HUD),
-//! UI6 (bundled font), UI7 (language toggle). The shop bar rebuilds itself
-//! from `Hand`/`ShopOffers` (AC1 deal / AC2 refresh / AC3 drops feed it).
+//! UiPlugin: live HUD status line + the UI2 panels (choice cards) + the UI9
+//! command card (three-zone bottom bar).
+//! Capability cards: UI1 (legacy shop bar, retires with UI10), UI2 (panel +
+//! Chinese copy), UI4 (HUD), UI6 (bundled font), UI7 (language toggle),
+//! UI8 (next-wave preview), UI9 (command card + selection state machine).
 
 use bevy::prelude::*;
 
@@ -17,12 +17,14 @@ impl Plugin for UiPlugin {
         app.init_resource::<SelectedTower>()
             .init_resource::<Lang>()
             .init_resource::<UiPrefsPath>()
+            .init_resource::<crate::resources::Selection>()
             .add_systems(
                 Startup,
                 (
                     systems::hud::setup_ui_font,
                     systems::l10n::load_ui_prefs, // before spawn_hud: copy follows the saved lang
                     systems::hud::spawn_hud,
+                    systems::command::spawn_command_bar,
                 )
                     .chain(),
             )
@@ -30,23 +32,30 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     systems::hud::update_hud,
+                    // Legacy bottom shop bar (retires with UI10).
                     systems::pointer::refresh_shop_bar,
-                    systems::pointer::refresh_control_bar,
                     systems::pointer::refresh_choice_cards,
-                    systems::pointer::refresh_tower_info,
                     systems::pointer::update_hover_ghost,
                     systems::pointer::refresh_end_screen,
-                    systems::pointer::refresh_lang_button,
+                    // Command card (UI9).
+                    systems::command::refresh_control_zone,
+                    systems::command::refresh_command_card,
+                    systems::command::refresh_info_zone,
+                    systems::command::refresh_selection_ring,
+                    systems::command::refresh_start_wave_button,
+                    systems::command::refresh_bar_visibility,
                 )
                     .in_set(GameSet::Observe),
             )
-            // Lang toggle + end-screen interactions run on any state (not
-            // gated to Playing like the gameplay Input systems).
+            // Cancel + lang + pause + end-screen interactions run on any state
+            // (not gated to Playing like the gameplay Input systems).
             .add_systems(
                 Update,
                 (
+                    systems::command::cancel_modes,
                     systems::l10n::toggle_lang,
                     systems::pointer::handle_lang_button,
+                    systems::command::handle_pause_button,
                     systems::pointer::handle_retry_button,
                     systems::pointer::handle_meta_upgrade_buttons,
                 ),

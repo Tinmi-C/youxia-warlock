@@ -1241,3 +1241,136 @@ fn hud_preview_lists_next_wave_composition() {
     );
     let _ = std::fs::remove_file(&path);
 }
+
+// --- UI9: command card + selection state machine ----------------------------
+
+use warden::systems::command::{CommandAction, CommandBarRoot, CommandButton};
+
+/// Helper: the command-card buttons currently on screen.
+fn command_buttons(app: &mut App) -> Vec<(CommandAction, bool)> {
+    let mut q = app.world_mut().query_filtered::<&CommandButton, ()>();
+    q.iter(app.world())
+        .map(|b| (b.action, b.enabled))
+        .collect()
+}
+
+/// Capability card UI9 — acceptance: the command card follows the selection
+/// state (build list when idle, sell/fuse on a tower) and greys everything
+/// during combat while keeping the buttons visible.
+#[test]
+fn command_card_states_follow_selection() {
+    let mut app = test_app();
+    app.update();
+    // Idle: the dealt hand shows as build buttons.
+    let buttons = command_buttons(&mut app);
+    assert!(
+        buttons.iter().any(|(a, _)| matches!(a, CommandAction::Build(_))),
+        "idle card must list build buttons, got {buttons:?}"
+    );
+
+    // A selected tower switches the card to sell / fuse (+ reserved).
+    let tower = app
+        .world_mut()
+        .spawn((
+            Tower {
+                tower_index: 0,
+                damage: 10.0,
+                attack_speed: 1.0,
+                range: 9.0,
+                attack_type: AttackType::Physical,
+                cooldown: 0.0,
+                target: None,
+                kind: TowerKind::Base(0),
+                aoe_radius: 0.0,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+            },
+            Transform::from_xyz(0.0, 0.5, 0.0),
+        ))
+        .id();
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::Tower(tower));
+    app.update();
+    let buttons = command_buttons(&mut app);
+    assert!(buttons.iter().any(|(a, _)| *a == CommandAction::Sell), "tower card must offer Sell");
+    assert!(buttons.iter().any(|(a, _)| *a == CommandAction::Fuse), "tower card must offer Fuse");
+    assert!(
+        !buttons.iter().any(|(a, _)| matches!(a, CommandAction::Build(_))),
+        "no build buttons while a tower is selected"
+    );
+
+    // Combat greys every action button but keeps it visible (锁建造铁律).
+    // A non-empty spawn queue keeps wave_resolve from settling the phase back.
+    {
+        let mut wave = app.world_mut().resource_mut::<WaveState>();
+        wave.phase = WavePhase::Combat;
+        wave.spawn_queue.push_back(0);
+    }
+    app.update();
+    let buttons = command_buttons(&mut app);
+    assert!(
+        !buttons.is_empty() && buttons.iter().all(|(_, enabled)| !enabled),
+        "combat must grey every command button, got {buttons:?}"
+    );
+}
+
+/// Capability card UI9 — acceptance: Esc is the unified cancel — it clears
+/// the armed build, the fusion picking and the selection itself.
+#[test]
+fn esc_clears_selection_and_build_mode() {
+    let mut app = test_app();
+    app.update();
+    let tower = app
+        .world_mut()
+        .spawn((Transform::from_xyz(0.0, 0.5, 0.0),))
+        .id();
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::Tower(tower));
+    app.world_mut().resource_mut::<BuildMode>().armed = true;
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.update();
+    assert_eq!(
+        app.world().resource::<warden::resources::Selection>(),
+        &warden::resources::Selection::None,
+        "Esc must clear the selection"
+    );
+    assert!(
+        !app.world().resource::<BuildMode>().armed,
+        "Esc must cancel the armed build"
+    );
+}
+
+/// Capability card UI9 — acceptance: the bottom bar hides on GameOver/Win
+/// (the end screen is the only surface there) and returns on Playing.
+#[test]
+fn command_bar_hidden_on_terminal_states() {
+    let mut app = test_app();
+    app.update();
+    let root_display = |app: &mut App| -> Display {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Node, With<CommandBarRoot>>();
+        q.single(app.world()).expect("bar root").display
+    };
+    assert_eq!(root_display(&mut app), Display::Flex);
+
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::GameOver);
+    app.update(); // state transition applies
+    app.update(); // visibility system sees GameOver
+    assert_eq!(
+        root_display(&mut app),
+        Display::None,
+        "the bottom bar must hide on GameOver"
+    );
+
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Playing);
+    app.update();
+    app.update();
+    assert_eq!(root_display(&mut app), Display::Flex);
+}

@@ -1,15 +1,13 @@
-//! Mouse-first interaction (UI1 + pointer place / point-select fusion, UI2 panel).
-//!   - A bottom shop bar (bevy_ui) shows the owned tower types (build mode) and
-//!     the current shop offers (buy to unlock, AC2); it rebuilds automatically
-//!     whenever the hand, the offer, or gold changes; unaffordable cards grey out.
-//!   - A control bar (bottom right) hosts the "开始下一波" start-wave button (UI2).
-//!   - Pending three-choose-one options appear as clickable cards (UI2, = keys 1/2/3).
+//! Mouse-first interaction (UI1 legacy bar + pointer place, UI2 choice cards,
+//! UI3 hover ghost, UI5 end screen).
+//!   - The legacy bottom shop bar (owned types + shop offers) still builds here
+//!     and retires with UI10, when the command card takes over the build list.
+//!   - Pending three-choose-one options appear as clickable cards (UI2, = 1/2/3).
 //!   - Left click on a slot places the armed tower (Intermission only).
-//!   - Left click on a tower selects it: info panel + range ring appear (UI2);
-//!     clicking a second tower fuses them if they match a recipe.
-//!   - Right click cancels build mode / clears fusion selection.
-//! All player-facing copy is Chinese (UI2); code identifiers and logs stay English.
-//! Keyboard hotkeys (1-4 / E / F / Space) remain as fallback.
+//!   - Right click / Esc cancel build mode and the selection (command.rs UI9).
+//!   - The GameOver/Win end screen (UI5) and the language button handler (UI7)
+//!     live here; the button itself moved into the command bar control zone.
+//! Selection (towers / slots) and the command card live in `command.rs` (UI9).
 //!
 //! Split into small systems: Bevy caps a single system at 16 params.
 
@@ -19,15 +17,17 @@ use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::window::Window;
 
-use crate::components::{AttackType, FusionKind, ShopButton, Tower, TowerKind, TowerSlot};
+use crate::components::{AttackType, ShopButton, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    Boosts, BuildMode, Economy, FusionDefs, FusionSel, Hand, Lang, MetaSavePath, MetaState,
-    SelectedTower, ShopOffers, TowerDefs, UiPrefsPath, UPGRADE1_COST, UPGRADE2_COST, WaveChoice,
-    WavePhase, WaveSchedule, WaveState,
+    Boosts, BuildMode, Economy, Hand, Lang, MetaSavePath, MetaState, SelectedTower, ShopOffers,
+    TowerDefs, UiPrefsPath, UPGRADE1_COST, UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule,
+    WaveState,
 };
 use crate::states::GameState;
 use crate::systems::l10n;
-use crate::systems::{hud::UiFont, input::{apply_choice, try_start_wave}, meta::buy_upgrade};
+use crate::systems::{
+    hud::UiFont, input::{apply_choice, try_start_wave}, meta::buy_upgrade,
+};
 
 /// Marker on the shop bar root so it can be despawned on rebuild (Bevy 0.19
 /// despawn removes children recursively).
@@ -40,11 +40,8 @@ pub struct OfferButton {
     pub tower_index: usize,
 }
 
-/// Marker on the start-wave control bar root (UI2).
-#[derive(Component)]
-pub struct ControlBarRoot;
-
-/// "开始下一波" button (UI2): same effect as the Space key.
+/// "开始下一波" button (lives in the command-bar control zone since UI9):
+/// same effect as the Space key.
 #[derive(Component)]
 pub struct StartWaveButton;
 
@@ -57,14 +54,6 @@ pub struct ChoiceCardsRoot;
 pub struct ChoiceCardButton {
     pub index: usize,
 }
-
-/// Marker on the selected-tower info panel (UI2).
-#[derive(Component)]
-pub struct TowerInfoPanel;
-
-/// Marker on the selected tower's ground range ring (UI2).
-#[derive(Component)]
-pub struct TowerRangeRing;
 
 /// Marker on the build-mode ghost preview at the hovered slot (UI3).
 #[derive(Component)]
@@ -84,7 +73,8 @@ pub struct MetaUpgradeButton {
     pub which: usize, // 1 or 2
 }
 
-/// The top-right UI-language toggle button (UI7 = the L key).
+/// The UI-language toggle button (UI7 = the L key); spawned inside the
+/// command-bar control zone since UI9.
 #[derive(Component)]
 pub struct LangToggleButton;
 
@@ -104,7 +94,7 @@ fn build_shop_bar(commands: &mut Commands, font: &UiFont, lang: Lang, defs: &Tow
             ShopBarRoot,
             Node {
                 position_type: PositionType::Absolute,
-                bottom: Val::Px(12.0),
+                bottom: Val::Px(140.0), // sits above the command bar (UI9)
                 left: Val::Px(12.0),
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(6.0),
@@ -276,76 +266,6 @@ pub fn handle_offer_buttons(
     }
 }
 
-/// Spawn the bottom-right control bar with the start-wave button (UI2).
-fn build_control_bar(commands: &mut Commands, font: &UiFont, lang: Lang) {
-    commands
-        .spawn((
-            ControlBarRoot,
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(12.0),
-                right: Val::Px(12.0),
-                ..default()
-            },
-        ))
-        .with_children(|root| {
-            root.spawn((
-                Button,
-                StartWaveButton,
-                Interaction::None,
-                Node {
-                    width: Val::Px(150.0),
-                    height: Val::Px(48.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.15, 0.5, 0.25)),
-            ))
-            .with_children(|p| {
-                p.spawn((
-                    Text::new(l10n::START_WAVE.pick(lang)),
-                    TextFont {
-                        font: font.0.clone(),
-                        font_size: FontSize::Px(15.0),
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
-            });
-        });
-}
-
-/// Spawn the control bar once, then toggle the start button's visibility:
-/// shown during the build window only (Intermission, no pending choice).
-/// A language toggle rebuilds the bar so its label follows (UI7).
-pub fn refresh_control_bar(
-    mut commands: Commands,
-    font: Res<UiFont>,
-    lang: Res<Lang>,
-    wave: Res<WaveState>,
-    choice: Res<WaveChoice>,
-    state: Res<State<GameState>>,
-    mut spawned: Local<Option<Lang>>,
-    roots: Query<Entity, With<ControlBarRoot>>,
-    mut buttons: Query<&mut Node, With<StartWaveButton>>,
-) {
-    if *spawned != Some(*lang) {
-        for root in &roots {
-            commands.entity(root).despawn();
-        }
-        build_control_bar(&mut commands, &font, *lang);
-        *spawned = Some(*lang);
-        return;
-    }
-    let show = wave.phase == WavePhase::Intermission
-        && !choice.pending
-        && *state.get() == GameState::Playing;
-    for mut node in &mut buttons {
-        node.display = if show { Display::Flex } else { Display::None };
-    }
-}
-
 /// Clicking "开始下一波" starts the next wave — identical to the Space key (UI2).
 pub fn handle_start_wave_button(
     mut q: Query<(&Interaction, &StartWaveButton), Changed<Interaction>>,
@@ -447,104 +367,6 @@ pub fn handle_choice_card_buttons(
             apply_choice(&mut choice, &mut boosts, &mut hand, btn.index);
         }
     }
-}
-
-/// Rebuild the tower info panel + ground range ring whenever the fusion
-/// selection or the UI language changes (UI2/UI7): select a tower to inspect
-/// it, deselect to close.
-pub fn refresh_tower_info(
-    mut commands: Commands,
-    font: Res<UiFont>,
-    lang: Res<Lang>,
-    fusion_sel: Res<FusionSel>,
-    towers: Query<(Entity, &Tower, &Transform)>,
-    defs: Res<TowerDefs>,
-    fusion_defs: Res<FusionDefs>,
-    panels: Query<Entity, With<TowerInfoPanel>>,
-    rings: Query<Entity, With<TowerRangeRing>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut last_lang: Local<Option<Lang>>,
-) {
-    if !fusion_sel.is_changed() && *last_lang == Some(*lang) {
-        return;
-    }
-    *last_lang = Some(*lang);
-    let lang = *lang;
-    for p in &panels {
-        commands.entity(p).despawn();
-    }
-    for r in &rings {
-        commands.entity(r).despawn();
-    }
-    let Some(sel) = fusion_sel.a else {
-        return;
-    };
-    let Ok((_, tower, tf)) = towers.get(sel) else {
-        return;
-    };
-    let kind_label = match tower.kind {
-        TowerKind::Base(i) => defs
-            .list
-            .get(i)
-            .map(|d| l10n::tower_label(d, lang))
-            .unwrap_or(l10n::BASE_TOWER_FALLBACK.pick(lang)),
-        TowerKind::Fused(k) => fusion_defs
-            .list
-            .iter()
-            .find(|r| r.kind == k)
-            .map(|r| l10n::fusion_label(r, lang))
-            .unwrap_or(l10n::FUSED_TOWER_FALLBACK.pick(lang)),
-    };
-    let mut lines = format!(
-        "{} · {}\n{}",
-        kind_label,
-        l10n::attack_label(tower.attack_type, lang),
-        l10n::tower_stats(lang, tower.damage, tower.attack_speed, tower.range),
-    );
-    if let TowerKind::Fused(k) = tower.kind {
-        lines.push('\n');
-        lines.push_str(&l10n::fusion_trait(k, lang));
-    }
-    lines.push_str(&format!("\n{}", l10n::FUSE_HINT.pick(lang)));
-    commands
-        .spawn((
-            TowerInfoPanel,
-            Node {
-                position_type: PositionType::Absolute,
-                right: Val::Px(12.0),
-                top: Val::Px(60.0),
-                width: Val::Px(240.0),
-                padding: UiRect::all(Val::Px(8.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.65)),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Text::new(lines),
-                TextFont {
-                    font: font.0.clone(),
-                    font_size: FontSize::Px(13.0),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-            ));
-        });
-    // Ground ring showing the tower's range (flat, semi-transparent).
-    commands.spawn((
-        TowerRangeRing,
-        Mesh3d(meshes.add(Circle::new(tower.range))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgba(0.3, 0.8, 1.0, 0.22),
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        })),
-        Transform::from_xyz(tf.translation.x, 0.05, tf.translation.z)
-            .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-    ));
-    info!("[ui2] tower info panel shown for {}", kind_label);
 }
 
 /// Build-mode ghost preview (UI3): while a build is armed, show a translucent
@@ -794,65 +616,6 @@ pub fn handle_meta_upgrade_buttons(
     }
 }
 
-/// Right click cancels build mode and clears the fusion selection.
-pub fn mouse_cancel(
-    buttons: Res<ButtonInput<MouseButton>>,
-    mut build: ResMut<BuildMode>,
-    mut fusion_sel: ResMut<FusionSel>,
-) {
-    if buttons.just_pressed(MouseButton::Right) {
-        build.armed = false;
-        fusion_sel.a = None;
-        info!("[mouse] cleared build/fusion selection");
-    }
-}
-
-/// Spawn the top-right language toggle button once; its label always shows the
-/// *other* language (what a click switches to, UI7).
-pub fn refresh_lang_button(
-    mut commands: Commands,
-    font: Res<UiFont>,
-    lang: Res<Lang>,
-    mut built: Local<Option<Lang>>,
-    roots: Query<Entity, With<LangToggleButton>>,
-) {
-    if *built == Some(*lang) {
-        return;
-    }
-    for root in &roots {
-        commands.entity(root).despawn();
-    }
-    commands
-        .spawn((
-            LangToggleButton,
-            Button,
-            Interaction::None,
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(8.0),
-                right: Val::Px(12.0),
-                width: Val::Px(56.0),
-                height: Val::Px(28.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.25, 0.25, 0.35)),
-        ))
-        .with_children(|p| {
-            p.spawn((
-                Text::new(l10n::lang_button_label(*lang)),
-                TextFont {
-                    font: font.0.clone(),
-                    font_size: FontSize::Px(12.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.85, 0.9, 1.0)),
-            ));
-        });
-    *built = Some(*lang);
-}
-
 /// Clicking the language button toggles zh/en and persists (UI7 = the L key).
 pub fn handle_lang_button(
     mut q: Query<&Interaction, (Changed<Interaction>, With<LangToggleButton>)>,
@@ -935,68 +698,6 @@ pub fn mouse_place_system(
     }
 }
 
-/// Left click outside build mode selects a tower, or fuses the two selected.
-pub fn mouse_fuse_system(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    camera: Query<(&Camera, &GlobalTransform)>,
-    wave: Res<WaveState>,
-    build: Res<BuildMode>,
-    mut fusion_sel: ResMut<FusionSel>,
-    fusion_defs: Res<FusionDefs>,
-    defs: Res<TowerDefs>,
-    mut economy: ResMut<Economy>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
-    towers: Query<(Entity, &Tower, &Transform)>,
-) {
-    if build.armed || !buttons.just_pressed(MouseButton::Left) || wave.phase != WavePhase::Intermission
-    {
-        return;
-    }
-    let Some((cam_comp, cam_tf)) = camera.single().ok() else {
-        return;
-    };
-    let Some(cursor) = windows.single().ok().and_then(|w| w.cursor_position()) else {
-        return;
-    };
-    let Some(tower_e) = tower_at_screen(&towers, cursor, cam_comp, cam_tf) else {
-        return;
-    };
-    match fusion_sel.a {
-        None => {
-            fusion_sel.a = Some(tower_e);
-            info!("[mouse] selected tower for fusion");
-        }
-        Some(prev) if prev == tower_e => {
-            fusion_sel.a = None;
-            info!("[mouse] deselected tower");
-        }
-        Some(prev) => {
-            if let Some(name) = try_fuse_two(
-                prev,
-                tower_e,
-                &*fusion_defs,
-                &*defs,
-                &towers,
-                &mut *economy,
-                &mut commands,
-                &mut *meshes,
-                &mut *materials,
-                &mut slots,
-            ) {
-                fusion_sel.a = None;
-                info!("[mouse] fused -> {name}");
-            } else {
-                fusion_sel.a = Some(tower_e);
-                info!("[mouse] pair not a recipe, reselected");
-            }
-        }
-    }
-}
-
 /// Nearest slot to the screen-space cursor position.
 fn nearest_slot_screen(
     slots: &Query<(Entity, &mut TowerSlot, &Transform)>,
@@ -1015,131 +716,4 @@ fn nearest_slot_screen(
         }
     }
     best.map(|(e, _, p)| (e, p))
-}
-
-/// The tower whose screen position is nearest the cursor (within a threshold).
-fn tower_at_screen(
-    towers: &Query<(Entity, &Tower, &Transform)>,
-    cursor: Vec2,
-    cam: &Camera,
-    cam_tf: &GlobalTransform,
-) -> Option<Entity> {
-    let threshold = 45.0;
-    let mut best: Option<(Entity, f32)> = None;
-    for (eid, _tower, ttf) in towers.iter() {
-        let Ok(sp) = cam.world_to_viewport(cam_tf, ttf.translation) else {
-            continue;
-        };
-        let d = sp.distance(cursor);
-        if d <= threshold && best.map_or(true, |(_, bd)| d < bd) {
-            best = Some((eid, d));
-        }
-    }
-    best.map(|(e, _)| e)
-}
-
-/// Fuse two specific towers if they match a recipe. Deducts the 20% fee, frees
-/// both ingredient slots and occupies one for the result. Returns the recipe name.
-fn try_fuse_two(
-    a: Entity,
-    b: Entity,
-    fusion_defs: &FusionDefs,
-    defs: &TowerDefs,
-    towers: &Query<(Entity, &Tower, &Transform)>,
-    economy: &mut Economy,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    slots: &mut Query<(Entity, &mut TowerSlot, &Transform)>,
-) -> Option<&'static str> {
-    let (kind_a, pos_a) = base_kind_pos(towers, a)?;
-    let (kind_b, pos_b) = base_kind_pos(towers, b)?;
-    let recipe = fusion_defs.list.iter().find(|r| {
-        let mut need = r.ingredients.to_vec();
-        for k in [kind_a, kind_b] {
-            if let Some(i) = need.iter().position(|&x| x == k) {
-                need.remove(i);
-            }
-        }
-        need.is_empty()
-    })?;
-    let cost_ing = defs.list[recipe.ingredients[0]].cost + defs.list[recipe.ingredients[1]].cost;
-    let fee = (cost_ing as f32 * recipe.fee_ratio).round() as u32;
-    if economy.gold < fee {
-        return None;
-    }
-    economy.gold -= fee;
-
-    for eid in [a, b] {
-        commands.entity(eid).despawn();
-    }
-    // Free both ingredient slots, then occupy one for the result.
-    if let Some((sa, _)) = nearest_slot_world(slots, pos_a) {
-        set_occupied(slots, sa, false);
-    }
-    if let Some((sb, _)) = nearest_slot_world(slots, pos_b) {
-        set_occupied(slots, sb, false);
-    }
-    let (result_slot, result_pos) = nearest_slot_world(slots, pos_a)?;
-    set_occupied(slots, result_slot, true);
-
-    commands.spawn((
-        Tower {
-            tower_index: recipe.ingredients[0],
-            damage: recipe.damage,
-            attack_speed: recipe.attack_speed,
-            range: recipe.range,
-            attack_type: recipe.attack_type,
-            cooldown: 0.0,
-            target: None,
-            kind: TowerKind::Fused(recipe.kind),
-            aoe_radius: recipe.aoe_radius,
-            slow_factor: recipe.slow_factor,
-            slow_duration: recipe.slow_duration,
-        },
-        Mesh3d(meshes.add(Cuboid::new(1.2, 1.2, 1.2))),
-        MeshMaterial3d(materials.add(match recipe.kind {
-            FusionKind::Marksman => Color::srgb(0.2, 0.8, 1.0),
-            FusionKind::Archmage => Color::srgb(0.7, 0.2, 1.0),
-            FusionKind::Hybrid => Color::srgb(0.2, 0.9, 0.4),
-            FusionKind::Bastion => Color::srgb(1.0, 0.6, 0.1),
-        })),
-        Transform::from_xyz(result_pos.x, 0.6, result_pos.z),
-    ));
-    Some(recipe.name)
-}
-
-/// (base_kind, world_pos) for a Base tower, or None for a fused tower.
-fn base_kind_pos(
-    towers: &Query<(Entity, &Tower, &Transform)>,
-    eid: Entity,
-) -> Option<(usize, Vec3)> {
-    towers.get(eid).ok().and_then(|(_, t, tf)| match t.kind {
-        TowerKind::Base(i) => Some((i, tf.translation)),
-        _ => None,
-    })
-}
-
-fn nearest_slot_world(
-    slots: &mut Query<(Entity, &mut TowerSlot, &Transform)>,
-    pos: Vec3,
-) -> Option<(Entity, Vec3)> {
-    let mut best: Option<(Entity, f32, Vec3)> = None;
-    for (eid, _slot, stf) in slots.iter() {
-        let d = stf.translation.distance(pos);
-        if best.map_or(true, |(_, bd, _)| d < bd) {
-            best = Some((eid, d, stf.translation));
-        }
-    }
-    best.map(|(e, _, p)| (e, p))
-}
-
-fn set_occupied(
-    slots: &mut Query<(Entity, &mut TowerSlot, &Transform)>,
-    ent: Entity,
-    occupied: bool,
-) {
-    if let Ok((_, mut slot, _)) = slots.get_mut(ent) {
-        slot.occupied = occupied;
-    }
 }

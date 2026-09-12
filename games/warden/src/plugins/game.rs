@@ -47,9 +47,8 @@ impl Plugin for GamePlugin {
                 systems::pointer::handle_offer_buttons.in_set(GameSet::Input),
                 systems::pointer::handle_start_wave_button.in_set(GameSet::Input),
                 systems::pointer::handle_choice_card_buttons.in_set(GameSet::Input),
-                systems::pointer::mouse_cancel.in_set(GameSet::Input),
+                systems::command::select_object.in_set(GameSet::Input),
                 systems::pointer::mouse_place_system.in_set(GameSet::Input),
-                systems::pointer::mouse_fuse_system.in_set(GameSet::Input),
             )
                 .run_if(in_state(GameState::Playing)),
         )
@@ -64,15 +63,8 @@ impl Plugin for GamePlugin {
     }
 }
 
-/// P toggles Playing/Paused (GameOver/Win reset to Playing).
-fn toggle_pause(
-    keys: Res<ButtonInput<KeyCode>>,
-    state: Res<State<GameState>>,
-    mut next: ResMut<NextState<GameState>>,
-) {
-    if !keys.just_pressed(KeyCode::KeyP) {
-        return;
-    }
+/// Shared pause-state transition for the P key and the pause button (UI9).
+pub fn apply_pause(state: &State<GameState>, next: &mut NextState<GameState>) {
     let new_state = match state.get() {
         GameState::Playing => GameState::Paused,
         GameState::Paused => GameState::Playing,
@@ -81,4 +73,15 @@ fn toggle_pause(
     };
     next.set(new_state);
     info!("[game] state -> {new_state:?}");
+}
+
+/// P toggles Playing/Paused (GameOver/Win reset to Playing).
+fn toggle_pause(
+    keys: Res<ButtonInput<KeyCode>>,
+    state: Res<State<GameState>>,
+    mut next: ResMut<NextState<GameState>>,
+) {
+    if keys.just_pressed(KeyCode::KeyP) {
+        apply_pause(&state, &mut next);
+    }
 }
