@@ -101,7 +101,14 @@ assets/{models,textures,audio,fonts,ui}/
     UI11+TO7 卖塔（投入×70% 向下取整，`Tower.invested` 追踪）+融合三步链路（结果落 B 位、可配对塔高亮、点错不误融）、
     UI12 Tooltip 全信息（中英）+ Grid 热键 QWER/ASDF（角标；热键注入 Pressed 复用点击处理器）。
     退役：旧底部商店栏、右上信息面板、WASD 光标（cursor.rs/PlacementCursor）、1-4/E/F 键盘流、FusionSel；断言随卡迁移。
-  - `cargo check --all-targets` + `cargo test` 全绿零警告（46 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
+  - **真投射物 + 战斗表现（2026-09-12，需求会话批次二定稿 → 同日实现）**：requirements §5.1 攻击结算模型——
+    远程塔（弓/法/炮/全部融合塔）发**追踪弹**（Projectile 规则层实体：锁定目标逐帧追当前位置、必中、弹速 10、
+    伤害发射时快照/护甲命中时结算），盾兵塔近战即时命中（混合模型）；**TO6 减速重做**为命中附加（数值 30%/1s 不变）；
+    PR2 边缘行为：单体弹目标飞行中死亡→消散无伤（overkill 是真实成本）、AOE 弹最后位置照常爆炸、波末清弹；
+    FX1 血条（受伤才显示、比例宽度、精英/BOSS 金色加宽）、FX2 受击闪白/AOE 扩散圈/死亡消散壳（金币与 despawn 时序零改动）、
+    FX3 减速变蓝/盾兵怪盾标识/治疗怪保持绿色。新域插件 `plugins/{projectiles,fx}.rs`；`ProjectileImpact` 消息为 FX 观察缝。
+    **BAL1 基线已重取**：读数口径变化（飞行时间+overkill 降低有效 DPS）属预期；贪心布阵第 2 波 GameOver 维持（数值仍按负责人意见暂缓）。
+  - `cargo check --all-targets` + `cargo test` 全绿零警告（55 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
 - **需求定稿待实现（2026-09-12 交互讨论）**：War3 式选中态命令卡范式——requirements 新增 §16 交互规范，
   卡路书新增 UI9-UI12 + TO7（卖塔回收 70%、融合三步链路+落位 B 位、建造双入口、QWER/ASDF Grid 热键、tooltip 全信息、
   Esc 统一取消、控制区含 2x 快进置灰占位）。**尚未实现**，规格以 requirements §16 为准。
