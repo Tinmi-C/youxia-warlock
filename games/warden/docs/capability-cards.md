@@ -46,6 +46,7 @@
 | meta | `plugins/meta.rs`(新增) | 解锁链 |
 | projectiles | `plugins/projectiles.rs`(新增) | 弹体生成/飞行/命中/清场（PR 卡） |
 | fx | `plugins/fx.rs`(新增) | 血条/受击/死亡/状态表现（FX 卡） |
+| debug | `plugins/debug.rs` | 观察通道/调试面板/作弊/场景直达（DB 卡） |
 
 > 跨领域时序一律走 `GameSet`（`src/sets.rs`），不要手调系统链。
 
@@ -337,6 +338,13 @@
 - 验收句: 点空塔位 → 信息区为塔位信息、命令卡为建造列表；点已放塔 → 命令卡出现卖出/融合按钮；
   Esc 在建造模式/选中态/融合目标三处均清空选择；战斗期建造/卖出/融合按钮置灰（可见不可点）；
   GameOver/Win 底栏隐藏（结算屏独立）。headless 断言态切换与置灰；排版视觉人工验收。
+- **修复（2026-09-12 真人试玩）**：UI 点击泄漏进世界拾取——点命令按钮的同一次左键也进入
+  `select_object`，其「点空地取消」同帧清空 Selection，**融合永远无法从底栏进入**（armed 建造同源：
+  点底栏会在光标最近塔位误放塔）。修法：底栏/三选一/结算屏根节点挂 `BlocksWorldInput` +
+  `RelativeCursorPosition`（`ui_focus_system` 维护），`select_object`/`mouse_place_system` 入口
+  统一吞掉悬停 UI 的点击。新增 4 条 live 光标路径回归（headless 真 Window+相机投影驱动，此前
+  无窗口导致该链路从不运行）：融合按钮点击存活、真实点 B 确认融合全链路、armed 底栏点击不误放、
+  空白世界点击仍取消。
 
 ### UI10 · 建造命令迁移 + 双入口（ui）—— ✅ 已实现（2026-09-12）
 - 接口: 读 Hand/ShopOffers/Economy/Selection；输出 命令卡建造按钮（手牌行+商店行）。
@@ -410,11 +418,48 @@
 
 ---
 
+## 测试便利化（调试面板，2026-09-12 需求定稿）
+
+> 目标：消灭「测试要等很久」——等波次走完、凑前置状态费手、经济没法乱试、瞬态行为看不清。
+> 全部为**开发侧工具，玩家不可见**（不动 requirements）：`#[cfg(debug_assertions)]` 门控，发布构建零调试面；
+> 调试局（用过作弊/场景直达的局）不发 Meta 币、不写 meta_save.txt（防测试污染真存档，UI5 有过共享存档误读的坑）。
+> 插队拍板（2026-09-12）：**DB1 → DB2 → 命令卡 UI9-12 → DB3 → PR1/PR2 → FX1-3 → 真人试玩**。
+> 不引 bevy-inspector-egui（版本对齐未核实，手写 egui 面板够用）；bevy_egui 选型 ADR-0008 已覆盖。
+
+### DB1 · 调试面板 + 作弊核心（debug）—— ▶ 待实现
+- 接口: F1 开关（egui 窗口，仅 debug 构建）；读/写 Economy/基地血/WaveState/Hand/GameState；输出 作弊操作与调试局标记。
+- 行为: `#[cfg(debug_assertions)]` 门控。面板项：①经济：金币 +100/-100/设定、基地血设定；②波次：跳到第 N 波建造期
+  （中间波次奖励自动补发）、立刻清完当前波、入口召唤指定敌人 ×N；③获取：解锁全部塔型、手牌塞任意塔；
+  ④结局：立即失败/立即胜利；⑤快速重开：一键重开本局（配合 `--seed N` 复现随机序列）；⑥现有 DebugPlugin
+  （F12 截图/日志仪表）一并纳入同一门控收口。调试面板文案英文（开发工具不走 l10n）。
+  **调试局存档隔离**：本局用过任何作弊项 → 结算不发 Meta 币、不写 `meta_save.txt`。
+- 验收句: F1 开面板点「跳到第 5 波」→ 1s 内处于第 5 波建造期且中间波次奖励已入账；「+100 金」当帧生效；
+  作弊局结算后 `meta_save.txt` 内容不变（headless 断言）；正常局 Meta 结算回归不受影响；
+  `cargo build --release` 构建无调试面板/作弊/场景代码路径（cfg 抽除，用编译级手段断言或检查脚本说明）。
+
+### DB2 · 测试场景直达（debug）—— ▶ 待实现（依赖 DB1）
+- 接口: 读 CLI 参数（`--scenario NAME --seed N`）或 F1 面板按钮；输出 预置场景状态 + 调试局标记。
+- 行为: 预置场景一键到位：`fusion`（场上弓×2 + 金 100 + 建造期）/ `projectile`（塔 + 距 8 单位 1 普通怪）/
+  `fx`（残血敌群 + 治疗怪）/ `meta`（直达 GameOver）/ `choice`（三选一挂起）/ `full-board`（8 塔满员）。
+  CLI 与面板双入口等效；场景直达即标记调试局（触发 DB1 存档隔离）。
+- 验收句: `cargo run -- --scenario fusion --seed 42` 启动后 ≤2s 场景断言成立（场上弓×2/金≥100/Intermission，headless 等效断言）；
+  同种子两次启动手牌一致（RunRng 复现）；F1 场景按钮与 CLI 等效。
+
+### DB3 · 时间控制 + 信息叠层（debug）—— ▶ 待实现（FX 批次前落地即可）
+- 接口: 读 暂停/步进输入 + 场上实体；输出 时间倍率控制 + 调试叠层渲染。
+- 行为: 暂停 + **单帧/0.1s 步进**（毫秒级验收句的核对手段）；调试 4x 加速（不进发布，与正式 2x 快进分离，
+  不参与 balance 拍板）；全塔射程圈常显开关、敌头顶 hp/移速/减速态叠层、场上弹体计数。随 DB1 同一 debug 门控。
+- 验收句: 暂停后按单帧键恰好推进 1 帧（敌位移==单帧 delta）；射程圈开关全场塔同步显隐；
+  4x 下清一波耗时≈1x 的 1/4（±10%）。
+
+---
+
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. phase=.. gold=.. lives=.. wave=.. entities=..`（`src/plugins/debug.rs`）。
 - **截图**：`F12` 存 `./screenshot.png`。
 - **回归测试**：验收句转 `tests/behavior.rs`（headless App 驱动，见现有示例）。
+- **瞬态打点**：FX/PR 类瞬态行为日志带毫秒时间戳（如 `[fx] hit-flash on/off`、`[pr] spawn/hit/despawn`），供毫秒级验收句对照。
 
 ## 踩坑记录规范
 

@@ -108,26 +108,27 @@ assets/{models,textures,audio,fonts,ui}/
     FX1 血条（受伤才显示、比例宽度、精英/BOSS 金色加宽）、FX2 受击闪白/AOE 扩散圈/死亡消散壳（金币与 despawn 时序零改动）、
     FX3 减速变蓝/盾兵怪盾标识/治疗怪保持绿色。新域插件 `plugins/{projectiles,fx}.rs`；`ProjectileImpact` 消息为 FX 观察缝。
     **BAL1 基线已重取**：读数口径变化（飞行时间+overkill 降低有效 DPS）属预期；贪心布阵第 2 波 GameOver 维持（数值仍按负责人意见暂缓）。
-  - `cargo check --all-targets` + `cargo test` 全绿零警告（55 条断言，`tests/behavior.rs` + `tests/balance.rs`）。
-- **需求定稿待实现（2026-09-12 交互讨论）**：War3 式选中态命令卡范式——requirements 新增 §16 交互规范，
-  卡路书新增 UI9-UI12 + TO7（卖塔回收 70%、融合三步链路+落位 B 位、建造双入口、QWER/ASDF Grid 热键、tooltip 全信息、
-  Esc 统一取消、控制区含 2x 快进置灰占位）。**尚未实现**，规格以 requirements §16 为准。
-- **需求定稿待实现·二（2026-09-12 战斗表现讨论）**：真投射物+战斗反馈——requirements 新增 §5.1 攻击结算模型
-  （混合模型：盾兵塔即时命中/其余塔追踪弹必中；弹速 10 起点；伤害发射时快照、护甲命中时结算；
-  目标死亡→单体弹消散/AOE 弹落点爆炸；波末清弹；弹体做通用实体给技能系统复用；**拍板不上物理插件**），
-  卡路书新增 PR1/PR2 + FX1-3（血条受伤才显示；伤害数字暂不做入点子池）。
-  已知影响：有效 DPS 因飞行/overkill 下降属预期，落地后仅重取 BAL1 基线、勿当回归失败。
+  - **UI 点击泄漏修复（2026-09-12 真人试玩发现，同日修复）**：点命令按钮的同一次左键也进入世界拾取，
+    `select_object` 的「点空地取消」同帧清空 Selection——融合永远无法从底栏进入（armed 建造同源：点底栏
+    在光标最近塔位误放塔）。修法：底栏/三选一/结算屏根节点挂 `BlocksWorldInput`+`RelativeCursorPosition`，
+    `select_object`/`mouse_place_system` 入口吞掉悬停 UI 的点击；新增 live 光标路径回归 4 条（headless
+    真 Window+相机投影，详见 capability-cards UI9 卡）。测试补遗：UI10 待机态点建造按钮 armed、UI11 无可配对
+    融合按钮置灰两条验收句钉死。
+  - `cargo check --all-targets` + `cargo test` 全绿（61 条断言，`tests/behavior.rs` + `tests/balance.rs`；
+  存量 1 条 `fx.rs` dead-const 警告待清，非阻塞）。
+- **交互范式 + 投射物/战斗表现两批需求（2026-09-12 定稿）已同日实现**（见上方「已完成」两条实现记录）；
+  规格存档：requirements §16（命令卡交互规范）/ §5.1（攻击结算模型，含**拍板不上物理插件**）；
+  「伤害数字飘字」仍留 GDD 点子池。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
   ③ AC2 商店定价：解锁费（进手牌）与建造费（每次放置）分离——现均为塔面价；
   ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
-- **下一步**：**交互范式重做（2026-09-12 定稿，UI9→UI10→UI11(+TO7)→UI12 四卡已立）**——War3 式选中态命令卡，
-  规格见 requirements §16；实现时 UI1/UI2 商店栏与右上信息面板收编退役、回归断言随卡迁移、旧键盘流（WASD/1-4/E/F）退役
-  → **战斗表现批（PR1/PR2 投射物 + FX1-3 反馈，requirements §5.1）** → 之后 **真人试玩盯 §15 信号**
-  （经营操作面 + 战斗可读性都到位再试）→
-  balance 数值仍按负责人意见暂缓（BAL2 锚点表+读数工具已备好，随时可收敛「早战经济压力」；
-  PR 落地后仅重取 BAL1 基线，勿当回归失败）。
+- **下一步**：**测试便利化三卡 DB1（F1 调试面板+作弊）→ DB2（场景直达）→ DB3（时间控制/叠层）**——2026-09-12 定稿；
+  立卡时命令卡与 PR/FX 批尚未实现故「插队」，现两批已落地，DB 三卡即当前唯一前置批（为继续真人试玩提速）。
+  bevy_egui 为新依赖，引入前先核版本对齐 Bevy 0.19.1（选型 ADR-0008 已覆盖；无兼容版本则回报，勿强凑）→
+  之后继续**真人试玩盯 §15 信号**（点击泄漏已修，UI9-12/PR/FX 均已上线）→
+  balance 数值仍按负责人意见暂缓（BAL1 基线已在 PR/FX 后重取；BAL2 锚点表随时可收敛「早战经济压力」）。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
