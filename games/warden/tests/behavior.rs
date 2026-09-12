@@ -1457,6 +1457,30 @@ fn command_card_build_button_places_on_selected_slot() {
     );
 }
 
+/// Capability card UI10 — acceptance: in the idle card (nothing selected),
+/// clicking a Build button arms build mode for that type (first entry of the
+/// dual-entry flow; the EmptySlot path is covered above).
+#[test]
+fn idle_build_button_arms_build_mode() {
+    let mut app = test_app();
+    app.update(); // startup: deal hand + build the idle card
+    let owned = app.world().resource::<Hand>().owned_towers[0];
+    assert!(
+        press_command_button(&mut app, CommandAction::Build(owned)),
+        "the idle card must list a Build button for owned type {owned}"
+    );
+    app.update();
+    assert!(
+        app.world().resource::<BuildMode>().armed,
+        "clicking Build in the idle card must arm the build"
+    );
+    assert_eq!(
+        app.world().resource::<warden::resources::SelectedTower>().tower_index,
+        owned,
+        "the armed type must be the clicked one"
+    );
+}
+
 /// Capability card UI10 — acceptance: the Buy button keeps AC2 semantics —
 /// pay once, unlock the type into the hand.
 #[test]
@@ -1715,6 +1739,291 @@ fn fused_tower_sell_uses_total_invested() {
             .any(|b| b.action == CommandAction::Fuse)
     };
     assert!(!has_fuse, "fused towers must not offer the Fuse command");
+}
+
+/// Capability card UI11 — acceptance: with no pairable tower on the field,
+/// the Fuse command stays visible but greyed (enabled=false).
+#[test]
+fn fuse_button_greyed_without_pairable_partner() {
+    let mut app = test_app();
+    app.update();
+    // A lone archer: no other tower on the field pairs with it.
+    place_and_select(&mut app, 0, 50, None);
+    app.update(); // rebuild the card for the selection
+    let fuse = command_buttons(&mut app)
+        .into_iter()
+        .find(|(a, _)| *a == CommandAction::Fuse)
+        .expect("the Fuse command must stay visible for a lone base tower");
+    assert!(
+        !fuse.1,
+        "Fuse must be greyed while no pairable partner is on the field"
+    );
+}
+
+// --- UI9/UI10 regression: clicks on blocking UI must not leak into world ---
+// Found in manual play 2026-09-12: the click that pressed a command button
+// also reached `select_object`, whose blank-ground cancel cleared the
+// selection in the same frame — Fusion could never be entered from the bar
+// (and an armed click placed a tower at the slot nearest the bar). UI roots
+// now carry `BlocksWorldInput`; these tests drive the *live* cursor path
+// (window + camera projection), which no earlier test exercised.
+
+use bevy::camera::{RenderTargetInfo, Viewport};
+
+/// Give the headless app a live cursor path: a Window with a cursor plus a
+/// projectable camera (in a real build bevy_render's camera system, winit
+/// and TransformPlugin provide these; MinimalPlugins has none of them).
+fn enable_world_picking(app: &mut App, cursor: Vec2) {
+    let w = app.world_mut().spawn(Window::default()).id();
+    app.world_mut()
+        .get_mut::<Window>(w)
+        .expect("window")
+        .set_cursor_position(Some(cursor));
+    let size = UVec2::new(1280, 720);
+    let mut cams = app
+        .world_mut()
+        .query_filtered::<(&mut Camera, &Projection, &mut GlobalTransform), ()>();
+    for (mut cam, proj, mut gt) in cams.iter_mut(app.world_mut()) {
+        cam.viewport = Some(Viewport {
+            physical_size: size,
+            ..default()
+        });
+        cam.computed.target_info = Some(RenderTargetInfo {
+            physical_size: size,
+            scale_factor: 1.0,
+        });
+        let mut p = proj.clone();
+        p.update(1280.0, 720.0);
+        cam.computed.clip_from_view = p.get_clip_from_view();
+        // Mirror spawn_camera's pose (systems/camera.rs) — no TransformPlugin
+        // headless to propagate it.
+        *gt = GlobalTransform::from(
+            Transform::from_xyz(0.0, 16.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        );
+    }
+}
+
+/// Headless stand-in for `ui_focus_system`: report whether the bottom bar
+/// is under the cursor.
+fn bar_reports_cursor(app: &mut App, over: bool) {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<Entity, With<CommandBarRoot>>();
+    let bar = q.iter(app.world()).next().expect("command bar");
+    app.world_mut().entity_mut(bar).insert(
+        bevy::ui::RelativeCursorPosition {
+            cursor_over: over,
+            normalized: over.then_some(Vec2::ZERO),
+        },
+    );
+}
+
+fn click_left(app: &mut App) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>()
+        .press(bevy::input::mouse::MouseButton::Left);
+}
+
+/// Headless input never resets on its own (no InputPlugin): clear the mouse
+/// and every command-button press so later updates stay side-effect-free.
+fn release_all_inputs(app: &mut App) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>()
+        .clear();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&mut bevy::ui::Interaction, With<CommandButton>>();
+    for mut inter in q.iter_mut(app.world_mut()) {
+        *inter = bevy::ui::Interaction::None;
+    }
+}
+
+/// Regression (UI11 entry step): pressing the Fuse button with the cursor on
+/// the bar must enter fusion picking — the same physical click must not also
+/// blank-cancel the selection behind the bar.
+#[test]
+fn fuse_button_click_survives_its_own_world_click() {
+    let mut app = test_app();
+    app.update();
+    enable_world_picking(&mut app, Vec2::new(400.0, 40.0));
+    // Two pairable archers so the Fuse command is enabled (UI11).
+    let a = place_and_select(&mut app, 0, 50, None);
+    let _b = {
+        let sel = app
+            .world_mut()
+            .remove_resource::<warden::resources::Selection>()
+            .unwrap();
+        let e = place_and_select(&mut app, 0, 50, None);
+        app.world_mut().insert_resource(sel);
+        e
+    };
+    app.update(); // rebuild the card with Sell/Fuse
+    bar_reports_cursor(&mut app, true);
+    assert!(press_command_button(&mut app, CommandAction::Fuse));
+    click_left(&mut app);
+    app.update();
+    assert_eq!(
+        app.world().resource::<warden::resources::Selection>(),
+        &warden::resources::Selection::FusionTarget(a),
+        "the Fuse click must enter target picking, not blank-cancel"
+    );
+    release_all_inputs(&mut app);
+}
+
+/// Regression (UI11 confirm step, live path): clicking tower B in the world
+/// while fusion picking is active fuses the pair — Marksman on B's slot,
+/// fee paid. Earlier tests injected `PendingFusionConfirm` directly; this
+/// one goes through `select_object`'s cursor picking.
+#[test]
+fn fusion_confirms_by_clicking_target_tower_in_world() {
+    let mut app = test_app();
+    app.update();
+    enable_world_picking(&mut app, Vec2::new(400.0, 400.0));
+    let a = place_and_select(&mut app, 0, 50, None);
+    let b = {
+        let sel = app
+            .world_mut()
+            .remove_resource::<warden::resources::Selection>()
+            .unwrap();
+        let e = place_and_select(&mut app, 0, 50, None);
+        app.world_mut().insert_resource(sel);
+        e
+    };
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::FusionTarget(a));
+    app.update(); // rebuild card + pair highlights
+    // Move the cursor exactly onto tower B's projected position.
+    {
+        let bp = {
+            let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+            let (cam, tf) = cams.single(app.world()).expect("one camera");
+            let pos = app
+                .world()
+                .get::<Transform>(b)
+                .expect("tower B alive")
+                .translation;
+            cam.world_to_viewport(tf, pos)
+                .expect("tower B projects into the viewport")
+        };
+        let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+        for mut w in q.iter_mut(app.world_mut()) {
+            w.set_cursor_position(Some(bp));
+        }
+    }
+    bar_reports_cursor(&mut app, false);
+    click_left(&mut app);
+    app.update();
+    assert_eq!(
+        count_towers(&mut app),
+        1,
+        "the pair must fuse into one tower"
+    );
+    assert_eq!(
+        fused_kind(&mut app),
+        Some(TowerKind::Fused(FusionKind::Marksman)),
+        "two archers fuse into a Marksman"
+    );
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        80,
+        "fee is 20% of the 100g pair (§16.6)"
+    );
+    release_all_inputs(&mut app);
+}
+
+/// Regression (UI10): an armed click landing on the bottom bar must not
+/// place a tower at the slot nearest the cursor behind the bar.
+#[test]
+fn armed_click_on_command_bar_places_nothing() {
+    let mut app = test_app();
+    app.update();
+    enable_world_picking(&mut app, Vec2::new(400.0, 40.0));
+    bar_reports_cursor(&mut app, true);
+    let owned = app.world().resource::<Hand>().owned_towers[0];
+    app.world_mut().resource_mut::<BuildMode>().armed = true;
+    app.world_mut()
+        .resource_mut::<warden::resources::SelectedTower>()
+        .tower_index = owned;
+    click_left(&mut app);
+    app.update();
+    assert_eq!(
+        count_towers(&mut app),
+        0,
+        "no tower may be placed from a bar click"
+    );
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        100,
+        "no gold may leave from a bar click"
+    );
+    release_all_inputs(&mut app);
+}
+
+/// The guard must not over-block: a blank world click still cancels the
+/// selection (§16.3).
+#[test]
+fn blank_world_click_still_cancels_selection() {
+    let mut app = test_app();
+    app.update();
+    enable_world_picking(&mut app, Vec2::new(400.0, 400.0)); // placeholder
+    place_and_select(&mut app, 0, 50, None);
+    // Pick the viewport corner farthest from every projected slot/tower —
+    // guaranteed blank ground regardless of where the map sits on screen.
+    let blank = {
+        let (cam, tf) = {
+            let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+            let (c, t) = cams.single(app.world()).expect("one camera");
+            (c.clone(), *t)
+        };
+        let mut pts = Vec::new();
+        let mut slots = app
+            .world_mut()
+            .query_filtered::<&Transform, With<TowerSlot>>();
+        for t in slots.iter(app.world()) {
+            if let Ok(sp) = cam.world_to_viewport(&tf, t.translation) {
+                pts.push(sp);
+            }
+        }
+        let mut towers = app
+            .world_mut()
+            .query_filtered::<&Transform, With<Tower>>();
+        for t in towers.iter(app.world()) {
+            if let Ok(sp) = cam.world_to_viewport(&tf, t.translation) {
+                pts.push(sp);
+            }
+        }
+        let blank = [
+            Vec2::new(10.0, 710.0),
+            Vec2::new(1270.0, 710.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(1270.0, 10.0),
+        ]
+        .into_iter()
+        .max_by_key(|c| {
+            pts.iter().map(|p| p.distance(*c) as u64).min().unwrap_or(u64::MAX)
+        })
+        .expect("a corner");
+        let nearest = pts.iter().map(|p| p.distance(blank)).fold(f32::MAX, f32::min);
+        assert!(
+            nearest > 45.0,
+            "fixture expects a blank corner but one sits {nearest}px away"
+        );
+        blank
+    };
+    let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+    for mut w in q.iter_mut(app.world_mut()) {
+        w.set_cursor_position(Some(blank));
+    }
+    bar_reports_cursor(&mut app, false);
+    app.update(); // rebuild card for the selection
+    click_left(&mut app);
+    app.update();
+    assert_eq!(
+        *app.world().resource::<warden::resources::Selection>(),
+        warden::resources::Selection::None,
+        "blank ground still cancels the selection"
+    );
+    release_all_inputs(&mut app);
 }
 
 /// Capability card UI11 — acceptance: during fusion picking, clicking an

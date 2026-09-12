@@ -22,6 +22,7 @@ use crate::resources::{
     WaveState,
 };
 use crate::states::GameState;
+use crate::systems::command::{cursor_over_blocking_ui, BlocksWorldInput};
 use crate::systems::l10n;
 use crate::systems::{
     hud::UiFont, input::{apply_choice, try_start_wave}, meta::buy_upgrade,
@@ -105,6 +106,8 @@ pub fn refresh_choice_cards(
     commands
         .spawn((
             ChoiceCardsRoot,
+            BlocksWorldInput,
+            bevy::ui::RelativeCursorPosition::default(),
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(110.0),
@@ -260,6 +263,8 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
     commands
         .spawn((
             EndScreenRoot,
+            BlocksWorldInput,
+            bevy::ui::RelativeCursorPosition::default(),
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
@@ -435,6 +440,7 @@ pub fn mouse_place_system(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
+    blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
     selected: Res<SelectedTower>,
     defs: Res<TowerDefs>,
     wave: Res<WaveState>,
@@ -448,6 +454,9 @@ pub fn mouse_place_system(
 ) {
     if !build.armed || !buttons.just_pressed(MouseButton::Left) || wave.phase != WavePhase::Intermission
     {
+        return;
+    }
+    if cursor_over_blocking_ui(&blocking) {
         return;
     }
     let Some((cam_comp, cam_tf)) = camera.single().ok() else {

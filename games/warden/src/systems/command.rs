@@ -28,6 +28,25 @@ use crate::systems::l10n;
 #[derive(Component)]
 pub struct CommandBarRoot;
 
+/// Marker on UI roots that must swallow world clicks (§16.3): while the
+/// cursor is over one (bottom bar / choice cards / end screen), world
+/// picking and armed placement stay idle — the click that presses a command
+/// button belongs to the UI and must not also run `select_object` (whose
+/// blank-ground cancel used to kill the fusion entry armed by that very
+/// click, UI11). Hidden roots (Display::None) collapse in layout, so they
+/// never report `cursor_over`.
+#[derive(Component)]
+pub struct BlocksWorldInput;
+
+/// True while the cursor hovers any `BlocksWorldInput` root. The flags are
+/// maintained by `ui_focus_system` (DefaultPlugins build); headless tests
+/// set the component by hand.
+pub fn cursor_over_blocking_ui(
+    roots: &Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
+) -> bool {
+    roots.iter().any(|r| r.cursor_over())
+}
+
 /// Marker on the center command-card zone (rebuilt on state changes).
 #[derive(Component)]
 pub struct CommandCardRoot;
@@ -112,6 +131,8 @@ pub fn spawn_command_bar(mut commands: Commands, font: Res<UiFont>) {
     commands
         .spawn((
             CommandBarRoot,
+            BlocksWorldInput,
+            bevy::ui::RelativeCursorPosition::default(),
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
@@ -637,6 +658,7 @@ pub fn select_object(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
+    blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
     build: Res<BuildMode>,
     state: Res<State<GameState>>,
     mut selection: ResMut<Selection>,
@@ -645,6 +667,9 @@ pub fn select_object(
 ) {
     if build.armed || !buttons.just_pressed(MouseButton::Left) || *state.get() != GameState::Playing
     {
+        return;
+    }
+    if cursor_over_blocking_ui(&blocking) {
         return;
     }
     let Some((cam, cam_tf)) = camera.single().ok() else {
