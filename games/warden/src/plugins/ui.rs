@@ -37,7 +37,8 @@ impl Plugin for UiPlugin {
                     systems::pointer::refresh_end_screen,
                     // Command card (UI9/UI10).
                     systems::command::refresh_control_zone,
-                    systems::command::refresh_command_card,
+                    systems::command::refresh_command_card
+                        .after(systems::acquisition::refresh_shop_on_intermission),
                     systems::command::refresh_info_zone,
                     systems::command::refresh_selection_ring,
                     systems::command::refresh_fusion_candidates,

@@ -15,8 +15,8 @@ use warden::{
     components::{AttackType, Enemy, FusionKind, Healer, Tower, TowerKind, TowerSlot},
     plugins::{
         acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
-        game::GamePlugin, map::MapPlugin, meta::MetaPlugin, towers::TowersPlugin, ui::UiPlugin,
-        waves::WavesPlugin,
+        game::GamePlugin, map::MapPlugin, meta::MetaPlugin, projectiles::ProjectilesPlugin,
+        towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
     },
     resources::{
         BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, Lang, MetaSavePath,
@@ -40,6 +40,7 @@ fn test_app() -> App {
             EconomyPlugin,
             AcquisitionPlugin,
             MetaPlugin,
+            ProjectilesPlugin,
             UiPlugin,
         ))
         // Keep meta persistence out of the repo: tests never touch
@@ -314,7 +315,10 @@ fn tower_fires_at_enemy_in_range() {
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
-    app.update();
+    app.update(); // launch frame
+    for _ in 0..40 {
+        app.update(); // let the homing round land (§5.1 flight time)
+    }
     let hp = enemy_hp(&mut app);
     assert!((hp - 40.0).abs() < 0.01, "one hit should reduce hp to 40, got {hp}");
 }
@@ -438,7 +442,10 @@ fn fused_tower_receives_tower_index_damage_boost() {
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
-    app.update();
+    app.update(); // launch frame
+    for _ in 0..40 {
+        app.update(); // let the homing round land (§5.1 flight time)
+    }
     // 18 * 2.0 = 36 damage -> 60 - 36 = 24 (fused reads index-0 boost).
     let hp = enemy_hp(&mut app);
     assert!((hp - 24.0).abs() < 0.01, "fused tower must read its tower_index boost, got {hp}");
@@ -481,7 +488,11 @@ fn range_boost_extends_reach() {
         },
         Transform::from_xyz(13.0, 0.5, 0.0),
     ));
-    app.update();
+    app.update(); // launch frame
+    // 13 units at speed 10 ≈ 1.3 s; stop before the second shot lands (2.3 s).
+    for _ in 0..120 {
+        app.update();
+    }
     // 9 damage, one hit -> 20 - 9 = 11.
     let hp = enemy_hp(&mut app);
     assert!((hp - 11.0).abs() < 0.01, "range 10 * 1.5 = 15 must reach d=13, got {hp}");
@@ -1035,7 +1046,10 @@ fn physical_damage_halved_vs_armored_enemy() {
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
-    app.update();
+    app.update(); // launch frame
+    for _ in 0..40 {
+        app.update(); // let the homing round land (§5.1 flight time)
+    }
     let hp = enemy_hp(&mut app);
     assert!(
         (hp - 85.0).abs() < 0.01,
@@ -1078,7 +1092,10 @@ fn magic_damage_ignores_armor() {
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
-    app.update();
+    app.update(); // launch frame
+    for _ in 0..40 {
+        app.update(); // let the homing round land (§5.1 flight time)
+    }
     let hp = enemy_hp(&mut app);
     assert!(
         (hp - 75.0).abs() < 0.01,
@@ -1841,4 +1858,262 @@ fn grid_hotkey_q_triggers_first_build_button() {
         first,
         "Q must select the first owned tower type (BTreeSet order)"
     );
+}
+
+// --- PR1/PR2: homing projectiles + edge behaviors (§5.1) ---------------------
+
+use warden::components::{Projectile, Slow};
+
+/// Capability card PR1 — acceptance: an archer firing at an ordinary enemy
+/// 8 units away launches exactly one projectile that lands after ≈0.8s
+/// (±10%, speed 10) for 10 damage; the round tracks its moving target and
+/// is within 0.5 units at the hit.
+#[test]
+fn projectile_flies_tracks_and_lands_on_time() {
+    let mut app = test_app();
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 0,
+            damage: 10.0,
+            attack_speed: 0.5, // 2s refire: exactly one round in the window
+            range: 20.0,
+            attack_type: AttackType::Physical,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(0),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+            invested: 0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 30.0,
+            max_hp: 30.0,
+            speed: 1.0, // moving target: the round must track it
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            def_index: 0,
+            next_wp: 0,
+        },
+        Transform::from_xyz(8.0, 0.4, 0.0),
+    ));
+
+    let count_projectiles = |app: &mut App| -> usize {
+        let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
+        q.iter(app.world()).count()
+    };
+    let hp_now = |app: &mut App| -> f32 {
+        let mut q = app.world_mut().query::<&Enemy>();
+        q.iter(app.world()).next().map(|e| e.hp).unwrap_or(f32::MAX)
+    };
+    let gap_now = |app: &mut App| -> f32 {
+        let mut q = app.world_mut().query::<(&Projectile, &Transform)>();
+        let mut e = app.world_mut().query::<&Transform>();
+        match (q.iter(app.world()).next(), e.iter(app.world()).next()) {
+            (Some((_, ptf)), Some(etf)) => ptf.translation.distance(etf.translation),
+            _ => f32::MAX,
+        }
+    };
+
+    app.update(); // launch frame
+    assert_eq!(count_projectiles(&mut app), 1, "one projectile launched");
+    let mut hit_frame: Option<usize> = None;
+    let mut min_gap = f32::MAX;
+    for f in 0..120 {
+        app.update();
+        if count_projectiles(&mut app) > 0 {
+            min_gap = min_gap.min(gap_now(&mut app));
+        }
+        if hit_frame.is_none() && hp_now(&mut app) < 30.0 {
+            hit_frame = Some(f + 1); // frames after the launch frame
+        }
+    }
+    let frames = hit_frame.expect("the round must land within 2s");
+    assert!(
+        (40..=60).contains(&frames), // ≈0.8s static; the fleeing target adds a little
+        "expected ≈0.8s flight, hit at frame {frames}"
+    );
+    assert!(
+        (hp_now(&mut app) - 20.0).abs() < 0.01,
+        "one hit for 10 damage: 30 -> 20"
+    );
+    assert!(min_gap <= 0.5, "the round tracks its target (closest gap {min_gap:.3})");
+}
+
+/// Capability card PR1 — acceptance: the melee shield tower keeps the instant
+/// hit (no projectile) and its slow rides the hit — only the target slows.
+#[test]
+fn shield_tower_melee_hits_instantly_and_slows_target() {
+    let mut app = test_app();
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 1,
+            damage: 5.0,
+            attack_speed: 1.2,
+            range: 4.0,
+            attack_type: AttackType::Physical,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(1),
+            aoe_radius: 0.0,
+            slow_factor: 0.7,
+            slow_duration: 1.0,
+            invested: 0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 30.0,
+            max_hp: 30.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            def_index: 0,
+            next_wp: 0,
+        },
+        Transform::from_xyz(2.0, 0.4, 0.0),
+    ));
+    app.update();
+    let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
+    assert_eq!(q.iter(app.world()).count(), 0, "melee never spawns a projectile");
+    let slowed = app
+        .world_mut()
+        .query::<&Slow>()
+        .iter(app.world())
+        .count();
+    assert_eq!(slowed, 1, "the hit applies the slow to the target (TO6 on-hit)");
+    let hp = enemy_hp(&mut app);
+    assert!((hp - 25.0).abs() < 0.01, "instant melee hit: 30 -> 25, got {hp}");
+}
+
+/// Capability card PR2 — acceptance: a single-target round whose target dies
+/// mid-flight dissipates with no damage; the wave-end clear removes leftovers.
+#[test]
+fn single_target_round_dissipates_when_target_dies() {
+    let mut app = test_app();
+    // A far-away bystander that must NOT take damage.
+    let bystander = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                hp: 30.0,
+                max_hp: 30.0,
+                speed: 0.0,
+                leak: 0,
+                kill_gold: 0,
+                physical_armor: false,
+                def_index: 0,
+                next_wp: 0,
+            },
+            Transform::from_xyz(12.0, 0.4, 12.0),
+        ))
+        .id();
+    app.world_mut().spawn((
+        Tower {
+            tower_index: 0,
+            damage: 10.0,
+            attack_speed: 0.1, // slow refire: single round in flight
+            range: 20.0,
+            attack_type: AttackType::Physical,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(0),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+            invested: 0,
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            hp: 1.0, // dies to any touch
+            max_hp: 1.0,
+            speed: 0.0,
+            leak: 0,
+            kill_gold: 0,
+            physical_armor: false,
+            def_index: 0,
+            next_wp: 0,
+        },
+        Transform::from_xyz(9.0, 0.4, 0.0),
+    ));
+    app.update(); // launch
+    // The round is mid-flight: kill the target out-of-band.
+    app.world_mut().get_mut::<Enemy>(bystander).unwrap().hp = 30.0; // untouched baseline
+    let mut q = app.world_mut().query::<&Projectile>();
+    let target = q.iter(app.world()).next().map(|p| p.target).expect("round in flight");
+    app.world_mut().get_mut::<Enemy>(target).unwrap().hp = 0.0; // dies mid-flight
+    app.update(); // resolve_death may not have run yet; the round sees hp<=0
+    for _ in 0..30 {
+        app.update();
+    }
+    let hp = app.world().get::<Enemy>(bystander).unwrap().hp;
+    assert_eq!(hp, 30.0, "the dissipated round must deal no damage");
+    let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
+    assert_eq!(q.iter(app.world()).count(), 0, "the round despawns on target loss");
+}
+
+/// Capability card PR2 — acceptance: the frame combat resolves, every
+/// projectile still in flight is removed (wave-end clear).
+#[test]
+fn wave_end_clears_in_flight_projectiles() {
+    let mut app = test_app();
+    // Start a wave so the phase transition Combat -> Intermission happens.
+    {
+        let mut wave = app.world_mut().resource_mut::<WaveState>();
+        wave.phase = WavePhase::Combat;
+        wave.spawn_queue.push_back(0);
+    }
+    // A live far-away target keeps the slow round legitimately in flight.
+    let far_target = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                hp: 100.0,
+                max_hp: 100.0,
+                speed: 0.0,
+                leak: 0,
+                kill_gold: 0,
+                physical_armor: false,
+                def_index: 0,
+                next_wp: 0,
+            },
+            Transform::from_xyz(90.0, 0.4, 90.0),
+        ))
+        .id();
+    app.update();
+    app.world_mut().spawn((
+        Projectile {
+            target: far_target,
+            damage: 1.0,
+            attack_type: AttackType::Physical,
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+            speed: 0.01, // never reaches anything before the wave ends
+            last_target_pos: Vec3::new(90.0, 0.4, 90.0),
+        },
+        Transform::from_xyz(50.0, 1.0, 50.0),
+    ));
+    app.update();
+    {
+        let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
+        assert_eq!(q.iter(app.world()).count(), 1, "the leftover round exists mid-wave");
+    }
+    // Resolve the wave: unit-level phase transition (Combat -> Intermission)
+    // drives the clear; the wave machinery itself is covered elsewhere.
+    app.world_mut()
+        .resource_mut::<WaveState>()
+        .phase = WavePhase::Intermission;
+    app.update(); // the clear system sees the transition
+    app.update();
+    let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
+    assert_eq!(q.iter(app.world()).count(), 0, "wave end must clear all rounds");
 }

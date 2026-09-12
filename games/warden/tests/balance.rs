@@ -19,8 +19,8 @@ use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
 use warden::components::{Tower, TowerKind, TowerSlot};
 use warden::plugins::{
     acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
-    game::GamePlugin, map::MapPlugin, meta::MetaPlugin, towers::TowersPlugin, ui::UiPlugin,
-    waves::WavesPlugin,
+    game::GamePlugin, map::MapPlugin, meta::MetaPlugin, projectiles::ProjectilesPlugin,
+    towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
 };
 use warden::resources::{
     BaseHp, Economy, MetaSavePath, RunRng, TowerDefs, WaveChoice, WavePhase, WaveState,
@@ -40,6 +40,7 @@ fn test_app() -> App {
             EconomyPlugin,
             AcquisitionPlugin,
             MetaPlugin,
+            ProjectilesPlugin,
             UiPlugin,
         ))
         .insert_resource(MetaSavePath(

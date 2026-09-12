@@ -469,6 +469,9 @@ pub const META_REWARD_WIN: u32 = 30;
 /// TO7 sell refund ratio (requirements §16.5): refund = invested × 0.7,
 /// floored. Any sell→rebuy loop loses ≥30% — no arbitrage. Tune via §14.
 pub const SELL_REFUND_RATIO: f32 = 0.7;
+/// Projectile flight speed in world units per second (PR1, requirements §5.1):
+/// slow enough to perceive, fast enough not to drag the pace. Tune via §14.
+pub const PROJECTILE_SPEED: f32 = 10.0;
 
 impl Default for Boosts {
     fn default() -> Self {

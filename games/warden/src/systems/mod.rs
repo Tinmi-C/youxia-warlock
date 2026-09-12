@@ -8,5 +8,6 @@ pub mod l10n;
 pub mod map;
 pub mod meta;
 pub mod pointer;
+pub mod projectiles;
 pub mod tower;
 pub mod wave;

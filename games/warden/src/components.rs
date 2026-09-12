@@ -78,6 +78,31 @@ pub struct Slow {
     pub factor: f32,
 }
 
+/// A rule-layer projectile (PR1, requirements §5.1): a homing round locked on
+/// its target — flies toward the target's *current* position every frame, so
+/// it never misses. Damage and attack type are snapshotted at launch; armor
+/// resolves at impact. Built as a generic entity (origin-agnostic) so the
+/// future skill system can reuse it directly.
+#[derive(Component)]
+pub struct Projectile {
+    pub target: Entity,
+    /// Damage snapshot taken at launch (post-boost, pre-armor).
+    pub damage: f32,
+    pub attack_type: AttackType,
+    /// 0 => single-target (hits only the target); >0 => AOE: everything within
+    /// this radius of the impact point takes damage (armor per-enemy).
+    pub aoe_radius: f32,
+    /// On-hit slow payload (0 => none): applied to every victim on impact
+    /// (TO6 rework: slow rides the hit, §5 original wording).
+    pub slow_factor: f32,
+    pub slow_duration: f32,
+    /// Speed in world units per second (§5.1 starting value, §14 tuning row).
+    pub speed: f32,
+    /// Last known target position — the AOE detonation anchor when the target
+    /// dies mid-flight (PR2).
+    pub last_target_pos: Vec3,
+}
+
 /// Healer aura (EN5): periodically restores hp of nearby damaged allies.
 /// Attached at spawn to enemies whose `EnemyDef::healer` is true.
 #[derive(Component)]

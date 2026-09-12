@@ -5,6 +5,7 @@ pub mod enemies;
 pub mod game;
 pub mod map;
 pub mod meta;
+pub mod projectiles;
 pub mod towers;
 pub mod ui;
 pub mod waves;

@@ -41,6 +41,7 @@ pub fn build_app() -> App {
             plugins::economy::EconomyPlugin,
             plugins::acquisition::AcquisitionPlugin,
             plugins::meta::MetaPlugin,
+            plugins::projectiles::ProjectilesPlugin,
             plugins::ui::UiPlugin,
             plugins::debug::DebugPlugin,
         ));

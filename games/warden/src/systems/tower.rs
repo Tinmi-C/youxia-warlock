@@ -1,15 +1,21 @@
 //! Towers: auto-fire + targeting + one-axis armor, including the fused tower
 //! behaviours (Marksman highest-HP priority, AOE blast, slow).
-//! Capability cards: TO3 (fire), TO4 (targeting), TO5 (fusion result), TO6 (slow).
+//! Capability cards: TO3 (fire — resolution moved into projectiles by PR1),
+//! TO4 (targeting), TO5 (fusion result), TO6 (slow — on-hit since PR1).
+//!
+//! Hybrid attack model (requirements §5.1): ranged towers (archer / mage /
+//! cannon and every fused tower) LAUNCH a homing projectile (damage snapshot
+//! at fire, armor at impact, slow rides the hit); the melee shield tower
+//! keeps its instant hit.
 
 use bevy::prelude::*;
 
-use crate::components::{AttackType, Enemy, FusionKind, Slow, Tower, TowerKind};
-use crate::resources::Boosts;
+use crate::components::{AttackType, Enemy, FusionKind, Projectile, Slow, Tower, TowerKind};
+use crate::resources::{Boosts, PROJECTILE_SPEED};
 
 /// Resolve one-axis armor: physical is halved vs armored enemies; magic and
 /// mixed (穿甲) bypass it.
-fn effective_damage(attack_type: AttackType, physical_armor: bool, base: f32) -> f32 {
+pub fn effective_damage(attack_type: AttackType, physical_armor: bool, base: f32) -> f32 {
     if physical_armor && attack_type == AttackType::Physical {
         base * 0.5
     } else {
@@ -17,10 +23,17 @@ fn effective_damage(attack_type: AttackType, physical_armor: bool, base: f32) ->
     }
 }
 
+/// The melee exception of the hybrid model (§5.1): the base shield tower.
+fn is_melee(tower: &Tower) -> bool {
+    matches!(tower.kind, TowerKind::Base(1))
+}
+
 pub fn tower_fire(
     time: Res<Time>,
     boost: Res<Boosts>,
     mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut towers: Query<(&mut Tower, &Transform)>,
     mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
 ) {
@@ -70,47 +83,65 @@ pub fn tower_fire(
             continue;
         }
 
-        // Single-target damage (released before the AOE / slow passes).
-        if let Ok((_, _, mut en)) = enemies.get_mut(target) {
-            let applied = effective_damage(tower.attack_type, en.physical_armor, base_dmg);
-            en.hp -= applied;
-            info!("[tower] fired dmg={applied:.1} enemy_hp={:.0}", en.hp);
-        }
-
-        // AOE: hit every enemy within the blast radius of the target.
-        if tower.aoe_radius > 0.0 {
-            let target_pos = enemies.get(target).map(|(_, etf, _)| etf.translation).ok();
-            if let Some(tp) = target_pos {
-                // Collect the affected entities first (can't mutate while iterating).
-                let mut hits: Vec<Entity> = Vec::new();
-                for (eid, etf, _) in &enemies {
-                    if eid != target && etf.translation.distance(tp) <= tower.aoe_radius {
-                        hits.push(eid);
-                    }
-                }
-                for eid in hits {
-                    if let Ok((_, _, mut en)) = enemies.get_mut(eid) {
-                        let applied =
-                            effective_damage(tower.attack_type, en.physical_armor, base_dmg);
-                        en.hp -= applied;
-                    }
-                }
-            }
-        }
-
-        // Slow: refresh a slow effect on every enemy within tower range.
-        if tower.slow_factor > 0.0 {
-            for (eid, etf, _) in &enemies {
-                if etf.translation.distance(ttf.translation) <= effective_range {
-                    commands.entity(eid).insert(Slow {
+        if is_melee(&tower) {
+            // Melee (shield tower): instant hit — damage + slow on the target
+            // only (TO6 rework: the slow rides the hit, §5 original wording).
+            if let Ok((_, _, mut en)) = enemies.get_mut(target) {
+                let applied = effective_damage(tower.attack_type, en.physical_armor, base_dmg);
+                en.hp -= applied;
+                if tower.slow_factor > 0.0 {
+                    commands.entity(target).insert(Slow {
                         timer: tower.slow_duration,
                         factor: tower.slow_factor,
                     });
                 }
+                info!("[tower] melee hit dmg={applied:.1} enemy_hp={:.0}", en.hp);
             }
+        } else {
+            // Ranged: launch a homing projectile (§5.1) — damage and type are
+            // snapshotted here; armor resolves at impact (projectiles.rs).
+            let start = ttf.translation + Vec3::Y * 0.4;
+            let (mesh, color) = projectile_visual(&tower, tower.aoe_radius);
+            commands.spawn((
+                Projectile {
+                    target,
+                    damage: base_dmg,
+                    attack_type: tower.attack_type,
+                    aoe_radius: tower.aoe_radius,
+                    slow_factor: tower.slow_factor,
+                    slow_duration: tower.slow_duration,
+                    speed: PROJECTILE_SPEED,
+                    last_target_pos: enemies
+                        .get(target)
+                        .map(|(_, etf, _)| etf.translation)
+                        .unwrap_or(start),
+                },
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: color,
+                    unlit: true,
+                    ..default()
+                })),
+                Transform::from_translation(start),
+            ));
         }
 
         tower.cooldown = 1.0 / (tower.attack_speed * speed_mult);
+    }
+}
+
+/// Round visuals (§5.1): arrow = grey-white sliver, magic round = purple
+/// sphere, cannon round = orange sphere.
+fn projectile_visual(tower: &Tower, aoe_radius: f32) -> (Mesh, Color) {
+    match tower.attack_type {
+        AttackType::Physical if aoe_radius > 0.0 => {
+            (Mesh::from(Sphere::new(0.25)), Color::srgb(1.0, 0.6, 0.15))
+        }
+        AttackType::Physical => (
+            Mesh::from(Cuboid::new(0.08, 0.08, 0.55)),
+            Color::srgb(0.85, 0.85, 0.85),
+        ),
+        _ => (Mesh::from(Sphere::new(0.18)), Color::srgb(0.65, 0.4, 1.0)),
     }
 }
 
