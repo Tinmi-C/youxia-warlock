@@ -103,7 +103,14 @@ impl Category {
 /// `RunRng` (Fisher-Yates on a category pool, then take the first 3), and rolls
 /// the target tower type for stat/get options. The get-tower target avoids a
 /// type the player already owns when a free type exists.
-fn generate_choices(choice: &mut WaveChoice, defs: &TowerDefs, hand: &Hand, rng: &mut RunRng) {
+/// `pub(crate)` so the debug "choice" scenario (DB2) deals a REAL pending
+/// choice (same generator) instead of a hand-built fake.
+pub(crate) fn generate_choices(
+    choice: &mut WaveChoice,
+    defs: &TowerDefs,
+    hand: &Hand,
+    rng: &mut RunRng,
+) {
     let mut pool = vec![
         Category::Stat(StatKind::Damage),
         Category::Stat(StatKind::AttackSpeed),

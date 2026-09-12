@@ -120,7 +120,10 @@ assets/{models,textures,audio,fonts,ui}/
     `DebugRun.marked` → 结算不发 Meta 币、`meta_save.txt` 一字不动；F12 截图/日志仪表同门控收口；
     release 零调试面 = 编译级 cfg 抽除 + `scripts/check_release_debug_surface.sh` 二进制字符串扫描（实测通过）。
     `DebugPanelCapture` 吞面板悬停点击/键盘，防泄漏进世界拾取与热键（复用 UI 点击泄漏修法判定口）。
-  - `cargo check --all-targets` + `cargo test` 全绿（70 条断言，`tests/behavior.rs` 68 + `tests/balance.rs` 2；
+  - **DB2 测试场景直达（2026-09-12）**：`--scenario NAME --seed N` CLI（main.rs cfg 门控，seed 先于 Startup 换 RunRng）
+    与 F1 面板按钮**双入口同队列**（`DebugScenarioQueue`，排他执行器首帧落地）；六场景 fusion/projectile/fx/meta/
+    choice/full-board 一键到位（choice 复用 wave.rs 真三选一生成器）；场景直达即标记调试局（存档隔离生效）。
+  - `cargo check --all-targets` + `cargo test` 全绿（78 条断言，`tests/behavior.rs` 76 + `tests/balance.rs` 2；
   fx.rs 存量 dead-const 警告已清，HIT_FLASH_SECS 转共享常量）。
 - **交互范式 + 投射物/战斗表现两批需求（2026-09-12 定稿）已同日实现**（见上方「已完成」两条实现记录）；
   规格存档：requirements §16（命令卡交互规范）/ §5.1（攻击结算模型，含**拍板不上物理插件**）；
@@ -130,8 +133,8 @@ assets/{models,textures,audio,fonts,ui}/
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
   ③ AC2 商店定价：解锁费（进手牌）与建造费（每次放置）分离——现均为塔面价；
   ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
-- **下一步**：**DB2（测试场景直达：CLI `--scenario NAME --seed N` + F1 面板按钮双入口）→ DB3（时间控制/叠层）**——
-  DB1 已落地（F1 面板 + 作弊 + 调试局存档隔离），DB2/DB3 复用其门控与 DebugQueue 骨架；
+- **下一步**：**DB3（时间控制/信息叠层：暂停+单帧步进、4x 加速、射程圈常显、敌属性叠层、弹体计数）**——
+  DB1（F1 面板 + 作弊 + 调试局存档隔离）与 DB2（CLI/面板双入口场景直达）均已落地，DB3 复用同一 debug 门控；
   bevy_egui 版本已核实（README 兼容表：Bevy 0.19 ↔ 0.40-0.42，取 0.42；其 Cargo.toml 依赖 egui 0.36）。
   之后继续**真人试玩盯 §15 信号**（点击泄漏已修，UI9-12/PR/FX 均已上线）→
   balance 数值仍按负责人意见暂缓（BAL1 基线已在 PR/FX 后重取；BAL2 锚点表随时可收敛「早战经济压力」）。

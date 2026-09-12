@@ -448,13 +448,22 @@
   验收句已入 `tests/behavior.rs`（`debug_cheats::*` 8 条：跳波+奖励补发/当帧金币/存档内容逐字节不变/
   正常局回归/清波走正常结算/召唤/结局/种子重开/F1 开关）。
 
-### DB2 · 测试场景直达（debug）—— ▶ 待实现（依赖 DB1）
+### DB2 · 测试场景直达（debug）—— ✅ 已实现（2026-09-12，依赖 DB1）
 - 接口: 读 CLI 参数（`--scenario NAME --seed N`）或 F1 面板按钮；输出 预置场景状态 + 调试局标记。
 - 行为: 预置场景一键到位：`fusion`（场上弓×2 + 金 100 + 建造期）/ `projectile`（塔 + 距 8 单位 1 普通怪）/
   `fx`（残血敌群 + 治疗怪）/ `meta`（直达 GameOver）/ `choice`（三选一挂起）/ `full-board`（8 塔满员）。
   CLI 与面板双入口等效；场景直达即标记调试局（触发 DB1 存档隔离）。
 - 验收句: `cargo run -- --scenario fusion --seed 42` 启动后 ≤2s 场景断言成立（场上弓×2/金≥100/Intermission，headless 等效断言）；
   同种子两次启动手牌一致（RunRng 复现）；F1 场景按钮与 CLI 等效。
+- 实现: `Scenario` 枚举（name=CLI 值=面板按钮文案）+ `DebugScenarioQueue`。**双入口同一代码路径**：CLI 在
+  `main.rs`（cfg 门控）解析 `parse_cli_args`（可注入迭代器，测试直接喂参数）→ `--seed` 先于 Startup 换 `RunRng`
+  （手牌可复现）+ 记录 `DebugSeed`，`--scenario` 入队；F1 面板按钮同样只入队。排他系统 `debug_scenario_executor`
+  （GameSet::Input、after 作弊执行器）首帧 Startup 建好地图/槽位后统一落地：先 `clear_board`（清敌/弹/塔、槽位全空、
+  波次回 1 建造期）再按场景布置（弓×2/距 8 普通怪/1hp×4+治疗/GameOver/真 `generate_choices` 三选一/8 塔循环 4 基础型）。
+  choice 场景复用 wave.rs 真生成器（改 `pub(crate)`），不造假数据。headless 等效断言 8 条入 `tests/behavior.rs`
+  （`debug_scenarios::*`：CLI 解析合法/非法、fusion、projectile 距离、fx、meta 存档逐字节不变、choice 三类不重复、
+  full-board、同种子两手牌一致）；live ≤2s 验收即首帧落地（队列在第一帧 Update 排空）。
+  release 门控断言沿用 DB1 脚本，已加场景日志字符串扫描项。
 
 ### DB3 · 时间控制 + 信息叠层（debug）—— ▶ 待实现（FX 批次前落地即可）
 - 接口: 读 暂停/步进输入 + 场上实体；输出 时间倍率控制 + 调试叠层渲染。

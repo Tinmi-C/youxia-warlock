@@ -44,12 +44,22 @@ fn build_debug(app: &mut App) {
         .init_resource::<dbg::DebugQueue>()
         .init_resource::<dbg::DebugPanel>()
         .init_resource::<dbg::DebugSeed>()
+        .init_resource::<dbg::DebugScenarioQueue>()
         .add_plugins(bevy_egui::EguiPlugin::default())
         .add_systems(bevy_egui::EguiPrimaryContextPass, debug_panel_ui)
         .add_systems(Update, (log_dashboard, screenshot_on_f12, dbg::debug_panel_toggle))
         // The single cheat drain point runs in Input so the same frame's
-        // wave/combat systems observe the settled cheat state.
-        .add_systems(Update, dbg::debug_cheat_executor.in_set(GameSet::Input));
+        // wave/combat systems observe the settled cheat state; scenario loads
+        // (DB2) run right after it (restart + scenario in one frame stays
+        // deterministic).
+        .add_systems(
+            Update,
+            (
+                dbg::debug_cheat_executor,
+                dbg::debug_scenario_executor.after(dbg::debug_cheat_executor),
+            )
+                .in_set(GameSet::Input),
+        );
 }
 
 // --- Observation channel (debug-only since DB1: the whole plugin surface,
@@ -105,10 +115,11 @@ fn screenshot_on_f12(keys: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
 #[cfg(debug_assertions)]
 use bevy_egui::egui;
 
-/// The F1 egui panel (DB1). Pure presentation: every button pushes a
-/// `DebugAction` into the queue; `debug_cheat_executor` does the work. Also
-/// maintains `DebugPanelCapture` so clicks/keys aimed at the panel never fall
-/// through into world picking / world hotkeys.
+/// The F1 egui panel (DB1/DB2). Pure presentation: every button pushes a
+/// `DebugAction` (cheats) or a `Scenario` (one-shot test scenes) into the
+/// matching queue; the executors do the work — same code path as the CLI.
+/// Also maintains `DebugPanelCapture` so clicks/keys aimed at the panel never
+/// fall through into world picking / world hotkeys.
 #[cfg(debug_assertions)]
 #[allow(clippy::too_many_arguments)]
 fn debug_panel_ui(
@@ -116,6 +127,7 @@ fn debug_panel_ui(
     mut panel: ResMut<crate::systems::debug::DebugPanel>,
     mut capture: ResMut<DebugPanelCapture>,
     mut queue: ResMut<crate::systems::debug::DebugQueue>,
+    mut scenarios: ResMut<crate::systems::debug::DebugScenarioQueue>,
     economy: Res<Economy>,
     base: Res<BaseHp>,
     wave: Res<WaveState>,
@@ -221,6 +233,15 @@ fn debug_panel_ui(
             }
         });
         ui.separator();
+        ui.heading("Scenarios");
+        ui.horizontal(|ui| {
+            for (s, name) in crate::systems::debug::Scenario::ALL {
+                if ui.button(name).clicked() {
+                    scenarios.0.push(s);
+                }
+            }
+        });
+        ui.separator();
 
         ui.heading("Endings");
         ui.horizontal(|ui| {
@@ -235,6 +256,6 @@ fn debug_panel_ui(
             }
         });
         ui.separator();
-        ui.label("Any cheat marks this run: no meta payout, no meta_save.txt write.");
+        ui.label("Any cheat or scenario marks this run: no meta payout, no meta_save.txt write.");
     });
 }

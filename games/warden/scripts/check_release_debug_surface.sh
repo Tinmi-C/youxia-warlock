@@ -32,6 +32,7 @@ DEBUG_STRINGS=(
     "run marked as debug"        # DB1 debug-run marking log
     "instant lose"               # DB1 cheat log
     "run restarted"              # DB1 restart log
+    "scenario '{}' loaded"       # DB2 scenario loader log
     "screenshot saved"           # F12 screenshot log
     "dash] fps"                  # log dashboard prefix
 )

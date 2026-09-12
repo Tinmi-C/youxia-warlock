@@ -2636,20 +2636,30 @@ mod debug_cheats {
     use warden::resources::{DebugPanelCapture, DebugRun};
     use warden::sets::GameSet;
     use warden::systems::debug::{
-        debug_cheat_executor, debug_panel_toggle, DebugAction, DebugPanel, DebugQueue, DebugSeed,
+        debug_cheat_executor, debug_panel_toggle, debug_scenario_executor, DebugAction,
+        DebugPanel, DebugQueue, DebugScenarioQueue, DebugSeed,
     };
 
-    /// Headless app wired the way `DebugPlugin` wires the cheat core (debug
-    /// builds only, no egui needed — tests push actions straight into the
-    /// queue, the exact path the panel buttons take).
-    fn debug_app() -> App {
+    /// Headless app wired the way `DebugPlugin` wires the debug core (debug
+    /// builds only, no egui needed — tests push actions/scenarios straight
+    /// into the queues, the exact path the panel buttons and the CLI take).
+    pub(crate) fn debug_app() -> App {
         let mut app = test_app();
         app.init_resource::<DebugQueue>()
             .init_resource::<DebugPanel>()
             .init_resource::<DebugSeed>()
+            .init_resource::<DebugScenarioQueue>()
+            .add_systems(Update, debug_panel_toggle)
+            // The single cheat drain point runs in Input so the same frame's
+            // wave/combat systems observe the settled cheat state; scenario
+            // loads run right after it (mirrors DebugPlugin's ordering).
             .add_systems(
                 Update,
-                (debug_cheat_executor.in_set(GameSet::Input), debug_panel_toggle),
+                (
+                    debug_cheat_executor,
+                    debug_scenario_executor.after(debug_cheat_executor),
+                )
+                    .in_set(GameSet::Input),
             );
         app
     }
@@ -2917,5 +2927,224 @@ mod debug_cheats {
         assert!(!app.world().resource::<DebugPanel>().open, "F1 closes");
         let cap = app.world().resource::<DebugPanelCapture>();
         assert!(!cap.pointer && !cap.keyboard, "capture flags reset on close");
+    }
+}
+
+// --- DB2: one-shot test scenarios (CLI + F1 panel, same queue) ------------------
+//
+// CLI (`--scenario NAME --seed N`, parsed in main) and the F1 panel buttons
+// both only push into `DebugScenarioQueue`; the exclusive
+// `debug_scenario_executor` drains it on the first Update frame. These tests
+// drive that same queue — so a passing test is the headless equivalent of the
+// live `cargo run -- --scenario fusion --seed 42` acceptance (≤2 s there,
+// one frame here).
+
+#[cfg(debug_assertions)]
+mod debug_scenarios {
+    use super::debug_cheats::debug_app;
+    use super::*;
+    use warden::resources::{DebugRun, MetaSavePath, MetaState};
+    use warden::systems::debug::{
+        parse_cli_args, CliOverrides, DebugScenarioQueue, Scenario,
+    };
+
+    fn queue_scenario(app: &mut App, s: Scenario) {
+        app.world_mut().resource_mut::<DebugScenarioQueue>().0.push(s);
+    }
+
+    /// DB2: the CLI parser accepts --scenario/--seed (both, either, none) and
+    /// rejects unknown scenarios / bad numbers / unknown flags.
+    #[test]
+    fn cli_args_parse_scenario_and_seed() {
+        let both = parse_cli_args(["--scenario", "fusion", "--seed", "42"].map(String::from))
+            .expect("valid args parse");
+        assert_eq!(
+            both,
+            CliOverrides { scenario: Some(Scenario::Fusion), seed: Some(42) }
+        );
+        let seed_only = parse_cli_args(["--seed", "7"].map(String::from)).unwrap();
+        assert_eq!(seed_only, CliOverrides { scenario: None, seed: Some(7) });
+        let none = parse_cli_args(Vec::new()).unwrap();
+        assert_eq!(none, CliOverrides::default());
+        assert!(
+            parse_cli_args(["--scenario", "nope"].map(String::from)).is_err(),
+            "unknown scenario name must be rejected"
+        );
+        assert!(
+            parse_cli_args(["--seed", "not-a-number"].map(String::from)).is_err(),
+            "malformed seed must be rejected"
+        );
+        assert!(
+            parse_cli_args(["--wat"].map(String::from)).is_err(),
+            "unknown flag must be rejected"
+        );
+        // Every advertised scenario name resolves.
+        for (s, name) in Scenario::ALL {
+            assert_eq!(Scenario::from_name(name), Some(s), "name {name} resolves");
+        }
+    }
+
+    /// DB2 acceptance: `--scenario fusion` lands in one frame (headless
+    /// equivalent of the ≤2 s live check): two archers on the board, gold
+    /// 100, wave-1 build phase — and the run is marked as debug.
+    #[test]
+    fn scenario_fusion_board_and_economy() {
+        let mut app = debug_app();
+        queue_scenario(&mut app, Scenario::Fusion);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Economy>().gold,
+            100,
+            "fusion preset: gold 100"
+        );
+        assert_eq!(
+            app.world().resource::<WaveState>().phase,
+            WavePhase::Intermission,
+            "fusion preset: build phase"
+        );
+        assert_eq!(app.world().resource::<WaveState>().current, 0);
+        assert!(
+            app.world().resource::<DebugRun>().marked,
+            "loading a scenario marks the run (save isolation)"
+        );
+        let mut towers = app.world_mut().query::<&Tower>();
+        let archers = towers
+            .iter(app.world())
+            .filter(|t| t.kind == TowerKind::Base(0))
+            .count();
+        assert_eq!(archers, 2, "exactly two archer towers on the board");
+        let mut slots = app.world_mut().query::<&TowerSlot>();
+        let occupied = slots
+            .iter(app.world())
+            .filter(|s| s.occupied)
+            .count();
+        assert_eq!(occupied, 2, "the two archers sit on occupied slots");
+    }
+
+    /// DB2 acceptance: the projectile scenario is one tower plus one ordinary
+    /// enemy exactly 8 units away (XZ), walking toward the base.
+    #[test]
+    fn scenario_projectile_enemy_at_eight_units() {
+        let mut app = debug_app();
+        queue_scenario(&mut app, Scenario::Projectile);
+        app.update();
+        let mut towers = app.world_mut().query_filtered::<&Transform, With<Tower>>();
+        let mut enemies = app.world_mut().query_filtered::<&Transform, With<Enemy>>();
+        assert_eq!(towers.iter(app.world()).count(), 1, "exactly one tower");
+        assert_eq!(enemies.iter(app.world()).count(), 1, "exactly one enemy");
+        let t = towers.single(app.world()).unwrap().translation;
+        let e = enemies.single(app.world()).unwrap().translation;
+        let dist = Vec3::new(t.x - e.x, 0.0, t.z - e.z).length();
+        assert!(
+            (dist - 8.0).abs() < 1e-3,
+            "enemy exactly 8 units from the tower (got {dist})"
+        );
+    }
+
+    /// DB2 acceptance: the fx scenario is a wounded (1 hp) pack of four plus
+    /// one healer at full hp among them.
+    #[test]
+    fn scenario_fx_wounded_pack_and_healer() {
+        let mut app = debug_app();
+        queue_scenario(&mut app, Scenario::Fx);
+        app.update();
+        let mut enemies = app.world_mut().query::<&Enemy>();
+        let all = enemies
+            .iter(app.world())
+            .map(|e| e.hp)
+            .collect::<Vec<_>>();
+        assert_eq!(all.len(), 5, "four wounded + one healer");
+        assert_eq!(
+            all.iter().filter(|hp| **hp == 1.0).count(),
+            4,
+            "the pack is at 1 hp"
+        );
+        let mut healers = app.world_mut().query_filtered::<(), With<Healer>>();
+        assert_eq!(healers.iter(app.world()).count(), 1, "exactly one healer");
+    }
+
+    /// DB2 acceptance: the meta scenario goes straight to GameOver and — being
+    /// a scenario-loaded (debug) run — pays nothing and leaves the save file
+    /// byte-for-byte unchanged.
+    #[test]
+    fn scenario_meta_reaches_gameover_without_payout() {
+        let save = std::env::temp_dir().join("warden_meta_scenario_test.txt");
+        let original = "coins=55\nupgrade1=0\nupgrade2=1\n";
+        std::fs::write(&save, original).unwrap();
+        let mut app = debug_app();
+        app.world_mut().insert_resource(MetaSavePath(save.clone()));
+        queue_scenario(&mut app, Scenario::Meta);
+        app.update(); // executor queues the transition
+        app.update(); // StateTransition applies it
+        assert_eq!(
+            app.world().resource::<State<GameState>>().get(),
+            &GameState::GameOver
+        );
+        assert_eq!(
+            app.world().resource::<MetaState>().coins,
+            55,
+            "scenario run pays no death reward"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&save).unwrap_or_default(),
+            original,
+            "scenario run leaves meta_save.txt untouched"
+        );
+        let _ = std::fs::remove_file(&save);
+    }
+
+    /// DB2 acceptance: the choice scenario deals a REAL pending
+    /// three-choose-one (3 options from distinct categories, via the same
+    /// generator the wave resolve uses).
+    #[test]
+    fn scenario_choice_pending_with_three_distinct_options() {
+        let mut app = debug_app();
+        queue_scenario(&mut app, Scenario::Choice);
+        app.update();
+        let choice = app.world().resource::<WaveChoice>();
+        assert!(choice.pending, "choice is pending (blocks the next wave)");
+        assert_eq!(choice.options.len(), 3, "exactly three options");
+        let mut seen = std::collections::HashSet::new();
+        for opt in &choice.options {
+            let key = match &opt.kind {
+                ChoiceKind::StatBoost { stat, .. } => format!("stat:{stat:?}"),
+                ChoiceKind::GoldBoost => "gold".to_string(),
+                ChoiceKind::GetTower { .. } => "get".to_string(),
+            };
+            assert!(seen.insert(key), "options must be distinct, got {seen:?}");
+        }
+    }
+
+    /// DB2 acceptance: the full-board scenario fills all 8 slots — the
+    /// "cannot place anything else" edge case in one step.
+    #[test]
+    fn scenario_full_board_fills_all_slots() {
+        let mut app = debug_app();
+        queue_scenario(&mut app, Scenario::FullBoard);
+        app.update();
+        assert_eq!(count_towers(&mut app), 8, "all 8 slots have towers");
+        let mut slots = app.world_mut().query::<&TowerSlot>();
+        assert_eq!(
+            slots.iter(app.world()).filter(|s| s.occupied).count(),
+            8,
+            "every slot is marked occupied"
+        );
+    }
+
+    /// DB2 acceptance: `--seed N` makes two fresh starts replay the same
+    /// opening hand (RunRng determinism, CLI and restart share the seed).
+    #[test]
+    fn same_seed_two_fresh_starts_same_hand() {
+        let hand_of = |seed: u64| {
+            let mut app = debug_app();
+            app.world_mut().insert_resource(RunRng::seeded(seed));
+            app.update(); // Startup deals the opening hand from the seed
+            app.world().resource::<Hand>().owned_towers.clone()
+        };
+        assert_eq!(
+            hand_of(42),
+            hand_of(42),
+            "same seed must replay the identical opening hand"
+        );
     }
 }

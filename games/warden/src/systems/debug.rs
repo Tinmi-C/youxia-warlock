@@ -10,18 +10,21 @@
 //! Keeping the panel and the effects decoupled lets headless tests drive the
 //! exact same cheat path without any egui/window.
 
+use bevy::ecs::change_detection::Mut;
 use bevy::ecs::system::SystemParam;
+use bevy::ecs::world::CommandQueue;
 use bevy::prelude::*;
 
-use crate::components::{Enemy, Projectile, Tower};
+use crate::components::{Enemy, Projectile, Tower, TowerSlot};
 use crate::resources::{
     BaseHp, Boosts, BuildMode, DebugRun, Economy, EnemyDefs, Hand, MetaState, PathInfo, RunRng,
-    Selection, ShopOffers, WaveChoice, WavePhase, WaveSchedule, WaveState,
+    Selection, ShopOffers, TowerDefs, WaveChoice, WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
 use crate::systems::acquisition::{deal_opening_hand_into, refresh_shop_offers};
-use crate::systems::enemy::spawn_enemy;
+use crate::systems::enemy::{spawn_enemy, spawn_enemy_at, path_units_per_point};
 use crate::systems::pointer::HoverGhost;
+use crate::systems::tower::spawn_base_tower;
 
 /// One debug cheat intent. Panel button / CLI / test all speak this.
 #[derive(Debug, Clone, Copy)]
@@ -316,4 +319,320 @@ fn hide_ghosts(core: &mut CheatsCore, board: &mut CheatsBoard) {
     for e in &board.ghosts {
         core.commands.entity(e).insert(Visibility::Hidden);
     }
+}
+
+// --- DB2: one-shot test scenarios ----------------------------------------------
+//
+// A scenario lands the game in a preset state in a single step (no waiting for
+// waves/economy). Two equivalent entrances:
+//   - CLI: `warden --scenario NAME --seed N` (parsed in `main`, applied via
+//     the same queue below — the queue is drained on the FIRST Update frame,
+//     after Startup built the map/slots the scenarios place things on);
+//   - F1 panel: the scenario buttons push into the same queue.
+// Loading ANY scenario marks the run as debug (DB1 save isolation).
+
+/// The six preset scenarios (DB2). `name` doubles as the CLI value and the
+/// panel button label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scenario {
+    /// Two archers on the board + 100 gold + build phase (fusion testing).
+    Fusion,
+    /// One tower + one ordinary enemy exactly 8 units away (projectile tests).
+    Projectile,
+    /// A wounded (1 hp) enemy pack plus a healer nearby (FX tests).
+    Fx,
+    /// Straight to the GameOver screen (meta/UI5 tests).
+    Meta,
+    /// A pending three-choose-one with real randomized options (AC4 tests).
+    Choice,
+    /// All 8 slots occupied (full-board tests).
+    FullBoard,
+}
+
+impl Scenario {
+    /// All scenarios with their CLI/panel names, in display order.
+    pub const ALL: [(Scenario, &'static str); 6] = [
+        (Scenario::Fusion, "fusion"),
+        (Scenario::Projectile, "projectile"),
+        (Scenario::Fx, "fx"),
+        (Scenario::Meta, "meta"),
+        (Scenario::Choice, "choice"),
+        (Scenario::FullBoard, "full-board"),
+    ];
+
+    pub fn name(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find(|(s, _)| *s == self)
+            .map(|(_, n)| *n)
+            .unwrap_or("?")
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(s, _)| *s)
+    }
+}
+
+/// Pending scenario loads, drained by `debug_scenario_executor`. CLI and F1
+/// panel both only push here — one queue, one code path.
+#[derive(Resource, Default)]
+pub struct DebugScenarioQueue(pub Vec<Scenario>);
+
+/// Parsed `--scenario NAME --seed N` CLI overrides (DB2).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct CliOverrides {
+    pub scenario: Option<Scenario>,
+    pub seed: Option<u64>,
+}
+
+/// Parse the overrides from an args iterator — `std::env::args` in `main`,
+/// a fixed vector in tests. Returns a usage error for unknown scenario names
+/// or malformed numbers.
+pub fn parse_cli_args(args: impl IntoIterator<Item = String>) -> Result<CliOverrides, String> {
+    let valid = Scenario::ALL
+        .iter()
+        .map(|(_, n)| *n)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let usage = format!("usage: warden [--scenario NAME] [--seed N]  (scenarios: {valid})");
+    let mut out = CliOverrides::default();
+    let mut it = args.into_iter().peekable();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--scenario" => {
+                let Some(name) = it.next() else {
+                    return Err(format!("--scenario needs a value ({valid})"));
+                };
+                out.scenario = Some(Scenario::from_name(&name).ok_or_else(|| {
+                    format!("unknown scenario '{name}' ({valid})")
+                })?);
+            }
+            "--seed" => {
+                let Some(raw) = it.next() else {
+                    return Err("--seed needs a number".to_string());
+                };
+                out.seed = Some(raw.parse::<u64>().map_err(|_| format!("bad seed '{raw}'"))?);
+            }
+            other => return Err(format!("unknown argument '{other}'\n{usage}")),
+        }
+    }
+    Ok(out)
+}
+
+/// `main` entry (debug builds): parse the real CLI and wire the overrides in.
+/// The seed replaces `RunRng` BEFORE Startup so the opening hand is replayable;
+/// the scenario is queued for the first Update frame (after the map exists).
+/// Invalid args abort with the usage text — this is a dev tool, fail loud.
+pub fn apply_cli_overrides(app: &mut App) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let overrides = match parse_cli_args(args) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("[debug] {e}");
+            std::process::exit(2);
+        }
+    };
+    if let Some(seed) = overrides.seed {
+        app.insert_resource(RunRng::seeded(seed));
+        app.init_resource::<DebugSeed>();
+        app.world_mut().resource_mut::<DebugSeed>().0 = Some(seed);
+        info!("[debug] seed {seed} applied (RunRng re-seeded before Startup)");
+    }
+    if let Some(s) = overrides.scenario {
+        app.init_resource::<DebugScenarioQueue>();
+        app.world_mut()
+            .resource_mut::<DebugScenarioQueue>()
+            .0
+            .push(s);
+        info!("[debug] scenario '{}' queued (loads on the first frame)", s.name());
+    }
+}
+
+/// Exclusive drain point for scenario loads (DB2), after the cheat executor
+/// within `GameSet::Input`. Marks the run as debug on first use, then applies
+/// every queued scenario.
+pub fn debug_scenario_executor(world: &mut World) {
+    let scenarios = std::mem::take(&mut world.resource_mut::<DebugScenarioQueue>().0);
+    if scenarios.is_empty() {
+        return;
+    }
+    {
+        let mut run = world.resource_mut::<DebugRun>();
+        if !run.marked {
+            run.marked = true;
+            info!("[debug] run marked as debug: meta payout/save disabled");
+        }
+    }
+    for s in scenarios {
+        apply_scenario(world, s);
+    }
+}
+
+/// Land the game in the scenario's preset state. Every scenario starts from
+/// the same clean slate: no enemies/projectiles/towers, all slots free, wave
+/// back to the wave-1 build phase, no pending choice/selection/build arm.
+fn apply_scenario(world: &mut World, scenario: Scenario) {
+    clear_board(world);
+    match scenario {
+        Scenario::Fusion => {
+            world.resource_mut::<Economy>().gold = 100;
+            let slots = free_slots_in_order(world).into_iter().take(2).collect::<Vec<_>>();
+            place_towers(world, 0, &slots);
+        }
+        Scenario::Projectile => {
+            let (slot, tower_pos) = free_slots_in_order(world)
+                .first()
+                .copied()
+                .expect("the map has tower slots");
+            place_towers(world, 0, &[(slot, tower_pos)]);
+            // Exactly 8 units from the tower on the XZ plane, heading for the
+            // base waypoint so it walks like a real target.
+            let enemy_pos = tower_pos + Vec3::new(8.0, 0.0, 0.0);
+            let next_wp = world.resource::<PathInfo>().waypoints.len().saturating_sub(1);
+            spawn_debug_enemy(world, 0, enemy_pos, next_wp, None);
+        }
+        Scenario::Fx => {
+            // Four ordinary enemies at 1 hp walking the middle segment, one
+            // healer among them at full hp (heal aura radius 6 covers all).
+            for (x, z) in [(-4.0, 3.0), (-4.0, 0.5), (-4.0, -2.0), (-4.0, -4.5)] {
+                spawn_debug_enemy(world, 0, Vec3::new(x, 0.0, z), 2, Some(1.0));
+            }
+            spawn_debug_enemy(world, 3, Vec3::new(-4.0, 0.0, -1.2), 2, None);
+        }
+        Scenario::Meta => {
+            world.resource_mut::<BaseHp>().hp = 0;
+            world
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::GameOver);
+        }
+        Scenario::Choice => {
+            let defs = TowerDefs {
+                list: world.resource::<TowerDefs>().list.clone(),
+            };
+            let hand = Hand {
+                owned_towers: world.resource::<Hand>().owned_towers.clone(),
+            };
+            world.resource_scope(|world, mut choice: Mut<WaveChoice>| {
+                world.resource_scope(|_world, mut rng: Mut<RunRng>| {
+                    crate::systems::wave::generate_choices(&mut choice, &defs, &hand, &mut rng);
+                });
+            });
+        }
+        Scenario::FullBoard => {
+            let slots = free_slots_in_order(world);
+            for (i, slot) in slots.iter().enumerate() {
+                place_towers(world, i % 4, &[*slot]); // cycle the 4 base types
+            }
+        }
+    }
+    info!("[debug] scenario '{}' loaded", scenario.name());
+}
+
+/// Wipe the board and interaction state (the common scenario prelude).
+/// Ghosts are hidden, not despawned — `update_hover_ghost` caches the entity
+/// id in a Local and must keep finding it.
+fn clear_board(world: &mut World) {
+    let doomed: Vec<Entity> = {
+        let mut q = world.query_filtered::<Entity, Or<(With<Enemy>, With<Projectile>, With<Tower>)>>();
+        q.iter(world).collect()
+    };
+    for e in doomed {
+        world.despawn(e);
+    }
+    let ghosts: Vec<Entity> = {
+        let mut q = world.query_filtered::<Entity, With<HoverGhost>>();
+        q.iter(world).collect()
+    };
+    for e in ghosts {
+        if let Some(mut vis) = world.get_mut::<Visibility>(e) {
+            *vis = Visibility::Hidden;
+        }
+    }
+    let slots: Vec<Entity> = {
+        let mut q = world.query_filtered::<Entity, With<TowerSlot>>();
+        q.iter(world).collect()
+    };
+    for e in slots {
+        if let Some(mut slot) = world.get_mut::<TowerSlot>(e) {
+            slot.occupied = false;
+        }
+    }
+    *world.resource_mut::<WaveState>() = WaveState::default();
+    world.resource_mut::<WaveChoice>().pending = false;
+    *world.resource_mut::<Selection>() = Selection::None;
+    world.resource_mut::<BuildMode>().armed = false;
+}
+
+/// Free tower slots in map order, as (slot entity, world position).
+fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
+    let mut q = world.query::<(Entity, &TowerSlot, &Transform)>();
+    let mut slots: Vec<_> = q
+        .iter(world)
+        .filter(|(_, slot, _)| !slot.occupied)
+        .map(|(e, slot, tf)| (slot.index, e, tf.translation))
+        .collect();
+    slots.sort_by_key(|(index, _, _)| *index);
+    slots.into_iter().map(|(_, e, pos)| (e, pos)).collect()
+}
+
+/// Spawn base towers of type `ty` at the given free slots and mark the slots
+/// occupied (DB2 scenarios; same construction as a player placement).
+fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
+    let Some(def) = world.resource::<TowerDefs>().list.get(ty).cloned() else {
+        warn!("[debug] tower def {ty} missing; scenario towers skipped");
+        return;
+    };
+    let mut queue = CommandQueue::default();
+    world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+        world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+            let mut cmds = Commands::new(&mut queue, world);
+            for (_slot_e, pos) in slots {
+                spawn_base_tower(&mut cmds, &def, ty, *pos, &mut meshes, &mut materials);
+            }
+        });
+    });
+    // Slot flags flip only after the Commands borrow of the world is over.
+    for (slot_e, _) in slots {
+        if let Some(mut slot) = world.get_mut::<TowerSlot>(*slot_e) {
+            slot.occupied = true;
+        }
+    }
+    queue.apply(world);
+}
+
+/// Spawn one enemy for a scenario (DB2): def index, explicit position and
+/// waypoint to head toward, optional HP override (wounded-pack setups).
+fn spawn_debug_enemy(
+    world: &mut World,
+    def_index: usize,
+    pos: Vec3,
+    next_wp: usize,
+    hp_override: Option<f32>,
+) {
+    let Some(def) = world.resource::<EnemyDefs>().list.get(def_index).cloned() else {
+        warn!("[debug] enemy def {def_index} missing; scenario enemy skipped");
+        return;
+    };
+    let units = path_units_per_point(world.resource::<PathInfo>());
+    let mut queue = CommandQueue::default();
+    world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+        world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+            let mut cmds = Commands::new(&mut queue, world);
+            spawn_enemy_at(
+                &mut cmds,
+                &def,
+                def_index,
+                pos,
+                next_wp,
+                hp_override,
+                units,
+                &mut meshes,
+                &mut materials,
+            );
+        });
+    });
+    queue.apply(world);
 }
