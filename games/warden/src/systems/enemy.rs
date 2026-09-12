@@ -18,6 +18,18 @@ const HEALER_HEAL_PER_TICK: f32 = 3.0;
 /// at spawn time, so changing the map keeps the anchor meaningful.
 const ANCHOR_TRAVERSE_SECS: f32 = 20.0;
 
+/// The archetype base color (healer green / armored steel / ordinary red).
+/// Shared with the FX domain (FX3 tinting restores to this).
+pub fn enemy_base_color(def: &crate::resources::EnemyDef) -> Color {
+    if def.healer {
+        Color::srgb(0.25, 0.75, 0.35) // healer: green so the aura is observable
+    } else if def.physical_armor {
+        Color::srgb(0.55, 0.55, 0.6)
+    } else {
+        Color::srgb(0.8, 0.25, 0.25)
+    }
+}
+
 /// Spawn one enemy of archetype `index` at the path entry.
 pub fn spawn_enemy(
     commands: &mut Commands,
@@ -39,13 +51,7 @@ pub fn spawn_enemy(
         .map(|w| w[0].distance(w[1]))
         .sum();
     let units_per_point = path_len / ANCHOR_TRAVERSE_SECS;
-    let color = if def.healer {
-        Color::srgb(0.25, 0.75, 0.35) // healer: green so the aura is observable
-    } else if def.physical_armor {
-        Color::srgb(0.55, 0.55, 0.6)
-    } else {
-        Color::srgb(0.8, 0.25, 0.25)
-    };
+    let color = enemy_base_color(def);
     let eid = commands
         .spawn((
             Enemy {
@@ -113,19 +119,31 @@ pub fn move_enemy(
     }
 }
 
-/// Grant gold and despawn any enemy at or below 0 HP.
+/// Grant gold and despawn any enemy at or below 0 HP. FX2: a pure-visual
+/// death shell spawns alongside — the gold/despawn logic and timing are
+/// untouched.
 pub fn resolve_death(
     mut commands: Commands,
     boost: Res<Boosts>,
     mut economy: ResMut<Economy>,
     mut wave: ResMut<WaveState>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     enemies: Query<(Entity, &Enemy)>,
+    visuals: Query<(&Transform, &MeshMaterial3d<StandardMaterial>)>,
 ) {
     for (eid, enemy) in &enemies {
         if enemy.hp <= 0.0 {
             let gain = (enemy.kill_gold as f32 * boost.kill_mult).round() as u32;
             economy.gold += gain;
             wave.active = wave.active.saturating_sub(1);
+            if let Ok((tf, mat)) = visuals.get(eid) {
+                if let Some(color) = materials.get(&mat.0).map(|m| m.base_color) {
+                    crate::systems::fx::spawn_death_shell(
+                        &mut commands, &mut meshes, &mut materials, tf, color,
+                    );
+                }
+            }
             commands.entity(eid).despawn();
             info!("[enemy] killed, gold={}", economy.gold);
         }

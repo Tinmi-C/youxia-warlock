@@ -15,8 +15,8 @@ use warden::{
     components::{AttackType, Enemy, FusionKind, Healer, Tower, TowerKind, TowerSlot},
     plugins::{
         acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
-        game::GamePlugin, map::MapPlugin, meta::MetaPlugin, projectiles::ProjectilesPlugin,
-        towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
+        fx::FxPlugin, game::GamePlugin, map::MapPlugin, meta::MetaPlugin,
+        projectiles::ProjectilesPlugin, towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
     },
     resources::{
         BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, Lang, MetaSavePath,
@@ -32,6 +32,7 @@ fn test_app() -> App {
     app.add_plugins((MinimalPlugins, StatesPlugin)) // init_state needs StateTransition schedule
         .init_state::<GameState>()
         .add_plugins((
+            FxPlugin,
             GamePlugin,
             MapPlugin,
             TowersPlugin,
@@ -2116,4 +2117,200 @@ fn wave_end_clears_in_flight_projectiles() {
     app.update();
     let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
     assert_eq!(q.iter(app.world()).count(), 0, "wave end must clear all rounds");
+}
+
+// --- FX1-FX3: combat presentation ---------------------------------------------
+
+use warden::systems::fx::{BlastRing, DeathShell, HealthBar, HitFlash, ShieldBadge};
+
+/// Spawn a fully-visual enemy (mesh + own material handle) at a position.
+fn spawn_visual_enemy(app: &mut App, def_index: usize, hp: f32, max_hp: f32, pos: Vec3) -> Entity {
+    let (mesh_handle, mat_handle) = {
+        let world = app.world_mut();
+        let base = warden::systems::enemy::enemy_base_color(
+            &world.resource::<warden::resources::EnemyDefs>().list[def_index],
+        );
+        let mesh_handle = {
+            let mut meshes = world.resource_mut::<Assets<Mesh>>();
+            meshes.add(Cuboid::new(0.7, 0.7, 0.7))
+        };
+        let mut materials = world
+            .resource_mut::<Assets<StandardMaterial>>();
+        (mesh_handle, materials.add(base))
+    };
+    app.world_mut()
+        .spawn((
+            Enemy {
+                hp,
+                max_hp,
+                speed: 0.0,
+                leak: 0,
+                kill_gold: 6,
+                physical_armor: def_index == 2,
+                def_index,
+                next_wp: 1, // valid waypoint; speed 0 keeps it in place
+            },
+            Mesh3d(mesh_handle),
+            MeshMaterial3d(mat_handle),
+            Transform::from_xyz(pos.x, 0.4, pos.z),
+        ))
+        .id()
+}
+
+fn material_color(app: &mut App, e: Entity) -> bevy::color::Color {
+    let handle = app
+        .world()
+        .get::<MeshMaterial3d<StandardMaterial>>(e)
+        .expect("material")
+        .0
+        .clone();
+    app.world()
+        .resource::<Assets<StandardMaterial>>()
+        .get(&handle)
+        .expect("asset")
+        .base_color
+}
+
+/// Capability card FX1 — acceptance: no bar at full hp; damaged => bar exists
+/// with width == hp/max_hp; healed back to full => hidden.
+#[test]
+fn health_bar_shows_only_when_damaged() {
+    let mut app = test_app();
+    let e = spawn_visual_enemy(&mut app, 0, 30.0, 30.0, Vec3::ZERO);
+    app.update();
+    let bars = |app: &mut App| -> Vec<(f32, bool)> {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(&HealthBar, &Transform, &Visibility), ()>();
+        q.iter(app.world())
+            .map(|(_, tf, v)| (tf.scale.x, *v == Visibility::Visible))
+            .collect()
+    };
+    assert!(bars(&mut app).is_empty(), "full-health enemy has no bar");
+    app.world_mut().get_mut::<Enemy>(e).unwrap().hp = 15.0;
+    app.update();
+    app.update(); // bar spawns via commands
+    let shown = bars(&mut app);
+    assert_eq!(shown.len(), 1, "damaged enemy gets a bar");
+    assert!(shown[0].1, "the bar is visible");
+    assert!(
+        (shown[0].0 - 0.45).abs() < 0.01,
+        "bar width == hp/max_hp (0.45), got {}",
+        shown[0].0
+    );
+
+    app.world_mut().get_mut::<Enemy>(e).unwrap().hp = 30.0;
+    app.update();
+    let shown = bars(&mut app);
+    assert!(!shown[0].1, "healed back to full => bar hidden");
+}
+
+/// Capability card FX2 — acceptance: a hit flashes the enemy white and
+/// recovers within ~0.15s; AOE blast rings fade away within ~0.5s.
+#[test]
+fn hit_flash_expires_and_blast_rings_fade() {
+    let mut app = test_app();
+    let e = spawn_visual_enemy(&mut app, 0, 30.0, 30.0, Vec3::ZERO);
+    app.update();
+    let before = material_color(&mut app, e);
+
+    app.world_mut()
+        .entity_mut(e)
+        .insert(HitFlash { timer: 0.15, original: None });
+    app.update();
+    let flashed = material_color(&mut app, e);
+    let srgb = |c: bevy::color::Color| c.to_srgba();
+    assert!(srgb(flashed).red > 0.9, "flashed white, got {:?}", srgb(flashed));
+
+    for _ in 0..10 {
+        app.update(); // 0.167s > 0.15s flash window
+    }
+    assert!(
+        app.world().get::<HitFlash>(e).is_none(),
+        "the flash component expires"
+    );
+    let restored = material_color(&mut app, e);
+    assert_eq!(srgb(restored), srgb(before), "original color restored");
+
+    // AOE ring: send the impact message and let the fx system react.
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<warden::systems::projectiles::ProjectileImpact>>()
+        .write(warden::systems::projectiles::ProjectileImpact {
+            position: Vec3::ZERO,
+            aoe_radius: 3.0,
+        });
+    app.update();
+    let rings = |app: &mut App| -> usize {
+        let mut q = app.world_mut().query_filtered::<&BlastRing, ()>();
+        q.iter(app.world()).count()
+    };
+    assert_eq!(rings(&mut app), 1, "AOE impact spawns a blast ring");
+    for _ in 0..35 {
+        app.update(); // ~0.58s > 0.5s ring lifetime
+    }
+    assert_eq!(rings(&mut app), 0, "the ring fades within ~0.5s");
+}
+
+/// Capability card FX2 — acceptance: an enemy death spawns a dissolving shell
+/// (~0.4s) while the kill gold (+6) stays exactly as before.
+#[test]
+fn death_shell_spawns_and_kill_gold_untouched() {
+    let mut app = test_app();
+    let e = spawn_visual_enemy(&mut app, 0, 0.0, 30.0, Vec3::ZERO);
+    app.update(); // resolve_death: gold +6, despawn, shell spawns
+    assert_eq!(app.world().resource::<Economy>().gold, 100 + 6, "kill gold +6 unchanged");
+    assert!(app.world().get::<Enemy>(e).is_none(), "the enemy is gone");
+    let shells = |app: &mut App| -> usize {
+        let mut q = app.world_mut().query_filtered::<&DeathShell, ()>();
+        q.iter(app.world()).count()
+    };
+    assert_eq!(shells(&mut app), 1, "a death shell spawns");
+    for _ in 0..30 {
+        app.update(); // 0.5s > 0.4s shell lifetime
+    }
+    assert_eq!(shells(&mut app), 0, "the shell dissolves within ~0.4s");
+}
+
+/// Capability card FX3 — acceptance: a slowed enemy tints blue (blue channel
+/// dominates) and restores the archetype color once `Slow` expires.
+#[test]
+fn slow_tints_blue_then_restores() {
+    let mut app = test_app();
+    let e = spawn_visual_enemy(&mut app, 0, 30.0, 30.0, Vec3::ZERO); // ordinary: red
+    app.update();
+    let base = material_color(&mut app, e).to_srgba();
+    assert!(base.red > base.blue, "ordinary enemy starts red");
+
+    app.world_mut()
+        .entity_mut(e)
+        .insert(Slow { timer: 1.0, factor: 0.7 });
+    app.update();
+    let tinted = material_color(&mut app, e).to_srgba();
+    assert!(
+        tinted.blue > tinted.red,
+        "slowed enemy must be blue-tinted, got {tinted:?}"
+    );
+
+    for _ in 0..70 {
+        app.update(); // >1s: the slow expires
+    }
+    let restored = material_color(&mut app, e).to_srgba();
+    assert!(restored.red > restored.blue, "color restores after the slow");
+}
+
+/// Capability card FX3 — acceptance: armored (shield) enemies carry a
+/// distinguishable badge from spawn.
+#[test]
+fn armored_enemy_carries_shield_badge() {
+    let mut app = test_app();
+    let armored = spawn_visual_enemy(&mut app, 2, 90.0, 90.0, Vec3::new(2.0, 0.4, 0.0));
+    let ordinary = spawn_visual_enemy(&mut app, 0, 30.0, 30.0, Vec3::ZERO);
+    app.update();
+    // The badge spawns as a child of the armored enemy.
+    let badge_count = {
+        let mut q = app.world_mut().query_filtered::<&ShieldBadge, ()>();
+        q.iter(app.world()).count()
+    };
+    assert_eq!(badge_count, 1, "exactly the armored enemy carries a badge");
+    let _ = (armored, ordinary);
 }

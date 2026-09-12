@@ -9,6 +9,7 @@
 use bevy::prelude::*;
 
 use crate::components::{Enemy, Projectile, Slow};
+use crate::systems::fx::HitFlash;
 use crate::resources::{WavePhase, WaveState};
 use crate::systems::tower::effective_damage;
 
@@ -91,6 +92,10 @@ fn resolve_impact(
         if let Ok((_, _, mut en)) = enemies.get_mut(ven) {
             let applied = effective_damage(proj.attack_type, en.physical_armor, proj.damage);
             en.hp -= applied;
+            commands.entity(ven).insert(HitFlash {
+                timer: 0.15,
+                original: None,
+            });
             if proj.slow_factor > 0.0 {
                 commands.entity(ven).insert(Slow {
                     timer: proj.slow_duration,

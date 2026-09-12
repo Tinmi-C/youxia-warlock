@@ -18,6 +18,7 @@ use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
 
 use warden::components::{Tower, TowerKind, TowerSlot};
 use warden::plugins::{
+    fx::FxPlugin,
     acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
     game::GamePlugin, map::MapPlugin, meta::MetaPlugin, projectiles::ProjectilesPlugin,
     towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
@@ -32,6 +33,7 @@ fn test_app() -> App {
     app.add_plugins((MinimalPlugins, StatesPlugin))
         .init_state::<GameState>()
         .add_plugins((
+            FxPlugin,
             GamePlugin,
             MapPlugin,
             TowersPlugin,

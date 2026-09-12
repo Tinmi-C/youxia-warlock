@@ -11,6 +11,7 @@
 use bevy::prelude::*;
 
 use crate::components::{AttackType, Enemy, FusionKind, Projectile, Slow, Tower, TowerKind};
+use crate::systems::fx::HitFlash;
 use crate::resources::{Boosts, PROJECTILE_SPEED};
 
 /// Resolve one-axis armor: physical is halved vs armored enemies; magic and
@@ -89,6 +90,10 @@ pub fn tower_fire(
             if let Ok((_, _, mut en)) = enemies.get_mut(target) {
                 let applied = effective_damage(tower.attack_type, en.physical_armor, base_dmg);
                 en.hp -= applied;
+                commands.entity(target).insert(HitFlash {
+                    timer: 0.15,
+                    original: None,
+                });
                 if tower.slow_factor > 0.0 {
                     commands.entity(target).insert(Slow {
                         timer: tower.slow_duration,

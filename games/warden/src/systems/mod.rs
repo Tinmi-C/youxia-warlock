@@ -2,6 +2,7 @@ pub mod acquisition;
 pub mod camera;
 pub mod command;
 pub mod enemy;
+pub mod fx;
 pub mod hud;
 pub mod input;
 pub mod l10n;

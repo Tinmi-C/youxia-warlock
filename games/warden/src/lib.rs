@@ -33,6 +33,7 @@ pub fn build_app() -> App {
         // "a domain per Plugin" avoids god-files). Gameplay domains (towers /
         // enemies / waves) are declared now as seams; capability cards fill them.
         .add_plugins((
+            plugins::fx::FxPlugin,
             plugins::game::GamePlugin,
             plugins::map::MapPlugin,
             plugins::towers::TowersPlugin,

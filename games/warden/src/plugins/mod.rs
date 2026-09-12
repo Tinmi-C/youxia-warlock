@@ -2,6 +2,7 @@ pub mod acquisition;
 pub mod debug;
 pub mod economy;
 pub mod enemies;
+pub mod fx;
 pub mod game;
 pub mod map;
 pub mod meta;
