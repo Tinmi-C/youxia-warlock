@@ -34,12 +34,6 @@ pub enum TowerKind {
     Fused(FusionKind),
 }
 
-/// The movable tower-placement cursor (WASD steers it over the ground plane).
-#[derive(Component)]
-pub struct PlacementCursor {
-    pub speed: f32,
-}
-
 /// A live enemy instance walking the path. Values come from `EnemyDefs`
 /// (resources.rs) at spawn; this is the mutable runtime copy.
 #[derive(Component)]
@@ -95,12 +89,6 @@ pub struct Healer {
 pub struct TowerSlot {
     pub index: usize,
     pub occupied: bool,
-}
-
-/// A bevy_ui shop button that selects a base tower type to build.
-#[derive(Component)]
-pub struct ShopButton {
-    pub tower_index: usize,
 }
 
 /// Marks the base entity (the path endpoint; HP lives in the `BaseHp` resource).

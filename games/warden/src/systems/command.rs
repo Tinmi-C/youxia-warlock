@@ -77,6 +77,11 @@ pub struct CommandButton {
 #[derive(Component)]
 pub struct SelectionRing;
 
+/// Marker on the build-preview range ring shown while hovering a Build
+/// button with an empty slot selected (UI10, §16.4).
+#[derive(Component)]
+pub struct PreviewRing;
+
 /// Spawn the persistent three-zone bottom bar (§16.1). Zone contents are
 /// filled/refreshed by the per-frame systems below.
 pub fn spawn_command_bar(mut commands: Commands, font: Res<UiFont>) {
@@ -690,5 +695,220 @@ pub fn refresh_bar_visibility(
     let show = !matches!(state.get(), GameState::GameOver | GameState::Win);
     for mut node in &mut roots {
         node.display = if show { Display::Flex } else { Display::None };
+    }
+}
+
+// --- UI10: build command migration + dual entry (§16.4) ----------------------
+
+/// Spawn a base tower at `pos` from its definition; returns the new entity.
+/// Shared by the direct-build entry (UI10) — the armed flow keeps its own
+/// spawn site in `pointer::mouse_place_system`.
+fn spawn_base_tower(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    def: &crate::resources::TowerDef,
+    tower_index: usize,
+    pos: Vec3,
+) -> Entity {
+    commands
+        .spawn((
+            Tower {
+                tower_index,
+                damage: def.damage,
+                attack_speed: def.attack_speed,
+                range: def.range,
+                attack_type: def.attack_type,
+                cooldown: 0.0,
+                target: None,
+                kind: TowerKind::Base(tower_index),
+                aoe_radius: 0.0,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+            },
+            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+            MeshMaterial3d(materials.add(match def.attack_type {
+                crate::components::AttackType::Physical => Color::srgb(0.7, 0.7, 0.8),
+                crate::components::AttackType::Magic => Color::srgb(0.5, 0.4, 0.9),
+                crate::components::AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
+            })),
+            Transform::from_xyz(pos.x, 0.6, pos.z),
+        ))
+        .id()
+}
+
+/// Command-card button actions (UI10): the two build entries (§16.4) and the
+/// AC2 shop purchase. Greyed buttons (enabled=false) never act.
+#[allow(clippy::too_many_arguments)]
+pub fn handle_command_buttons(
+    mut commands: Commands,
+    mut q: Query<(&Interaction, &CommandButton), Changed<Interaction>>,
+    mut selection: ResMut<Selection>,
+    mut selected: ResMut<crate::resources::SelectedTower>,
+    mut build: ResMut<BuildMode>,
+    defs: Res<TowerDefs>,
+    mut hand: ResMut<Hand>,
+    mut economy: ResMut<Economy>,
+    wave: Res<WaveState>,
+    state: Res<State<GameState>>,
+    mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let intermission = wave.phase == WavePhase::Intermission && *state.get() == GameState::Playing;
+    for (inter, btn) in &mut q {
+        if *inter != Interaction::Pressed || !btn.enabled {
+            continue;
+        }
+        match btn.action {
+            CommandAction::Build(i) => {
+                if !intermission {
+                    continue;
+                }
+                let Some(def) = defs.list.get(i) else { continue };
+                if !hand.owned_towers.contains(&i) || economy.gold < def.cost {
+                    continue;
+                }
+                match *selection {
+                    // Second entry (§16.4): an empty slot is selected, so the
+                    // button builds directly on that slot.
+                    Selection::EmptySlot(slot_e) => {
+                        if let Ok((_, mut slot, stf)) = slots.get_mut(slot_e) {
+                            if slot.occupied {
+                                continue;
+                            }
+                            slot.occupied = true;
+                            economy.gold -= def.cost;
+                            let e = spawn_base_tower(
+                                &mut commands,
+                                &mut meshes,
+                                &mut materials,
+                                def,
+                                i,
+                                stf.translation,
+                            );
+                            *selection = Selection::Tower(e);
+                            info!("[ui10] built {} on selected slot, gold={}", def.name, economy.gold);
+                        }
+                    }
+                    // First entry (§16.4): arm build mode, then click a slot
+                    // (UI1 mouse flow preserved).
+                    _ => {
+                        selected.tower_index = i;
+                        build.armed = true;
+                        info!("[ui10] build armed for tower {i}");
+                    }
+                }
+            }
+            CommandAction::Buy(i) => {
+                // AC2 semantics unchanged: pay once, unlock into the hand.
+                if !intermission || hand.owned_towers.contains(&i) {
+                    continue;
+                }
+                let Some(def) = defs.list.get(i) else { continue };
+                if economy.gold < def.cost {
+                    continue;
+                }
+                economy.gold -= def.cost;
+                hand.owned_towers.push(i);
+                info!("[ui10] bought {} for {} (hand {:?})", def.name, def.cost, hand.owned_towers);
+            }
+            CommandAction::FuseCancel => {
+                *selection = Selection::None;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Hover preview (§16.4 second entry): while an empty slot is selected,
+/// hovering a Build button shows the ghost tower + that type's range ring
+/// on the slot. The preview follows the hovered type live.
+#[allow(clippy::too_many_arguments)]
+pub fn hover_build_preview(
+    mut commands: Commands,
+    buttons: Query<(&Interaction, &CommandButton)>,
+    selection: Res<Selection>,
+    defs: Res<TowerDefs>,
+    wave: Res<WaveState>,
+    state: Res<State<GameState>>,
+    slots: Query<(&TowerSlot, &Transform)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cache: Local<Option<(usize, Entity, Entity)>>, // (type, ghost, ring)
+) {
+    let active = wave.phase == WavePhase::Intermission && *state.get() == GameState::Playing;
+    let hovered_type = buttons
+        .iter()
+        .find(|(inter, btn)| {
+            **inter == Interaction::Hovered && matches!(btn.action, CommandAction::Build(_))
+        })
+        .and_then(|(_, btn)| match btn.action {
+            CommandAction::Build(i) => Some(i),
+            _ => None,
+        });
+    let target = match (*selection, hovered_type) {
+        (Selection::EmptySlot(e), Some(i)) if active => slots
+            .get(e)
+            .ok()
+            .filter(|(slot, _)| !slot.occupied)
+            .map(|(_, t)| (i, t.translation)),
+        _ => None,
+    };
+    match target {
+        None => {
+            if let Some((_, ghost, ring)) = *cache {
+                commands.entity(ghost).insert(Visibility::Hidden);
+                commands.entity(ring).insert(Visibility::Hidden);
+            }
+        }
+        Some((i, pos)) => {
+            if cache.map_or(true, |(t, _, _)| t != i) {
+                // (Re)spawn the ghost + ring for the newly hovered type.
+                if let Some((_, ghost, ring)) = *cache {
+                    commands.entity(ghost).despawn();
+                    commands.entity(ring).despawn();
+                }
+                let Some(def) = defs.list.get(i) else { return };
+                let (r, g, b) = match def.attack_type {
+                    crate::components::AttackType::Physical => (0.7, 0.7, 0.8),
+                    crate::components::AttackType::Magic => (0.5, 0.4, 0.9),
+                    crate::components::AttackType::Mixed => (0.6, 0.9, 0.6),
+                };
+                let ghost = commands
+                    .spawn((
+                        crate::systems::pointer::HoverGhost,
+                        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                        MeshMaterial3d(materials.add(StandardMaterial {
+                            base_color: Color::srgba(r, g, b, 0.35),
+                            unlit: true,
+                            alpha_mode: AlphaMode::Blend,
+                            ..default()
+                        })),
+                        Visibility::Visible,
+                        Transform::from_xyz(pos.x, 0.6, pos.z),
+                    ))
+                    .id();
+                let ring = commands
+                    .spawn((
+                        PreviewRing,
+                        Mesh3d(meshes.add(Circle::new(def.range))),
+                        MeshMaterial3d(materials.add(StandardMaterial {
+                            base_color: Color::srgba(0.4, 0.9, 0.5, 0.25),
+                            unlit: true,
+                            alpha_mode: AlphaMode::Blend,
+                            ..default()
+                        })),
+                        Visibility::Visible,
+                        Transform::from_xyz(pos.x, 0.05, pos.z)
+                            .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+                    ))
+                    .id();
+                *cache = Some((i, ghost, ring));
+            } else if let Some((_, ghost, ring)) = *cache {
+                commands.entity(ghost).insert(Visibility::Visible);
+                commands.entity(ring).insert(Visibility::Visible);
+            }
+        }
     }
 }

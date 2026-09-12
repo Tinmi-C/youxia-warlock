@@ -29,33 +29,18 @@ impl Plugin for GamePlugin {
         )
         .init_resource::<BuildMode>()
         .init_resource::<FusionSel>()
-        .add_systems(
-            Startup,
-            (
-                systems::camera::spawn_camera,
-                systems::cursor::spawn_placement_cursor,
-            ),
-        )
+        .add_systems(Startup, systems::camera::spawn_camera)
         .add_systems(
             Update,
             (
-                systems::cursor::move_cursor.in_set(GameSet::Input),
-                systems::input::select_tower.in_set(GameSet::Input),
                 systems::input::choose_choice.in_set(GameSet::Input),
                 systems::input::start_next_wave.in_set(GameSet::Input),
-                systems::pointer::handle_shop_buttons.in_set(GameSet::Input),
-                systems::pointer::handle_offer_buttons.in_set(GameSet::Input),
+                systems::command::handle_command_buttons.in_set(GameSet::Input),
                 systems::pointer::handle_start_wave_button.in_set(GameSet::Input),
                 systems::pointer::handle_choice_card_buttons.in_set(GameSet::Input),
                 systems::command::select_object.in_set(GameSet::Input),
                 systems::pointer::mouse_place_system.in_set(GameSet::Input),
             )
-                .run_if(in_state(GameState::Playing)),
-        )
-        .add_systems(
-            Update,
-            systems::input::place_tower
-                .in_set(GameSet::Placement)
                 .run_if(in_state(GameState::Playing)),
         )
         // Pause toggle must run in every state (P resumes from GameOver/Win too).

@@ -32,16 +32,15 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     systems::hud::update_hud,
-                    // Legacy bottom shop bar (retires with UI10).
-                    systems::pointer::refresh_shop_bar,
                     systems::pointer::refresh_choice_cards,
                     systems::pointer::update_hover_ghost,
                     systems::pointer::refresh_end_screen,
-                    // Command card (UI9).
+                    // Command card (UI9/UI10).
                     systems::command::refresh_control_zone,
                     systems::command::refresh_command_card,
                     systems::command::refresh_info_zone,
                     systems::command::refresh_selection_ring,
+                    systems::command::hover_build_preview,
                     systems::command::refresh_start_wave_button,
                     systems::command::refresh_bar_visibility,
                 )

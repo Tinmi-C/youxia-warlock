@@ -1,26 +1,24 @@
-//! Mouse-first interaction (UI1 legacy bar + pointer place, UI2 choice cards,
-//! UI3 hover ghost, UI5 end screen).
-//!   - The legacy bottom shop bar (owned types + shop offers) still builds here
-//!     and retires with UI10, when the command card takes over the build list.
+//! Mouse-first interaction (pointer place, UI2 choice cards, UI3 hover ghost,
+//! UI5 end screen).
+//!   - The legacy bottom shop bar retired with UI10: the command card now owns
+//!     the build list (command.rs); this file keeps the armed-flow placement
+//!     click and the shared markers it references.
 //!   - Pending three-choose-one options appear as clickable cards (UI2, = 1/2/3).
 //!   - Left click on a slot places the armed tower (Intermission only).
 //!   - Right click / Esc cancel build mode and the selection (command.rs UI9).
 //!   - The GameOver/Win end screen (UI5) and the language button handler (UI7)
-//!     live here; the button itself moved into the command bar control zone.
-//! Selection (towers / slots) and the command card live in `command.rs` (UI9).
+//!     live here; the button itself lives in the command bar control zone.
 //!
 //! Split into small systems: Bevy caps a single system at 16 params.
-
-use std::collections::BTreeSet;
 
 use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::window::Window;
 
-use crate::components::{AttackType, ShopButton, Tower, TowerKind, TowerSlot};
+use crate::components::{AttackType, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    Boosts, BuildMode, Economy, Hand, Lang, MetaSavePath, MetaState, SelectedTower, ShopOffers,
-    TowerDefs, UiPrefsPath, UPGRADE1_COST, UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule,
+    Boosts, BuildMode, Economy, Hand, Lang, MetaSavePath, MetaState, SelectedTower, TowerDefs,
+    UiPrefsPath, UPGRADE1_COST, UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule,
     WaveState,
 };
 use crate::states::GameState;
@@ -28,17 +26,6 @@ use crate::systems::l10n;
 use crate::systems::{
     hud::UiFont, input::{apply_choice, try_start_wave}, meta::buy_upgrade,
 };
-
-/// Marker on the shop bar root so it can be despawned on rebuild (Bevy 0.19
-/// despawn removes children recursively).
-#[derive(Component)]
-pub struct ShopBarRoot;
-
-/// A bevy_ui shop offer button: buys (unlocks) that base tower type (AC2).
-#[derive(Component)]
-pub struct OfferButton {
-    pub tower_index: usize,
-}
 
 /// "开始下一波" button (lives in the command-bar control zone since UI9):
 /// same effect as the Space key.
@@ -77,194 +64,6 @@ pub struct MetaUpgradeButton {
 /// command-bar control zone since UI9.
 #[derive(Component)]
 pub struct LangToggleButton;
-
-/// Spawn the bottom shop bar: owned types row (UI1) + offers row (AC2).
-/// Labels follow `Lang` (UI7); a card greys out when gold cannot afford it.
-fn build_shop_bar(commands: &mut Commands, font: &UiFont, lang: Lang, defs: &TowerDefs, offers: &ShopOffers, hand: &Hand, economy: &Economy) {
-    // Dedupe for display: AC3 drops may push a type that is already owned.
-    let owned: Vec<usize> = hand
-        .owned_towers
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    commands
-        .spawn((
-            ShopBarRoot,
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(140.0), // sits above the command bar (UI9)
-                left: Val::Px(12.0),
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(6.0),
-                ..default()
-            },
-        ))
-        .with_children(|root| {
-            // Row 1: owned types — click arms build mode (UI1).
-            root.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(8.0),
-                ..default()
-            })
-            .with_children(|row| {
-                for i in owned {
-                    let Some(def) = defs.list.get(i) else {
-                        continue;
-                    };
-                    let affordable = economy.gold >= def.cost;
-                    row.spawn((
-                        Button,
-                        ShopButton { tower_index: i },
-                        Interaction::None,
-                        Node {
-                            width: Val::Px(96.0),
-                            height: Val::Px(48.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgb(0.2, 0.3, 0.4)),
-                    ))
-                    .with_children(|p| {
-                        p.spawn((
-                            Text::new(l10n::card_cost(lang, l10n::tower_label(def, lang), def.cost)),
-                            TextFont {
-                                font: font.0.clone(),
-                                font_size: FontSize::Px(13.0),
-                                ..default()
-                            },
-                            TextColor(card_color(affordable, Color::WHITE)),
-                        ));
-                    });
-                }
-            });
-            // Row 2: shop offers — click buys (unlocks) the type (AC2).
-            root.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(8.0),
-                ..default()
-            })
-            .with_children(|row| {
-                for &i in &offers.offers {
-                    let Some(def) = defs.list.get(i) else {
-                        continue;
-                    };
-                    let affordable = economy.gold >= def.cost;
-                    row.spawn((
-                        Button,
-                        OfferButton { tower_index: i },
-                        Interaction::None,
-                        Node {
-                            width: Val::Px(96.0),
-                            height: Val::Px(40.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgb(0.45, 0.35, 0.15)),
-                    ))
-                    .with_children(|p| {
-                        p.spawn((
-                            Text::new(l10n::offer_cost(lang, l10n::tower_label(def, lang), def.cost)),
-                            TextFont {
-                                font: font.0.clone(),
-                                font_size: FontSize::Px(12.0),
-                                ..default()
-                            },
-                            TextColor(card_color(affordable, Color::srgb(1.0, 0.9, 0.6))),
-                        ));
-                    });
-                }
-            });
-        });
-}
-
-/// Normal color when affordable, dim grey otherwise (UI2 affordability cue).
-fn card_color(affordable: bool, normal: Color) -> Color {
-    if affordable {
-        normal
-    } else {
-        Color::srgb(0.45, 0.45, 0.45)
-    }
-}
-
-/// Rebuild the shop bar whenever the hand, the offer, gold, or the language
-/// changes (AC1/2/3 feed it; gold refreshes the affordability grey-out; UI7
-/// rebuilds the copy). Cached key avoids per-frame work.
-pub fn refresh_shop_bar(
-    mut commands: Commands,
-    font: Res<UiFont>,
-    lang: Res<Lang>,
-    defs: Res<TowerDefs>,
-    offers: Res<ShopOffers>,
-    hand: Res<Hand>,
-    economy: Res<Economy>,
-    mut cache: Local<(u32, usize, u32, Lang)>,
-    roots: Query<Entity, With<ShopBarRoot>>,
-) {
-    let key = (offers.version, hand.owned_towers.len(), economy.gold, *lang);
-    if *cache == key {
-        return;
-    }
-    *cache = key;
-    for root in &roots {
-        commands.entity(root).despawn();
-    }
-    build_shop_bar(&mut commands, &font, *lang, &defs, &offers, &hand, &economy);
-}
-
-/// A pressed shop button arms build mode with that tower type.
-pub fn handle_shop_buttons(
-    mut q: Query<(&Interaction, &ShopButton), Changed<Interaction>>,
-    mut selected: ResMut<SelectedTower>,
-    mut build: ResMut<BuildMode>,
-) {
-    for (inter, btn) in &mut q {
-        if *inter == Interaction::Pressed {
-            selected.tower_index = btn.tower_index;
-            build.armed = true;
-            info!("[mouse] build mode armed for tower {}", btn.tower_index);
-        }
-    }
-}
-
-/// AC2: clicking an offer buys (unlocks) that base tower type. The purchase
-/// pays the tower cost once; each later placement of the unlocked type still
-/// pays per build (TO2 rule unchanged).
-pub fn handle_offer_buttons(
-    mut q: Query<(&Interaction, &OfferButton), Changed<Interaction>>,
-    defs: Res<TowerDefs>,
-    mut economy: ResMut<Economy>,
-    mut hand: ResMut<Hand>,
-) {
-    for (inter, btn) in &mut q {
-        if *inter != Interaction::Pressed {
-            continue;
-        }
-        if hand.owned_towers.contains(&btn.tower_index) {
-            info!("[mouse] offer {}: already owned", btn.tower_index);
-            continue;
-        }
-        let Some(def) = defs.list.get(btn.tower_index) else {
-            continue;
-        };
-        if economy.gold < def.cost {
-            info!(
-                "[mouse] offer {}: not enough gold ({} < {})",
-                def.name, economy.gold, def.cost
-            );
-            continue;
-        }
-        economy.gold -= def.cost;
-        hand.owned_towers.push(btn.tower_index);
-        info!(
-            "[mouse] bought {} for {} (hand {:?})",
-            def.name, def.cost, hand.owned_towers
-        );
-    }
-}
 
 /// Clicking "开始下一波" starts the next wave — identical to the Space key (UI2).
 pub fn handle_start_wave_button(

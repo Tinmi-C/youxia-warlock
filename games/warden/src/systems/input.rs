@@ -1,47 +1,20 @@
 //! Player input for the closed loop. One-card workhorse:
-//!   - WASD moves the cursor (cursor.rs)
-//!   - 1-4 select the tower archetype to place
-//!   - E places the selected tower at the nearest empty slot (Intermission only)
+//!   - 1/2/3 picks the pending "三选一" option (AC4)
 //!   - Space starts the next wave (Intermission only)
-//! Keyboard-driven for the first slice; a bevy_ui shop is a follow-on card (UI1).
+//!   - F fuses the first matching pair (TO5 legacy trigger; retires with UI11)
+//! Tower selection/build moved to the command card (UI10, requirements §16):
+//! the old WASD cursor and the 1-4/E keyboard flow are retired.
 
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
 
-use crate::components::{AttackType, FusionKind, PlacementCursor, Tower, TowerKind, TowerSlot};
+use crate::components::{FusionKind, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    Boosts, ChoiceKind, Economy, FusionDefs, Hand, SelectedTower, StatKind, TowerDefs, WaveChoice,
+    Boosts, ChoiceKind, Economy, FusionDefs, Hand, StatKind, TowerDefs, WaveChoice,
     WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
-
-/// Digit keys 1-4 select a tower archetype (index into `TowerDefs`). While a
-/// three-choose-one choice is pending, digits are routed to `choose_choice`.
-pub fn select_tower(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut selected: ResMut<SelectedTower>,
-    choice: Res<WaveChoice>,
-) {
-    if choice.pending {
-        return;
-    }
-    let idx = if keys.just_pressed(KeyCode::Digit1) {
-        Some(0)
-    } else if keys.just_pressed(KeyCode::Digit2) {
-        Some(1)
-    } else if keys.just_pressed(KeyCode::Digit3) {
-        Some(2)
-    } else if keys.just_pressed(KeyCode::Digit4) {
-        Some(3)
-    } else {
-        None
-    };
-    if let Some(i) = idx {
-        selected.tower_index = i;
-        info!("[input] selected tower {}", i);
-    }
-}
 
 /// 1/2/3 picks the pending "三选一" option (AC4) and applies its effect.
 pub fn choose_choice(
@@ -97,86 +70,6 @@ pub fn apply_choice(
     }
     choice.pending = false;
     info!("[input] chose {:?}", kind);
-}
-
-/// E places the selected tower at the nearest empty slot — only during the
-/// intermission (build window). This is the "波次进行中锁建造" gate.
-pub fn place_tower(
-    keys: Res<ButtonInput<KeyCode>>,
-    selected: Res<SelectedTower>,
-    defs: Res<TowerDefs>,
-    wave: Res<WaveState>,
-    state: Res<State<GameState>>,
-    hand: Res<Hand>,
-    mut economy: ResMut<Economy>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
-    cursor: Query<&Transform, With<PlacementCursor>>,
-) {
-    if !keys.just_pressed(KeyCode::KeyE) {
-        return;
-    }
-    // Locked during combat and after the game ends.
-    if wave.phase != WavePhase::Intermission || *state.get() != GameState::Playing {
-        return;
-    }
-    let Some(def) = defs.list.get(selected.tower_index) else {
-        return;
-    };
-    // AC1: only base tower types the player owns can be placed.
-    if !hand.owned_towers.contains(&selected.tower_index) {
-        info!("[input] tower {} not owned", selected.tower_index);
-        return;
-    }
-    let Ok(ctf) = cursor.single() else {
-        return;
-    };
-    let mut best: Option<(Entity, f32)> = None;
-    for (eid, slot, stf) in &slots {
-        if slot.occupied {
-            continue;
-        }
-        let d = ctf.translation.distance(stf.translation);
-        if best.map_or(true, |(_, bd)| d < bd) {
-            best = Some((eid, d));
-        }
-    }
-    let Some((slot_e, _)) = best else {
-        return;
-    };
-    if economy.gold < def.cost {
-        info!("[input] not enough gold for {}", def.name);
-        return;
-    }
-    economy.gold -= def.cost;
-    if let Ok((_, mut slot, stf)) = slots.get_mut(slot_e) {
-        slot.occupied = true;
-        commands.spawn((
-            Tower {
-                tower_index: selected.tower_index,
-                damage: def.damage,
-                attack_speed: def.attack_speed,
-                range: def.range,
-                attack_type: def.attack_type,
-                cooldown: 0.0,
-                target: None,
-                kind: TowerKind::Base(selected.tower_index),
-                aoe_radius: 0.0,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-            },
-            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-            MeshMaterial3d(materials.add(match def.attack_type {
-                AttackType::Physical => Color::srgb(0.7, 0.7, 0.8),
-                AttackType::Magic => Color::srgb(0.5, 0.4, 0.9),
-                AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
-            })),
-            Transform::from_xyz(stf.translation.x, 0.6, stf.translation.z),
-        ));
-        info!("[input] placed {} at slot, gold={}", def.name, economy.gold);
-    }
 }
 
 /// Space begins the next wave (only from Intermission). Delegates to the shared

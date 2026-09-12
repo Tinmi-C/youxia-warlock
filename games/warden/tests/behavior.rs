@@ -12,7 +12,7 @@ use bevy::{
 
 use warden::systems::pointer;
 use warden::{
-    components::{AttackType, Enemy, FusionKind, Healer, PlacementCursor, Tower, TowerKind},
+    components::{AttackType, Enemy, FusionKind, Healer, Tower, TowerKind, TowerSlot},
     plugins::{
         acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
         game::GamePlugin, map::MapPlugin, meta::MetaPlugin, towers::TowersPlugin, ui::UiPlugin,
@@ -65,14 +65,6 @@ fn test_app() -> App {
     app
 }
 
-/// Cursor distance from its spawn (0, 0.3, 0). Movement is constrained to the
-/// XZ ground plane, so measuring the XZ length of the translation is correct.
-fn cursor_displacement(app: &mut App) -> f32 {
-    let mut q = app.world_mut().query::<(&PlacementCursor, &Transform)>();
-    let (_, tf) = q.single(app.world()).expect("one placement cursor exists");
-    tf.translation.xz().length()
-}
-
 fn enemy_hp(app: &mut App) -> f32 {
     let mut q = app.world_mut().query::<&Enemy>();
     q.single(app.world()).map(|e| e.hp).expect("one enemy exists")
@@ -81,88 +73,6 @@ fn enemy_hp(app: &mut App) -> f32 {
 fn count_towers(app: &mut App) -> usize {
     let mut q = app.world_mut().query::<&Tower>();
     q.iter(app.world()).count()
-}
-
-/// Capability card CursorMove — acceptance: distance == speed × elapsed time
-/// (frame-rate independent; asserted against the *actually* elapsed time, so
-/// first-frame clock quirks can't break it).
-#[test]
-fn straight_move_distance_equals_speed_times_time() {
-    let mut app = test_app();
-    app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::KeyW);
-    for _ in 0..60 {
-        app.update();
-    }
-    let elapsed = app.world().resource::<Time>().elapsed_secs();
-    let dist = cursor_displacement(&mut app);
-    let expected = 8.0 * elapsed; // PlacementCursor.speed × actually elapsed seconds
-    assert!(
-        (dist - expected).abs() < 0.05,
-        "expected ≈{expected:.3} units in {elapsed:.3}s, got {dist}"
-    );
-}
-
-/// Capability card CursorMove — acceptance: diagonal speed is NOT speed * sqrt(2).
-#[test]
-fn diagonal_move_is_not_faster() {
-    let mut app = test_app();
-    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-    keys.press(KeyCode::KeyW);
-    keys.press(KeyCode::KeyD);
-    drop(keys);
-    for _ in 0..60 {
-        app.update();
-    }
-    let elapsed = app.world().resource::<Time>().elapsed_secs();
-    let dist = cursor_displacement(&mut app);
-    let expected = 8.0 * elapsed; // speed × actually elapsed seconds
-    assert!(
-        (dist - expected).abs() < 0.05,
-        "diagonal got {dist}, should be ≈{expected} (normalized, elapsed={elapsed}), not {}*sqrt(2)",
-        8.0
-    );
-}
-
-/// Capability card GameState — acceptance: paused state freezes movement.
-#[test]
-fn paused_state_stops_cursor() {
-    let mut app = test_app();
-    app.world_mut()
-        .resource_mut::<NextState<GameState>>()
-        .set(GameState::Paused);
-    app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::KeyW);
-    for _ in 0..60 {
-        app.update();
-    }
-    let dist = cursor_displacement(&mut app);
-    assert!(dist < 0.01, "cursor moved {dist} units while paused");
-}
-
-/// Capability card TO2 — acceptance: valid placement deducts the tower cost and
-/// occupies a slot; the nearest empty slot to the cursor is used. Since AC1 the
-/// opening hand is random, so we place the first dealt tower whatever it is.
-#[test]
-fn place_tower_deducts_gold_and_occupies_slot() {
-    let mut app = test_app();
-    app.world_mut().insert_resource(RunRng::seeded(7));
-    app.update(); // Startup: deals the opening hand
-    let owned = app.world().resource::<Hand>().owned_towers[0];
-    let cost = app.world().resource::<TowerDefs>().list[owned].cost;
-    app.world_mut().resource_mut::<SelectedTower>().tower_index = owned;
-    app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::KeyE);
-    app.update();
-    let gold = app.world().resource::<Economy>().gold;
-    assert_eq!(
-        gold, 100 - cost,
-        "placing dealt tower {owned} (cost {cost}) should deduct exactly its cost"
-    );
-    assert_eq!(count_towers(&mut app), 1, "one tower should be placed");
 }
 
 /// Capability card AC1 — acceptance: every opening hand has exactly 2 distinct
@@ -1373,4 +1283,178 @@ fn command_bar_hidden_on_terminal_states() {
     app.update();
     app.update();
     assert_eq!(root_display(&mut app), Display::Flex);
+}
+
+// --- UI10: build dual entry + shop migration ---------------------------------
+
+/// Find (and press) the command-card button for an action.
+fn press_command_button(app: &mut App, want: CommandAction) -> bool {
+    let mut q = app.world_mut().query_filtered::<Entity, With<CommandButton>>();
+    let hit = q
+        .iter(app.world())
+        .find(|&e| app.world().get::<CommandButton>(e).map(|b| b.action) == Some(want));
+    match hit {
+        Some(e) => {
+            app.world_mut()
+                .entity_mut(e)
+                .insert(bevy::ui::Interaction::Pressed);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Capability card TO2/UI10 — acceptance (migrated from the retired E-key
+/// path): with an empty slot selected, clicking a Build button places the
+/// tower on that slot, deducts gold, occupies the slot and selects the tower.
+#[test]
+fn command_card_build_button_places_on_selected_slot() {
+    let mut app = test_app();
+    app.world_mut().insert_resource(RunRng::seeded(7));
+    app.update(); // startup: deal hand + build the command card
+    let owned = app.world().resource::<Hand>().owned_towers[0];
+    let cost = app.world().resource::<TowerDefs>().list[owned].cost;
+
+    let slot = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<TowerSlot>>();
+        q.iter(app.world()).next().expect("a slot exists")
+    };
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::EmptySlot(slot));
+    app.update(); // rebuild card in EmptySlot state
+    assert!(
+        press_command_button(&mut app, CommandAction::Build(owned)),
+        "a Build button for owned type {owned} must exist"
+    );
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        100 - cost,
+        "direct build must deduct exactly the tower cost"
+    );
+    assert_eq!(count_towers(&mut app), 1, "one tower placed on the slot");
+    let occupied = app
+        .world()
+        .get::<TowerSlot>(slot)
+        .expect("slot alive")
+        .occupied;
+    assert!(occupied, "the selected slot must be occupied after the build");
+    assert!(
+        matches!(
+            app.world().resource::<warden::resources::Selection>(),
+            warden::resources::Selection::Tower(_)
+        ),
+        "after building, the new tower becomes the selection"
+    );
+}
+
+/// Capability card UI10 — acceptance: the Buy button keeps AC2 semantics —
+/// pay once, unlock the type into the hand.
+#[test]
+fn command_card_buy_button_unlocks_type() {
+    let mut app = test_app();
+    app.update();
+    let (target, cost) = {
+        let hand = app.world().resource::<Hand>();
+        let offers = app.world().resource::<ShopOffers>();
+        let i = *offers
+            .offers
+            .iter()
+            .find(|o| !hand.owned_towers.contains(o))
+            .expect("AC2 guarantees an un-owned offer");
+        (i, app.world().resource::<TowerDefs>().list[i].cost)
+    };
+    let before = app.world().resource::<Hand>().owned_towers.len();
+    assert!(
+        press_command_button(&mut app, CommandAction::Buy(target)),
+        "a Buy button for offer {target} must exist"
+    );
+    app.update();
+    let hand = app.world().resource::<Hand>();
+    assert!(
+        hand.owned_towers.contains(&target),
+        "the bought type must be unlocked into the hand"
+    );
+    assert_eq!(hand.owned_towers.len(), before + 1);
+    assert_eq!(app.world().resource::<Economy>().gold, 100 - cost);
+}
+
+/// Capability card UI10 — acceptance: with an empty slot selected, hovering a
+/// Build button shows the preview (ghost + range ring) on that slot; leaving
+/// the hover hides it.
+#[test]
+fn hovering_build_button_previews_on_selected_slot() {
+    let mut app = test_app();
+    app.update();
+    let owned = app.world().resource::<Hand>().owned_towers[0];
+    let slot = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<TowerSlot>>();
+        q.iter(app.world()).next().expect("a slot exists")
+    };
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::EmptySlot(slot));
+    app.update();
+
+    // Hover the build button for an owned type.
+    {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<CommandButton>>();
+        let hit = q
+            .iter(app.world())
+            .find(|&e| {
+                app.world()
+                    .get::<CommandButton>(e)
+                    .map(|b| b.action)
+                    == Some(CommandAction::Build(owned))
+            })
+            .expect("build button");
+        app.world_mut()
+            .entity_mut(hit)
+            .insert(bevy::ui::Interaction::Hovered);
+    }
+    app.update();
+    let visible_rings = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Visibility, With<warden::systems::command::PreviewRing>>();
+        q.iter(app.world())
+            .filter(|v| **v == Visibility::Visible)
+            .count()
+    };
+    assert_eq!(visible_rings, 1, "hover must show the range ring on the slot");
+
+    // Leave the hover: the preview hides.
+    {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<CommandButton>>();
+        let hit = q
+            .iter(app.world())
+            .find(|&e| {
+                app.world()
+                    .get::<CommandButton>(e)
+                    .map(|b| b.action)
+                    == Some(CommandAction::Build(owned))
+            })
+            .expect("build button");
+        app.world_mut()
+            .entity_mut(hit)
+            .insert(bevy::ui::Interaction::None);
+    }
+    app.update();
+    let visible_rings = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Visibility, With<warden::systems::command::PreviewRing>>();
+        q.iter(app.world())
+            .filter(|v| **v == Visibility::Visible)
+            .count()
+    };
+    assert_eq!(visible_rings, 0, "leaving the hover must hide the preview");
 }
