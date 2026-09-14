@@ -22,7 +22,7 @@ use crate::resources::{
     SKILL_COOLDOWNS,
 };
 use crate::states::GameState;
-use crate::components::{AttackType, Projectile, ProjectileOrigin};
+use crate::components::{AttackType, Enemy, Projectile, ProjectileOrigin};
 use crate::systems::command::{cursor_over_blocking_ui, BlocksWorldInput, ControlZoneRoot};
 use crate::systems::hud::UiFont;
 use crate::systems::l10n;
@@ -63,7 +63,7 @@ pub const SKILL_DEFS: [SkillDef; 3] = [
     SkillDef {
         id: SkillId::FrostNova,
         aiming: SkillAiming::Point,
-        implemented: false, // SK3
+        implemented: true, // SK3
         hotkey: KeyCode::KeyX,
         badge: 'X',
         indicator_radius: 5.0,
@@ -86,7 +86,12 @@ pub fn skill_def(id: SkillId) -> &'static SkillDef {
 /// Dispatch one CONFIRMED cast to its effect (the cooldown is started by the
 /// caller — a cancelled target pick must never pay). Arms are filled in by
 /// SK2/SK3/SK4; the framework keeps them as seams.
-fn cast_skill(commands: &mut Commands, skill: SkillId, point: Vec3) {
+fn cast_skill(
+    commands: &mut Commands,
+    enemies: &Query<(Entity, &Transform), Without<SkillIndicatorRing>>,
+    skill: SkillId,
+    point: Vec3,
+) {
     match skill {
         SkillId::MeteorRain => {
             // SK2: schedule the three-drop volley at the confirmed point.
@@ -97,8 +102,23 @@ fn cast_skill(commands: &mut Commands, skill: SkillId, point: Vec3) {
             });
         }
         SkillId::FrostNova => {
-            // SK3: frost nova slow field.
-            let _ = point;
+            // SK3: everything within NOVA_RADIUS (XZ distance — effects are
+            // ground-based) takes the nova slow via the shared merge path.
+            let mut hits = 0u32;
+            for (eid, tf) in enemies.iter() {
+                let dx = tf.translation.x - point.x;
+                let dz = tf.translation.z - point.z;
+                if dx * dx + dz * dz <= NOVA_RADIUS * NOVA_RADIUS {
+                    crate::systems::tower::apply_slow(
+                        commands,
+                        eid,
+                        NOVA_SLOW_FACTOR,
+                        NOVA_SLOW_DURATION,
+                    );
+                    hits += 1;
+                }
+            }
+            info!("[sk] frost nova at ({:.1}, {:.1}) slowed {hits} enemies", point.x, point.z);
         }
         SkillId::WarFrenzy => {
             // SK4: war frenzy global burst.
@@ -106,6 +126,13 @@ fn cast_skill(commands: &mut Commands, skill: SkillId, point: Vec3) {
         }
     }
 }
+
+// --- SK3: frost nova ---------------------------------------------------------------
+
+/// SK3 starting values (§17.2; tune via §14): slow to 50% for 2s in radius 5.
+pub const NOVA_RADIUS: f32 = 5.0;
+pub const NOVA_SLOW_FACTOR: f32 = 0.5;
+pub const NOVA_SLOW_DURATION: f32 = 2.0;
 
 // --- SK2: meteor rain ------------------------------------------------------------
 
@@ -243,6 +270,7 @@ pub fn skill_hotkeys(
 pub fn handle_skill_buttons(
     mut commands: Commands,
     mut q: Query<(&Interaction, &SkillButton), Changed<Interaction>>,
+    enemies: Query<(Entity, &Transform), Without<SkillIndicatorRing>>,
     mut targeting: ResMut<SkillTargeting>,
     mut build: ResMut<BuildMode>,
     mut skills: ResMut<SkillState>,
@@ -267,7 +295,7 @@ pub fn handle_skill_buttons(
                 info!("[sk] {:?} target picking", skill);
             }
             SkillAiming::Instant => {
-                cast_skill(&mut commands, skill, Vec3::ZERO);
+                cast_skill(&mut commands, &enemies, skill, Vec3::ZERO);
                 skills.start_cooldown(skill);
                 info!("[sk] {:?} instant cast, cd {:.0}s", skill, SKILL_COOLDOWNS[skill.index()]);
             }
@@ -317,9 +345,17 @@ pub fn update_skill_targeting(
     state: Res<State<GameState>>,
     mut targeting: ResMut<SkillTargeting>,
     mut skills: ResMut<SkillState>,
+    // Without<SkillIndicatorRing> keeps this read disjoint from the ring
+    // write below (B0001; an enemy never carries the ring marker).
+    enemies: Query<(Entity, &Transform), Without<SkillIndicatorRing>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut rings: Query<(Entity, &mut Transform, &mut Visibility), With<SkillIndicatorRing>>,
+    // Without<Enemy> keeps the ring Transform write disjoint from the
+    // enemies' Transform read (B0001; a ring is never an enemy).
+    mut rings: Query<
+        (Entity, &mut Transform, &mut Visibility),
+        (With<SkillIndicatorRing>, Without<Enemy>),
+    >,
     mut cache: Local<Option<(SkillId, Entity)>>, // (active skill, ring entity)
 ) {
     // Ring lifecycle: one ring while picking, none otherwise; respawn when
@@ -374,7 +410,7 @@ pub fn update_skill_targeting(
     // Left click (away from the UI) confirms the cast at the ground point.
     if buttons.just_pressed(MouseButton::Left) && !cursor_over_blocking_ui(&blocking, &panel) {
         if let Some(point) = ground {
-            cast_skill(&mut commands, skill, point);
+            cast_skill(&mut commands, &enemies, skill, point);
             skills.start_cooldown(skill);
             targeting.0 = None;
             info!(

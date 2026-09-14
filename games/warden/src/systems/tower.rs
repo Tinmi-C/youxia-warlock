@@ -128,6 +128,7 @@ pub fn tower_fire(
         if is_melee(&tower) {
             // Melee (shield tower): instant hit — damage + slow on the target
             // only (TO6 rework: the slow rides the hit, §5 original wording).
+            // The slow goes through the shared merge path (SK3 semantics).
             if let Ok((_, _, mut en)) = enemies.get_mut(target) {
                 let applied = effective_damage(tower.attack_type, en.physical_armor, base_dmg);
                 en.hp -= applied;
@@ -136,10 +137,12 @@ pub fn tower_fire(
                     original: None,
                 });
                 if tower.slow_factor > 0.0 {
-                    commands.entity(target).insert(Slow {
-                        timer: tower.slow_duration,
-                        factor: tower.slow_factor,
-                    });
+                    apply_slow(
+                        &mut commands,
+                        target,
+                        tower.slow_factor,
+                        tower.slow_duration,
+                    );
                 }
                 info!("[tower] melee hit dmg={applied:.1} enemy_hp={:.0}", en.hp);
             }
@@ -203,4 +206,42 @@ pub fn tick_slow(
             commands.entity(eid).remove::<Slow>();
         }
     }
+}
+
+/// Deferred slow application with coexistence semantics (SK3, requirements
+/// §17.2): when a slow is already running, keep the STRONGER factor (the
+/// smaller multiplier — e.g. frost nova 0.5 vs bastion 0.7 keeps 0.5) and
+/// refresh the timer to the new application's duration. Slows never stack
+/// multiplicatively. A command so every application site (bastion hits, the
+/// nova) shares one merge path without extra queries.
+pub struct ApplySlow {
+    pub entity: Entity,
+    pub factor: f32,
+    pub duration: f32,
+}
+
+impl Command for ApplySlow {
+    type Out = ();
+    fn apply(self, world: &mut World) {
+        let merged = match world.get::<Slow>(self.entity) {
+            Some(existing) => Slow {
+                factor: existing.factor.min(self.factor),
+                timer: self.duration,
+            },
+            None => Slow {
+                factor: self.factor,
+                timer: self.duration,
+            },
+        };
+        world.entity_mut(self.entity).insert(merged);
+    }
+}
+
+/// Queue a slow effect with the SK3 merge semantics (see `ApplySlow`).
+pub fn apply_slow(commands: &mut Commands, entity: Entity, factor: f32, duration: f32) {
+    commands.queue(ApplySlow {
+        entity,
+        factor,
+        duration,
+    });
 }

@@ -3554,16 +3554,16 @@ mod skills_sk1 {
     }
 
     /// SK1: a skill whose card has not landed stays inert — pressing its
-    /// hotkey does nothing (no target picking, no cooldown). X (frost nova)
-    /// and C (war frenzy) are unimplemented until SK3/SK4; Z went live with
-    /// SK2 and is covered by the skills_sk2 module.
+    /// hotkey does nothing (no target picking, no cooldown). C (war frenzy)
+    /// is unimplemented until SK4; Z and X went live with SK2/SK3 and are
+    /// covered by their own modules.
     #[test]
     fn unimplemented_skill_hotkeys_do_nothing() {
         let mut app = test_app();
         app.update();
         app.update();
         app.update();
-        for key in [KeyCode::KeyX, KeyCode::KeyC] {
+        for key in [KeyCode::KeyC] {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .press(key);
@@ -3824,5 +3824,211 @@ mod skills_sk2 {
             .query_filtered::<(), With<MeteorVolley>>();
         assert_eq!(q.iter(app.world()).count(), 0, "no volley was scheduled");
         let _ = ProjectileOrigin::Fixed { point: Vec3::ZERO }; // import check
+    }
+}
+
+// --- SK3: frost nova (point-target slow) ------------------------------------------
+
+mod skills_sk3 {
+    use super::*;
+    use warden::components::Slow;
+    use warden::resources::{SkillId, SkillState, SkillTargeting, SKILL_COOLDOWNS};
+    use warden::systems::skills::{NOVA_RADIUS, NOVA_SLOW_DURATION, NOVA_SLOW_FACTOR};
+    use warden::systems::tower::apply_slow;
+
+    /// A live enemy with a real walking speed (slows are observable through
+    /// movement) parked at a world position.
+    fn spawn_walker(app: &mut App, pos: Vec3, speed: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Enemy {
+                    hp: 100.0,
+                    max_hp: 100.0,
+                    speed,
+                    leak: 0,
+                    kill_gold: 0,
+                    physical_armor: false,
+                    def_index: 0,
+                    next_wp: 0,
+                },
+                Transform::from_xyz(pos.x, 0.4, pos.z),
+            ))
+            .id()
+    }
+
+    fn reset_skill_interactions(app: &mut App) {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.clear();
+        keys.release(KeyCode::KeyX);
+        let mut mouse = app
+            .world_mut()
+            .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>();
+        mouse.clear();
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut bevy::ui::Interaction, With<warden::systems::skills::SkillButton>>();
+        for mut inter in q.iter_mut(app.world_mut()) {
+            *inter = bevy::ui::Interaction::None;
+        }
+    }
+
+    /// Cast frost nova at a world point through the REAL player path (X
+    /// hotkey -> click confirm), like the SK2 helper.
+    fn cast_nova_at(app: &mut App, point: Vec3) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyX);
+        app.update();
+        reset_skill_interactions(app);
+        assert_eq!(
+            app.world().resource::<SkillTargeting>().0,
+            Some(SkillId::FrostNova),
+            "X enters nova target picking"
+        );
+        enable_world_picking(app, Vec2::new(640.0, 360.0));
+        let cursor = {
+            let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+            let (cam, tf) = cams.single(app.world()).expect("one camera");
+            cam.world_to_viewport(tf, point).expect("point projects")
+        };
+        {
+            let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+            for mut w in q.iter_mut(app.world_mut()) {
+                w.set_cursor_position(Some(cursor));
+            }
+        }
+        click_left(app);
+        app.update();
+        reset_skill_interactions(app);
+    }
+
+    /// SK3 acceptance: enemies within radius 5 move at half speed for 2s
+    /// (then recover); an enemy OUTSIDE the radius is untouched; the cast
+    /// starts the 40s cooldown.
+    #[test]
+    fn frost_nova_slows_inside_radius_only_and_expires() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        let point = Vec3::new(0.0, 0.0, 0.0);
+        let inside = [
+            spawn_walker(&mut app, point + Vec3::new(4.0, 0.0, 0.0), 2.0),
+            spawn_walker(&mut app, point + Vec3::new(0.0, 0.0, 2.0), 2.0),
+        ];
+        let outside = spawn_walker(&mut app, point + Vec3::new(6.0, 0.0, 0.0), 2.0);
+
+        cast_nova_at(&mut app, point);
+        // The cooldown started.
+        let cd = app.world().resource::<SkillState>().cooldowns[1];
+        assert!(
+            cd <= SKILL_COOLDOWNS[1] && cd > SKILL_COOLDOWNS[1] - 0.1,
+            "nova cooldown starts at 40s (got {cd})"
+        );
+        // Slow component: exactly the nova values on both insiders.
+        for &e in &inside {
+            let slow = app.world().get::<Slow>(e).expect("slowed");
+            assert!(
+                (slow.factor - NOVA_SLOW_FACTOR).abs() < 1e-4
+                    && (slow.timer - NOVA_SLOW_DURATION).abs() < 0.1,
+                "Slow {{0.5, 2s}} applied (got {:?})",
+                (slow.factor, slow.timer)
+            );
+        }
+        assert!(
+            app.world().get::<Slow>(outside).is_none(),
+            "the enemy outside radius 5 must not be slowed"
+        );
+        // 0.5s of movement measured from the POST-CAST positions: insiders
+        // walk at half speed (0.5 u), the outsider at full speed (1.0 u).
+        let p0_in = inside
+            .iter()
+            .map(|&e| app.world().get::<Transform>(e).unwrap().translation)
+            .collect::<Vec<_>>();
+        let p0_out = app
+            .world()
+            .get::<Transform>(outside)
+            .unwrap()
+            .translation;
+        for _ in 0..30 {
+            app.update();
+        }
+        {
+            let mut q = app.world_mut().query::<(Entity, &Transform)>();
+            for (i, &e) in inside.iter().enumerate() {
+                let p = q.get(app.world(), e).unwrap().1.translation;
+                let d = (p - p0_in[i]).length();
+                assert!(
+                    (d - 0.5).abs() < 0.02,
+                    "insider {i} walks at half speed for 0.5s: want 0.5, got {d}"
+                );
+            }
+            let p = q.get(app.world(), outside).unwrap().1.translation;
+            let d = (p - p0_out).length();
+            assert!(
+                (d - 1.0).abs() < 0.02,
+                "outsider keeps full speed: want 1.0, got {d}"
+            );
+        }
+        // After 2s the slow expires and speed recovers (no Slow component).
+        for _ in 0..100 {
+            app.update();
+        }
+        for &e in &inside {
+            assert!(
+                app.world().get::<Slow>(e).is_none(),
+                "the nova slow expires after 2s"
+            );
+        }
+    }
+
+    /// SK3 acceptance: coexistence with the bastion slow takes the STRONGER
+    /// factor and refreshes — a 0.7-slowed enemy hit by the nova runs at 0.5
+    /// until the effect ends; a bastion re-hit on a nova slow keeps 0.5 (the
+    /// shared merge path, never multiplicative).
+    #[test]
+    fn nova_and_bastion_slow_merge_strongest_wins() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        let point = Vec3::new(0.0, 0.0, 0.0);
+        let e = spawn_walker(&mut app, point, 2.0);
+        // Pre-existing bastion slow: 0.7 for 0.9s remaining.
+        app.world_mut().entity_mut(e).insert(Slow {
+            timer: 0.9,
+            factor: 0.7,
+        });
+        cast_nova_at(&mut app, point);
+        let slow = app.world().get::<Slow>(e).expect("still slowed");
+        assert!(
+            (slow.factor - 0.5).abs() < 1e-4,
+            "the stronger (nova 0.5) wins over 0.7 (got {})",
+            slow.factor
+        );
+        assert!(
+            (slow.timer - 2.0).abs() < 0.1,
+            "the timer refreshes to the nova duration (got {:.2})",
+            slow.timer
+        );
+        // The bastion side of the merge: re-applying 0.7/1s keeps 0.5.
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut queue, app.world());
+            apply_slow(&mut commands, e, 0.7, 1.0);
+        }
+        queue.apply(app.world_mut());
+        let slow = app.world().get::<Slow>(e).expect("still slowed");
+        assert!(
+            (slow.factor - 0.5).abs() < 1e-4,
+            "a bastion re-hit keeps the stronger 0.5 (got {})",
+            slow.factor
+        );
+        assert!(
+            (slow.timer - 1.0).abs() < 1e-4,
+            "the timer refreshes to the new application's duration"
+        );
+        // Radius guard: exactly NOVA_RADIUS (XZ) is inside.
+        let _ = NOVA_RADIUS;
     }
 }

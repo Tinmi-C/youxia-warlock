@@ -9,7 +9,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Enemy, Projectile, ProjectileOrigin, Slow};
+use crate::components::{Enemy, Projectile, ProjectileOrigin};
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{WavePhase, WaveState};
 use crate::systems::tower::effective_damage;
@@ -104,10 +104,13 @@ fn resolve_impact(
                 original: None,
             });
             if proj.slow_factor > 0.0 {
-                commands.entity(ven).insert(Slow {
-                    timer: proj.slow_duration,
-                    factor: proj.slow_factor,
-                });
+                // Shared merge path (SK3 semantics): strongest factor wins.
+                crate::systems::tower::apply_slow(
+                    commands,
+                    ven,
+                    proj.slow_factor,
+                    proj.slow_duration,
+                );
             }
         }
     }

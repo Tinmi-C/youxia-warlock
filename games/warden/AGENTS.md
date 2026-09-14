@@ -138,7 +138,10 @@ assets/{models,textures,audio,fonts,ui}/
     允许的投射物接缝，存量塔弹/PR 测试同步迁移语义不变）；`MeteorVolley` 调度实体（3 发×0.3s 间隔，落点上方 10 单位
     坠落≈1s）+ `release_meteor_shots`，每发 `Projectile{Fixed, 40 魔法, 半径 3}` 走既有 `resolve_impact`（穿甲/金币/
     FX 爆圈全复用）；三发同落点（最简解释）。
-  - `cargo check --all-targets` + `cargo test` 全绿（90 条断言，`tests/behavior.rs` 88 + `tests/balance.rs` 2）。
+  - **SK3 冰霜新星（2026-09-14）**：点确认 XZ 半径 5 即时挂 Slow{0.5, 2s}。**减速共存语义下沉共享路径**：新
+    `tower::ApplySlow` Command（factor=min 取更强、timer=新应用时长），壁垒炮弹/盾塔近战/新星三入口统一；壁垒炮行为
+    由「覆盖」变为「取更强者刷新」（SK3 规格要求的语义变化）。
+  - `cargo check --all-targets` + `cargo test` 全绿（92 条断言，`tests/behavior.rs` 90 + `tests/balance.rs` 2）。
 - **交互范式 + 投射物/战斗表现两批需求（2026-09-12 定稿）已同日实现**（见上方「已完成」两条实现记录）；
   规格存档：requirements §16（命令卡交互规范）/ §5.1（攻击结算模型，含**拍板不上物理插件**）；
   「伤害数字飘字」仍留 GDD 点子池。
