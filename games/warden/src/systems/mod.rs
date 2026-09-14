@@ -5,6 +5,9 @@ pub mod command;
 // builds have zero debug surface (panel, cheats, scenarios).
 #[cfg(debug_assertions)]
 pub mod debug;
+// Debug time control + info overlays (DB3): same debug-only gate.
+#[cfg(debug_assertions)]
+pub mod debug_time;
 pub mod enemy;
 pub mod fx;
 pub mod hud;

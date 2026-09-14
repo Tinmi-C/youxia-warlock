@@ -35,6 +35,7 @@ DEBUG_STRINGS=(
     "scenario '{}' loaded"       # DB2 scenario loader log
     "screenshot saved"           # F12 screenshot log
     "dash] fps"                  # log dashboard prefix
+    "[db3]"                      # DB3 time/overlay log + HUD strip prefix
 )
 for s in "${DEBUG_STRINGS[@]}"; do
     if LC_ALL=C grep -aqF -- "$s" "$BIN"; then

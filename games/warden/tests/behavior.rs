@@ -2643,23 +2643,39 @@ mod debug_cheats {
     /// Headless app wired the way `DebugPlugin` wires the debug core (debug
     /// builds only, no egui needed — tests push actions/scenarios straight
     /// into the queues, the exact path the panel buttons and the CLI take).
+    /// DB3 (time control + overlays) is wired the same way since DB3.
     pub(crate) fn debug_app() -> App {
+        use warden::systems::debug_time as db3;
         let mut app = test_app();
         app.init_resource::<DebugQueue>()
             .init_resource::<DebugPanel>()
             .init_resource::<DebugSeed>()
             .init_resource::<DebugScenarioQueue>()
+            .init_resource::<db3::DebugTime>()
+            .init_resource::<db3::DebugOverlays>()
             .add_systems(Update, debug_panel_toggle)
             // The single cheat drain point runs in Input so the same frame's
             // wave/combat systems observe the settled cheat state; scenario
-            // loads run right after it (mirrors DebugPlugin's ordering).
+            // loads run right after it, then the DB3 time clock (mirrors
+            // DebugPlugin's ordering).
             .add_systems(
                 Update,
                 (
+                    db3::debug_time_hotkeys.before(debug_cheat_executor),
                     debug_cheat_executor,
                     debug_scenario_executor.after(debug_cheat_executor),
+                    db3::debug_time_clock.after(debug_scenario_executor),
                 )
                     .in_set(GameSet::Input),
+            )
+            .add_systems(
+                Update,
+                (
+                    db3::debug_range_rings,
+                    db3::debug_enemy_stats,
+                    db3::debug_hud_strip,
+                )
+                    .in_set(GameSet::Observe),
             );
         app
     }
@@ -3145,6 +3161,278 @@ mod debug_scenarios {
             hand_of(42),
             hand_of(42),
             "same seed must replay the identical opening hand"
+        );
+    }
+}
+
+// --- DB3: time control + info overlays ------------------------------------------
+//
+// Same gate as the other debug cards: the module under test is
+// `#[cfg(debug_assertions)]`; release builds skip these by design.
+
+#[cfg(debug_assertions)]
+mod debug_db3 {
+    use super::debug_cheats::debug_app;
+    use super::*;
+    use warden::components::Projectile;
+    use warden::resources::{DebugRun, WavePhase, WaveState};
+    use warden::systems::debug::DebugAction;
+    use warden::systems::debug_time::{
+        DebugEnemyStats, DebugHudText, DebugRangeRing, DebugTime,
+    };
+
+    fn push(app: &mut App, action: DebugAction) {
+        app.world_mut()
+            .resource_mut::<warden::systems::debug::DebugQueue>()
+            .0
+            .push(action);
+    }
+
+    /// Start wave 1 (5 ordinary enemies) so a live, moving enemy exists.
+    fn start_wave_one(app: &mut App) {
+        let mut ws = app.world_mut().resource_mut::<WaveState>();
+        ws.phase = WavePhase::Combat;
+        ws.spawn_queue.clear();
+        for _ in 0..5 {
+            ws.spawn_queue.push_back(0);
+        }
+        ws.spawn_timer = 0.0;
+    }
+
+    /// The first live enemy's (position, speed).
+    fn first_enemy(app: &mut App) -> Option<(Vec3, f32)> {
+        let mut q = app.world_mut().query::<(&Transform, &Enemy)>();
+        q.iter(app.world())
+            .find(|(_, e)| e.hp > 0.0)
+            .map(|(tf, e)| (tf.translation, e.speed))
+    }
+
+    /// DB3 acceptance: after the debug pause, the world freezes (enemy holds
+    /// position across frames) and the single-frame hotkey advances EXACTLY
+    /// one frame — the frame after the press — then freezes again.
+    #[test]
+    fn debug_pause_freezes_and_single_step_advances_exactly_one_frame() {
+        let mut app = debug_app();
+        app.update();
+        start_wave_one(&mut app);
+        app.update(); // first enemy spawns
+        app.update(); // ...and walks
+        // Pause via the F6 hotkey (the panel button pushes the same action).
+        // Headless just_pressed persists (no InputPlugin), so clear it right
+        // after the consuming frame or the NEXT frame would toggle again.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::F6);
+        app.update(); // action lands; freeze effective from the next frame
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            keys.release(KeyCode::F6);
+        }
+        app.update(); // first fully frozen frame
+        let (p0, speed) = first_enemy(&mut app).expect("a live enemy");
+        for _ in 0..3 {
+            app.update();
+            let (p, _) = first_enemy(&mut app).unwrap();
+            assert_eq!(p, p0, "frozen while debug-paused");
+        }
+        // Step one frame (F7). The press frame itself is still frozen; the
+        // NEXT frame runs with a real delta; the frame after is frozen again.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::F7);
+        app.update(); // arm frame (delta 0)
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.clear();
+        keys.release(KeyCode::F7);
+        let (p_arm, _) = first_enemy(&mut app).unwrap();
+        assert_eq!(p_arm, p0, "the press frame must not move yet");
+        app.update(); // THE stepped frame
+        let (p_step, _) = first_enemy(&mut app).unwrap();
+        let moved = (p_step - p0).length();
+        assert!(
+            (moved - speed / 60.0).abs() < 1e-3,
+            "one step must advance exactly one frame (want {:.4}, got {:.4})",
+            speed / 60.0,
+            moved
+        );
+        app.update(); // re-paused
+        let (p_after, _) = first_enemy(&mut app).unwrap();
+        assert_eq!(p_after, p_step, "frozen again after the single step");
+        // Resume: movement continues.
+        push(&mut app, DebugAction::TimePauseToggle);
+        app.update();
+        app.update();
+        let (p_run, _) = first_enemy(&mut app).unwrap();
+        assert!(p_run != p_step, "resume unfreezes the world");
+    }
+
+    /// DB3 acceptance: 4x clears a wave in ~1/4 the frames of 1x (±10%).
+    #[test]
+    fn debug_4x_clears_wave_in_about_quarter_frames() {
+        let run_wave = |four_x: bool| -> u32 {
+            let mut app = debug_app();
+            app.update();
+            if four_x {
+                push(&mut app, DebugAction::TimeSpeedToggle4x);
+                app.update();
+            }
+            start_wave_one(&mut app);
+            let mut frames = 0;
+            while app.world().resource::<WaveState>().phase == WavePhase::Combat {
+                app.update();
+                frames += 1;
+                assert!(frames < 6000, "wave must resolve (runaway loop)");
+            }
+            frames
+        };
+        let n1 = run_wave(false);
+        let n4 = run_wave(true);
+        let ratio = n4 as f32 / n1 as f32;
+        assert!(
+            (ratio - 0.25).abs() <= 0.025,
+            "4x should clear in ~1/4 the frames of 1x (1x={n1}, 4x={n4}, ratio={ratio:.3})"
+        );
+    }
+
+    /// DB3 acceptance: the range-ring toggle shows/hides one ring per tower
+    /// for every tower on the field (new towers included while it is on).
+    #[test]
+    fn range_ring_toggle_syncs_all_towers() {
+        use warden::systems::debug::DebugScenarioQueue;
+        use warden::systems::debug::Scenario;
+        let mut app = debug_app();
+        app.update();
+        app.world_mut()
+            .resource_mut::<DebugScenarioQueue>()
+            .0
+            .push(Scenario::FullBoard);
+        app.update(); // 8 towers on the board
+        let rings = |app: &mut App| {
+            let mut q = app.world_mut().query_filtered::<(), With<DebugRangeRing>>();
+            q.iter(app.world()).count()
+        };
+        push(&mut app, DebugAction::OverlaysToggleRanges);
+        app.update();
+        assert_eq!(rings(&mut app), 8, "one visible ring per tower");
+        // A tower placed while the overlay is on gets its ring too.
+        app.world_mut().spawn((
+            Tower {
+                tower_index: 0,
+                damage: 10.0,
+                attack_speed: 1.0,
+                range: 9.0,
+                attack_type: AttackType::Physical,
+                cooldown: 0.0,
+                target: None,
+                kind: TowerKind::Base(0),
+                aoe_radius: 0.0,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+                invested: 50,
+            },
+            Transform::from_xyz(0.0, 0.6, 0.0),
+        ));
+        app.update();
+        assert_eq!(rings(&mut app), 9, "a new tower gets a ring while on");
+        push(&mut app, DebugAction::OverlaysToggleRanges);
+        app.update();
+        assert_eq!(rings(&mut app), 0, "toggle-off removes every ring");
+    }
+
+    /// DB3 acceptance: the enemy-stat overlay puts one live plate per enemy
+    /// (hp/speed/slow) and the toggle removes them all.
+    #[test]
+    fn enemy_stat_plates_toggle_and_track_stats() {
+        let mut app = debug_app();
+        app.update();
+        push(&mut app, DebugAction::SummonEnemy { def_index: 0, count: 3 });
+        app.update(); // 3 ordinary enemies in combat
+        let plates = |app: &mut App| {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<&bevy::sprite::Text2d, With<DebugEnemyStats>>();
+            q.iter(app.world()).map(|t| t.0.clone()).collect::<Vec<_>>()
+        };
+        push(&mut app, DebugAction::OverlaysToggleEnemyStats);
+        app.update();
+        let texts = plates(&mut app);
+        assert_eq!(texts.len(), 3, "one plate per enemy");
+        assert!(
+            texts.iter().all(|t| t.contains("hp 30/30")),
+            "plates show current hp: {texts:?}"
+        );
+        // Wound one enemy; its plate must follow.
+        {
+            let mut q = app.world_mut().query::<&mut Enemy>();
+            if let Some(mut e) = q.iter_mut(app.world_mut()).next() {
+                e.hp = 12.0;
+            }
+        }
+        app.update();
+        let texts = plates(&mut app);
+        assert!(
+            texts.iter().any(|t| t.contains("hp 12/30")),
+            "the wounded enemy's plate updates: {texts:?}"
+        );
+        push(&mut app, DebugAction::OverlaysToggleEnemyStats);
+        app.update();
+        assert!(plates(&mut app).is_empty(), "toggle-off removes all plates");
+    }
+
+    /// DB3 acceptance: the always-on debug HUD strip reports the live
+    /// projectile count (and enemy count).
+    #[test]
+    fn debug_hud_reports_projectile_and_enemy_counts() {
+        use warden::systems::debug::DebugScenarioQueue;
+        use warden::systems::debug::Scenario;
+        let mut app = debug_app();
+        app.update();
+        app.world_mut()
+            .resource_mut::<DebugScenarioQueue>()
+            .0
+            .push(Scenario::Projectile);
+        app.update(); // tower + enemy placed
+        app.update(); // tower fires -> exactly one projectile in flight
+        let live = {
+            let mut q = app.world_mut().query_filtered::<(), With<Projectile>>();
+            q.iter(app.world()).count()
+        };
+        let hud = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<&Text, With<DebugHudText>>();
+            q.single(app.world())
+                .expect("the debug HUD strip exists")
+                .0
+                .clone()
+        };
+        assert!(hud.contains(&format!("proj={live}")), "hud: {hud}");
+        assert!(hud.contains("enemies=1"), "hud: {hud}");
+    }
+
+    /// DB3: time control and overlays are observation tools — using them must
+    /// NOT mark the run as debug (a real cheat in the same batch still marks).
+    #[test]
+    fn time_and_overlay_actions_do_not_mark_debug_run() {
+        let mut app = debug_app();
+        app.update();
+        push(&mut app, DebugAction::TimePauseToggle);
+        push(&mut app, DebugAction::OverlaysToggleRanges);
+        app.update();
+        assert!(
+            !app.world().resource::<DebugRun>().marked,
+            "observation tools must not poison the run"
+        );
+        assert!(
+            app.world().resource::<DebugTime>().paused,
+            "sanity: the pause action applied"
+        );
+        push(&mut app, DebugAction::GoldAdd(1));
+        app.update();
+        assert!(
+            app.world().resource::<DebugRun>().marked,
+            "a real cheat still marks the run"
         );
     }
 }

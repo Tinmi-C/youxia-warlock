@@ -39,26 +39,44 @@ impl Plugin for DebugPlugin {
 fn build_debug(app: &mut App) {
     use crate::sets::GameSet;
     use crate::systems::debug as dbg;
+    use crate::systems::debug_time as db3;
 
     app.init_resource::<FpsLog>()
         .init_resource::<dbg::DebugQueue>()
         .init_resource::<dbg::DebugPanel>()
         .init_resource::<dbg::DebugSeed>()
         .init_resource::<dbg::DebugScenarioQueue>()
+        .init_resource::<db3::DebugTime>()
+        .init_resource::<db3::DebugOverlays>()
         .add_plugins(bevy_egui::EguiPlugin::default())
         .add_systems(bevy_egui::EguiPrimaryContextPass, debug_panel_ui)
         .add_systems(Update, (log_dashboard, screenshot_on_f12, dbg::debug_panel_toggle))
         // The single cheat drain point runs in Input so the same frame's
         // wave/combat systems observe the settled cheat state; scenario loads
         // (DB2) run right after it (restart + scenario in one frame stays
-        // deterministic).
+        // deterministic). DB3 hotkeys push the same actions, so they run
+        // before the executor; the time clock runs right after both — it is
+        // the single writer of Time<Virtual> and stays ungated by game state
+        // (time-level pause, orthogonal to GameState::Paused).
         .add_systems(
             Update,
             (
+                db3::debug_time_hotkeys.before(dbg::debug_cheat_executor),
                 dbg::debug_cheat_executor,
                 dbg::debug_scenario_executor.after(dbg::debug_cheat_executor),
+                db3::debug_time_clock.after(dbg::debug_scenario_executor),
             )
                 .in_set(GameSet::Input),
+        )
+        // DB3 info overlays + the always-on debug HUD strip.
+        .add_systems(
+            Update,
+            (
+                db3::debug_range_rings,
+                db3::debug_enemy_stats,
+                db3::debug_hud_strip,
+            )
+                .in_set(GameSet::Observe),
         );
 }
 
@@ -128,6 +146,8 @@ fn debug_panel_ui(
     mut capture: ResMut<DebugPanelCapture>,
     mut queue: ResMut<crate::systems::debug::DebugQueue>,
     mut scenarios: ResMut<crate::systems::debug::DebugScenarioQueue>,
+    time: Res<crate::systems::debug_time::DebugTime>,
+    overlays: Res<crate::systems::debug_time::DebugOverlays>,
     economy: Res<Economy>,
     base: Res<BaseHp>,
     wave: Res<WaveState>,
@@ -239,6 +259,59 @@ fn debug_panel_ui(
                 if ui.button(name).clicked() {
                     scenarios.0.push(s);
                 }
+            }
+        });
+        ui.separator();
+
+        ui.heading("Time (DB3)");
+        ui.label(format!(
+            "clock: {} (steps land on the frame AFTER the press)",
+            time.status()
+        ));
+        ui.horizontal(|ui| {
+            if ui
+                .button(if time.paused { "Resume [F6]" } else { "Pause [F6]" })
+                .clicked()
+            {
+                queue.0.push(A::TimePauseToggle);
+            }
+            if ui.button("Step 1 frame [F7]").clicked() {
+                queue.0.push(A::TimeStepFrame);
+            }
+            if ui.button("Step 0.1s [F8]").clicked() {
+                queue.0.push(A::TimeStepTenths);
+            }
+            if ui
+                .button(format!(
+                    "Speed: {} [F9]",
+                    if time.speed_4x { "4x" } else { "1x" }
+                ))
+                .clicked()
+            {
+                queue.0.push(A::TimeSpeedToggle4x);
+            }
+        });
+        ui.separator();
+
+        ui.heading("Overlays (DB3)");
+        ui.horizontal(|ui| {
+            if ui
+                .button(format!(
+                    "Tower range rings: {}",
+                    if overlays.show_ranges { "ON" } else { "OFF" }
+                ))
+                .clicked()
+            {
+                queue.0.push(A::OverlaysToggleRanges);
+            }
+            if ui
+                .button(format!(
+                    "Enemy stat plates: {}",
+                    if overlays.show_enemy_stats { "ON" } else { "OFF" }
+                ))
+                .clicked()
+            {
+                queue.0.push(A::OverlaysToggleEnemyStats);
             }
         });
         ui.separator();

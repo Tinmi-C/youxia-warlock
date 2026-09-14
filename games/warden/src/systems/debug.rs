@@ -47,6 +47,37 @@ pub enum DebugAction {
     /// One-click full run reset (fresh economy/hand/wave; replays the CLI
     /// seed when one was given). Keeps the debug mark.
     Restart,
+    // --- DB3: time control + overlay toggles. Observation tools, NOT cheats:
+    // they never mark the run (see `is_observation`). ---
+    /// Toggle the debug (time-level) pause.
+    TimePauseToggle,
+    /// Toggle the debug 4x fast-forward.
+    TimeSpeedToggle4x,
+    /// While debug-paused: let exactly one frame run, then re-pause.
+    TimeStepFrame,
+    /// While debug-paused: let 0.1s of virtual time run, then re-pause.
+    TimeStepTenths,
+    /// Toggle the all-tower range-ring overlay.
+    OverlaysToggleRanges,
+    /// Toggle the enemy stat-plate overlay.
+    OverlaysToggleEnemyStats,
+}
+
+impl DebugAction {
+    /// Observation-only actions (DB3 time control / overlays): using them
+    /// must NOT mark the run as debug — freezing time or showing rings does
+    /// not change any outcome, so a run inspected with them still pays meta.
+    pub fn is_observation(&self) -> bool {
+        matches!(
+            self,
+            DebugAction::TimePauseToggle
+                | DebugAction::TimeSpeedToggle4x
+                | DebugAction::TimeStepFrame
+                | DebugAction::TimeStepTenths
+                | DebugAction::OverlaysToggleRanges
+                | DebugAction::OverlaysToggleEnemyStats
+        )
+    }
 }
 
 /// Pending cheat intents; drained (emptied) by `debug_cheat_executor`.
@@ -136,6 +167,9 @@ pub struct CheatsBoard<'w, 's> {
     pub selection: ResMut<'w, Selection>,
     pub build: ResMut<'w, BuildMode>,
     pub seed: Res<'w, DebugSeed>,
+    /// DB3 time control + overlay state (observation tools — see the actions).
+    pub time: ResMut<'w, crate::systems::debug_time::DebugTime>,
+    pub overlays: ResMut<'w, crate::systems::debug_time::DebugOverlays>,
     /// Enemies + in-flight projectiles (cleared on wave jumps / restart).
     pub mobs: Query<'w, 's, Entity, Or<(With<Enemy>, With<Projectile>)>>,
     /// Placed towers (cleared only on restart).
@@ -146,13 +180,15 @@ pub struct CheatsBoard<'w, 's> {
 }
 
 /// Single drain point for every debug action (DB1). Marks the run as debug on
-/// the first action: no meta payout, no save write for this run.
+/// the first CHEAT (DB3 observation actions — time control / overlays — are
+/// exempt: they change no outcome): no meta payout, no save write for a
+/// marked run.
 pub fn debug_cheat_executor(mut core: CheatsCore, mut board: CheatsBoard) {
     if core.queue.0.is_empty() {
         return;
     }
     let actions = std::mem::take(&mut core.queue.0);
-    if !core.run.marked {
+    if actions.iter().any(|a| !a.is_observation()) && !core.run.marked {
         core.run.marked = true;
         info!("[debug] run marked as debug: meta payout/save disabled");
     }
@@ -223,6 +259,40 @@ pub fn debug_cheat_executor(mut core: CheatsCore, mut board: CheatsBoard) {
                 info!("[debug] instant win");
             }
             DebugAction::Restart => apply_restart(&mut core, &mut board),
+            // --- DB3: time control + overlays (observation, no marking) ---
+            DebugAction::TimePauseToggle => {
+                board.time.paused = !board.time.paused;
+                board.time.step = crate::systems::debug_time::DebugStep::None;
+                info!(
+                    "[db3] debug pause {}",
+                    if board.time.paused { "on" } else { "off" }
+                );
+            }
+            DebugAction::TimeSpeedToggle4x => {
+                board.time.speed_4x = !board.time.speed_4x;
+                info!(
+                    "[db3] debug speed {}",
+                    if board.time.speed_4x { "4x" } else { "1x" }
+                );
+            }
+            DebugAction::TimeStepFrame => {
+                if board.time.paused {
+                    board.time.step = crate::systems::debug_time::DebugStep::Frames(1);
+                    info!("[db3] step: one frame");
+                }
+            }
+            DebugAction::TimeStepTenths => {
+                if board.time.paused {
+                    board.time.step = crate::systems::debug_time::DebugStep::Secs(0.1);
+                    info!("[db3] step: 0.1s");
+                }
+            }
+            DebugAction::OverlaysToggleRanges => {
+                board.overlays.show_ranges = !board.overlays.show_ranges;
+            }
+            DebugAction::OverlaysToggleEnemyStats => {
+                board.overlays.show_enemy_stats = !board.overlays.show_enemy_stats;
+            }
         }
     }
 }

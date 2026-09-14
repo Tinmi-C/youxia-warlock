@@ -120,6 +120,12 @@ assets/{models,textures,audio,fonts,ui}/
     `DebugRun.marked` → 结算不发 Meta 币、`meta_save.txt` 一字不动；F12 截图/日志仪表同门控收口；
     release 零调试面 = 编译级 cfg 抽除 + `scripts/check_release_debug_surface.sh` 二进制字符串扫描（实测通过）。
     `DebugPanelCapture` 吞面板悬停点击/键盘，防泄漏进世界拾取与热键（复用 UI 点击泄漏修法判定口）。
+  - **DB3 时间控制 + 信息叠层（2026-09-14）**：`systems/debug_time.rs`（DB1 同一 cfg 门控）。调试暂停走**时间级**
+    （冻结 `Time<Virtual>`，系统照跑 delta=0），与状态级 GameState::Paused 正交可叠加（卡上注明取舍）；
+    单帧/0.1s 步进=下一帧恰好放行 1 帧/0.1s 后复冻（bevy 在 First 推虚拟钟，clock 系统写下一帧生效）；
+    热键 F6/F7/F8/F9 与 F1 面板推同一 `DebugAction`。叠层：全塔射程圈开关（缓存塔集重建）、敌头顶
+    Text2d hp/移速/减速面板、右上 `[db3]` HUD 条（弹体/敌数）。时间/叠层动作**不标记调试局**（纯观察，
+    `is_observation()` 白名单）；release 扫描脚本已加 `[db3]` 串。`debug_db3::*` 6 条断言入 behavior。
   - **DB2 测试场景直达（2026-09-12）**：`--scenario NAME --seed N` CLI（main.rs cfg 门控，seed 先于 Startup 换 RunRng）
     与 F1 面板按钮**双入口同队列**（`DebugScenarioQueue`，排他执行器首帧落地）；六场景 fusion/projectile/fx/meta/
     choice/full-board 一键到位（choice 复用 wave.rs 真三选一生成器）；场景直达即标记调试局（存档隔离生效）。
@@ -137,8 +143,7 @@ assets/{models,textures,audio,fonts,ui}/
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
   ③ AC2 商店定价：解锁费（进手牌）与建造费（每次放置）分离——现均为塔面价；
   ④ EN5/ME1 数值为凭空起点值（治疗 3/s、升级 30/60 币），requirements 未给数。
-- **下一步**：**DB3（时间控制/信息叠层：暂停+单帧步进、4x 加速、射程圈常显、敌属性叠层、弹体计数）**——
-  DB1（F1 面板 + 作弊 + 调试局存档隔离）与 DB2（CLI/面板双入口场景直达）均已落地，DB3 复用同一 debug 门控 →
+- **下一步**：DB1/DB2/DB3（时间控制/信息叠层）均已落地 →
   **技能系统一期 SK1 骨架 → SK2 火雨 → SK3 冰霜 → SK4 狂暴（2026-09-14 定稿，requirements §17）** →
   **真人试玩盯 §15 信号**（战斗期能动性上线后再试，另观察「技能是否被主动用/是否挤压塔」两个新信号）→
   balance 数值仍按负责人意见暂缓（BAL1 基线已在 PR/FX 后重取，SK 落地后需再重取一次；BAL2 锚点表随时可收敛「早战经济压力」）。
