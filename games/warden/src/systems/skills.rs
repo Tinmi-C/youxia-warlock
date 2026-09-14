@@ -18,8 +18,8 @@ use bevy::prelude::*;
 use bevy::window::Window;
 
 use crate::resources::{
-    BuildMode, DebugPanelCapture, Lang, SkillId, SkillState, SkillTargeting, PROJECTILE_SPEED,
-    SKILL_COOLDOWNS,
+    BuildMode, DebugPanelCapture, FRENZY_DURATION, FRENZY_SPEED_MULT, Lang, SkillId, SkillState,
+    SkillTargeting, PROJECTILE_SPEED, SKILL_COOLDOWNS,
 };
 use crate::states::GameState;
 use crate::components::{AttackType, Enemy, Projectile, ProjectileOrigin};
@@ -71,7 +71,7 @@ pub const SKILL_DEFS: [SkillDef; 3] = [
     SkillDef {
         id: SkillId::WarFrenzy,
         aiming: SkillAiming::Instant,
-        implemented: false, // SK4
+        implemented: true, // SK4
         hotkey: KeyCode::KeyC,
         badge: 'C',
         indicator_radius: 0.0,
@@ -89,6 +89,7 @@ pub fn skill_def(id: SkillId) -> &'static SkillDef {
 fn cast_skill(
     commands: &mut Commands,
     enemies: &Query<(Entity, &Transform), Without<SkillIndicatorRing>>,
+    frenzy: &mut crate::resources::WarFrenzy,
     skill: SkillId,
     point: Vec3,
 ) {
@@ -121,9 +122,21 @@ fn cast_skill(
             info!("[sk] frost nova at ({:.1}, {:.1}) slowed {hits} enemies", point.x, point.z);
         }
         SkillId::WarFrenzy => {
-            // SK4: war frenzy global burst.
-            let _ = point;
+            // SK4: global timed attack-speed burst (towers read it at fire
+            // time; the point is meaningless for an instant cast).
+            frenzy.remaining = FRENZY_DURATION;
+            info!(
+                "[sk] war frenzy: all towers x{FRENZY_SPEED_MULT} for {FRENZY_DURATION}s"
+            );
         }
+    }
+}
+
+/// SK4: tick the frenzy countdown with virtual game time (frozen on pause
+/// like every timer).
+pub fn tick_war_frenzy(time: Res<Time>, mut frenzy: ResMut<crate::resources::WarFrenzy>) {
+    if frenzy.remaining > 0.0 {
+        frenzy.remaining = (frenzy.remaining - time.delta_secs()).max(0.0);
     }
 }
 
@@ -274,6 +287,7 @@ pub fn handle_skill_buttons(
     mut targeting: ResMut<SkillTargeting>,
     mut build: ResMut<BuildMode>,
     mut skills: ResMut<SkillState>,
+    mut frenzy: ResMut<crate::resources::WarFrenzy>,
     state: Res<State<GameState>>,
 ) {
     if *state.get() != GameState::Playing {
@@ -295,7 +309,7 @@ pub fn handle_skill_buttons(
                 info!("[sk] {:?} target picking", skill);
             }
             SkillAiming::Instant => {
-                cast_skill(&mut commands, &enemies, skill, Vec3::ZERO);
+                cast_skill(&mut commands, &enemies, &mut frenzy, skill, Vec3::ZERO);
                 skills.start_cooldown(skill);
                 info!("[sk] {:?} instant cast, cd {:.0}s", skill, SKILL_COOLDOWNS[skill.index()]);
             }
@@ -345,6 +359,7 @@ pub fn update_skill_targeting(
     state: Res<State<GameState>>,
     mut targeting: ResMut<SkillTargeting>,
     mut skills: ResMut<SkillState>,
+    mut frenzy: ResMut<crate::resources::WarFrenzy>,
     // Without<SkillIndicatorRing> keeps this read disjoint from the ring
     // write below (B0001; an enemy never carries the ring marker).
     enemies: Query<(Entity, &Transform), Without<SkillIndicatorRing>>,
@@ -410,7 +425,7 @@ pub fn update_skill_targeting(
     // Left click (away from the UI) confirms the cast at the ground point.
     if buttons.just_pressed(MouseButton::Left) && !cursor_over_blocking_ui(&blocking, &panel) {
         if let Some(point) = ground {
-            cast_skill(&mut commands, &enemies, skill, point);
+            cast_skill(&mut commands, &enemies, &mut frenzy, skill, point);
             skills.start_cooldown(skill);
             targeting.0 = None;
             info!(

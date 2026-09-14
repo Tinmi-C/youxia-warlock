@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::resources::{SkillState, SkillTargeting};
+use crate::resources::{SkillState, SkillTargeting, WarFrenzy};
 use crate::sets::GameSet;
 use crate::states::GameState;
 use crate::systems;
@@ -15,6 +15,7 @@ impl Plugin for SkillsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SkillState>()
             .init_resource::<SkillTargeting>()
+            .init_resource::<WarFrenzy>()
             .add_systems(
                 Update,
                 (
@@ -42,6 +43,8 @@ impl Plugin for SkillsPlugin {
                     // cooldown tick (cast lands in Input the same frame, so
                     // the first meteor drops immediately on the cast frame).
                     systems::skills::release_meteor_shots.after(systems::skills::tick_skill_cooldowns),
+                    // SK4: frenzy countdown.
+                    systems::skills::tick_war_frenzy,
                 )
                     .in_set(GameSet::Simulate)
                     .run_if(in_state(GameState::Playing)),

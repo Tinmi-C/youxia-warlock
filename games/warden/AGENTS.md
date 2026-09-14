@@ -141,7 +141,10 @@ assets/{models,textures,audio,fonts,ui}/
   - **SK3 冰霜新星（2026-09-14）**：点确认 XZ 半径 5 即时挂 Slow{0.5, 2s}。**减速共存语义下沉共享路径**：新
     `tower::ApplySlow` Command（factor=min 取更强、timer=新应用时长），壁垒炮弹/盾塔近战/新星三入口统一；壁垒炮行为
     由「覆盖」变为「取更强者刷新」（SK3 规格要求的语义变化）。
-  - `cargo check --all-targets` + `cargo test` 全绿（92 条断言，`tests/behavior.rs` 90 + `tests/balance.rs` 2）。
+  - **SK4 战意狂暴（2026-09-14）**：`WarFrenzy{remaining}` 全局资源（1.5×/3s 常量入 resources.rs）；`tower_fire` 开火
+    时刻读全局态追加乘数 `1/(攻速×Boosts×1.5)`（与 Boosts 管线同构，快照=开火瞬间；持续中新建塔即读即享）；瞬发走 SK1
+    预留 Instant 分支（C 键即触发）。三技能全点亮，SK1 未实装门控断言改标冷却门控。
+  - `cargo check --all-targets` + `cargo test` 全绿（95 条断言，`tests/behavior.rs` 93 + `tests/balance.rs` 2）。
 - **交互范式 + 投射物/战斗表现两批需求（2026-09-12 定稿）已同日实现**（见上方「已完成」两条实现记录）；
   规格存档：requirements §16（命令卡交互规范）/ §5.1（攻击结算模型，含**拍板不上物理插件**）；
   「伤害数字飘字」仍留 GDD 点子池。

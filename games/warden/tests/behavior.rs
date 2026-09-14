@@ -3553,17 +3553,24 @@ mod skills_sk1 {
         );
     }
 
-    /// SK1: a skill whose card has not landed stays inert — pressing its
-    /// hotkey does nothing (no target picking, no cooldown). C (war frenzy)
-    /// is unimplemented until SK4; Z and X went live with SK2/SK3 and are
-    /// covered by their own modules.
+    /// SK1: a skill on cooldown stays inert — pressing Z/X/C does nothing
+    /// (no target picking, no instant cast, the cooldown keeps running).
+    /// (All three skills went live with SK2-4; the "unimplemented" gate is
+    /// exercised the same way through this cooldown gate.)
     #[test]
-    fn unimplemented_skill_hotkeys_do_nothing() {
+    fn skill_hotkeys_do_nothing_while_on_cooldown() {
         let mut app = test_app();
         app.update();
         app.update();
         app.update();
-        for key in [KeyCode::KeyC] {
+        {
+            let mut skills = app.world_mut().resource_mut::<SkillState>();
+            skills.start_cooldown(SkillId::MeteorRain);
+            skills.start_cooldown(SkillId::FrostNova);
+            skills.start_cooldown(SkillId::WarFrenzy);
+        }
+        let before = app.world().resource::<SkillState>().cooldowns;
+        for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC] {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .press(key);
@@ -3577,13 +3584,15 @@ mod skills_sk1 {
         assert_eq!(
             app.world().resource::<SkillTargeting>().0,
             None,
-            "no target picking from unimplemented skills"
+            "no target picking while cooling down"
         );
-        assert_eq!(
-            app.world().resource::<SkillState>().cooldowns,
-            [0.0; 3],
-            "no cooldown from unimplemented skills"
-        );
+        let after = app.world().resource::<SkillState>().cooldowns;
+        for i in 0..3 {
+            assert!(
+                after[i] <= before[i],
+                "no cooldown restart from a blocked press ({i}: {before:?} -> {after:?})"
+            );
+        }
         // Reset the injected Interactions so nothing lingers.
         let mut q = app
             .world_mut()
@@ -4030,5 +4039,180 @@ mod skills_sk3 {
         );
         // Radius guard: exactly NOVA_RADIUS (XZ) is inside.
         let _ = NOVA_RADIUS;
+    }
+}
+
+// --- SK4: war frenzy (instant global attack-speed burst) ---------------------------
+
+mod skills_sk4 {
+    use super::*;
+    use warden::resources::{
+        FRENZY_DURATION, FRENZY_SPEED_MULT, SkillId, SkillState, WarFrenzy, SKILL_COOLDOWNS,
+    };
+
+    /// A tanky enemy standing in range of the given tower position.
+    fn spawn_dummy(app: &mut App, pos: Vec3) -> Entity {
+        app.world_mut()
+            .spawn((
+                Enemy {
+                    hp: 100_000.0,
+                    max_hp: 100_000.0,
+                    speed: 0.0,
+                    leak: 0,
+                    kill_gold: 0,
+                    physical_armor: false,
+                    def_index: 0,
+                    next_wp: 0,
+                },
+                Transform::from_xyz(pos.x + 3.0, 0.4, pos.z),
+            ))
+            .id()
+    }
+
+    /// A tower (base archer by default, or a fused Marksman) with a dummy
+    /// target in range; cooldown 0 so its first shot is immediate.
+    fn spawn_tower(
+        app: &mut App,
+        pos: Vec3,
+        attack_speed: f32,
+        fused_marksman: bool,
+    ) -> Entity {
+        spawn_dummy(app, pos);
+        app.world_mut()
+            .spawn((
+                Tower {
+                    tower_index: 0,
+                    damage: 1.0,
+                    attack_speed,
+                    range: 9.0,
+                    attack_type: AttackType::Physical,
+                    cooldown: 0.0,
+                    target: None,
+                    kind: if fused_marksman {
+                        TowerKind::Fused(FusionKind::Marksman)
+                    } else {
+                        TowerKind::Base(0)
+                    },
+                    aoe_radius: 0.0,
+                    slow_factor: 0.0,
+                    slow_duration: 0.0,
+                    invested: 0,
+                },
+                Transform::from_xyz(pos.x, 0.6, pos.z),
+            ))
+            .id()
+    }
+
+    /// Force the tower to fire this frame and return the cooldown that was
+    /// SET by the shot (the fire-rule readout: 1 / (attack_speed × frenzy)).
+    fn fire_and_read_cooldown(app: &mut App, tower: Entity) -> f32 {
+        app.world_mut().get_mut::<Tower>(tower).unwrap().cooldown = 0.0;
+        app.update();
+        app.world().get::<Tower>(tower).unwrap().cooldown
+    }
+
+    fn cast_frenzy(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyC);
+        app.update();
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.clear();
+        keys.release(KeyCode::KeyC);
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut bevy::ui::Interaction, With<warden::systems::skills::SkillButton>>();
+        for mut inter in q.iter_mut(app.world_mut()) {
+            *inter = bevy::ui::Interaction::None;
+        }
+    }
+
+    /// SK4 acceptance: during the frenzy an archer's fire cooldown is
+    /// 1/(1.0×1.5)≈0.667s and the skill starts its 60s cooldown; after 3s
+    /// everything reverts to 1.0s.
+    #[test]
+    fn war_frenzy_speeds_towers_then_reverts() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        let tower = spawn_tower(&mut app, Vec3::ZERO, 1.0, false);
+        // Baseline: no frenzy -> 1.0s cooldown.
+        let base = fire_and_read_cooldown(&mut app, tower);
+        assert!((base - 1.0).abs() < 1e-4, "baseline cooldown 1.0 (got {base})");
+
+        cast_frenzy(&mut app);
+        assert!(
+            app.world().resource::<WarFrenzy>().remaining > FRENZY_DURATION - 0.1,
+            "the frenzy is running"
+        );
+        let cd = app.world().resource::<SkillState>().cooldowns[2];
+        assert!(
+            cd <= SKILL_COOLDOWNS[2] && cd > SKILL_COOLDOWNS[2] - 0.1,
+            "the cast starts the 60s cooldown (got {cd})"
+        );
+        let frenzied = fire_and_read_cooldown(&mut app, tower);
+        let want = 1.0 / (1.0 * FRENZY_SPEED_MULT);
+        assert!(
+            (frenzied - want).abs() < 1e-3,
+            "frenzy cooldown 1/(1.0x1.5)={want:.3} (got {frenzied:.3})"
+        );
+        // Outlast the 3s window; the cooldown reverts to 1.0s.
+        for _ in 0..210 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<WarFrenzy>().remaining,
+            0.0,
+            "the frenzy expired"
+        );
+        let reverted = fire_and_read_cooldown(&mut app, tower);
+        assert!((reverted - 1.0).abs() < 1e-4, "back to 1.0s (got {reverted})");
+    }
+
+    /// SK4 acceptance: the frenzy is a GLOBAL state — a tower PLACED while it
+    /// runs benefits immediately — and a fused Marksman (attack speed 1.2)
+    /// gets the same ×1.5 on its own rate.
+    #[test]
+    fn frenzy_covers_towers_placed_mid_effect_and_fused() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        cast_frenzy(&mut app);
+        // A NEW archer placed during the frenzy fires at the frenzied rate.
+        let new_tower = spawn_tower(&mut app, Vec3::new(5.0, 0.0, 5.0), 1.0, false);
+        let new_cd = fire_and_read_cooldown(&mut app, new_tower);
+        assert!(
+            (new_cd - 1.0 / 1.5).abs() < 1e-3,
+            "a mid-frenzy tower benefits immediately (got {new_cd:.3})"
+        );
+        // A fused Marksman: 1/(1.2 x 1.5) = 0.556.
+        let marksman = spawn_tower(&mut app, Vec3::new(-5.0, 0.0, 5.0), 1.2, true);
+        let fused_cd = fire_and_read_cooldown(&mut app, marksman);
+        assert!(
+            (fused_cd - 1.0 / (1.2 * 1.5)).abs() < 1e-3,
+            "Marksman cooldown also x1.5 (got {fused_cd:.3})"
+        );
+    }
+
+    /// SK4: the instant cast needs no target picking — C fires immediately
+    /// and clears on its own (no SkillTargeting state was entered).
+    #[test]
+    fn frenzy_casts_instantly_without_target_picking() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        cast_frenzy(&mut app);
+        assert!(
+            app.world().resource::<WarFrenzy>().remaining > 0.0,
+            "C casts instantly"
+        );
+        assert_eq!(
+            app.world().resource::<warden::resources::SkillTargeting>().0,
+            None,
+            "no target picking for an instant skill"
+        );
     }
 }

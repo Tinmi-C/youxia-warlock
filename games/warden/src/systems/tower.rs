@@ -73,12 +73,20 @@ fn is_melee(tower: &Tower) -> bool {
 pub fn tower_fire(
     time: Res<Time>,
     boost: Res<Boosts>,
+    frenzy: Res<crate::resources::WarFrenzy>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut towers: Query<(&mut Tower, &Transform)>,
     mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
 ) {
+    // SK4: a global timed multiplier — while the frenzy lasts, EVERY tower's
+    // fire cooldown is divided by it (towers placed mid-frenzy included).
+    let frenzy_mult = if frenzy.remaining > 0.0 {
+        crate::resources::FRENZY_SPEED_MULT
+    } else {
+        1.0
+    };
     for (mut tower, ttf) in &mut towers {
         tower.cooldown -= time.delta_secs();
 
@@ -175,7 +183,7 @@ pub fn tower_fire(
             ));
         }
 
-        tower.cooldown = 1.0 / (tower.attack_speed * speed_mult);
+        tower.cooldown = 1.0 / (tower.attack_speed * speed_mult * frenzy_mult);
     }
 }
 

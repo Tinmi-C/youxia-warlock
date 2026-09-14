@@ -540,12 +540,18 @@
   效果口径；SK2 陨石沿用既有 resolve_impact 的 3D 距离，差 0.4 高度可忽略）。`skills_sk3::*` 2 条断言（半径内 ×0.5
   移动实测+2s 到期恢复+半径外不受影响+CD40 / 0.7 共存取 0.5 刷新+壁垒侧重砸保 0.5）。
 
-### SK4 · 战意狂暴（增幅·瞬发）（skills/towers）—— ▶ 待实现（依赖 SK1）
+### SK4 · 战意狂暴（增幅·瞬发）（skills/towers）—— ✅ 已实现（2026-09-14，依赖 SK1）
 - 接口: 读 SkillState 触发；输出 时限性全局攻速乘数（新资源/组件，与 Boosts 相乘）；塔开火读最终乘数。
 - 行为: 施放后 3s 内全场塔 `冷却 = 1/(攻速 × Boosts × 1.5)`；全局态非塔快照（持续中放置的新塔同样享受）；
   融合塔按 tower_index 同源吃 Boosts 的既有规则不变（§17.2）。
 - 验收句: 施放后 3s 内弓箭手冷却 ≈ 1/(1.0×1.5)≈0.67s（无 Boosts 时），3s 后恢复 1.0s；
   持续中新建的塔立即享受 ×1.5；融合塔（Marksman）冷却同样 ×1.5；CD=60s。
+- 实现: 新资源 `WarFrenzy{remaining}`（+常量 1.5/3s 入 resources.rs）；`tower_fire` 开火时刻读全局态：
+  `cooldown = 1/(attack_speed × Boosts × frenzy_mult)`（追加一个乘数，快照语义=开火瞬间——狂暴中开火的那一发之后按
+  短冷却计，狂暴结束后的下一发恢复，与既有 Boosts 管线完全同构）。瞬发路径走 SK1 预留的 `SkillAiming::Instant` 分支
+  （C 键即触发、无目标选择）。`tick_war_frenzy`（Simulate/Playing）随虚拟时间倒数。`skills_sk4::*` 3 条断言
+  （0.667s↔3s 后恢复 1.0s+CD60 / 持续中新建塔立即享受+Marksman 1/(1.2×1.5) / 瞬发无目标选择）。
+  随本卡三技能全点亮：SK1 的「未实装热键无效」断言改标为「冷却中热键无效」（同一门控语义，见 skills_sk1）。
 
 ---
 

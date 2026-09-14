@@ -622,3 +622,23 @@ impl SkillState {
 /// (systems::skills::update_skill_targeting). Cancel never starts a cooldown.
 #[derive(Resource, Debug, Default)]
 pub struct SkillTargeting(pub Option<SkillId>);
+
+/// SK4 war frenzy: while `remaining > 0`, every tower's fire cooldown is
+/// `1 / (attack_speed × Boosts × FRENZY_SPEED_MULT)`. A GLOBAL timed state —
+/// not a per-tower snapshot — so towers placed mid-frenzy benefit too
+/// (requirements §17.2); fused towers read it like everyone (their Boosts
+/// already come from `tower_index`).
+#[derive(Resource, Debug)]
+pub struct WarFrenzy {
+    pub remaining: f32,
+}
+
+impl Default for WarFrenzy {
+    fn default() -> Self {
+        Self { remaining: 0.0 }
+    }
+}
+
+/// SK4 starting values (§17.2; tune via §14).
+pub const FRENZY_SPEED_MULT: f32 = 1.5;
+pub const FRENZY_DURATION: f32 = 3.0;
