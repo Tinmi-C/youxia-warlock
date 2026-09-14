@@ -36,7 +36,13 @@ impl Plugin for SkillsPlugin {
             )
             .add_systems(
                 Update,
-                systems::skills::tick_skill_cooldowns
+                (
+                    systems::skills::tick_skill_cooldowns,
+                    // SK2: volley shots release in Simulate right after the
+                    // cooldown tick (cast lands in Input the same frame, so
+                    // the first meteor drops immediately on the cast frame).
+                    systems::skills::release_meteor_shots.after(systems::skills::tick_skill_cooldowns),
+                )
                     .in_set(GameSet::Simulate)
                     .run_if(in_state(GameState::Playing)),
             )

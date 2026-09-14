@@ -514,12 +514,20 @@
   调试局）。遗留修复：PR1 存量测试 gap 查询误取任意 Transform（SK 按钮节点加入后踩中），改为 With<Enemy> 过滤（语义不变）。
   `skills_sk1::*` 5 条断言入 behavior（开局就绪+三按钮/CD 真实时间递减+暂停冻结+恢复/跨波不重置/未实装热键无效/重置 CD 作弊标记）。
 
-### SK2 · 流星火雨（伤害·点地）（skills/projectiles）—— ▶ 待实现（依赖 SK1）
+### SK2 · 流星火雨（伤害·点地）（skills/projectiles）—— ✅ 已实现（2026-09-14，依赖 SK1）
 - 接口: 输入 确认目标点；输出 3 发 AOE 弹依次落点（Projectile：发起方=技能、伤害包 40、飞向固定落点）+ 爆心结算。
 - 行为: requirements §17.2——3 发依次落下（间隔 ≈0.3s 起点值），每发对半径 3 内敌人结算 40 伤害（类型=魔法，穿物理护甲）；
   弹体复用投射物接缝（发起方扩展为塔/技能两源；技能弹飞向固定点而非追踪实体）。
 - 验收句: 确认点后 3 发全部落下，半径 3 内 3 只普通怪各死一只（hp 30 < 40，金币 +6×3）；
   盾兵怪受全额 40（魔法穿甲）；施放后 CD=45s 开始计时；目标选择取消则无弹生成不进 CD。
+- 实现: `Projectile.target` 扩为 `origin: ProjectileOrigin`（`Homing{target}` 塔 / `Fixed{point}` 技能——规格允许的
+  接缝兑现；tower_fire/projectiles.rs/存量 PR 测试同步迁移，飞行/结算语义不变：Fixed 弹必有 AOE 半径、单发弹仅 Homing）。
+  弹序调度 = 新组件 `MeteorVolley`（规则层实体，3 发计数+0.3s 间隔计时）+ `release_meteor_shots`（Simulate）：
+  每发从落点上方 10 单位（速度 10≈1s 可视坠落）生成 `Projectile{Fixed, 40 魔法, aoe 3}`，命中走既有
+  `resolve_impact`（护甲按受害者结算→魔法穿甲、金币走正常死亡路径、FX 爆圈复用 ProjectileImpact）。三发同落点
+  （requirements 未言明散布，取最简解释）。首帧即落第一发（确认在 Input、调度在 Simulate 同帧）。SK1 的
+  「Esc 取消不进 CD」断言随本卡补齐（真点地技能）。`skills_sk2::*` 3 条断言（三发全落+半径内全灭+金币 / 魔法穿甲
+  90-40=50 / 取消无弹无 CD）。
 
 ### SK3 · 冰霜新星（控制·点地）（skills）—— ▶ 待实现（依赖 SK1）
 - 接口: 输入 确认目标点；输出 半径 5 内敌人挂 Slow{factor 0.5, duration 2s}。

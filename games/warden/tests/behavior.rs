@@ -2363,7 +2363,16 @@ fn single_target_round_dissipates_when_target_dies() {
     // The round is mid-flight: kill the target out-of-band.
     app.world_mut().get_mut::<Enemy>(bystander).unwrap().hp = 30.0; // untouched baseline
     let mut q = app.world_mut().query::<&Projectile>();
-    let target = q.iter(app.world()).next().map(|p| p.target).expect("round in flight");
+    let target = q
+        .iter(app.world())
+        .next()
+        .map(|p| match p.origin {
+            warden::components::ProjectileOrigin::Homing { target } => target,
+            warden::components::ProjectileOrigin::Fixed { .. } => {
+                panic!("a tower round must be homing")
+            }
+        })
+        .expect("round in flight");
     app.world_mut().get_mut::<Enemy>(target).unwrap().hp = 0.0; // dies mid-flight
     app.update(); // resolve_death may not have run yet; the round sees hp<=0
     for _ in 0..30 {
@@ -2406,7 +2415,9 @@ fn wave_end_clears_in_flight_projectiles() {
     app.update();
     app.world_mut().spawn((
         Projectile {
-            target: far_target,
+            origin: warden::components::ProjectileOrigin::Homing {
+                target: far_target,
+            },
             damage: 1.0,
             attack_type: AttackType::Physical,
             aoe_radius: 0.0,
@@ -3542,15 +3553,17 @@ mod skills_sk1 {
         );
     }
 
-    /// SK1: with no skill implemented yet, the Z/X/C hotkeys do nothing — no
-    /// target picking, no cooldown, no side effects.
+    /// SK1: a skill whose card has not landed stays inert — pressing its
+    /// hotkey does nothing (no target picking, no cooldown). X (frost nova)
+    /// and C (war frenzy) are unimplemented until SK3/SK4; Z went live with
+    /// SK2 and is covered by the skills_sk2 module.
     #[test]
     fn unimplemented_skill_hotkeys_do_nothing() {
         let mut app = test_app();
         app.update();
         app.update();
         app.update();
-        for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC] {
+        for key in [KeyCode::KeyX, KeyCode::KeyC] {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .press(key);
@@ -3607,5 +3620,209 @@ mod skills_sk1 {
             app.world().resource::<warden::resources::DebugRun>().marked,
             "the reset is a cheat: the run is marked"
         );
+    }
+}
+
+// --- SK2: meteor rain (point-target AoE) -----------------------------------------
+
+mod skills_sk2 {
+    use super::*;
+    use warden::components::{Projectile, ProjectileOrigin};
+    use warden::resources::{SkillId, SkillState, SkillTargeting, SKILL_COOLDOWNS};
+    use warden::systems::skills::{MeteorVolley, METEOR_COUNT};
+
+    /// A stationary live enemy (speed 0 keeps it exactly in place for
+    /// radius/timing assertions).
+    fn spawn_enemy_at(app: &mut App, pos: Vec3, hp: f32, armor: bool) -> Entity {
+        app.world_mut()
+            .spawn((
+                Enemy {
+                    hp,
+                    max_hp: hp,
+                    speed: 0.0,
+                    leak: 0,
+                    kill_gold: 6,
+                    physical_armor: armor,
+                    def_index: 0,
+                    next_wp: 0,
+                },
+                Transform::from_xyz(pos.x, 0.4, pos.z),
+            ))
+            .id()
+    }
+
+    fn projectiles_alive(app: &mut App) -> usize {
+        let mut q = app.world_mut().query_filtered::<(), With<Projectile>>();
+        q.iter(app.world()).count()
+    }
+
+    fn reset_skill_interactions(app: &mut App) {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.clear();
+        keys.release(KeyCode::KeyZ);
+        let mut mouse = app
+            .world_mut()
+            .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>();
+        mouse.clear();
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut bevy::ui::Interaction, With<warden::systems::skills::SkillButton>>();
+        for mut inter in q.iter_mut(app.world_mut()) {
+            *inter = bevy::ui::Interaction::None;
+        }
+    }
+
+    /// Cast meteor rain at a world point through the REAL player path: Z
+    /// hotkey -> target picking -> cursor over the point -> left-click.
+    fn cast_meteor_at(app: &mut App, point: Vec3) {
+        // Z enters target picking (button must exist from earlier updates).
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyZ);
+        app.update();
+        reset_skill_interactions(app);
+        assert_eq!(
+            app.world().resource::<SkillTargeting>().0,
+            Some(SkillId::MeteorRain),
+            "Z enters meteor target picking"
+        );
+        // Cursor exactly over the point, then confirm with a left click.
+        enable_world_picking(app, Vec2::new(640.0, 360.0));
+        let cursor = {
+            let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+            let (cam, tf) = cams.single(app.world()).expect("one camera");
+            cam.world_to_viewport(tf, point).expect("point projects")
+        };
+        {
+            let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+            for mut w in q.iter_mut(app.world_mut()) {
+                w.set_cursor_position(Some(cursor));
+            }
+        }
+        click_left(app);
+        app.update();
+        reset_skill_interactions(app);
+        assert_eq!(
+            app.world().resource::<SkillTargeting>().0,
+            None,
+            "the confirm click clears target picking"
+        );
+    }
+
+    /// SK2 acceptance: after the confirm, all three meteors drop (three in
+    /// flight mid-volley) and everything within radius 3 dies (30 hp < 40);
+    /// the kill gold flows through the normal death path (+6 each).
+    #[test]
+    fn meteor_rain_drops_three_blasts_and_kills_the_pack() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update(); // skill buttons exist
+        let point = Vec3::new(0.0, 0.0, 0.0);
+        for off in [Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 2.5)] {
+            spawn_enemy_at(&mut app, point + off, 30.0, false);
+        }
+        cast_meteor_at(&mut app, point);
+        // The volley scheduler exists and the cooldown started (SK1's
+        // start_cooldown through the real confirm path).
+        {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<(), With<MeteorVolley>>();
+            assert_eq!(q.iter(app.world()).count(), 1, "one volley scheduled");
+        }
+        let cd = app.world().resource::<SkillState>().cooldowns[0];
+        assert!(
+            (SKILL_COOLDOWNS[0] - cd) < 0.1 && cd > SKILL_COOLDOWNS[0] - 0.1,
+            "cooldown starts at 45s on confirm (got {cd})"
+        );
+        // 0.8s in: shots drop at 0/0.3/0.6 and fly ~1s -> all three airborne.
+        for _ in 0..48 {
+            app.update();
+        }
+        assert_eq!(
+            projectiles_alive(&mut app),
+            METEOR_COUNT as usize,
+            "three meteors dropped and are in flight"
+        );
+        // All impacts land by ~1.6s; everything in radius dies (+6 gold each).
+        for _ in 0..120 {
+            app.update();
+        }
+        let mut q = app.world_mut().query_filtered::<(), With<Enemy>>();
+        assert_eq!(
+            q.iter(app.world()).count(),
+            0,
+            "every enemy within radius 3 died"
+        );
+        assert_eq!(
+            app.world().resource::<Economy>().gold,
+            100 + 6 * 3,
+            "kill gold +6 x3 through the normal death path"
+        );
+    }
+
+    /// SK2 acceptance: meteor damage is MAGIC — a shield (armored) enemy
+    /// takes the FULL 40 per blast (physical would deal 20).
+    #[test]
+    fn meteor_damage_is_magic_and_pierces_armor() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        let point = Vec3::new(1.0, 0.0, -1.0);
+        spawn_enemy_at(&mut app, point, 90.0, true); // shield: physical -50%
+        cast_meteor_at(&mut app, point);
+        // First impact at ~1.0s of flight; the second lands at ~1.3s — check
+        // in between so exactly one blast has resolved.
+        for _ in 0..66 {
+            app.update();
+        }
+        let mut q = app.world_mut().query::<&Enemy>();
+        let hp = q.iter(app.world()).next().map(|e| e.hp).expect("alive");
+        assert!(
+            (hp - 50.0).abs() < 0.01,
+            "magic pierces armor: 90 - 40 = 50 (got {hp})"
+        );
+    }
+
+    /// SK2/SK1 acceptance: cancelling the target pick (Esc) aborts cleanly —
+    /// no projectile, no volley, no cooldown.
+    #[test]
+    fn meteor_target_cancel_casts_nothing_and_pays_no_cooldown() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyZ);
+        app.update();
+        reset_skill_interactions(&mut app);
+        assert_eq!(
+            app.world().resource::<SkillTargeting>().0,
+            Some(SkillId::MeteorRain)
+        );
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+        reset_skill_interactions(&mut app);
+        assert_eq!(
+            app.world().resource::<SkillTargeting>().0,
+            None,
+            "Esc cancels the target pick"
+        );
+        assert_eq!(
+            app.world().resource::<SkillState>().cooldowns[0],
+            0.0,
+            "a cancelled pick never starts the cooldown"
+        );
+        assert_eq!(projectiles_alive(&mut app), 0, "nothing was fired");
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(), With<MeteorVolley>>();
+        assert_eq!(q.iter(app.world()).count(), 0, "no volley was scheduled");
+        let _ = ProjectileOrigin::Fixed { point: Vec3::ZERO }; // import check
     }
 }

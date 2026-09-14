@@ -17,8 +17,12 @@ use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::window::Window;
 
-use crate::resources::{BuildMode, DebugPanelCapture, Lang, SkillId, SkillState, SkillTargeting, SKILL_COOLDOWNS};
+use crate::resources::{
+    BuildMode, DebugPanelCapture, Lang, SkillId, SkillState, SkillTargeting, PROJECTILE_SPEED,
+    SKILL_COOLDOWNS,
+};
 use crate::states::GameState;
+use crate::components::{AttackType, Projectile, ProjectileOrigin};
 use crate::systems::command::{cursor_over_blocking_ui, BlocksWorldInput, ControlZoneRoot};
 use crate::systems::hud::UiFont;
 use crate::systems::l10n;
@@ -51,7 +55,7 @@ pub const SKILL_DEFS: [SkillDef; 3] = [
     SkillDef {
         id: SkillId::MeteorRain,
         aiming: SkillAiming::Point,
-        implemented: false, // SK2
+        implemented: true, // SK2
         hotkey: KeyCode::KeyZ,
         badge: 'Z',
         indicator_radius: 3.0,
@@ -85,16 +89,98 @@ pub fn skill_def(id: SkillId) -> &'static SkillDef {
 fn cast_skill(commands: &mut Commands, skill: SkillId, point: Vec3) {
     match skill {
         SkillId::MeteorRain => {
-            // SK2: meteor rain volley.
-            let _ = (commands, point);
+            // SK2: schedule the three-drop volley at the confirmed point.
+            commands.spawn(MeteorVolley {
+                point,
+                shots_left: METEOR_COUNT,
+                timer: 0.0,
+            });
         }
         SkillId::FrostNova => {
             // SK3: frost nova slow field.
-            let _ = (commands, point);
+            let _ = point;
         }
         SkillId::WarFrenzy => {
             // SK4: war frenzy global burst.
-            let _ = (commands, point);
+            let _ = point;
+        }
+    }
+}
+
+// --- SK2: meteor rain ------------------------------------------------------------
+
+/// One confirmed meteor-rain cast: a rule-layer scheduler entity dropping the
+/// remaining meteors at `point`, spaced by METEOR_INTERVAL.
+#[derive(Component)]
+pub struct MeteorVolley {
+    pub point: Vec3,
+    pub shots_left: u32,
+    pub timer: f32,
+}
+
+/// SK2 starting values (§17.2; tune via §14).
+pub const METEOR_COUNT: u32 = 3;
+pub const METEOR_INTERVAL: f32 = 0.3;
+pub const METEOR_DAMAGE: f32 = 40.0;
+pub const METEOR_RADIUS: f32 = 3.0;
+/// Meteors spawn this far above the point and fall at PROJECTILE_SPEED
+/// (10 u/s -> ~1s of visible flight before impact).
+pub const METEOR_FALL_HEIGHT: f32 = 10.0;
+
+/// Release the pending meteor drops (SK2): every METEOR_INTERVAL one rule-layer
+/// projectile launches from above the point, flying straight down to it — the
+/// fixed-point origin seam of `Projectile` (§17.2 发起方=技能). Each impact
+/// resolves 40 MAGIC damage to everything within METEOR_RADIUS (armor per
+/// victim: magic pierces physical armor, §6).
+pub fn release_meteor_shots(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut volleys: Query<(Entity, &mut MeteorVolley)>,
+) {
+    for (eid, mut volley) in &mut volleys {
+        if volley.shots_left == 0 {
+            commands.entity(eid).despawn();
+            continue;
+        }
+        volley.timer -= time.delta_secs();
+        if volley.timer > 0.0 {
+            continue;
+        }
+        let start = volley.point + Vec3::Y * METEOR_FALL_HEIGHT;
+        commands.spawn((
+            Projectile {
+                origin: ProjectileOrigin::Fixed {
+                    point: volley.point,
+                },
+                damage: METEOR_DAMAGE,
+                attack_type: AttackType::Magic,
+                aoe_radius: METEOR_RADIUS,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+                speed: PROJECTILE_SPEED,
+                last_target_pos: volley.point,
+            },
+            Mesh3d(meshes.add(Sphere::new(0.3))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.45, 0.1),
+                unlit: true,
+                ..default()
+            })),
+            Transform::from_translation(start),
+        ));
+        volley.shots_left -= 1;
+        volley.timer = METEOR_INTERVAL;
+        info!(
+            "[sk] meteor {} of {} away -> ({:.1}, {:.1})",
+            METEOR_COUNT - volley.shots_left,
+            METEOR_COUNT,
+            volley.point.x,
+            volley.point.z
+        );
+        if volley.shots_left == 0 {
+            commands.entity(eid).despawn();
         }
     }
 }

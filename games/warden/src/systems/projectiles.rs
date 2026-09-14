@@ -1,14 +1,15 @@
-//! Projectiles (PR1/PR2, requirements §5.1): homing rule-layer rounds.
-//! Ranged towers launch; the round flies toward the target's current position
-//! each frame (never misses), then resolves at impact — single-target hits
-//! only the target, AOE blasts everything around the impact point (armor is
-//! resolved per victim at hit time; damage was snapshotted at launch). The
-//! slow payload rides the hit (TO6 rework). The melee shield tower keeps its
-//! instant hit (hybrid model, §5.1).
+//! Projectiles (PR1/PR2, requirements §5.1): rule-layer rounds. Towers fire
+//! HOMING rounds — the round flies toward the target's current position each
+//! frame (never misses); skill shots (SK2) fly to a FIXED ground point. Both
+//! resolve at impact — single-target hits only the target, AOE blasts
+//! everything around the impact point (armor is resolved per victim at hit
+//! time; damage was snapshotted at launch). The slow payload rides the hit
+//! (TO6 rework). The melee shield tower keeps its instant hit (hybrid model,
+//! §5.1).
 
 use bevy::prelude::*;
 
-use crate::components::{Enemy, Projectile, Slow};
+use crate::components::{Enemy, Projectile, ProjectileOrigin, Slow};
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{WavePhase, WaveState};
 use crate::systems::tower::effective_damage;
@@ -21,9 +22,10 @@ pub struct ProjectileImpact {
     pub aoe_radius: f32,
 }
 
-/// Fly every projectile toward its target and resolve impacts (PR1).
-/// A target that died mid-flight: single-target rounds despawn harmlessly;
-/// AOE rounds detonate at the target's last known position (PR2).
+/// Fly every projectile toward its destination and resolve impacts (PR1).
+/// A homing target that died mid-flight: single-target rounds despawn
+/// harmlessly; AOE rounds detonate at the target's last known position (PR2).
+/// Fixed-point skill shots always reach their point.
 pub fn fly_projectiles(
     time: Res<Time>,
     mut commands: Commands,
@@ -34,14 +36,18 @@ pub fn fly_projectiles(
     mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
 ) {
     for (eid, mut proj, mut tf) in &mut q {
-        // Steer toward the target's *current* position (homing, §5.1).
-        let target_pos = enemies
-            .get(proj.target)
-            .ok()
-            .filter(|(_, _, en)| en.hp > 0.0)
-            .map(|(_, etf, _)| etf.translation);
+        // Steer toward the destination: the homing target's *current*
+        // position (§5.1) or the fixed skill point (SK2).
+        let target_pos = match proj.origin {
+            ProjectileOrigin::Homing { target } => enemies
+                .get(target)
+                .ok()
+                .filter(|(_, _, en)| en.hp > 0.0)
+                .map(|(_, etf, _)| etf.translation),
+            ProjectileOrigin::Fixed { point } => Some(point),
+        };
         let Some(pos) = target_pos else {
-            // Target gone mid-flight (PR2).
+            // Homing target gone mid-flight (PR2).
             if proj.aoe_radius > 0.0 {
                 // AOE rounds still detonate at the last known position.
                 let detonate_at = proj.last_target_pos;
@@ -85,8 +91,9 @@ fn resolve_impact(
                 victims.push(ven);
             }
         }
-    } else {
-        victims.push(proj.target);
+    } else if let ProjectileOrigin::Homing { target } = proj.origin {
+        // Fixed-point shots are always AOE; single-target only exists homing.
+        victims.push(target);
     }
     for ven in victims {
         if let Ok((_, _, mut en)) = enemies.get_mut(ven) {

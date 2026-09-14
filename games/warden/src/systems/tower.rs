@@ -10,7 +10,9 @@
 
 use bevy::prelude::*;
 
-use crate::components::{AttackType, Enemy, FusionKind, Projectile, Slow, Tower, TowerKind};
+use crate::components::{
+    AttackType, Enemy, FusionKind, Projectile, ProjectileOrigin, Slow, Tower, TowerKind,
+};
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
 
@@ -148,7 +150,7 @@ pub fn tower_fire(
             let (mesh, color) = projectile_visual(&tower, tower.aoe_radius);
             commands.spawn((
                 Projectile {
-                    target,
+                    origin: ProjectileOrigin::Homing { target },
                     damage: base_dmg,
                     attack_type: tower.attack_type,
                     aoe_radius: tower.aoe_radius,

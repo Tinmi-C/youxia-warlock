@@ -134,7 +134,11 @@ assets/{models,textures,audio,fonts,ui}/
     （Z/X/C 注入 Interaction 复用点击）+CD 置灰/剩余秒数+tooltip（refresh_tooltip 扩两源缓存）；点地技能指示圈+左键确认+
     Esc/右键取消（cancel_modes 扩清、select_object 让位）；未实装置灰（SK2-4 逐张点亮）；F1 加「Reset skill CDs」
     （作弊，标记调试局）。PR1 存量测试 gap 查询收紧 With<Enemy>（SK 按钮 Transform 节点踩中任意首实体，语义不变）。
-  - `cargo check --all-targets` + `cargo test` 全绿（87 条断言，`tests/behavior.rs` 85 + `tests/balance.rs` 2）。
+  - **SK2 流星火雨（2026-09-14）**：`Projectile.target` → `origin: ProjectileOrigin{Homing 塔/Fixed 技能}`（SK2 规格
+    允许的投射物接缝，存量塔弹/PR 测试同步迁移语义不变）；`MeteorVolley` 调度实体（3 发×0.3s 间隔，落点上方 10 单位
+    坠落≈1s）+ `release_meteor_shots`，每发 `Projectile{Fixed, 40 魔法, 半径 3}` 走既有 `resolve_impact`（穿甲/金币/
+    FX 爆圈全复用）；三发同落点（最简解释）。
+  - `cargo check --all-targets` + `cargo test` 全绿（90 条断言，`tests/behavior.rs` 88 + `tests/balance.rs` 2）。
 - **交互范式 + 投射物/战斗表现两批需求（2026-09-12 定稿）已同日实现**（见上方「已完成」两条实现记录）；
   规格存档：requirements §16（命令卡交互规范）/ §5.1（攻击结算模型，含**拍板不上物理插件**）；
   「伤害数字飘字」仍留 GDD 点子池。

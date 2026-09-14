@@ -78,14 +78,26 @@ pub struct Slow {
     pub factor: f32,
 }
 
+/// Who launched a projectile and where it heads. Towers fire HOMING rounds
+/// locked on an enemy (§5.1); skill shots (SK2) fly to a FIXED ground point
+/// — the origin seam the skill system reuses (§17.2 复用投射物：发起方=技能).
+#[derive(Debug, Clone, Copy)]
+pub enum ProjectileOrigin {
+    /// Track the target's current position every frame (never misses; PR1).
+    Homing { target: Entity },
+    /// Fly straight to this world point and resolve there (skill shots).
+    Fixed { point: Vec3 },
+}
+
 /// A rule-layer projectile (PR1, requirements §5.1): a homing round locked on
 /// its target — flies toward the target's *current* position every frame, so
 /// it never misses. Damage and attack type are snapshotted at launch; armor
-/// resolves at impact. Built as a generic entity (origin-agnostic) so the
-/// future skill system can reuse it directly.
+/// resolves at impact. Built as a generic entity (origin-agnostic: towers
+/// home, skills fly to a fixed point — `ProjectileOrigin`) so the skill
+/// system reuses it directly.
 #[derive(Component)]
 pub struct Projectile {
-    pub target: Entity,
+    pub origin: ProjectileOrigin,
     /// Damage snapshot taken at launch (post-boost, pre-armor).
     pub damage: f32,
     pub attack_type: AttackType,
@@ -98,8 +110,8 @@ pub struct Projectile {
     pub slow_duration: f32,
     /// Speed in world units per second (§5.1 starting value, §14 tuning row).
     pub speed: f32,
-    /// Last known target position — the AOE detonation anchor when the target
-    /// dies mid-flight (PR2).
+    /// Last known target position — the AOE detonation anchor when a homing
+    /// target dies mid-flight (PR2); for fixed-point shots, the point itself.
     pub last_target_pos: Vec3,
 }
 
