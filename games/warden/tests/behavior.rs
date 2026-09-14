@@ -16,7 +16,8 @@ use warden::{
     plugins::{
         acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
         fx::FxPlugin, game::GamePlugin, map::MapPlugin, meta::MetaPlugin,
-        projectiles::ProjectilesPlugin, towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
+        projectiles::ProjectilesPlugin, skills::SkillsPlugin, towers::TowersPlugin, ui::UiPlugin,
+        waves::WavesPlugin,
     },
     resources::{
         BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, Lang, MetaSavePath,
@@ -42,6 +43,7 @@ fn test_app() -> App {
             AcquisitionPlugin,
             MetaPlugin,
             ProjectilesPlugin,
+            SkillsPlugin,
             UiPlugin,
         ))
         // Keep meta persistence out of the repo: tests never touch
@@ -2222,7 +2224,10 @@ fn projectile_flies_tracks_and_lands_on_time() {
     };
     let gap_now = |app: &mut App| -> f32 {
         let mut q = app.world_mut().query::<(&Projectile, &Transform)>();
-        let mut e = app.world_mut().query::<&Transform>();
+        // The enemy specifically — a bare Transform query would pick an
+        // arbitrary UI node (the skill buttons added by SK1 all carry
+        // Transforms too).
+        let mut e = app.world_mut().query_filtered::<&Transform, With<Enemy>>();
         match (q.iter(app.world()).next(), e.iter(app.world()).next()) {
             (Some((_, ptf)), Some(etf)) => ptf.translation.distance(etf.translation),
             _ => f32::MAX,
@@ -3433,6 +3438,174 @@ mod debug_db3 {
         assert!(
             app.world().resource::<DebugRun>().marked,
             "a real cheat still marks the run"
+        );
+    }
+}
+
+// --- SK1: skill framework + cooldowns / cast interaction ------------------------
+
+mod skills_sk1 {
+    use super::*;
+    use warden::resources::{SkillId, SkillState, SkillTargeting, SKILL_COOLDOWNS};
+    use warden::systems::skills::{SkillButton, SkillsRow};
+
+    fn count_skill_buttons(app: &mut App) -> usize {
+        let mut q = app.world_mut().query_filtered::<(), With<SkillButton>>();
+        q.iter(app.world()).count()
+    }
+
+    /// SK1 acceptance: the run opens with every skill READY (cooldown 0) and
+    /// the control zone carries exactly three skill buttons (greyed until
+    /// their skill card lands).
+    #[test]
+    fn skills_start_ready_with_three_control_zone_buttons() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update(); // control zone builds on frame 1; the row self-heals
+        let skills = app.world().resource::<SkillState>();
+        assert_eq!(skills.cooldowns, [0.0; 3], "opening state: all ready");
+        assert_eq!(count_skill_buttons(&mut app), 3, "three skill buttons");
+        let mut rows = app.world_mut().query_filtered::<(), With<SkillsRow>>();
+        assert_eq!(rows.iter(app.world()).count(), 1, "one skill row");
+    }
+
+    /// SK1 acceptance: a started cooldown ticks down with real (virtual)
+    /// time — 1s of game time decrements it by exactly 1s — and freezes
+    /// while the game is Paused (P), resuming afterwards.
+    #[test]
+    fn skill_cooldown_ticks_with_time_and_freezes_on_pause() {
+        let mut app = test_app();
+        app.update();
+        app.world_mut()
+            .resource_mut::<SkillState>()
+            .start_cooldown(SkillId::MeteorRain);
+        assert_eq!(
+            app.world().resource::<SkillState>().cooldowns[0],
+            SKILL_COOLDOWNS[0]
+        );
+        for _ in 0..60 {
+            app.update(); // 1s of game time
+        }
+        let after_1s = app.world().resource::<SkillState>().cooldowns[0];
+        assert!(
+            (after_1s - 44.0).abs() < 0.01,
+            "1s later the CD must be 44s (got {after_1s})"
+        );
+        // Pause (player pause): the ticker is state-gated, nothing moves.
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Paused);
+        app.update(); // applies the transition
+        for _ in 0..120 {
+            app.update();
+        }
+        let after_pause = app.world().resource::<SkillState>().cooldowns[0];
+        assert!(
+            (after_pause - after_1s).abs() < 1e-6,
+            "paused game must freeze the cooldown (got {after_pause})"
+        );
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        app.update();
+        app.update(); // 1/60s of play time ticks it again
+        let resumed = app.world().resource::<SkillState>().cooldowns[0];
+        assert!(resumed < after_pause, "resuming ticks the cooldown again");
+    }
+
+    /// SK1 acceptance: cooldowns are continuous REAL time — a wave
+    /// transition (combat -> intermission resolve) never resets them.
+    #[test]
+    fn skill_cooldown_survives_wave_transition() {
+        let mut app = test_app();
+        app.update();
+        app.world_mut()
+            .resource_mut::<SkillState>()
+            .start_cooldown(SkillId::FrostNova);
+        {
+            let mut ws = app.world_mut().resource_mut::<WaveState>();
+            ws.current = 0;
+            ws.phase = WavePhase::Combat;
+            ws.spawn_queue.clear();
+            ws.active = 0; // resolve immediately
+        }
+        app.update(); // wave resolves -> Intermission
+        assert_eq!(
+            app.world().resource::<WaveState>().phase,
+            WavePhase::Intermission
+        );
+        let cd = app.world().resource::<SkillState>().cooldowns[1];
+        assert!(
+            (cd - SKILL_COOLDOWNS[1]).abs() < 0.05,
+            "wave change must keep the CD running (got {cd})"
+        );
+    }
+
+    /// SK1: with no skill implemented yet, the Z/X/C hotkeys do nothing — no
+    /// target picking, no cooldown, no side effects.
+    #[test]
+    fn unimplemented_skill_hotkeys_do_nothing() {
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update();
+        for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC] {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key);
+            app.update();
+            {
+                let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+                keys.clear();
+                keys.release(key);
+            }
+        }
+        assert_eq!(
+            app.world().resource::<SkillTargeting>().0,
+            None,
+            "no target picking from unimplemented skills"
+        );
+        assert_eq!(
+            app.world().resource::<SkillState>().cooldowns,
+            [0.0; 3],
+            "no cooldown from unimplemented skills"
+        );
+        // Reset the injected Interactions so nothing lingers.
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut bevy::ui::Interaction, With<SkillButton>>();
+        for mut inter in q.iter_mut(app.world_mut()) {
+            *inter = bevy::ui::Interaction::None;
+        }
+    }
+
+    /// SK1: the F1 "reset skill CDs" cheat zeroes every cooldown and (being
+    /// a cheat) marks the run as debug.
+    #[test]
+    fn debug_reset_skill_cd_cheat_resets_and_marks() {
+        use warden::systems::debug::DebugAction;
+        let mut app = super::debug_cheats::debug_app();
+        app.update();
+        {
+            let mut skills = app.world_mut().resource_mut::<SkillState>();
+            skills.start_cooldown(SkillId::MeteorRain);
+            skills.start_cooldown(SkillId::FrostNova);
+            skills.start_cooldown(SkillId::WarFrenzy);
+        }
+        app.world_mut()
+            .resource_mut::<warden::systems::debug::DebugQueue>()
+            .0
+            .push(DebugAction::SkillResetCd);
+        app.update();
+        assert_eq!(
+            app.world().resource::<SkillState>().cooldowns,
+            [0.0; 3],
+            "the cheat resets every cooldown"
+        );
+        assert!(
+            app.world().resource::<warden::resources::DebugRun>().marked,
+            "the reset is a cheat: the run is marked"
         );
     }
 }

@@ -7,6 +7,7 @@ pub mod game;
 pub mod map;
 pub mod meta;
 pub mod projectiles;
+pub mod skills;
 pub mod towers;
 pub mod ui;
 pub mod waves;

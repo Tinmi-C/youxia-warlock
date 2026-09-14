@@ -138,6 +138,59 @@ pub const FUSE_HINT: Bi = Bi(
 pub const BASE_TOWER_FALLBACK: Bi = Bi("基础塔", "Base tower");
 pub const FUSED_TOWER_FALLBACK: Bi = Bi("融合塔", "Fused tower");
 
+// --- Skills (SK1, requirements §17) --------------------------------------------
+
+pub const SKILL_WIP: Bi = Bi("未实装", "Not implemented");
+/// Targeting hint while a point skill awaits its ground confirm (§17.3).
+pub const SKILL_TARGET_HINT: Bi = Bi(
+    "选择目标点 · 左键确认 · Esc/右键取消",
+    "Pick a target point · Left-click confirms · Esc/Right-click cancels",
+);
+
+/// Skill display name (§17.2).
+pub fn skill_name(kind: crate::resources::SkillId, lang: Lang) -> &'static str {
+    use crate::resources::SkillId;
+    pick2(
+        match kind {
+            SkillId::MeteorRain => "流星火雨",
+            SkillId::FrostNova => "冰霜新星",
+            SkillId::WarFrenzy => "战意狂暴",
+        },
+        match kind {
+            SkillId::MeteorRain => "Meteor Rain",
+            SkillId::FrostNova => "Frost Nova",
+            SkillId::WarFrenzy => "War Frenzy",
+        },
+        lang,
+    )
+}
+
+/// Tooltip body: effect numbers + cooldown (§17.2 starting values).
+pub fn skill_tooltip(lang: Lang, kind: crate::resources::SkillId, cd_secs: f32) -> String {
+    use crate::resources::SkillId;
+    let effect = match kind {
+        SkillId::MeteorRain => pick2(
+            "3 发流星依次落下，每发对半径 3 内造成 40 魔法伤害（穿物理护甲）",
+            "3 meteors fall in sequence, each deals 40 magic damage in radius 3 (ignores armor)",
+            lang,
+        ),
+        SkillId::FrostNova => pick2(
+            "点半径 5 内敌人减速 50%，持续 2 秒（与塔减速同存取更强者）",
+            "Slows enemies within radius 5 by 50% for 2s (strongest slow wins)",
+            lang,
+        ),
+        SkillId::WarFrenzy => pick2(
+            "3 秒内全场塔攻速 +50%（含持续中新建的塔）",
+            "All towers gain +50% attack speed for 3s (towers built mid-frenzy too)",
+            lang,
+        ),
+    };
+    match lang {
+        Lang::Zh => format!("{effect}\n冷却 {cd_secs:.0} 秒 · 免费施放"),
+        Lang::En => format!("{effect}\nCooldown {cd_secs:.0}s · free to cast"),
+    }
+}
+
 // --- Formatted copy (format! needs literals, so each helper matches on lang) --
 
 pub fn hud_wave(lang: Lang, current: usize, total: usize, phase: &str) -> String {

@@ -495,7 +495,7 @@
 > 弹体复用 Projectile（发起方扩展为 塔/技能 两源），减速复用 Slow，狂暴复用 Boosts 攻速乘数管线。
 > 二期（融合塔主动/随机获取/Meta 强化）与远期（被动/光环）未立卡，别实现。
 
-### SK1 · 技能骨架 + 冷却/施放交互（skills）—— ▶ 待实现
+### SK1 · 技能骨架 + 冷却/施放交互（skills）—— ✅ 已实现（2026-09-14）
 - 接口: 新 `SkillState` 资源（每技能 CD 计时）+ 控制区技能按钮（Z/X/C 热键、角标、CD 遮罩+剩余秒数、tooltip 双语）；
   读 Time/WavePhase/GameState；输出 施放意图与目标选择模式。
 - 行为: 冷却真实时间连续、跨波不重置、开局即就绪、暂停冻结；点地技能进入目标选择（地图指示圈+左键确认+Esc/右键取消，
@@ -503,6 +503,16 @@
   F1 调试面板加「重置技能 CD」按钮（调试操作不改规则）。
 - 验收句: 开局三按钮全就绪；施放后 CD 按真实时间递减（暂停时冻结，波次切换不重置）；冷却中按 Z/X/C 无效果且按钮显示剩余秒数；
   目标选择态 Esc/右键取消且不进 CD。headless 断言 CD 计时与门控；遮罩/角标视觉人工验收。
+- 实现: 新域 `plugins/skills.rs` + `systems/skills.rs`；`SkillState`/`SkillTargeting`/`SKILL_COOLDOWNS`(45/40/60) 入
+  `resources.rs`。CD 计时走虚拟时间（Simulate、Playing 门控→玩家暂停冻结、DB3 调试冻结 delta=0 同样冻结、双相位均流动、
+  跨波无重置）。按钮挂**控制区**（ControlZoneRoot 子节点，语言切换区重建后自愈重挂；不进 QWER 网格）；Z/X/C 热键注入
+  `Interaction::Pressed` 复用点击处理器（同 UI12 范式）；冷却中/未实装按钮置灰、主标签切剩余秒数；tooltip 由
+  `command::refresh_tooltip` 扩展覆盖技能按钮（缓存键扩为 Command/Skill 两源）。点地目标选择：指示圈（技能效果半径）随
+  光标地面点，左键确认（避开 UI 悬停）→ 施放+进 CD，Esc/右键取消不进 CD（`cancel_modes` 扩清 SkillTargeting；
+  `select_object` 目标选择期让位）。**取舍**：SK1 全部技能 `implemented=false`，「目标选择态 Esc 取消」的 headless 断言
+  随 SK2（首个点地技能）落地；瞬发路径已在 handle_skill_buttons 就位（SK4 只填效果）。F1「Reset skill CDs」=作弊（标记
+  调试局）。遗留修复：PR1 存量测试 gap 查询误取任意 Transform（SK 按钮节点加入后踩中），改为 With<Enemy> 过滤（语义不变）。
+  `skills_sk1::*` 5 条断言入 behavior（开局就绪+三按钮/CD 真实时间递减+暂停冻结+恢复/跨波不重置/未实装热键无效/重置 CD 作弊标记）。
 
 ### SK2 · 流星火雨（伤害·点地）（skills/projectiles）—— ▶ 待实现（依赖 SK1）
 - 接口: 输入 确认目标点；输出 3 发 AOE 弹依次落点（Projectile：发起方=技能、伤害包 40、飞向固定落点）+ 爆心结算。

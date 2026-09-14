@@ -316,6 +316,12 @@ fn debug_panel_ui(
         });
         ui.separator();
 
+        ui.heading("Skills (SK1)");
+        if ui.button("Reset skill CDs").clicked() {
+            queue.0.push(A::SkillResetCd);
+        }
+        ui.separator();
+
         ui.heading("Endings");
         ui.horizontal(|ui| {
             if ui.button("Instant lose").clicked() {

@@ -21,7 +21,7 @@ use warden::plugins::{
     fx::FxPlugin,
     acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
     game::GamePlugin, map::MapPlugin, meta::MetaPlugin, projectiles::ProjectilesPlugin,
-    towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
+    skills::SkillsPlugin, towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
 };
 use warden::resources::{
     BaseHp, Economy, MetaSavePath, RunRng, TowerDefs, WaveChoice, WavePhase, WaveState,
@@ -43,6 +43,7 @@ fn test_app() -> App {
             AcquisitionPlugin,
             MetaPlugin,
             ProjectilesPlugin,
+            SkillsPlugin,
             UiPlugin,
         ))
         .insert_resource(MetaSavePath(

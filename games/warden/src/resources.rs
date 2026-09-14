@@ -550,3 +550,75 @@ impl Default for WaveChoice {
         }
     }
 }
+
+// --- Skills (phase 1, requirements §17 / cards SK1-SK4) -------------------------
+
+/// The three commander skills (requirements §17.2). Index into the parallel
+/// arrays below (`SKILL_COOLDOWNS`, `systems::skills::SKILL_DEFS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SkillId {
+    /// 流星火雨: 3 AOE blasts at a picked point (SK2).
+    MeteorRain,
+    /// 冰霜新星: slow in a radius at a picked point (SK3).
+    FrostNova,
+    /// 战意狂暴: instant global attack-speed burst (SK4).
+    WarFrenzy,
+}
+
+impl SkillId {
+    /// Definition order — also the Z/X/C button order (§17.3).
+    pub const ALL: [SkillId; 3] = [SkillId::MeteorRain, SkillId::FrostNova, SkillId::WarFrenzy];
+
+    pub fn index(self) -> usize {
+        match self {
+            SkillId::MeteorRain => 0,
+            SkillId::FrostNova => 1,
+            SkillId::WarFrenzy => 2,
+        }
+    }
+}
+
+/// Cooldown seconds per skill (§17.2 starting values; tune via §14). CD is
+/// real-time continuous: it ticks with virtual game time in BOTH phases,
+/// never resets across waves, and starts READY (0 remaining).
+pub const SKILL_COOLDOWNS: [f32; 3] = [45.0, 40.0, 60.0];
+
+/// Live cooldown state for the three skills (SK1). `cooldowns[i] <= 0` = ready.
+#[derive(Resource)]
+pub struct SkillState {
+    pub cooldowns: [f32; 3],
+}
+
+impl Default for SkillState {
+    fn default() -> Self {
+        // Opening state: everything ready (§17.1 开局即就绪).
+        Self { cooldowns: [0.0; 3] }
+    }
+}
+
+impl SkillState {
+    pub fn remaining(&self, id: SkillId) -> f32 {
+        self.cooldowns[id.index()].max(0.0)
+    }
+
+    pub fn ready(&self, id: SkillId) -> bool {
+        self.remaining(id) <= 0.0
+    }
+
+    /// Start the skill's full cooldown (called on a confirmed cast).
+    pub fn start_cooldown(&mut self, id: SkillId) {
+        self.cooldowns[id.index()] = SKILL_COOLDOWNS[id.index()];
+    }
+
+    /// Debug cheat (DB1 panel "reset skill CDs"): everything ready again.
+    pub fn reset_all(&mut self) {
+        self.cooldowns = [0.0; 3];
+    }
+}
+
+/// Point-target skill picking is active (SK1, §17.3 — same interaction shape
+/// as fusion target picking): the named skill awaits a ground-point confirm.
+/// Esc / right-click cancels (command::cancel_modes); left-click confirms
+/// (systems::skills::update_skill_targeting). Cancel never starts a cooldown.
+#[derive(Resource, Debug, Default)]
+pub struct SkillTargeting(pub Option<SkillId>);

@@ -61,6 +61,9 @@ pub enum DebugAction {
     OverlaysToggleRanges,
     /// Toggle the enemy stat-plate overlay.
     OverlaysToggleEnemyStats,
+    /// Reset every skill cooldown (SK1 debug convenience — a CHEAT: marks
+    /// the run like every other one).
+    SkillResetCd,
 }
 
 impl DebugAction {
@@ -170,6 +173,8 @@ pub struct CheatsBoard<'w, 's> {
     /// DB3 time control + overlay state (observation tools — see the actions).
     pub time: ResMut<'w, crate::systems::debug_time::DebugTime>,
     pub overlays: ResMut<'w, crate::systems::debug_time::DebugOverlays>,
+    /// Skill cooldowns (SK1 "reset skill CDs" cheat).
+    pub skills: ResMut<'w, crate::resources::SkillState>,
     /// Enemies + in-flight projectiles (cleared on wave jumps / restart).
     pub mobs: Query<'w, 's, Entity, Or<(With<Enemy>, With<Projectile>)>>,
     /// Placed towers (cleared only on restart).
@@ -292,6 +297,10 @@ pub fn debug_cheat_executor(mut core: CheatsCore, mut board: CheatsBoard) {
             }
             DebugAction::OverlaysToggleEnemyStats => {
                 board.overlays.show_enemy_stats = !board.overlays.show_enemy_stats;
+            }
+            DebugAction::SkillResetCd => {
+                board.skills.reset_all();
+                info!("[debug] skill cooldowns reset");
             }
         }
     }

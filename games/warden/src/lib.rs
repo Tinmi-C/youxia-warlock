@@ -43,6 +43,7 @@ pub fn build_app() -> App {
             plugins::acquisition::AcquisitionPlugin,
             plugins::meta::MetaPlugin,
             plugins::projectiles::ProjectilesPlugin,
+            plugins::skills::SkillsPlugin,
             plugins::ui::UiPlugin,
             plugins::debug::DebugPlugin,
         ));

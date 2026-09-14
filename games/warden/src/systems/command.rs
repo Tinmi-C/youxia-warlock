@@ -23,6 +23,7 @@ use crate::resources::{
 use crate::states::GameState;
 use crate::systems::hud::UiFont;
 use crate::systems::l10n;
+use crate::systems::skills::SkillButton;
 
 /// Marker on the whole bottom bar root (hidden on GameOver/Win, UI9).
 #[derive(Component)]
@@ -654,7 +655,8 @@ pub struct PendingFusionConfirm(pub Entity);
 /// empty slot, blank ground cancels. During fusion target picking a tower
 /// click posts `PendingFusionConfirm`; the chained `apply_pending_fusion`
 /// confirms the fusion or falls back to plain selection (no accidental
-/// fusing, §16.6).
+/// fusing, §16.6). While a point-skill target pick is active (SK1) the skill
+/// owns the world click — this system stays idle for it.
 #[allow(clippy::type_complexity)]
 pub fn select_object(
     mut commands: Commands,
@@ -664,12 +666,16 @@ pub fn select_object(
     blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
     panel: Res<crate::resources::DebugPanelCapture>,
     build: Res<BuildMode>,
+    targeting: Res<crate::resources::SkillTargeting>,
     state: Res<State<GameState>>,
     mut selection: ResMut<Selection>,
     towers: Query<(Entity, &Tower, &Transform)>,
     slots: Query<(Entity, &TowerSlot, &Transform)>,
 ) {
-    if build.armed || !buttons.just_pressed(MouseButton::Left) || *state.get() != GameState::Playing
+    if build.armed
+        || targeting.0.is_some()
+        || !buttons.just_pressed(MouseButton::Left)
+        || *state.get() != GameState::Playing
     {
         return;
     }
@@ -774,16 +780,22 @@ pub fn apply_pending_fusion(
 }
 
 /// Unified cancel (§16.3): right click or Esc clears the armed build, the
-/// fusion picking and the selection itself. Not state-gated (harmless).
+/// fusion picking, the point-skill target picking (SK1 — a cancelled cast
+/// never pays its cooldown) and the selection itself. Not state-gated
+/// (harmless).
 pub fn cancel_modes(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut build: ResMut<BuildMode>,
     mut selection: ResMut<Selection>,
+    mut skill_targeting: ResMut<crate::resources::SkillTargeting>,
 ) {
     if mouse.just_pressed(MouseButton::Right) || keys.just_pressed(KeyCode::Escape) {
         build.armed = false;
         *selection = Selection::None;
+        if skill_targeting.0.take().is_some() {
+            info!("[sk] target picking cancelled (no cooldown)");
+        }
         info!("[ui9] cancelled modes/selection");
     }
 }
@@ -1332,33 +1344,77 @@ pub fn command_grid_hotkeys(
 #[derive(Component)]
 pub struct TooltipText;
 
+/// Which button a tooltip is currently shown for (command card or skill).
+#[derive(Clone, Copy, PartialEq)]
+pub enum TooltipSource {
+    Command(CommandAction),
+    Skill(crate::resources::SkillId),
+}
+
 /// Tooltip (§16.8): hovering any command-card button shows the full info —
-/// name / hotkey / price (or refund/fee) / attributes / one-line role. The
-/// panel sits above the bottom bar; content rebuilds on hover change.
+/// name / hotkey / price (or refund/fee) / attributes / one-line role. Skill
+/// buttons in the control zone share the panel (SK1, §17.3): name / hotkey /
+/// CD / effect numbers. The panel sits above the bottom bar; content rebuilds
+/// on hover change.
 #[allow(clippy::too_many_arguments)]
 pub fn refresh_tooltip(
     mut commands: Commands,
     font: Res<UiFont>,
     lang: Res<Lang>,
     buttons: Query<(&Interaction, &CommandButton)>,
+    skill_buttons: Query<(&Interaction, &SkillButton)>,
     selection: Res<Selection>,
     towers: Query<&Tower>,
     defs: Res<TowerDefs>,
     panels: Query<Entity, With<TooltipText>>,
-    mut cache: Local<Option<(CommandAction, Lang)>>,
+    mut cache: Local<Option<(TooltipSource, Lang)>>,
 ) {
     let hovered = buttons
         .iter()
         .find(|(inter, _)| **inter == Interaction::Hovered)
-        .map(|(_, b)| b.action);
-    if *cache == hovered.map(|a| (a, *lang)).filter(|_| hovered.is_some()) && hovered.is_some() {
+        .map(|(_, b)| TooltipSource::Command(b.action))
+        .or_else(|| {
+            skill_buttons
+                .iter()
+                .find(|(inter, _)| **inter == Interaction::Hovered)
+                .map(|(_, b)| TooltipSource::Skill(b.skill))
+        });
+    if *cache == hovered.map(|s| (s, *lang)) && hovered.is_some() {
         return;
     }
-    *cache = hovered.map(|a| (a, *lang));
+    *cache = hovered.map(|s| (s, *lang));
     for p in &panels {
         commands.entity(p).despawn();
     }
-    let Some(action) = hovered else {
+    let Some(source) = hovered else {
+        return;
+    };
+    let skill_line = |source: TooltipSource| -> Option<String> {
+        match source {
+            TooltipSource::Skill(id) => {
+                let def = crate::systems::skills::skill_def(id);
+                Some(format!(
+                    "{}: {}\n{}",
+                    l10n::TT_HOTKEY.pick(*lang),
+                    def.badge,
+                    l10n::skill_tooltip(*lang, id, crate::resources::SKILL_COOLDOWNS[id.index()])
+                ))
+            }
+            _ => None,
+        }
+    };
+    if let Some(body) = skill_line(source) {
+        let title = match source {
+            TooltipSource::Skill(id) => l10n::skill_name(id, *lang).to_string(),
+            _ => unreachable!("skill_line only builds for skills"),
+        };
+        let mut text = title;
+        text.push_str("\n");
+        text.push_str(&body);
+        spawn_tooltip(&mut commands, &font, text);
+        return;
+    }
+    let TooltipSource::Command(action) = source else {
         return;
     };
     let (title, body) = match action {
@@ -1409,6 +1465,11 @@ pub fn refresh_tooltip(
         text.push_str("\n");
         text.push_str(&body);
     }
+    spawn_tooltip(&mut commands, &font, text);
+}
+
+/// Spawn the shared tooltip panel (one text node above the bottom bar).
+fn spawn_tooltip(commands: &mut Commands, font: &UiFont, text: String) {
     commands.spawn((
         TooltipText,
         Text::new(text),

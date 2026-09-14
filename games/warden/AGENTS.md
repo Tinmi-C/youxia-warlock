@@ -129,8 +129,12 @@ assets/{models,textures,audio,fonts,ui}/
   - **DB2 测试场景直达（2026-09-12）**：`--scenario NAME --seed N` CLI（main.rs cfg 门控，seed 先于 Startup 换 RunRng）
     与 F1 面板按钮**双入口同队列**（`DebugScenarioQueue`，排他执行器首帧落地）；六场景 fusion/projectile/fx/meta/
     choice/full-board 一键到位（choice 复用 wave.rs 真三选一生成器）；场景直达即标记调试局（存档隔离生效）。
-  - `cargo check --all-targets` + `cargo test` 全绿（78 条断言，`tests/behavior.rs` 76 + `tests/balance.rs` 2；
-  fx.rs 存量 dead-const 警告已清，HIT_FLASH_SECS 转共享常量）。
+  - **SK1 技能骨架（2026-09-14）**：新域 `plugins/skills.rs`+`systems/skills.rs`（`SkillState`/`SkillTargeting`/
+    `SKILL_COOLDOWNS` 45/40/60 在 resources.rs）。CD 虚拟时间连续（跨波不重置、开局就绪、暂停冻结）；控制区三按钮
+    （Z/X/C 注入 Interaction 复用点击）+CD 置灰/剩余秒数+tooltip（refresh_tooltip 扩两源缓存）；点地技能指示圈+左键确认+
+    Esc/右键取消（cancel_modes 扩清、select_object 让位）；未实装置灰（SK2-4 逐张点亮）；F1 加「Reset skill CDs」
+    （作弊，标记调试局）。PR1 存量测试 gap 查询收紧 With<Enemy>（SK 按钮 Transform 节点踩中任意首实体，语义不变）。
+  - `cargo check --all-targets` + `cargo test` 全绿（87 条断言，`tests/behavior.rs` 85 + `tests/balance.rs` 2）。
 - **交互范式 + 投射物/战斗表现两批需求（2026-09-12 定稿）已同日实现**（见上方「已完成」两条实现记录）；
   规格存档：requirements §16（命令卡交互规范）/ §5.1（攻击结算模型，含**拍板不上物理插件**）；
   「伤害数字飘字」仍留 GDD 点子池。
