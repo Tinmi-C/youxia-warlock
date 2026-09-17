@@ -21,6 +21,7 @@ updated: 2026-09-02
 
 - [[decisions/_index|架构决策 ADR 列表]]
 - [[decisions/0008-numeric-data-in-code-not-external|ADR-0008 数值数据暂留代码内，不外部化]]（accepted：定义表/Balance/波次公式/锚点带留源码；「数据驱动」= 数据与逻辑分离而非外部化入库；定迁移门槛，条件合适再迁外部/数据库）
+- [[decisions/0009-art-vault-to-game-asset-flow|ADR-0009 岩库美术资产进入游戏仓库]]（accepted：清单锁定 + `tools/art-sync` 桥，人/AI 同门不手拷；GLB 暂直提交 git；`_library/` 落地后落点切 raw+intake）
 
 ## 参考
 

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "source": "http://127.0.0.1:8765",
+  "note": "从岩库 ArtVault 锁定进入本游戏的资产清单。升级 = 改 version 后重跑 tools/art-sync/art_sync.py，资产文件与清单一并提交；流程与理由见团队 ADR-0009。",
+  "assets": [
+    {
+      "id": "4c2de1d1dc414236a83760418992da30",
+      "name": "箭塔 tower_arrow",
+      "version": 1,
+      "license": "自有资产（Hyper3D/Rodin 图生 3D，参照图 tower-arrow.png）",
+      "files": {
+        "tower_arrow.glb": "models/tower_arrow.glb"
+      }
+    }
+  ]
+}
