@@ -55,6 +55,9 @@ pub fn spawn_base_tower(
             slow_duration: 0.0,
             invested: def.cost,
         },
+        // Explicit Visibility: the model path has no mesh on this entity, so
+        // without it the scene child's InheritedVisibility breaks (B0004).
+        Visibility::Visible,
         Transform::from_xyz(pos.x, 0.6, pos.z),
     ));
     if tower_index == 0 {
