@@ -16,10 +16,21 @@ use crate::components::{
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
 
+/// The bundled 3D arrow tower (ArtVault 岩库 locked v1 via art-sync, ADR-0009;
+/// `art-assets.json` is the source of truth). Rodin image-to-3D, 23332 tris,
+/// bbox ±0.95 in Y centered at the model origin. Known defect: the flag did
+/// not generate (ADR-0009) — an in-engine patch is a follow-up card.
+pub const ARROW_TOWER_MODEL: &str = "models/tower_arrow.glb";
+
 /// Spawn a placed base tower of archetype `def` at world position `pos`
-/// (DB1/DB2 debug scenarios; identical construction to a player placement —
-/// the player-flow systems keep their own inline builds untouched).
-/// Returns the spawned entity.
+/// (shared by the player flows and the DB debug scenarios). Returns the
+/// spawned entity.
+///
+/// Presentation gateway (ART1): the archer (index 0) uses the bundled 3D
+/// model when an `AssetServer` exists — the scene rides a child entity lifted
+/// by 0.35 so the model's base touches the ground under the 0.6 logic anchor;
+/// every other tower (and every headless test world) keeps the tinted gray
+/// box. Logic components and the anchor position are identical either way.
 pub fn spawn_base_tower(
     commands: &mut Commands,
     def: &TowerDef,
@@ -27,32 +38,49 @@ pub fn spawn_base_tower(
     pos: Vec3,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    server: Option<&AssetServer>,
 ) -> bevy::ecs::entity::Entity {
-    commands
-        .spawn((
-            Tower {
-                tower_index,
-                damage: def.damage,
-                attack_speed: def.attack_speed,
-                range: def.range,
-                attack_type: def.attack_type,
-                cooldown: 0.0,
-                target: None,
-                kind: TowerKind::Base(tower_index),
-                aoe_radius: 0.0,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-                invested: def.cost,
-            },
-            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-            MeshMaterial3d(materials.add(match def.attack_type {
-                AttackType::Physical => Color::srgb(0.7, 0.7, 0.8),
-                AttackType::Magic => Color::srgb(0.5, 0.4, 0.9),
-                AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
-            })),
-            Transform::from_xyz(pos.x, 0.6, pos.z),
-        ))
-        .id()
+    let mut ec = commands.spawn((
+        Tower {
+            tower_index,
+            damage: def.damage,
+            attack_speed: def.attack_speed,
+            range: def.range,
+            attack_type: def.attack_type,
+            cooldown: 0.0,
+            target: None,
+            kind: TowerKind::Base(tower_index),
+            aoe_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+            invested: def.cost,
+        },
+        Transform::from_xyz(pos.x, 0.6, pos.z),
+    ));
+    if tower_index == 0 {
+        if let Some(server) = server {
+            let scene = server.load(
+                bevy::gltf::GltfAssetLabel::Scene(0).from_asset(ARROW_TOWER_MODEL),
+            );
+            ec.with_children(|p| {
+                p.spawn((
+                    bevy::world_serialization::WorldAssetRoot(scene),
+                    Transform::from_xyz(0.0, 0.35, 0.0),
+                ));
+            });
+            return ec.id();
+        }
+    }
+    // Gray-box fallback: every other tower + all headless test worlds.
+    ec.insert((
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(match def.attack_type {
+            AttackType::Physical => Color::srgb(0.7, 0.7, 0.8),
+            AttackType::Magic => Color::srgb(0.5, 0.4, 0.9),
+            AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
+        })),
+    ));
+    ec.id()
 }
 
 /// Resolve one-axis armor: physical is halved vs armored enemies; magic and

@@ -667,9 +667,20 @@ fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
     let mut queue = CommandQueue::default();
     world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
         world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+            let server = world
+                .get_resource::<AssetServer>()
+                .map(|s| s.clone());
             let mut cmds = Commands::new(&mut queue, world);
             for (_slot_e, pos) in slots {
-                spawn_base_tower(&mut cmds, &def, ty, *pos, &mut meshes, &mut materials);
+                spawn_base_tower(
+                    &mut cmds,
+                    &def,
+                    ty,
+                    *pos,
+                    &mut meshes,
+                    &mut materials,
+                    server.as_ref(),
+                );
             }
         });
     });

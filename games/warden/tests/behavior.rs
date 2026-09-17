@@ -4047,7 +4047,7 @@ mod skills_sk3 {
 mod skills_sk4 {
     use super::*;
     use warden::resources::{
-        FRENZY_DURATION, FRENZY_SPEED_MULT, SkillId, SkillState, WarFrenzy, SKILL_COOLDOWNS,
+        FRENZY_DURATION, FRENZY_SPEED_MULT, SkillState, WarFrenzy, SKILL_COOLDOWNS,
     };
 
     /// A tanky enemy standing in range of the given tower position.
@@ -4215,4 +4215,24 @@ mod skills_sk4 {
             "no target picking for an instant skill"
         );
     }
+}
+
+// --- ART1: arrow tower 3D model (presentation gateway) -----------------------
+
+/// Capability card ART1 — acceptance: the bundled arrow-tower model and its
+/// art-sync manifest stay in the repo (ADR-0009: the manifest is the source
+/// of truth; the model is the presentation source for the archer tower).
+#[test]
+fn arrow_tower_asset_is_pinned() {
+    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        base.join("assets/models/tower_arrow.glb").is_file(),
+        "assets/models/tower_arrow.glb must exist (ART1, ArtVault locked v1)"
+    );
+    let manifest = std::fs::read_to_string(base.join("art-assets.json"))
+        .expect("games/warden/art-assets.json must exist (ADR-0009 manifest)");
+    assert!(
+        manifest.contains("tower_arrow.glb") && manifest.contains("4c2de1d1dc414236a83760418992da30"),
+        "the manifest must pin the arrow tower asset id and file"
+    );
 }

@@ -881,50 +881,13 @@ pub fn refresh_bar_visibility(
 
 // --- UI10: build command migration + dual entry (§16.4) ----------------------
 
-/// Spawn a base tower at `pos` from its definition; returns the new entity.
-/// Shared by the direct-build entry (UI10) — the armed flow keeps its own
-/// spawn site in `pointer::mouse_place_system`.
-fn spawn_base_tower(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    def: &crate::resources::TowerDef,
-    tower_index: usize,
-    pos: Vec3,
-) -> Entity {
-    commands
-        .spawn((
-            Tower {
-                tower_index,
-                damage: def.damage,
-                attack_speed: def.attack_speed,
-                range: def.range,
-                attack_type: def.attack_type,
-                cooldown: 0.0,
-                target: None,
-                kind: TowerKind::Base(tower_index),
-                aoe_radius: 0.0,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-                invested: def.cost,
-            },
-            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-            MeshMaterial3d(materials.add(match def.attack_type {
-                crate::components::AttackType::Physical => Color::srgb(0.7, 0.7, 0.8),
-                crate::components::AttackType::Magic => Color::srgb(0.5, 0.4, 0.9),
-                crate::components::AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
-            })),
-            Transform::from_xyz(pos.x, 0.6, pos.z),
-        ))
-        .id()
-}
-
 /// Command-card button actions (UI10/UI11): the two build entries (§16.4),
 /// AC2 shop purchase, TO7 sell and the fusion step-in (§16.6). Greyed buttons
 /// (enabled=false) never act.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_command_buttons(
     mut commands: Commands,
+    server: Option<Res<AssetServer>>,
     mut q: Query<(&Interaction, &CommandButton), Changed<Interaction>>,
     mut selection: ResMut<Selection>,
     mut selected: ResMut<crate::resources::SelectedTower>,
@@ -963,13 +926,14 @@ pub fn handle_command_buttons(
                             }
                             slot.occupied = true;
                             economy.gold -= def.cost;
-                            let e = spawn_base_tower(
+                            let e = crate::systems::tower::spawn_base_tower(
                                 &mut commands,
-                                &mut meshes,
-                                &mut materials,
                                 def,
                                 i,
                                 stf.translation,
+                                &mut meshes,
+                                &mut materials,
+                                server.as_deref(),
                             );
                             *selection = Selection::Tower(e);
                             info!("[ui10] built {} on selected slot, gold={}", def.name, economy.gold);

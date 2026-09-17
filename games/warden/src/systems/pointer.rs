@@ -15,7 +15,7 @@ use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::window::Window;
 
-use crate::components::{AttackType, Tower, TowerKind, TowerSlot};
+use crate::components::{AttackType, TowerSlot};
 use crate::resources::{
     Boosts, BuildMode, Economy, Hand, Lang, MetaSavePath, MetaState, SelectedTower, TowerDefs,
     UiPrefsPath, UPGRADE1_COST, UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule,
@@ -438,6 +438,7 @@ pub fn handle_lang_button(
 /// Left click in build mode places the armed tower at the nearest slot.
 pub fn mouse_place_system(
     buttons: Res<ButtonInput<MouseButton>>,
+    server: Option<Res<AssetServer>>,
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
     blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
@@ -481,29 +482,15 @@ pub fn mouse_place_system(
         }
         slot.occupied = true;
         economy.gold -= def.cost;
-        commands.spawn((
-            Tower {
-                tower_index: selected.tower_index,
-                damage: def.damage,
-                attack_speed: def.attack_speed,
-                range: def.range,
-                attack_type: def.attack_type,
-                cooldown: 0.0,
-                target: None,
-                kind: TowerKind::Base(selected.tower_index),
-                aoe_radius: 0.0,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-                invested: def.cost,
-            },
-            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-            MeshMaterial3d(materials.add(match def.attack_type {
-                AttackType::Physical => Color::srgb(0.7, 0.7, 0.8),
-                AttackType::Magic => Color::srgb(0.5, 0.4, 0.9),
-                AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
-            })),
-            Transform::from_xyz(stf.translation.x, 0.6, stf.translation.z),
-        ));
+        crate::systems::tower::spawn_base_tower(
+            &mut commands,
+            def,
+            selected.tower_index,
+            stf.translation,
+            &mut meshes,
+            &mut materials,
+            server.as_deref(),
+        );
         info!("[mouse] placed {} at slot, gold={}", def.name, economy.gold);
     }
 }

@@ -553,6 +553,16 @@
   （0.667s↔3s 后恢复 1.0s+CD60 / 持续中新建塔立即享受+Marksman 1/(1.2×1.5) / 瞬发无目标选择）。
   随本卡三技能全点亮：SK1 的「未实装热键无效」断言改标为「冷却中热键无效」（同一门控语义，见 skills_sk1）。
 
+### ART1 · 箭塔 3D 模型实装（towers·表现层）—— ✅ 已实现（2026-09-14）
+- 接口: `assets/models/tower_arrow.glb`（岩库 ArtVault 锁定 v1，ADR-0009 / `art-assets.json`）经 AssetServer 加载
+  `GltfAssetLabel::Scene(0)`；输出 = 弓箭手塔（基础型 0）的放置实体改挂模型子实体（`WorldAssetRoot`，抬高 0.35 贴地）。
+- 行为: 三个生成点（命令卡直建 / 武装放置 / DB 调试场景）统一走 `tower::spawn_base_tower` 视觉网关——
+  有 AssetServer 且是弓箭手 → 3D 模型；其余塔型、融合塔、幽灵预览与全部 headless 测试世界 → 维持灰盒（后续卡逐个换装）；
+  父实体 Transform（y=0.6 逻辑锚点）不动，索敌/射程/拾取数学与灰盒时代逐位一致。
+- 验收句（已入 `tests/behavior.rs`）: `arrow_tower_asset_is_pinned`（模型文件+清单锁定在库，防误删）；既有 96 条断言全绿（headless 回落路径即回归）。
+- ⚠️ 人工验收项: 真窗口弓箭手塔显示 3D 模型、贴地、比例合适（Rodin 图生 3D，包围盒 ±0.95）。
+- 已知缺陷（岩库侧）: 旗帜未生成——引擎内补件（面片+顶点动画）属后续卡，不回流岩库（ADR-0009）。
+
 ---
 
 ## 观察通道约定
