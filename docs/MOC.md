@@ -33,6 +33,7 @@ updated: 2026-09-02
 
 ## 近期更新
 
+- [[topics/engine/automated-game-testing-and-ai|游戏自动化测试与 AI 参与开发——全景调研]]（新增，draft：测试分层+引擎基建；AI playtest 三级演化（脚本→DRL→LLM agent，TITAN：bug 检出 82% vs 人类 18%）；Meta TestGen-LLM 三道闸（75% 编译/57% 通过/25% 涨覆盖）；与本团队流程对标——已有 headless 回归/红绿验证/BAL 读数，缺视觉快照（bevy_geppetto）与 E2E agent）
 - [[topics/engine/table-driven-anim-state-design|表驱动动画状态机设计方案]]（新增，draft：动画 20+ 时的状态机形态——状态拓扑进表数据，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；ADR-0007 支撑材料）
 - [[decisions/0007-animation-state-machine-table-driven|ADR-0007 动画状态机采用表驱动形态]]（accepted：拓扑数据化、适配动画 20+；配卡 33 TableDrivenAnimState）
 - [[decisions/0006-animation-state-machine-refactor|ADR-0006 动画状态机不走 bevy_animation_graph]]（proposed：转场不支持输入条件比较 → 否决 bevy_animation_graph，形态由 ADR-0007 表驱动承接）

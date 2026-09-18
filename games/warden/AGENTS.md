@@ -153,6 +153,15 @@ assets/{models,textures,audio,fonts,ui}/
   控制区按钮 + Z/X/C 热键，点地技能走融合目标选择同款交互范式）。技能二/三期仍暂缓（见 GDD 点子池）。
   **BAL1 已于 SK 批后重取**：自动布阵不施放技能，读数与 SK 前基线同形——第 1 波 ≈21.5s/漏 4，第 2 波 GameOver
   （基地 0/10，起手 100g 贪心布阵的既有失败点维持）；技能对自动读数零影响，锚点无需重定。
+- **ART2 修复 + 美术测试金字塔落地（2026-09-18 测试会话）**：发现 ART2 提交 `22f8de3` 只含常量+组件、
+  **挂载 spawn 代码未入库**（原「视觉验收通过」对 HEAD 不成立，已作废）；按交接参数补回
+  `tower.rs` 挂载（`BallistaMount` 独立子实体 y=+1.3/scale 0.72）；新增美术资产测试三层——
+  L1/L2 结构层 `tests/art_assets.rs`（离线 GLB 解析：命名/15MiB/清单双向对账/包围盒归一/网格贴图动画计数/弩长轴 ±X）、
+  L3 装配层 `archer_tower_assembly_is_pinned`（headless 真 AssetServer，红绿验证过）；
+  **视觉验收重做通过（第三次：激活窗口前台+中性提问+日志地面真相交叉核对；前两次教训——遮挡窗口
+  macOS 停绘截出黑图、引导性提问让视觉模型对黑图幻觉出塔弩被用户戳穿，纪律已沉淀知识库）**；
+  截图存 `docs/img/warden_fusion_art2.png`；期间清掉 ART 会话遗留的旧进程；
+  `cargo test` 全绿 **102 条**（behavior 97 + art_assets 3 + balance 2）。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；

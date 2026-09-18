@@ -17,6 +17,7 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/project-structure-and-dev-rules-review\|项目结构与开发规则复盘（进行中）]] | reference | draft | 读 wave-survival 结构；主流 Plugin+Set vs 能力卡愿景；§7 主链 SystemSet 已落地（59 回归绿）；§4.1 规则已改（先留接缝不提前造）；ADR-0002 边界澄清 |
 | [[topics/engine/unified-damage-pipeline\|统一伤害结算管线——让 Hp 成为全场唯一写入者]] | howto | draft | 伤害走 DamageRequest 消息；apply_damage 唯一结算；GameSet::Resolve；加新技能发请求即可不碰 Hp |
 | [[topics/engine/table-driven-anim-state-design\|表驱动动画状态机设计方案]] | reference | draft | 动画 20+ 时的状态机形态：状态拓扑进表数据，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；ADR-0007 支撑材料 |
+| [[topics/engine/automated-game-testing-and-ai\|游戏自动化测试与 AI 参与开发——全景调研]] | reference | draft | 测试分层+引擎基建（UTF/Automation/Bevy 生态）；AI 三级演化（脚本→DRL→LLM agent，TITAN 数据）；TestGen-LLM 三道闸；与团队流程对标表（缺视觉快照/E2E agent） |
 
 ## 相关决策
 
