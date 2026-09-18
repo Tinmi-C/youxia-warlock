@@ -90,31 +90,96 @@ struct FpsLog {
 }
 
 #[cfg(debug_assertions)]
-fn log_dashboard(
-    time: Res<Time>,
-    state: Res<State<GameState>>,
-    economy: Res<Economy>,
-    base: Res<BaseHp>,
-    wave: Res<WaveState>,
-    entities: Query<Entity>,
-    mut log: ResMut<FpsLog>,
-) {
-    log.acc += time.delta_secs();
+fn log_dashboard(world: &mut World, mut log: Local<FpsLog>) {
+    log.acc += world.resource::<Time>().delta_secs();
     if log.acc < 2.0 {
         return;
     }
     log.acc = 0.0;
-    info!(
-        "[dash] fps≈{:.0} state={:?} phase={:?} gold={} base={}/{} wave={} entities={}",
-        1.0 / time.delta_secs().max(1e-6),
-        state.get(),
-        wave.phase,
-        economy.gold,
-        base.hp,
-        base.max_hp,
-        wave.current + 1,
-        entities.iter().count()
-    );
+    {
+        let fps = 1.0 / world.resource::<Time>().delta_secs().max(1e-6);
+        let state = world.resource::<State<GameState>>().get().clone();
+        let (phase, wave_n) = {
+            let w = world.resource::<WaveState>();
+            (w.phase, w.current + 1)
+        };
+        let gold = world.resource::<Economy>().gold;
+        let (hp, max_hp) = {
+            let b = world.resource::<BaseHp>();
+            (b.hp, b.max_hp)
+        };
+        let count = world.query::<Entity>().iter(world).count();
+        info!(
+            "[dash] fps≈{fps:.0} state={state:?} phase={phase:?} gold={gold} base={hp}/{max_hp} wave={wave_n} entities={count}"
+        );
+    }
+    // Observation channel for the ART1 model path (exclusive system: the
+    // probe needs arbitrary-depth hierarchy walks).
+    // Level 1: each WorldAssetRoot — loaded? instantiated?
+    let mut roots: bevy::ecs::query::QueryState<(
+        Entity,
+        &bevy::world_serialization::WorldAssetRoot,
+        Option<&Children>,
+    )> = world.query();
+    let root_ids: Vec<Entity> = roots.iter(world).map(|(e, _, _)| e).collect();
+    for e in root_ids.clone() {
+        let (handle, children) = {
+            let Ok((_, root, children)) = roots.get(world, e) else {
+                continue;
+            };
+            (root.0.clone(), children.map(|c| c.len()).unwrap_or(0))
+        };
+        let state_str = world
+            .resource::<bevy::asset::AssetServer>()
+            .get_load_state(&handle)
+            .map(|s| format!("{s:?}"))
+            .unwrap_or_else(|| "no-server".into());
+        let in_store = world
+            .resource::<bevy::asset::Assets<bevy::world_serialization::WorldAsset>>()
+            .contains(handle.id());
+        info!(
+            "[dash] world-root {e:?} load={state_str} in_store={in_store} children={children}"
+        );
+    }
+    // Level 2+: recursive subtree dump under each root (depth-capped) —
+    // B0004-pattern hunting: one broken Visibility or a zero-scale Transform
+    // anywhere in the spawned scene leaves the meshes invisible.
+    fn dump_subtree(world: &World, e: Entity, depth: usize, label: String) {
+        if depth > 6 {
+            return;
+        }
+        let vis = world
+            .get::<Visibility>(e)
+            .map(|v| format!("{v:?}"))
+            .unwrap_or_else(|| "-".into());
+        let inherited = world
+            .get::<InheritedVisibility>(e)
+            .map(|v| format!("{}", v.get()))
+            .unwrap_or_else(|| "-".into());
+        let mesh = world.get::<Mesh3d>(e).map(|_| "MESH".to_string()).unwrap_or_default();
+        let tf = world.get::<Transform>(e).map(|t| {
+            format!(
+                "p({:.1},{:.1},{:.1}) s({:.2},{:.2},{:.2})",
+                t.translation.x,
+                t.translation.y,
+                t.translation.z,
+                t.scale.x,
+                t.scale.y,
+                t.scale.z
+            )
+        });
+        info!(
+            "[dash] {label} {e:?} vis={vis} inh={inherited} {mesh} tf={tf:?}"
+        );
+        if let Some(children) = world.get::<Children>(e) {
+            for (i, c) in children.iter().enumerate() {
+                dump_subtree(world, c, depth + 1, format!("{label}.{i}"));
+            }
+        }
+    }
+    for root in &root_ids {
+        dump_subtree(world, *root, 0, "tree".into());
+    }
 }
 
 #[cfg(debug_assertions)]

@@ -4329,7 +4329,6 @@ fn archer_tower_assembly_is_pinned() {
 /// 2026-09-18). Pure projection assertion: no pixels needed.
 /// NOTE: `world_to_viewport` returns top-left-origin coordinates (y grows
 /// downward), so "above the bar" means a SMALL y.
-#[ignore = "red until the camera framing fix lands in the next commit"]
 #[test]
 fn camera_framing_covers_all_slots() {
     let mut app = test_app();
