@@ -11,6 +11,15 @@
       "files": {
         "tower_arrow.glb": "models/tower_arrow.glb"
       }
+    },
+    {
+      "id": "d04b98c044fc4a3580962efe677566bf",
+      "name": "weapon_ballista",
+      "version": 2,
+      "license": "自有资产（混元 Pro 图生 3D，WorkBuddy 交接）；v2=游戏侧贴图压缩回流（4096→2048 PNG，35.2MB→8.9MB，几何零改动）",
+      "files": {
+        "weapon_ballista_v2.glb": "models/weapon_ballista.glb"
+      }
     }
   ]
 }

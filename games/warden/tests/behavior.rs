@@ -4235,4 +4235,17 @@ fn arrow_tower_asset_is_pinned() {
         manifest.contains("tower_arrow.glb") && manifest.contains("4c2de1d1dc414236a83760418992da30"),
         "the manifest must pin the arrow tower asset id and file"
     );
+    // ART2: the ballista (vault v2, the compressed reflow) is pinned too.
+    assert!(
+        base.join("assets/models/weapon_ballista.glb").is_file(),
+        "assets/models/weapon_ballista.glb must exist (ART2, ArtVault v2)"
+    );
+    assert!(
+        base.join("assets/models/weapon_ballista.glb").metadata().unwrap().len() <= 15 * 1024 * 1024,
+        "single files stay under the ADR-0009 15 MiB cap"
+    );
+    assert!(
+        manifest.contains("weapon_ballista") && manifest.contains("d04b98c044fc4a3580962efe677566bf"),
+        "the manifest must pin the ballista asset id and file"
+    );
 }

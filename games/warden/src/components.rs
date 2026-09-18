@@ -71,6 +71,13 @@ pub struct Tower {
     pub invested: u32,
 }
 
+/// ART2: the ballista weapon mounted on an archer tower. An independent
+/// child entity of the tower — later cards rotate it toward the current
+/// target and animate the shot procedurally (the model ships no animation;
+/// its string is separate geometry in a 767-piece assembly).
+#[derive(Component)]
+pub struct BallistaMount;
+
 /// A temporary slow effect on an enemy (e.g. from the shield / bastion tower).
 #[derive(Component)]
 pub struct Slow {

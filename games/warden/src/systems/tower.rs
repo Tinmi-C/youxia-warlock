@@ -22,6 +22,18 @@ use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
 /// not generate (ADR-0009) — an in-engine patch is a follow-up card.
 pub const ARROW_TOWER_MODEL: &str = "models/tower_arrow.glb";
 
+/// The bundled ballista weapon (ArtVault v2 — the game-side compressed
+/// reflow: 4096→2048 PNG, 35.2 MB → 8.9 MB, geometry untouched). Mounted on
+/// the archer tower (ART2 assembly handoff).
+pub const BALLISTA_MODEL: &str = "models/weapon_ballista.glb";
+/// Mount height above the tower's logic anchor: the tower visual spans
+/// world 0.0–1.9, the ballista origin is bottom-centered, so it rides at the
+/// tower top (1.9 − 0.6 anchor = 1.3).
+pub const BALLISTA_MOUNT_Y: f32 = 1.3;
+/// The ballista reads large against the tower — uniform shrink (handoff:
+/// 0.7–0.75; 0.72 chosen, tune on visual acceptance).
+pub const BALLISTA_SCALE: f32 = 0.72;
+
 /// Spawn a placed base tower of archetype `def` at world position `pos`
 /// (shared by the player flows and the DB debug scenarios). Returns the
 /// spawned entity.
