@@ -179,8 +179,13 @@ pub fn update_hud(
         text.push_str("  | ");
         text.push_str(&l10n::hud_settle(lang, UPGRADE1_COST, UPGRADE2_COST));
     }
+    // Skip the write when the line is unchanged: assigning `Text` every frame
+    // marks it changed and forces a full CJK re-layout (plus one icu_provider
+    // warn per run), which was ~1200 log lines/sec of pure CPU burn.
     for mut t in &mut q {
-        t.0 = text.clone();
+        if t.0 != text {
+            t.0 = text.clone();
+        }
     }
     // The help line only rewrites when the language actually changed (UI7).
     for mut h in &mut help {
