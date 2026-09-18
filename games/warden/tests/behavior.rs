@@ -1784,8 +1784,8 @@ fn enable_world_picking(app: &mut App, cursor: Vec2) {
     let size = UVec2::new(1280, 720);
     let mut cams = app
         .world_mut()
-        .query_filtered::<(&mut Camera, &Projection, &mut GlobalTransform), ()>();
-    for (mut cam, proj, mut gt) in cams.iter_mut(app.world_mut()) {
+        .query_filtered::<(&mut Camera, &Projection, &Transform, &mut GlobalTransform), ()>();
+    for (mut cam, proj, tf, mut gt) in cams.iter_mut(app.world_mut()) {
         cam.viewport = Some(Viewport {
             physical_size: size,
             ..default()
@@ -1797,11 +1797,11 @@ fn enable_world_picking(app: &mut App, cursor: Vec2) {
         let mut p = proj.clone();
         p.update(1280.0, 720.0);
         cam.computed.clip_from_view = p.get_clip_from_view();
-        // Mirror spawn_camera's pose (systems/camera.rs) — no TransformPlugin
-        // headless to propagate it.
-        *gt = GlobalTransform::from(
-            Transform::from_xyz(0.0, 16.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
-        );
+        // Derive the pose from spawn_camera's actual Transform — no
+        // TransformPlugin headless to propagate it into GlobalTransform,
+        // and deriving (instead of hardcoding) keeps the harness in sync
+        // when the framing changes.
+        *gt = GlobalTransform::from(*tf);
     }
 }
 
@@ -4248,4 +4248,119 @@ fn arrow_tower_asset_is_pinned() {
         manifest.contains("weapon_ballista") && manifest.contains("d04b98c044fc4a3580962efe677566bf"),
         "the manifest must pin the ballista asset id and file"
     );
+}
+
+/// Capability card ART1/ART2 — the engine assembly pin (L3 of the art test
+/// pyramid): with a real AssetServer present (headless: bevy_asset only, no
+/// renderer — `server.load` returns handles without needing them to finish),
+/// building the archer tower mounts BOTH scene children: the tower body at
+/// y+0.35 and the independent BallistaMount at the handoff transform
+/// (y +1.3 tower top, scale 0.72). This is the layer that caught ART2's
+/// mount code missing from its shipped commit (constants + component were
+/// committed, the actual `with_children` spawn was not).
+#[test]
+fn archer_tower_assembly_is_pinned() {
+    let mut app = test_app();
+    app.add_plugins(bevy::asset::AssetPlugin::default());
+    // Headless has no bevy_text/gltf plugins: register the asset types the
+    // load paths touch so `server.load` returns handles without panicking
+    // (no loader registered = logged load error, which is fine here — the
+    // test pins entity structure, not loaded content).
+    app.init_asset::<bevy::text::Font>();
+    app.init_asset::<bevy::world_serialization::WorldAsset>();
+    app.update(); // startup: deal hand + build the command card
+    // Force the archer into the hand so the Build button targets it.
+    app.world_mut().resource_scope(|_w, mut hand: Mut<Hand>| {
+        hand.owned_towers = vec![0];
+    });
+    app.world_mut().resource_mut::<ShopOffers>().version += 1;
+    let slot = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<TowerSlot>>();
+        q.iter(app.world()).next().expect("a slot exists")
+    };
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::EmptySlot(slot));
+    app.update(); // rebuild card in EmptySlot state
+    assert!(
+        press_command_button(&mut app, CommandAction::Build(0)),
+        "the archer Build button must exist"
+    );
+    app.update();
+
+    // Exactly one ballista mount, at the handoff transform, parented to the
+    // tower entity.
+    let mut mounts = app
+        .world_mut()
+        .query_filtered::<(&Transform, &ChildOf), With<warden::components::BallistaMount>>();
+    let all: Vec<(&Transform, &ChildOf)> = mounts.iter(app.world()).collect();
+    assert_eq!(all.len(), 1, "one BallistaMount per archer tower");
+    let (tf, parent) = all[0];
+    assert!((tf.translation.y - warden::systems::tower::BALLISTA_MOUNT_Y).abs() < 1e-6);
+    assert!((tf.scale.x - warden::systems::tower::BALLISTA_SCALE).abs() < 1e-6);
+    assert!(
+        tf.scale.x == tf.scale.y && tf.scale.y == tf.scale.z,
+        "handoff says uniform shrink"
+    );
+    assert!(
+        app.world().get::<Tower>(parent.parent()).is_some(),
+        "the mount must be a child of the tower entity"
+    );
+    // Both scene roots ride the tower: body (y 0.35) + ballista (y 1.3).
+    let mut roots = app
+        .world_mut()
+        .query_filtered::<&Transform, With<bevy::world_serialization::WorldAssetRoot>>();
+    let ys: Vec<f32> = roots
+        .iter(app.world())
+        .map(|t| t.translation.y)
+        .collect();
+    assert_eq!(ys.len(), 2, "tower body scene + ballista scene, got {ys:?}");
+    assert!(
+        ys.contains(&0.35) && ys.contains(&warden::systems::tower::BALLISTA_MOUNT_Y),
+        "assembly heights must be 0.35 (body) and 1.3 (ballista), got {ys:?}"
+    );
+}
+
+/// The camera framing keeps EVERY slot on-screen and clear of the bottom
+/// command bar — the original (0, 16, 20) pose projected the near slot row
+/// (z = +11) behind the 120 px bar, making towers there effectively
+/// invisible in play (found via projection math + screenshot probe,
+/// 2026-09-18). Pure projection assertion: no pixels needed.
+/// NOTE: `world_to_viewport` returns top-left-origin coordinates (y grows
+/// downward), so "above the bar" means a SMALL y.
+#[ignore = "red until the camera framing fix lands in the next commit"]
+#[test]
+fn camera_framing_covers_all_slots() {
+    let mut app = test_app();
+    app.update();
+    enable_world_picking(&mut app, Vec2::new(640.0, 400.0));
+    let (w, h, bar) = (1280.0f32, 720.0f32, 120.0f32);
+    let (cam, gt) = {
+        let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+        let (c, t) = cams.single(app.world()).expect("one camera");
+        (c.clone(), *t)
+    };
+    let mut slots = app
+        .world_mut()
+        .query_filtered::<&Transform, With<TowerSlot>>();
+    let mut count = 0;
+    for tf in slots.iter(app.world()) {
+        let sp = cam
+            .world_to_viewport(&gt, tf.translation)
+            .expect("every slot projects into the viewport");
+        assert!(
+            sp.x >= 10.0 && sp.x <= w - 10.0,
+            "slot at {:?} off-screen horizontally: {sp:?}",
+            tf.translation
+        );
+        assert!(
+            sp.y >= 10.0 && sp.y <= h - bar - 10.0,
+            "slot at {:?} behind the bottom bar or off-screen: {sp:?} (top-left origin, bar occupies y>{})",
+            tf.translation,
+            h - bar
+        );
+        count += 1;
+    }
+    assert_eq!(count, 8, "the map has eight slots");
 }

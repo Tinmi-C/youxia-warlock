@@ -11,7 +11,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AttackType, Enemy, FusionKind, Projectile, ProjectileOrigin, Slow, Tower, TowerKind,
+    AttackType, BallistaMount, Enemy, FusionKind, Projectile, ProjectileOrigin, Slow, Tower,
+    TowerKind,
 };
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
@@ -77,10 +78,22 @@ pub fn spawn_base_tower(
             let scene = server.load(
                 bevy::gltf::GltfAssetLabel::Scene(0).from_asset(ARROW_TOWER_MODEL),
             );
+            let ballista = server.load(
+                bevy::gltf::GltfAssetLabel::Scene(0).from_asset(BALLISTA_MODEL),
+            );
             ec.with_children(|p| {
                 p.spawn((
                     bevy::world_serialization::WorldAssetRoot(scene),
                     Transform::from_xyz(0.0, 0.35, 0.0),
+                ));
+                // ART2: the ballista rides the tower top as its own entity
+                // (not part of the body scene) so the future turn-to-track
+                // and procedural fire cards can drive it independently.
+                p.spawn((
+                    BallistaMount,
+                    bevy::world_serialization::WorldAssetRoot(ballista),
+                    Transform::from_xyz(0.0, BALLISTA_MOUNT_Y, 0.0)
+                        .with_scale(Vec3::splat(BALLISTA_SCALE)),
                 ));
             });
             return ec.id();

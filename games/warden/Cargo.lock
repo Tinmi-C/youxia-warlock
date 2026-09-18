@@ -5619,6 +5619,7 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "rand",
+ "serde_json",
 ]
 
 [[package]]
