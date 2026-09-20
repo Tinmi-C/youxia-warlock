@@ -14,4 +14,7 @@ pub enum GameState {
     Paused,
     GameOver,
     Win,
+    /// Debug-only studio viewer (SM1): gameplay/UI systems are Playing-gated
+    /// and freeze here; release never enters this state.
+    Showroom,
 }

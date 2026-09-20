@@ -31,6 +31,15 @@ impl Plugin for GamePlugin {
         // Debug-panel input capture (DB1): registered unconditionally (the
         // guard systems read it in release too); only debug builds write it.
         .init_resource::<DebugPanelCapture>()
+        // ART6: dusk ambience (docs/art-direction.md) — cool purple bounce
+        // and a dusk sky clear color behind the cliff skirt. (bevy 0.19: the
+        // global ambient moved off `AmbientLight`, which is now a component.)
+        .insert_resource(GlobalAmbientLight {
+            color: Color::srgb(0.40, 0.32, 0.50),
+            brightness: 40.0,
+            ..default()
+        })
+        .insert_resource(ClearColor(Color::srgb(0.30, 0.17, 0.13)))
         .add_systems(Startup, systems::camera::spawn_camera)
         .add_systems(
             Update,
@@ -63,6 +72,8 @@ pub fn apply_pause(state: &State<GameState>, next: &mut NextState<GameState>) {
         GameState::Paused => GameState::Playing,
         GameState::GameOver => GameState::Playing,
         GameState::Win => GameState::Playing,
+        // The studio viewer has nothing to pause (SM1); P is a no-op there.
+        GameState::Showroom => GameState::Showroom,
     };
     next.set(new_state);
     info!("[game] state -> {new_state:?}");

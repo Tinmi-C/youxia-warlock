@@ -2693,6 +2693,7 @@ mod debug_cheats {
                     db3::debug_time_clock.after(debug_scenario_executor),
                     sm::showroom_keys.after(debug_scenario_executor),
                     sm::showroom_present.after(sm::showroom_keys),
+                    sm::showroom_sweep.after(sm::showroom_present),
                 )
                     .in_set(GameSet::Input),
             )
@@ -4633,8 +4634,8 @@ fn map_structures_spawn_headless() {
         "gatehouse on the base waypoint, got {positions:?}"
     );
     assert!(
-        positions.contains(&(-13.0, -9.0)),
-        "entry arch on the path start, got {positions:?}"
+        positions.contains(&(-13.0, 9.0)),
+        "entry arch on the path start waypoint (README: entry top-left), got {positions:?}"
     );
 }
 
@@ -4943,7 +4944,7 @@ mod showroom {
     use warden::resources::{DebugRun, EnemyDefs, FusionDefs};
     use warden::systems::debug::{DebugScenarioQueue, Scenario};
     use warden::systems::showroom::{
-        ShowroomExhibit, ShowroomFloor, ShowroomPad, ShowroomPlate, ShowroomState,
+        ShowroomExhibit, ShowroomFloor, ShowroomLight, ShowroomPad, ShowroomPlate, ShowroomState,
     };
 
     fn enter(app: &mut App) {
@@ -5168,5 +5169,58 @@ mod showroom {
             before, after,
             "dragging must orbit the camera around the exhibit"
         );
+    }
+
+    /// SM1 v2.1 acceptance: the studio is airtight — any 3D-visual ROOT that
+    /// is not part of the showroom (late-materializing async props, stray
+    /// meshes/lights) is removed the frame it appears, while the studio's
+    /// own floor/pad/exhibit/light and the camera survive.
+    #[test]
+    fn showroom_sweep_removes_strays_keeps_studio() {
+        let mut app = debug_app();
+        app.update();
+        enter(&mut app);
+        app.update();
+        // A stray unmarked mesh root and an async-scene-style root appear
+        // AFTER the studio is up (props materialize late in the real app).
+        let mesh = app
+            .world_mut()
+            .resource_mut::<Assets<Mesh>>()
+            .add(Sphere::new(0.5));
+        let stray_mesh = app
+            .world_mut()
+            .spawn((Mesh3d(mesh), Transform::from_xyz(5.0, 0.0, 5.0)))
+            .id();
+        let stray_scene = app
+            .world_mut()
+            .spawn((bevy::world_serialization::WorldAssetRoot(
+                default(),
+            ), Transform::from_xyz(-5.0, 0.0, -5.0)))
+            .id();
+        app.update();
+        let entities = app.world().entities();
+        assert!(
+            !entities.contains(stray_mesh),
+            "a stray mesh root must be swept"
+        );
+        assert!(
+            !entities.contains(stray_scene),
+            "a stray async-scene root must be swept"
+        );
+        // The studio itself is untouched.
+        assert_eq!(count_exhibits(&mut app), 1, "the exhibit survives");
+        let mut floors = app.world_mut().query_filtered::<(), With<ShowroomFloor>>();
+        assert_eq!(floors.iter(app.world()).count(), 1, "the floor survives");
+        let mut lights = app
+            .world_mut()
+            .query_filtered::<(), With<ShowroomLight>>();
+        assert_eq!(lights.iter(app.world()).count(), 1, "the studio light survives");
+        let mut cams = app.world_mut().query_filtered::<(), With<Camera>>();
+        assert_eq!(cams.iter(app.world()).count(), 1, "the camera survives");
+        // Exhibits keep switching after sweeps (the sweep never eats them).
+        app.world_mut().resource_mut::<ShowroomState>().select(1, 0);
+        app.update();
+        assert_eq!(count_exhibits(&mut app), 1);
+        assert!(plate_text(&mut app).contains("普通"), "enemy 0 on the pad");
     }
 }
