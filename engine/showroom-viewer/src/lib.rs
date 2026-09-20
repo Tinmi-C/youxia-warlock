@@ -26,13 +26,18 @@ pub const SHOWROOM_PAD_RADIUS: f32 = 1.7;
 pub const ORBIT_TARGET: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 
 /// The browser cursor + what is currently on the pad. `spawned` differing
-/// from (category, item) is the single respawn trigger — keys and the egui
-/// panel both only move the cursor, one present system does the swapping.
+/// from the wanted stage (mode, category, item) is the single respawn
+/// trigger — keys and the egui panel both only move the cursor, one present
+/// system does the swapping. `gallery` lays the WHOLE current category out
+/// in a grid instead of one exhibit (SM1 v2.3): every item on stage at once,
+/// each with its own name plate and auto-idle animation; clicking an exhibit
+/// (or a list entry) returns to focus mode with that item.
 #[derive(Resource)]
 pub struct ShowroomState {
     pub category: usize,
     pub item: usize,
-    spawned: Option<(usize, usize)>,
+    pub gallery: bool,
+    stage: Option<(bool, usize, usize)>, // (gallery, category, item-as-0-in-gallery)
 }
 
 impl ShowroomState {
@@ -40,6 +45,15 @@ impl ShowroomState {
     pub fn select(&mut self, category: usize, item: usize) {
         self.category = category;
         self.item = item;
+    }
+
+    /// The stage key that decides whether a respawn is needed.
+    fn wanted_stage(&self) -> (bool, usize, usize) {
+        if self.gallery {
+            (true, self.category, 0)
+        } else {
+            (false, self.category, self.item)
+        }
     }
 }
 
@@ -97,6 +111,14 @@ pub struct ShowroomAnim {
     pub gltf: Handle<bevy::gltf::Gltf>,
     pub index: usize,
     wired: Option<usize>,
+}
+
+/// Identity marker on gallery exhibits (which catalog entry this root is)
+/// — the click-to-focus pick reads it.
+#[derive(Component)]
+pub struct ShowroomGalleryItem {
+    pub category: usize,
+    pub item: usize,
 }
 
 /// Plate font (FontSource: a handle, or the default font).
@@ -279,7 +301,8 @@ pub fn enter_studio(world: &mut World, catalog: ShowroomCatalog, font: FontSourc
     world.insert_resource(ShowroomState {
         category: 0,
         item: 0,
-        spawned: None,
+        gallery: false,
+        stage: None,
     });
     world.init_resource::<ShowroomOrbit>();
     info!("[sm] studio showroom entered (Tab/arrows or panel; drag orbit, wheel zoom)");
@@ -307,6 +330,7 @@ impl Plugin for ShowroomPlugin {
             )
             .add_systems(Update, showroom_sweep)
             .add_systems(Update, showroom_animate)
+            .add_systems(Update, showroom_pick)
             .add_systems(Update, showroom_orbit);
     }
 }
@@ -336,6 +360,10 @@ pub fn showroom_keys(
         state.category = (state.category + 1) % n_categories;
         state.item = 0;
     }
+    if keys.just_pressed(KeyCode::KeyG) {
+        state.gallery = !state.gallery;
+        info!("[sm] {} mode", if state.gallery { "gallery" } else { "focus" });
+    }
     if keys.just_pressed(KeyCode::ArrowRight) {
         state.item = (state.item + 1) % len(state.category).max(1);
     }
@@ -344,13 +372,16 @@ pub fn showroom_keys(
     }
 }
 
-/// The single exhibit swap point: whenever the cursor differs from what is
-/// on the pad, despawn the old exhibit, spawn a fresh root and let the
-/// catalog item's closure decorate it (also covers the first frame).
+/// The single stage-swap point: whenever the wanted stage (mode/category/
+/// item) differs from what is on the floor, despawn everything and rebuild.
+/// Focus mode puts ONE exhibit on the pad; gallery mode lays the whole
+/// current category out in a grid — every item on stage at once, each with
+/// its own name plate and auto-idle clip, pull-back camera to frame it.
 #[allow(clippy::too_many_arguments)]
 pub fn showroom_present(
     mut commands: Commands,
-    state: Option<ResMut<ShowroomState>>,
+    mut state: Option<ResMut<ShowroomState>>,
+    mut orbit: Option<ResMut<ShowroomOrbit>>,
     exhibits: Query<Entity, With<ShowroomExhibit>>,
     catalog: Option<Res<ShowroomCatalog>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -364,49 +395,90 @@ pub fn showroom_present(
     let Some(catalog) = catalog else {
         return;
     };
-    if state.spawned == Some((state.category, state.item)) {
+    let wanted = state.wanted_stage();
+    if state.stage == Some(wanted) {
         return;
     }
-    let Some(item) = catalog
+    let items = catalog
         .categories
         .get(state.category)
-        .and_then(|c| c.items.get(state.item))
-    else {
+        .map(|c| c.items.as_slice())
+        .unwrap_or(&[]);
+    if items.is_empty() {
         return;
-    };
+    }
     for e in &exhibits {
         commands.entity(e).despawn();
-    }
-    let root = commands
-        .spawn((
-            ShowroomExhibit,
-            Visibility::Visible,
-            Transform::from_xyz(0.0, item.anchor_y, 0.0),
-        ))
-        .id();
-    if let Some(gltf) = item.gltf.clone() {
-        commands.entity(root).insert(ShowroomAnim {
-            gltf,
-            index: 0,
-            wired: None,
-        });
     }
     let mut ctx = SpawnCtx {
         meshes: &mut meshes,
         materials: &mut materials,
         server: server.as_deref(),
     };
-    (item.spawn)(&mut commands, root, &mut ctx);
-    if let Some(text) = &item.plate {
+    let plate_font = font.map(|f| f.0.clone()).unwrap_or_default();
+
+    // What goes on stage: focus = the one item at the origin; gallery =
+    // every item of the category in a centered grid.
+    let mut stage: Vec<(usize, &ShowroomItem, Vec3)> = Vec::new();
+    if state.gallery {
+        const SPACING: f32 = 3.4;
+        let cols = (items.len() as f32).sqrt().ceil().max(1.0) as usize;
+        let rows = (items.len() + cols - 1) / cols;
+        for (i, item) in items.iter().enumerate() {
+            let (col, row) = (i % cols, i / cols);
+            let x = (col as f32 - (cols - 1) as f32 / 2.0) * SPACING;
+            let z = (row as f32 - (rows - 1) as f32 / 2.0) * SPACING;
+            stage.push((i, item, Vec3::new(x, item.anchor_y, z)));
+        }
+        // Pull the camera back enough to frame the grid (clamped by orbit).
+        if let Some(orbit) = orbit.as_mut() {
+            let extent = cols.max(rows) as f32 * SPACING;
+            orbit.dist = (extent * 1.35).clamp(6.5, 15.5);
+        }
+        info!(
+            "[sm] gallery: {} items on stage ({cols}x{rows})",
+            items.len()
+        );
+    } else {
+        stage.push((state.item, &items[state.item % items.len()], Vec3::new(0.0, items[state.item % items.len()].anchor_y, 0.0)));
+    }
+
+    for (idx, item, pos) in stage {
+        let mut ec = commands.spawn((
+            ShowroomExhibit,
+            Visibility::Visible,
+            Transform::from_translation(pos),
+        ));
+        let root = ec.id();
+        if state.gallery {
+            ec.insert(ShowroomGalleryItem {
+                category: state.category,
+                item: idx,
+            });
+        }
+        if let Some(gltf) = item.gltf.clone() {
+            ec.insert(ShowroomAnim {
+                gltf,
+                index: 0,
+                wired: None,
+            });
+        }
+        (item.spawn)(&mut commands, root, &mut ctx);
+        // Name plate (item.plate in focus; short name in gallery).
+        let text = if state.gallery {
+            item.name.clone()
+        } else {
+            item.plate.clone().unwrap_or_else(|| item.name.clone())
+        };
         let plate_y = item.plate_y;
-        let font = font.map(|f| f.0.clone()).unwrap_or_default();
+        let font_size = if state.gallery { 16.0 } else { 22.0 };
         commands.entity(root).with_children(|p| {
             p.spawn((
                 ShowroomPlate,
-                Text2d::new(text.clone()),
+                Text2d::new(text),
                 TextFont {
-                    font,
-                    font_size: FontSize::Px(22.0),
+                    font: plate_font.clone(),
+                    font_size: FontSize::Px(font_size),
                     ..default()
                 },
                 TextColor(Color::srgb(0.1, 0.1, 0.12)),
@@ -415,9 +487,69 @@ pub fn showroom_present(
                     .with_rotation(Quat::from_rotation_x(-0.67)),
             ));
         });
+        if !state.gallery {
+            info!("[sm] showing {} · {}", item.name, item.plate.as_deref().unwrap_or(""));
+        }
     }
-    info!("[sm] showing {} · {}", item.name, item.plate.as_deref().unwrap_or(""));
-    state.spawned = Some((state.category, state.item));
+    state.stage = Some(wanted);
+}
+
+/// Click-to-focus (gallery mode): a left click on/near an exhibit picks the
+/// nearest one on the ground plane and returns to focus mode with it. A
+/// plain click drags nothing, so it does not fight the orbit.
+pub fn showroom_pick(
+    buttons: Res<ButtonInput<bevy::input::mouse::MouseButton>>,
+    windows: Query<&Window>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+    panel_pointer: Option<Res<PanelPointer>>,
+    mut state: Option<ResMut<ShowroomState>>,
+    gallery_items: Query<(&Transform, &ShowroomGalleryItem), With<ShowroomExhibit>>,
+) {
+    let Some(mut state) = state else {
+        return;
+    };
+    if !state.gallery {
+        return;
+    }
+    if panel_pointer.map(|p| p.0).unwrap_or(false) {
+        return;
+    }
+    if !buttons.just_pressed(bevy::input::mouse::MouseButton::Left) {
+        return;
+    }
+    // Ground point under the cursor (y=0 plane), same projection the games
+    // use for world picking.
+    let Ok((cam, cam_tf)) = camera.single() else {
+        return;
+    };
+    let Some(cursor) = windows.single().ok().and_then(|w| w.cursor_position()) else {
+        return;
+    };
+    let Ok(ray) = cam.viewport_to_world(cam_tf, cursor) else {
+        return;
+    };
+    if ray.direction.y.abs() < 1e-6 {
+        return;
+    }
+    let t = -ray.origin.y / ray.direction.y;
+    if t < 0.0 {
+        return;
+    }
+    let point = ray.origin + *ray.direction * t;
+    let mut best: Option<(f32, usize, usize)> = None;
+    for (tf, gi) in &gallery_items {
+        let dx = tf.translation.x - point.x;
+        let dz = tf.translation.z - point.z;
+        let d = dx * dx + dz * dz;
+        if d < 1.7_f32 * 1.7 && best.map(|(bd, ..)| d < bd).unwrap_or(true) {
+            best = Some((d, gi.category, gi.item));
+        }
+    }
+    if let Some((_, category, item)) = best {
+        state.select(category, item);
+        state.gallery = false;
+        info!("[sm] focus picked from gallery: {category}/{item}");
+    }
 }
 
 /// Resident sweep: while the studio is active, any ROOT entity carrying a
@@ -462,6 +594,7 @@ pub fn showroom_sweep(
 /// then build a one-clip graph and drive the loader's player.
 pub fn showroom_animate(
     keys: Res<ButtonInput<KeyCode>>,
+    state: Option<Res<ShowroomState>>,
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
@@ -470,7 +603,10 @@ pub fn showroom_animate(
     mut players: Query<&mut AnimationPlayer>,
 ) {
     for (root, mut anim) in exhibits {
-        if keys.just_pressed(KeyCode::Space) && anim.wired != Some(usize::MAX) {
+        // Space cycles clips in focus mode only (a gallery-wide synchronized
+        // hop would be noise; gallery items just auto-idle).
+        let focus = state.as_ref().map(|s| !s.gallery).unwrap_or(true);
+        if focus && keys.just_pressed(KeyCode::Space) && anim.wired != Some(usize::MAX) {
             anim.index += 1;
             anim.wired = None; // rewire with the next clip
         }
@@ -604,6 +740,17 @@ pub fn showroom_panel_ui(
         .default_width(240.0)
         .show(ctx, |ui| {
             ui.heading("Showroom");
+            ui.separator();
+            if ui
+                .button(if state.gallery {
+                    "Focus [G]"
+                } else {
+                    "Gallery [G]"
+                })
+                .clicked()
+            {
+                state.gallery = !state.gallery;
+            }
             ui.separator();
             for (c, cat) in catalog.categories.iter().enumerate() {
                 ui.label(cat.name.clone());

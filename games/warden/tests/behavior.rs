@@ -5226,4 +5226,53 @@ mod showroom {
         assert_eq!(count_exhibits(&mut app), 1);
         assert!(plate_text(&mut app).contains("普通"), "enemy 0 on the pad");
     }
+
+    /// SM1 v2.3 acceptance: G lays the WHOLE current category out at once
+    /// (one exhibit per def, gallery identity markers), and selecting from
+    /// the panel-equivalent path refocuses to a single exhibit.
+    #[test]
+    fn showroom_gallery_lays_out_category_and_refocuses() {
+        let mut app = debug_app();
+        app.update();
+        enter(&mut app);
+        app.update();
+        app.update(); // exhibit lands by the second frame (plugin ordering)
+        let n_towers = app.world().resource::<TowerDefs>().list.len()
+            + app.world().resource::<FusionDefs>().list.len();
+        assert_eq!(count_exhibits(&mut app), 1, "focus mode starts with one");
+        // G -> gallery: every def of the category on stage at once.
+        press(&mut app, KeyCode::KeyG);
+        assert_eq!(
+            count_exhibits(&mut app),
+            n_towers,
+            "gallery lays out one exhibit per def"
+        );
+        let mut gallery = app
+            .world_mut()
+            .query_filtered::<(), With<warden::systems::showroom::ShowroomGalleryItem>>();
+        assert_eq!(
+            gallery.iter(app.world()).count(),
+            n_towers,
+            "every gallery exhibit carries its catalog identity"
+        );
+        // Panel-equivalent pick: select item 2 and leave gallery -> refocus.
+        let label = app.world().resource::<TowerDefs>().list[2].label;
+        {
+            let mut st = app.world_mut().resource_mut::<ShowroomState>();
+            st.select(0, 2);
+            st.gallery = false;
+        }
+        app.update();
+        assert_eq!(count_exhibits(&mut app), 1, "back to a single exhibit");
+        assert!(
+            plate_text(&mut app).contains(label),
+            "the picked def takes the pad (plate '{}')",
+            plate_text(&mut app)
+        );
+        // G toggles back into the grid and out again.
+        press(&mut app, KeyCode::KeyG);
+        assert_eq!(count_exhibits(&mut app), n_towers);
+        press(&mut app, KeyCode::KeyG);
+        assert_eq!(count_exhibits(&mut app), 1);
+    }
 }

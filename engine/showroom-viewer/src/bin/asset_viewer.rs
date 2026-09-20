@@ -10,11 +10,21 @@
 //! game's assets/, an ArtVault export, a download dir.
 
 use bevy::prelude::*;
-use showroom_viewer::{ShowroomCatalog, ShowroomItem, ShowroomPlugin, SpawnCtx, enter_studio};
+use showroom_viewer::{
+    ShowroomCatalog, ShowroomItem, ShowroomPlugin, ShowroomState, SpawnCtx, enter_studio,
+};
 
 fn main() {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: asset-viewer <directory-with-glb-files>");
+    let mut dir = None;
+    let mut gallery = false;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--gallery" => gallery = true,
+            other => dir = Some(other.to_string()),
+        }
+    }
+    let dir = dir.unwrap_or_else(|| {
+        eprintln!("usage: asset-viewer <directory-with-glb-files> [--gallery]");
         std::process::exit(2);
     });
     let mut app = App::new();
@@ -35,9 +45,14 @@ fn main() {
     )
     .add_plugins(ShowroomPlugin)
     .insert_resource(ScanDir(dir))
+    .insert_resource(StartInGallery(gallery))
     .add_systems(Startup, scan_and_enter);
     app.run();
 }
+
+/// Startup flag: land straight in the grid overview (--gallery).
+#[derive(Resource)]
+struct StartInGallery(bool);
 
 #[derive(Resource)]
 struct ScanDir(String);
@@ -144,4 +159,11 @@ fn scan_and_enter(world: &mut World) {
         Transform::from_xyz(4.6, 4.4, 4.6).looking_at(Vec3::Y * 1.0, Vec3::Y),
     ));
     enter_studio(world, catalog, FontSource::default());
+    if world
+        .remove_resource::<StartInGallery>()
+        .map(|f| f.0)
+        .unwrap_or(false)
+    {
+        world.resource_mut::<ShowroomState>().gallery = true;
+    }
 }

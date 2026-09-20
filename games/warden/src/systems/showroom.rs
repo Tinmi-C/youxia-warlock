@@ -12,7 +12,8 @@ use showroom_viewer::{ShowroomCatalog, ShowroomItem, enter_studio};
 // Re-exported so the plugin registration and the tests keep one import
 // path for the viewer symbols.
 pub use showroom_viewer::{
-    ShowroomExhibit, ShowroomFloor, ShowroomLight, ShowroomPad, ShowroomPlate, ShowroomState,
+    ShowroomExhibit, ShowroomFloor, ShowroomGalleryItem, ShowroomLight, ShowroomPad, ShowroomPlate,
+    ShowroomState,
 };
 
 use crate::resources::{EnemyDefs, FusionDefs, Lang, TowerDefs};

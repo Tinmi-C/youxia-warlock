@@ -840,6 +840,13 @@
   （`ENEMY_MODELS/SCALES` 同表，feet-origin 场景子+缩放，gltf 句柄供 clip 浏览；headless 保留灰盒双路径）；
   bin 条目携带 gltf 句柄。真机验证：asset-viewer 开 warden 模型库，KayKit 骑士自动播
   `Rig_Medium.001|Jump_Idle`（读图确认自然姿势非 T-pose），面板 Clips 列表 22 项可读、Jump_Idle 高亮。
+  **v2.3 画廊模式（同日，用户实机反馈「只能看一个」）**：**G 键/面板 Gallery 按钮**在聚焦与画廊两模式切换——
+  画廊把当前分类**全部条目**铺成网格（间距 3.4、居中、镜头自动拉远取景），每件带小号名字铭牌、带动画的
+  各自自动 idle（画廊中 Space 禁用——全场同步跳 clip 是噪音）；**点击 3D 展品 = 拾取最近者回聚焦**（光标
+  射线投地面 + XZ 半径 1.7 命中；与拖拽环绕无冲突——纯点击无位移不转镜）；面板列表点选同样退出画廊聚焦
+  该件。bin 增 `--gallery` 启动旗标。断言 +1（`showroom_gallery_lays_out_category_and_refocuses`）→ 共 5 条，
+  全量 121 绿。真机：14 模型网格读图确认（多模型/名字标签/自然姿势/Focus [G] 按钮）；点选聚焦由日志实证
+  （置前杂散点击→点中 enemy_mage→回聚焦+Jump_Idle）。
 
 ### SM3 · 实弹区：真目标 + 技能/特效实放（debug·skills/fx）—— 📝 待立卡（依赖 SM1）
 - 范围: 展示场一角划实弹区——真 Enemy 木桩（沿路径行走 + 周期重刷）+ 可选真塔 + 技能 CD 置短（≤2s）无成本
