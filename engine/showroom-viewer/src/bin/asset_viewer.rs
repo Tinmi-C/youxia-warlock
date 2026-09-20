@@ -103,18 +103,22 @@ fn scan_and_enter(world: &mut World) {
     let root_dir = std::path::Path::new(&dir)
         .canonicalize()
         .unwrap_or_else(|_| std::path::PathBuf::from(&dir));
+    let server = world.resource::<AssetServer>();
     let mut catalog = ShowroomCatalog::build().category("Files");
     for f in found {
         let info = std::fs::metadata(root_dir.join(&f.rel))
             .map(|m| format!("{:.1} MiB", m.len() as f64 / (1 << 20) as f64))
             .unwrap_or_else(|_| "? MiB".into());
         let rel = f.rel.clone();
+        // Whole-file handle: named clips feed the studio's clip browser.
+        let gltf = server.load::<bevy::gltf::Gltf>(rel.clone());
         catalog = catalog.item(ShowroomItem {
             name: f.label,
             info,
             plate: None,
             anchor_y: 0.0,
             plate_y: 2.0,
+            gltf: Some(gltf),
             spawn: Box::new(
                 move |commands: &mut Commands, root: Entity, ctx: &mut SpawnCtx| {
                     let Some(server) = ctx.server else {

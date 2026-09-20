@@ -17,8 +17,15 @@ pub fn spawn_camera(mut commands: Commands) {
         Transform::from_xyz(0.0, 22.0, 27.5).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
     ));
     commands.spawn((
-        Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 0.0, 0.9, -0.6)),
+        // D1 晴昼要塞 lighting (docs/art-direction.md, 2026-09-20 re-tone):
+        // morning sun — near-white, high angle (~48° above horizon, pitch
+        // -0.84 rad) for short readable shadows; the dusk rig (warm low sun,
+        // pitch -0.32) was rejected on live viewing. Sky/ambient live in
+        // GamePlugin resources.
+        Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 0.0, 0.9, -0.84)),
         DirectionalLight {
+            color: Color::srgb(1.0, 0.96, 0.88),
+            illuminance: 14_000.0,
             shadow_maps_enabled: true,
             ..default()
         },

@@ -4580,30 +4580,32 @@ fn map_props_spawn_headless() {
     }
 }
 
-/// ART6: dusk rig values from docs/art-direction.md — one warm low sun with
-/// long shadows, cool purple ambient bounce, dusk clear color.
+/// D1 晴昼要塞 rig values from docs/art-direction.md (2026-09-20 re-tone) —
+/// one near-white morning sun at a high angle, blue-white ambient bounce,
+/// pale blue clear color. (Was ART6 "dusk_lighting_is_pinned" until the dusk
+/// direction was rejected on live viewing.)
 #[test]
-fn dusk_lighting_is_pinned() {
+fn daylight_lighting_is_pinned() {
     let mut app = test_app();
     app.update();
     let mut lights = app.world_mut().query::<&DirectionalLight>();
     let mut n = 0;
     for l in lights.iter(app.world()) {
         n += 1;
-        assert_eq!(l.color, Color::srgb(1.0, 0.55, 0.25));
-        assert!((l.illuminance - 9_000.0).abs() < 1e-3);
+        assert_eq!(l.color, Color::srgb(1.0, 0.96, 0.88));
+        assert!((l.illuminance - 14_000.0).abs() < 1e-3);
     }
     assert_eq!(n, 1, "exactly one directional light");
     let ambient = app.world().resource::<GlobalAmbientLight>();
-    assert_eq!(ambient.color, Color::srgb(0.40, 0.32, 0.50));
+    assert_eq!(ambient.color, Color::srgb(0.60, 0.65, 0.75));
     let clear = app.world().resource::<ClearColor>();
-    assert_eq!(clear.0, Color::srgb(0.30, 0.17, 0.13));
-    // The sun hangs low (pitch -0.32 ≈ 18°, long shadows) at the same
-    // azimuth as the old noon rig.
+    assert_eq!(clear.0, Color::srgb(0.55, 0.65, 0.80));
+    // The morning sun hangs high (pitch -0.84 ≈ 48°, short readable
+    // shadows) at the same azimuth as the old rigs.
     let mut xforms = app
         .world_mut()
         .query_filtered::<&Transform, With<DirectionalLight>>();
-    let expected = Quat::from_euler(EulerRot::ZYX, 0.0, 0.9, -0.32);
+    let expected = Quat::from_euler(EulerRot::ZYX, 0.0, 0.9, -0.84);
     for tf in xforms.iter(app.world()) {
         assert!(tf.rotation.abs_diff_eq(expected, 1e-6));
     }
@@ -4823,8 +4825,8 @@ fn ballista_projectile_spawns_at_muzzle() {
     );
     // And the mount rests at the composed tower-top position.
     assert!(
-        mount_pos.distance(Vec3::new(0.0, 1.9, 0.0)) < 1e-4,
-        "mount world position = tower anchor 0.6 + mount y 1.3, got {mount_pos:?}"
+        mount_pos.distance(Vec3::new(0.0, 1.7, 0.0)) < 1e-4,
+        "mount world position = tower anchor 0.6 + mount y 1.10 (deck plane, de98e87), got {mount_pos:?}"
     );
 }
 

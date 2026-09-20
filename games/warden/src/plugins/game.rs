@@ -31,15 +31,17 @@ impl Plugin for GamePlugin {
         // Debug-panel input capture (DB1): registered unconditionally (the
         // guard systems read it in release too); only debug builds write it.
         .init_resource::<DebugPanelCapture>()
-        // ART6: dusk ambience (docs/art-direction.md) — cool purple bounce
-        // and a dusk sky clear color behind the cliff skirt. (bevy 0.19: the
-        // global ambient moved off `AmbientLight`, which is now a component.)
+        // D1 晴昼要塞 ambience (docs/art-direction.md, 2026-09-20 re-tone):
+        // morning blue-white sky bounce and a pale blue clear color behind
+        // the cliff skirt (replaces the rejected dusk purple/brown).
+        // (bevy 0.19: the global ambient moved off `AmbientLight`, which is
+        // now a component.)
         .insert_resource(GlobalAmbientLight {
-            color: Color::srgb(0.40, 0.32, 0.50),
-            brightness: 40.0,
+            color: Color::srgb(0.60, 0.65, 0.75),
+            brightness: 90.0,
             ..default()
         })
-        .insert_resource(ClearColor(Color::srgb(0.30, 0.17, 0.13)))
+        .insert_resource(ClearColor(Color::srgb(0.55, 0.65, 0.80)))
         .add_systems(Startup, systems::camera::spawn_camera)
         .add_systems(
             Update,

@@ -17,7 +17,7 @@ pub use showroom_viewer::{
 
 use crate::resources::{EnemyDefs, FusionDefs, Lang, TowerDefs};
 use crate::states::GameState;
-use crate::systems::enemy::enemy_base_color;
+use crate::systems::enemy::{ENEMY_MODELS, ENEMY_SCALES, enemy_base_color};
 use crate::systems::hud::UiFont;
 use crate::systems::tower::{attach_tower_appearance, fused_tower_color};
 
@@ -84,6 +84,7 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
             plate: Some(plate),
             anchor_y: 0.6,
             plate_y: 2.4,
+            gltf: None,
             spawn: Box::new(
                 move |commands: &mut Commands, root, ctx: &mut showroom_viewer::SpawnCtx| {
                     attach_tower_appearance(
@@ -123,6 +124,7 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
             plate: Some(plate),
             anchor_y: 0.6,
             plate_y: 2.4,
+            gltf: None,
             spawn: Box::new(move |commands: &mut Commands, root, ctx: &mut showroom_viewer::SpawnCtx| {
                 let _ = ctx;
                 commands.entity(root).insert((
@@ -133,6 +135,10 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
         });
     }
     let mut builder = builder.finish().category(enemy_label.to_string());
+    // ART11 models when an AssetServer exists (feet-origin scene child +
+    // gltf handle so the studio's clip browser works); headless keeps the
+    // tinted cuboid — same gateway choice as the gameplay spawn path.
+    let server = world.get_resource::<AssetServer>();
     for (i, def) in enemies.list.iter().enumerate() {
         let plate = format!(
             "{} · {} {}/{}",
@@ -150,20 +156,58 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
             def.leak,
             def.kill_gold
         );
-        let color = enemy_base_color(def);
-        builder = builder.item(ShowroomItem {
-            name: def.name.to_string(),
-            info,
-            plate: Some(plate),
-            anchor_y: 0.4,
-            plate_y: 1.7,
-            spawn: Box::new(move |commands: &mut Commands, root, ctx: &mut showroom_viewer::SpawnCtx| {
-                commands.entity(root).insert((
-                    Mesh3d(ctx.meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
-                    MeshMaterial3d(ctx.materials.add(color)),
-                ));
-            }),
-        });
+        let (item, anchor_y, plate_y) = match server
+            .zip(ENEMY_MODELS.get(i).copied())
+        {
+            Some((server, model)) => {
+                let scene = server.load(
+                    bevy::gltf::GltfAssetLabel::Scene(0).from_asset(model),
+                );
+                let gltf = server.load::<bevy::gltf::Gltf>(model);
+                let scale = ENEMY_SCALES.get(i).copied().unwrap_or(0.8);
+                let item = ShowroomItem {
+                    name: def.name.to_string(),
+                    info,
+                    plate: Some(plate),
+                    anchor_y: 0.0, // feet-origin models sit on the pad
+                    plate_y: 2.0,
+                    gltf: Some(gltf),
+                    spawn: Box::new(
+                        move |commands: &mut Commands, root, _ctx: &mut showroom_viewer::SpawnCtx| {
+                            commands.entity(root).with_children(|p| {
+                                p.spawn((
+                                    bevy::world_serialization::WorldAssetRoot(scene.clone()),
+                                    Transform::from_scale(Vec3::splat(scale)),
+                                ));
+                            });
+                        },
+                    ),
+                };
+                (item, 0.0, 2.0)
+            }
+            None => {
+                let color = enemy_base_color(def);
+                let item = ShowroomItem {
+                    name: def.name.to_string(),
+                    info,
+                    plate: Some(plate),
+                    anchor_y: 0.4,
+                    plate_y: 1.7,
+                    gltf: None,
+                    spawn: Box::new(
+                        move |commands: &mut Commands, root, ctx: &mut showroom_viewer::SpawnCtx| {
+                            commands.entity(root).insert((
+                                Mesh3d(ctx.meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
+                                MeshMaterial3d(ctx.materials.add(color)),
+                            ));
+                        },
+                    ),
+                };
+                (item, 0.4, 1.7)
+            }
+        };
+        let _ = (anchor_y, plate_y); // carried by the item itself
+        builder = builder.item(item);
     }
     builder.finish()
 }

@@ -176,6 +176,28 @@ assets/{models,textures,audio,fonts,ui}/
   窗口直截 → 真中性逐字读 UI + dash 独立对账：金币0/基地10/10/波次1建造期/下一波普通×5 全部吻合；
   截图 `docs/img/warden_art3_terrain.png`）。ART4 基地入口/ART5 点缀/ART6 光照卡已立（📝），方向稿
   `.blend` 存 `_art/map-style/`。**待负责人试玩验收后一卡一提交。**
+- **ART5 荒原点缀 + ART6 黄昏光照（2026-09-20，同日实现+验收）**：点缀四件套 = PolyHaven CC0
+  （箭袋树枯干/巨石/树桩/干枝丛；`pack_gltf_folder.py` 打包单文件 glb+原点归一，岩库 v1 锁定 ~16MB），
+  `spawn_props` 布局表 12 实例（4/3/2/3，沿用方向稿位置、核算过与路径/塔位/基地安全间距），headless 回落
+  B 色板色块；**不走图生 3D**（CC0 直采无参照图门；横木版 dead_tree_trunk 实测 3m 躺姿弃用，选立姿
+  dead_quiver_trunk）。光照按 art-direction.md 锚点：暖橙主光 9000lux 俯仰 -0.32rad（18° 长影）+ 
+  `GlobalAmbientLight` 冷紫 40 + 暮色 ClearColor（bevy 0.19 环境光资源已改名 GlobalAmbientLight，实测）。
+  assembly 测试 WorldAssetRoot 计数加 `Without<MapProp>`。**`cargo test` 全绿 112 条**（behavior 106 +
+  art_assets 4 + balance 2，含弩线 ART7/8 测试）。视觉验收一次通过（配方：computer-use activate →
+  list_windows 拿 wid → screencapture -l；逐字读 UI 与 dash 对账 + 四类道具计数吻合；「白塔」误读经
+  gold=100 未购塔排除）；截图 `docs/img/warden_art5_props_dusk.png`。**地形线仅剩 ART4**（基地石门楼+
+  入口拱门，需参照图过阶段 0 门，图生 3D 走美术管线）。**待负责人试玩验收后提交。**
+- **ART4 基地石门楼 + 入口拱（2026-09-20，地形线四卡收官 ART3/4/5/6 全落地）**：**路线改道记录**——
+  Sketchfab CC-BY 扫描件短名单（11 件入岩库 wip 后转 archived 留档）被负责人否决（授权/重打包复杂），
+  改 Blender 体块砌筑 + CC0 贴图（castle_wall_varriation 1k）：门楼双塔+过梁门洞+堆堞+旗杆旗、
+  入口拱双柱+楣石+残齿，182 面/3.2MB，岩库 v3 锁定。`spawn_structures`：门楼居中基地 waypoint（敌人
+  走进门洞）、拱转 90° 骑跨路径起点（入口 waypoint 是 (-13,**+9**)，别再记成 -9）。**v1/v2 三连翻车
+  教训**（已入卡）：建模高度误入 Blender Y 轴致模型横躺，渲染预览被视觉模型误读"比例协调"——**数值
+  bbox 门必须先于看图**；`matrix_world` 是上次求值快照，校验前必须 `view_layer.update()`。测试新增
+  `map_structures_spawn_headless` + `structures_geometry_facts`（新增 scene_bbox 跨 mesh 聚合）。
+  **`cargo test` 全绿 119 条**（behavior 112 + art_assets 5 + balance 2）。视觉验收通过（门楼在道路
+  终点右下/拱在起点左上/UI 逐字对账/四类道具清点，截图 `docs/img/warden_art4_gatehouse.png`）。
+  **待负责人试玩验收后提交。**
 - **ART7 弩瞄准追踪 + 炮口出弹（2026-09-20，弩射击动作线首卡）**：新通用组件 `AimTracker`
   （挂 `BallistaMount`；角度用度、朝向真值在 Transform、组件只存配置+目标态）+ 域桥 `tower_aim_bridge`
   （Tower.target→挂件，转向系统零塔依赖）+ `tick_aim_trackers`（yaw-only 240°/s 步进、失联 2s 回正）；
@@ -190,6 +212,35 @@ assets/{models,textures,audio,fonts,ui}/
   取舍：后坐只写 translation、朝向归 AimTracker 的 rotation（chain 消解写冲突→后坐不干扰转向）；击发帧
   先出弹后踢。断言 2 条入 behavior（击发/回落<10%/重置/狂暴峰值/连发下朝向 ±5°、无火无位移），重置语义
   红绿验证过；`cargo test` 全绿 **110 条**（behavior 104 + art_assets 4 + balance 2）。
+- **SM1 展示场：中性影棚查看器 v2（2026-09-20，验收通道线首卡；v1 同日重做）**：v1（战场展示台）被负责人
+  实机否决（形态不像编辑器、黄昏调污染观感）→ v2 = **中性影棚 + egui 资产列表 + 环绕相机**。`--scenario
+  showroom` 进场即清场重搭：despawn 全部 Mesh3d（战场/路径/塔位，HoverGhost 只隐藏）+ 方向光、隐藏全部 UI 根
+  Node、落浅灰地面+深灰展示台+白主光+中性环境光+淡灰清屏，切 **新 `GameState::Showroom`**（玩法/UI 系统全冻结，
+  P 无效，离开=重启）。浏览双通道同一游标：左面板点选 或 Tab 切类（塔含融合/怪）、←/→ 切件，单一 present 换展；
+  左键拖拽环绕+滚轮缩放（悬停 egui 时失效）。展品仍走外观缝（attach_tower_appearance/fused_tower_color/
+  enemy_base_color）零规则组件；铭牌 22px。headless 断言 3 条（影棚落地+零干扰 / 全量遍历 / 面板等效+轨道）；
+  **加新 def 自动进列表零改动**。踩坑记档：egui 0.36 无 SidePanel（用锚定 Window）、fork Event→Message
+  （MouseWheel 走 MessageReader+显式 add_message）、Parent→ChildOf。视觉自检通过（影棚灰白无橙调/左面板
+  列表+数值可读/无 HUD 底栏/铭牌逐字）。v1 提交 `9a6705c`、v2+v2.1 提交 `f68d1fe`；**⚠️ 方向 B 黄昏调同日被
+  负责人否决、全游戏重定调中（art-direction.md 候选 D1-D3 待拍板）**。
+  **v2.2 通用化（同日，负责人定方向"跨游戏可用"）→ ADR-0010**：机制全量上收为共享 crate
+  `engine/showroom-viewer`（引擎 crate 首例——判据成立：warden 适配层 + crate 自带 `asset-viewer` bin
+  双消费方；bin 用法 `cargo run -p showroom-viewer --bin asset-viewer -- <目录>` 扫看任意 GLB，对
+  warden/assets/models 实测 14 文件）。warden 侧瘦成 `systems/showroom.rs` 适配层（build_catalog 读定义表
+  +闭包走外观缝、幽灵 ShowroomKept 豁免、切 GameState::Showroom）；测试路径靠 re-export 零改（4 条断言
+  +全量 120 绿）。依赖声明无条件（同 bevy_egui 先例）代码层 debug 门控。**新游戏接入 ≈ 写一个目录构建函数。**
+  另：SM1 v1 提交曾被 Mimosa 预提交门控拦截——art_sync.py 加固触发 CWE-22 静态规则（只认内置 `open()` sink）；
+  修法 `Path(x).open("wb")` 已提交 `c1d2a50`。
+- **SM2 动画触发 + D1 晴昼要塞定调（2026-09-20，SM 线收官）**：① SM2（引擎 crate 内）——`ShowroomItem.gltf`
+  句柄 + `showroom_animate`：自动循环名字含 idle 的 clip、Space 换 clip、面板 Clips 列表点选；接线走 ART11
+  验证姿势（驱动场景内加载器播放器，绝不外挂——T-pose 教训）；warden 敌人条目从灰盒升级 ART11 真模型
+  （ENEMY_MODELS/SCALES 同表 + clip 浏览），bin 条目带 gltf 句柄。真机验证：KayKit 骑士自动
+  Jump_Idle 自然姿势（读图非 T-pose）、22 clips 列表可读。② **美术重定调拍板 D1 晴昼要塞**（负责人委托 AI
+  推荐项）：主光白 (1.0,0.96,0.88) 高角度 pitch -0.84/14000lux、环境光白蓝 (0.60,0.65,0.75)×90、清屏淡蓝
+  (0.55,0.65,0.80)——`camera.rs`/`game.rs` 已落地，钉子测试 `daylight_lighting_is_pinned`（原 dusk 钉子随调
+  更新）；`art-direction.md` 基线整体重写为 D1（B 存档「已退役方向」，教训：**方向稿必须实机光照参数渲染验证**）；
+  结构体/塔位垫 D1 重校（白灰石目标值已列）留后续 ART 卡。真机读图：白昼感无橙偏、路径亮可读、短阴影、
+  HUD 正常。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
@@ -205,7 +256,8 @@ assets/{models,textures,audio,fonts,ui}/
   脚本泛化 + 用户级 skill。编号说明：ART3-6 为地形线，ART7+ 为弩线，按立项时间。
 - **下一步**：**双美术线并行 + 真人试玩**——①地形线：ART4 基地/入口 → ART5 点缀 → ART6 黄昏光照（ART3 已落地待负责人试玩验收）；
   ②弩射击线：ART9 分件手术 v3 → ART10 弦箭动画（ART7 瞄准+炮口出弹、ART8 后坐已落地）；③**真人试玩盯 §15 信号**
-  （技能两新信号对照 ≤20% 输出锚点）；balance 数值仍按负责人意见暂缓。
+  （技能两新信号对照 ≤20% 输出锚点）；balance 数值仍按负责人意见暂缓。④验收通道线：SM1 已落地（待真人视觉
+  验收）→ SM2 动画触发+自由观察 → SM3 实弹区（技能/特效动态验收）→ SM4 截图基线。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，

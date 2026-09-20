@@ -86,6 +86,19 @@ pub struct ShowroomLight;
 #[derive(Component)]
 pub struct ShowroomKept;
 
+/// Animation state on the exhibit root (SM2). `index` is the wanted clip,
+/// `wired` the clip actually playing (None => wiring still pending/retry;
+/// Some(usize::MAX) => the asset has no clips). The clip list comes from
+/// the whole-file `Gltf` asset the item carried; the player being driven is
+/// the one the gltf loader instantates INSIDE the scene subtree (an external
+/// player plays into the void — bones stay bound to the loader's player).
+#[derive(Component)]
+pub struct ShowroomAnim {
+    pub gltf: Handle<bevy::gltf::Gltf>,
+    pub index: usize,
+    wired: Option<usize>,
+}
+
 /// Plate font (FontSource: a handle, or the default font).
 #[derive(Resource)]
 pub struct ShowroomFont(pub FontSource);
@@ -117,6 +130,9 @@ pub struct ShowroomItem {
     pub anchor_y: f32,
     /// Plate height above the root.
     pub plate_y: f32,
+    /// Whole-file gltf handle when the item is an animated model — enables
+    /// the SM2 clip browser (auto idle loop + Space to cycle + panel list).
+    pub gltf: Option<Handle<bevy::gltf::Gltf>>,
     #[allow(clippy::type_complexity)]
     pub spawn: Box<dyn Fn(&mut Commands, Entity, &mut SpawnCtx) + Send + Sync>,
 }
@@ -290,6 +306,7 @@ impl Plugin for ShowroomPlugin {
                 (showroom_keys, showroom_present.after(showroom_keys)).chain(),
             )
             .add_systems(Update, showroom_sweep)
+            .add_systems(Update, showroom_animate)
             .add_systems(Update, showroom_orbit);
     }
 }
@@ -367,6 +384,13 @@ pub fn showroom_present(
             Transform::from_xyz(0.0, item.anchor_y, 0.0),
         ))
         .id();
+    if let Some(gltf) = item.gltf.clone() {
+        commands.entity(root).insert(ShowroomAnim {
+            gltf,
+            index: 0,
+            wired: None,
+        });
+    }
     let mut ctx = SpawnCtx {
         meshes: &mut meshes,
         materials: &mut materials,
@@ -431,6 +455,84 @@ pub fn showroom_sweep(
     }
 }
 
+/// SM2: drive the exhibit's animation. On the first wire the clip whose
+/// name contains "idle" wins (else clip 0), looping; Space cycles to the
+/// next clip. Wiring follows the ART11-proven pattern: wait for the Gltf
+/// asset AND the scene's own AnimationPlayer (both land asynchronously),
+/// then build a one-clip graph and drive the loader's player.
+pub fn showroom_animate(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    gltfs: Res<Assets<bevy::gltf::Gltf>>,
+    exhibits: Query<(Entity, &mut ShowroomAnim)>,
+    children: Query<&Children>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    for (root, mut anim) in exhibits {
+        if keys.just_pressed(KeyCode::Space) && anim.wired != Some(usize::MAX) {
+            anim.index += 1;
+            anim.wired = None; // rewire with the next clip
+        }
+        if anim.wired == Some(anim.index) {
+            continue;
+        }
+        let Some(gltf) = gltfs.get(&anim.gltf) else {
+            continue; // still loading — retry next frame
+        };
+        // HashMap — sort by name once per wire for a stable cycle order.
+        let mut clips: Vec<(&Box<str>, &Handle<AnimationClip>)> =
+            gltf.named_animations.iter().collect();
+        clips.sort_by(|a, b| a.0.cmp(b.0));
+        if clips.is_empty() {
+            anim.wired = Some(usize::MAX); // no clips — stop retrying
+            info!("[sm] exhibit has no animation clips");
+            continue;
+        }
+        // First wire prefers an idle-ish clip; Space cycles from there.
+        if anim.wired.is_none() && anim.index == 0 {
+            if let Some(idle) = clips
+                .iter()
+                .position(|(name, _)| name.to_lowercase().contains("idle"))
+            {
+                anim.index = idle;
+            }
+        }
+        let index = anim.index % clips.len();
+        let (clip_name, clip) = clips[index];
+        // The scene instantiates a frame or more after the assets land —
+        // keep retrying until the loader's player exists in the subtree.
+        let Some(player_entity) = find_animation_player(root, &children, &players) else {
+            continue;
+        };
+        let (graph, node) = AnimationGraph::from_clip(clip.clone());
+        let handle = graphs.add(graph);
+        let Ok(mut player) = players.get_mut(player_entity) else {
+            continue;
+        };
+        player.play(node).repeat();
+        commands
+            .entity(player_entity)
+            .insert(AnimationGraphHandle(handle));
+        anim.wired = Some(anim.index);
+        info!("[sm] clip playing: {clip_name}");
+    }
+}
+
+/// Depth-first search for the scene's own `AnimationPlayer` below `root`.
+fn find_animation_player(
+    root: Entity,
+    children: &Query<&Children>,
+    players: &Query<&mut AnimationPlayer>,
+) -> Option<Entity> {
+    if players.get(root).is_ok() {
+        return Some(root);
+    }
+    let kids = children.get(root).ok()?;
+    kids.iter()
+        .find_map(|k| find_animation_player(k, children, players))
+}
+
 /// Orbit + zoom camera: left-drag orbits around the exhibit, wheel zooms.
 /// Pointer over any egui panel disables both (the panel sets the capture).
 pub fn showroom_orbit(
@@ -477,6 +579,8 @@ pub fn showroom_panel_ui(
     mut panel_pointer: Option<ResMut<PanelPointer>>,
     state: Option<ResMut<ShowroomState>>,
     catalog: Option<Res<ShowroomCatalog>>,
+    gltfs: Res<Assets<bevy::gltf::Gltf>>,
+    mut anims: Query<&mut ShowroomAnim>,
 ) {
     let Some(mut state) = state else {
         return;
@@ -518,6 +622,29 @@ pub fn showroom_panel_ui(
             {
                 ui.label("On the pad");
                 ui.monospace(item.info.clone());
+                // SM2: clip browser for animated exhibits (Space cycles too).
+                if let Ok(mut anim) = anims.single_mut() {
+                    if let Some(gltf) = gltfs.get(&anim.gltf) {
+                        let mut clips: Vec<(&Box<str>, &Handle<AnimationClip>)> =
+                            gltf.named_animations.iter().collect();
+                        clips.sort_by(|a, b| a.0.cmp(b.0));
+                        if clips.is_empty() {
+                            ui.small("(no clips)");
+                        } else {
+                            ui.label("Clips (Space = next)");
+                            for (i, (name, _)) in clips.iter().enumerate() {
+                                let selected = anim.wired == Some(i) && anim.index == i;
+                                if ui
+                                    .selectable_label(selected, format!("  {name}"))
+                                    .clicked()
+                                {
+                                    anim.index = i;
+                                    anim.wired = None; // rewire
+                                }
+                            }
+                        }
+                    }
+                }
             }
             ui.separator();
             ui.small("Tab/arrows switch · drag orbit · wheel zoom");
