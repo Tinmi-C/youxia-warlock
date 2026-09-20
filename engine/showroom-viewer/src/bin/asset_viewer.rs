@@ -138,6 +138,7 @@ fn scan_and_enter(world: &mut World) {
             anchor_y: 0.0,
             plate_y: 2.0,
             gltf: Some(gltf),
+            parts: vec![],
             spawn: Box::new(
                 move |commands: &mut Commands, root: Entity, ctx: &mut SpawnCtx| {
                     let Some(server) = ctx.server else {

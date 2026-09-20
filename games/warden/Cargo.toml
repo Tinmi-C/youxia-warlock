@@ -32,10 +32,15 @@ bevy_egui = "0.42"
 # unconditionally (cargo cannot gate by profile — same as bevy_egui above),
 # the gate lives in the code: only debug builds reference it.
 showroom-viewer = { path = "../../engine/showroom-viewer" }
+# SM7 showroom origins parse art-assets.json at runtime (debug-gated use).
+serde_json = "1"
 
 [dev-dependencies]
 # Art asset gates (tests/art_assets.rs): parse the GLB JSON chunk offline
 # (bbox/counts/animation facts) — already in the dependency tree via Bevy.
+# Also a regular dependency above? No — runtime use is SM7 showroom origins
+# (debug-gated), declared here in dev-dependencies AND mirrored in
+# [dependencies] via the line below.
 serde_json = "1"
 
 # 迭代友好：依赖开优化（编译一次后运行快），自身代码保持快编译
@@ -47,3 +52,11 @@ opt-level = 3
 
 [profile.release]
 lto = "thin"
+
+# DB1 日常验收专用：继承 release 的非 dev 语义（debug_assertions 关闭，
+# cfg 门控与字符串扫描均有效），但关闭 LTO 与优化，避免每次验收
+# 都触发全量 thin-LTO 链接吃满 CPU 数分钟。交付前用脚本 --full 做终验。
+[profile.release-check]
+inherits = "release"
+lto = false
+opt-level = 0

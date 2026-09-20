@@ -5391,4 +5391,75 @@ mod showroom {
         assert_eq!(o.yaw_deg, ShowroomOrbit::default().yaw_deg);
         assert_eq!(o.dist, ShowroomOrbit::default().dist);
     }
+
+    /// SM7/SM8 acceptance: origins resolve from art-assets.json (vault id +
+    /// version on real assets, GameLocal on gray boxes), the composition
+    /// exhibit carries its part tag, and compare mode stages two entries
+    /// side by side until any selection leaves it.
+    #[test]
+    fn showroom_origins_parts_and_compare() {
+        let mut app = debug_app();
+        app.update();
+        enter(&mut app);
+        app.update();
+        app.update();
+        // Origins: the archer composition = tower_arrow + weapon_ballista,
+        // both resolved against the real manifest (test cwd = games/warden).
+        {
+            let cat = app
+                .world()
+                .resource::<showroom_viewer::ShowroomCatalog>();
+            let archer = &cat.categories[0].items[0];
+            assert_eq!(archer.origin.len(), 2, "archer = two vault parts");
+            for o in &archer.origin {
+                match o {
+                    showroom_viewer::Origin::Vault { id, version, .. } => {
+                        assert_ne!(id, "?", "manifest id resolved");
+                        assert_ne!(version, "?", "manifest version resolved");
+                    }
+                    showroom_viewer::Origin::GameLocal { .. } => panic!("archer parts are vault"),
+                }
+            }
+            assert_eq!(archer.parts.len(), 2, "composition declares two parts");
+            let fused = &cat.categories[0].items[4];
+            assert!(
+                matches!(&fused.origin[0], showroom_viewer::Origin::GameLocal { .. }),
+                "gray-box fusion is game-local"
+            );
+        }
+        // The focused composition exhibit carries its parts tag (children
+        // only exist on the model path — live-verified).
+        let mut tags = app
+            .world_mut()
+            .query_filtered::<&showroom_viewer::ShowroomPartsTag, With<ShowroomExhibit>>();
+        assert_eq!(tags.single(app.world()).unwrap().0, 2);
+        // Compare mode: two entries on stage, A/B plates; a selection leaves.
+        {
+            let mut st = app.world_mut().resource_mut::<ShowroomState>();
+            st.compare = Some(((0, 0), (1, 0)));
+            st.compare_pick_b = false;
+        }
+        app.update();
+        app.update();
+        assert_eq!(count_exhibits(&mut app), 2, "compare stages two entries");
+        let mut plates = app
+            .world_mut()
+            .query_filtered::<&Text2d, With<ShowroomPlate>>();
+        let texts: Vec<String> = plates
+            .iter(app.world())
+            .map(|t| t.0.clone())
+            .collect();
+        assert!(texts.iter().any(|t| t.starts_with("A ·")), "A plate: {texts:?}");
+        assert!(texts.iter().any(|t| t.starts_with("B ·")), "B plate: {texts:?}");
+        app.world_mut().resource_mut::<ShowroomState>().select(0, 3);
+        app.update();
+        app.update();
+        assert_eq!(count_exhibits(&mut app), 1, "selection leaves compare");
+        assert!(
+            app.world()
+                .resource::<ShowroomState>()
+                .compare
+                .is_none()
+        );
+    }
 }

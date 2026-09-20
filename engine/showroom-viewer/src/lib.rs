@@ -36,6 +36,13 @@ pub struct ShowroomState {
     pub category: usize,
     pub item: usize,
     pub gallery: bool,
+    /// Active composition part (N5-②): Some(i) shows only that top-level
+    /// child of the focused exhibit; None shows everything.
+    pub selected_part: Option<usize>,
+    /// Compare mode (SM8): two catalog entries staged side by side.
+    pub compare: Option<((usize, usize), (usize, usize))>,
+    /// Panel flag: the next list click becomes compare's B entry.
+    pub compare_pick_b: bool,
     stage: Option<Stage>,
 }
 
@@ -46,13 +53,17 @@ struct Stage {
     gallery: bool,
     category: usize,
     item: usize,
+    compare: Option<((usize, usize), (usize, usize))>,
 }
 
 impl ShowroomState {
-    /// The panel/tests move the cursor exactly the way an egui click does.
+    /// The panel/tests move the cursor exactly the way an egui click does
+    /// (any direct selection leaves compare mode and part isolation).
     pub fn select(&mut self, category: usize, item: usize) {
         self.category = category;
         self.item = item;
+        self.compare = None;
+        self.selected_part = None;
     }
 
     fn wanted_stage(&self, query: &str) -> Stage {
@@ -61,6 +72,7 @@ impl ShowroomState {
             gallery: self.gallery,
             category: self.category,
             item: self.item,
+            compare: self.compare,
         }
     }
 }
@@ -129,6 +141,15 @@ pub struct ShowroomGalleryItem {
     pub item: usize,
 }
 
+/// Marker on a composition exhibit root: how many parts (top-level
+/// children, in spawn order) it has (N5-②).
+#[derive(Component)]
+pub struct ShowroomPartsTag(pub usize);
+
+/// Marker the parts system inserts on each part child (part index).
+#[derive(Component)]
+pub struct ShowroomPart(pub usize);
+
 /// Plate font (FontSource: a handle, or the default font).
 #[derive(Resource)]
 pub struct ShowroomFont(pub FontSource);
@@ -168,6 +189,9 @@ pub struct ShowroomItem {
     /// Whole-file gltf handle when the item is an animated model — enables
     /// the SM2 clip browser (auto idle loop + Space to cycle + panel list).
     pub gltf: Option<Handle<bevy::gltf::Gltf>>,
+    /// Composition parts (N5-②): labels for the exhibit's top-level
+    /// children in spawn order; two or more enable the part-breakdown view.
+    pub parts: Vec<String>,
     #[allow(clippy::type_complexity)]
     pub spawn: Box<dyn Fn(&mut Commands, Entity, &mut SpawnCtx) + Send + Sync>,
 }
@@ -378,6 +402,9 @@ pub fn enter_studio(world: &mut World, catalog: ShowroomCatalog, font: FontSourc
         category: 0,
         item: 0,
         gallery: false,
+        selected_part: None,
+        compare: None,
+        compare_pick_b: false,
         stage: None,
     });
     world.init_resource::<ShowroomOrbit>();
@@ -410,6 +437,7 @@ impl Plugin for ShowroomPlugin {
             .add_systems(Update, showroom_sweep)
             .add_systems(Update, showroom_animate)
             .add_systems(Update, showroom_pick)
+            .add_systems(Update, showroom_parts)
             .add_systems(Update, showroom_time_control)
             .add_systems(Update, showroom_orbit);
     }
@@ -454,6 +482,13 @@ pub fn showroom_keys(
             .unwrap_or(0)
     };
     let n_categories = catalog.categories.len().max(1);
+    if keys.just_pressed(KeyCode::Tab)
+        || keys.just_pressed(KeyCode::KeyG)
+        || keys.just_pressed(KeyCode::ArrowLeft)
+        || keys.just_pressed(KeyCode::ArrowRight)
+    {
+        state.compare = None; // browsing leaves compare mode
+    }
     if keys.just_pressed(KeyCode::Tab) {
         state.category = (state.category + 1) % n_categories;
         state.item = 0;
@@ -536,6 +571,7 @@ pub fn showroom_present(
     if state.stage.as_ref() == Some(&wanted) {
         return;
     }
+    state.selected_part = None;
     for e in &exhibits {
         commands.entity(e).despawn();
     }
@@ -547,7 +583,15 @@ pub fn showroom_present(
     let plate_font = font.map(|f| f.0.clone()).unwrap_or_default();
 
     let mut stage: Vec<(usize, usize, &ShowroomItem, Vec3)> = Vec::new();
-    if state.gallery {
+    if let Some((a, b)) = state.compare {
+        // SM8: exactly two entries side by side, plates tagged A/B.
+        for (n, (c, i)) in [a, b].iter().enumerate() {
+            if let Some(item) = catalog.categories.get(*c).and_then(|cat| cat.items.get(*i)) {
+                let x = if n == 0 { -2.4 } else { 2.4 };
+                stage.push((*c, *i, item, Vec3::new(x, item.anchor_y, 0.0)));
+            }
+        }
+    } else if state.gallery {
         const SPACING: f32 = 3.4;
         let set: Vec<(usize, usize)> = hits.unwrap_or_else(|| {
             (0..catalog.categories.get(state.category).map(|c| c.items.len()).unwrap_or(0))
@@ -592,7 +636,7 @@ pub fn showroom_present(
         ));
     }
 
-    for (cat_idx, idx, item, pos) in stage {
+    for (n, (cat_idx, idx, item, pos)) in stage.into_iter().enumerate() {
         let mut ec = commands.spawn((
             ShowroomExhibit,
             Visibility::Visible,
@@ -613,8 +657,15 @@ pub fn showroom_present(
             });
         }
         (item.spawn)(&mut commands, root, &mut ctx);
-        // Name plate (item.plate in focus; short name in gallery).
-        let text = if state.gallery {
+        // N5-②: mark composition roots; the parts system pairs their
+        // top-level children with part indices on first sight.
+        if item.parts.len() >= 2 {
+            commands.entity(root).insert(ShowroomPartsTag(item.parts.len()));
+        }
+        // Name plate (item.plate in focus; short name in gallery; A/B in compare).
+        let text = if state.compare.is_some() {
+            format!("{} · {}", if n == 0 { "A" } else { "B" }, item.name)
+        } else if state.gallery {
             item.name.clone()
         } else {
             item.plate.clone().unwrap_or_else(|| item.name.clone())
@@ -822,6 +873,47 @@ fn find_animation_player(
 /// studio is active. Pause freezes everything coherently (animations,
 /// turntable); `step` lets exactly N frames through; `speed` scales them.
 /// Mirrors warden's DB3 mechanism (same clock, same semantics).
+/// N5-② part breakdown: pair a tagged composition root's top-level
+/// children with part indices, then isolate the selected part (the rest
+/// hidden). Fresh exhibits start untagged; children spawn deferred, so
+/// pairing runs every frame until done.
+pub fn showroom_parts(
+    state: Option<Res<ShowroomState>>,
+    mut commands: Commands,
+    roots: Query<(Entity, &ShowroomPartsTag, &Children)>,
+    parts: Query<&ShowroomPart>,
+) {
+    let Some(state) = state else {
+        return;
+    };
+    for (root, tag, children) in &roots {
+        // Pair once: mark every still-unmarked top-level child by order.
+        let mut next = 0usize;
+        for child in children.iter() {
+            if parts.get(child).is_ok() {
+                continue;
+            }
+            if next >= tag.0 {
+                break;
+            }
+            commands.entity(child).insert(ShowroomPart(next));
+            next += 1;
+        }
+        let _ = root;
+        // Isolate: only the selected part stays visible.
+        for child in children.iter() {
+            if let Ok(p) = parts.get(child) {
+                let vis = if state.selected_part.map(|s| s != p.0).unwrap_or(false) {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                };
+                commands.entity(child).insert(vis);
+            }
+        }
+    }
+}
+
 pub fn showroom_time_control(
     state: Option<Res<ShowroomState>>,
     mut tm: Option<ResMut<ShowroomTime>>,
@@ -1004,7 +1096,14 @@ pub fn showroom_panel_ui(
                                     .selectable_label(selected, format!("  {}", item.name))
                                     .clicked()
                                 {
-                                    state.select(c, i);
+                                    if state.compare_pick_b {
+                                        if let Some((a, _)) = state.compare {
+                                            state.compare = Some((a, (c, i)));
+                                        }
+                                        state.compare_pick_b = false;
+                                    } else {
+                                        state.select(c, i);
+                                    }
                                 }
                             }
                         });
@@ -1019,7 +1118,14 @@ pub fn showroom_panel_ui(
                         .selectable_label(selected, format!("  {name}"))
                         .clicked()
                     {
-                        state.select(c, i);
+                        if state.compare_pick_b {
+                            if let Some((a, _)) = state.compare {
+                                state.compare = Some((a, (c, i)));
+                            }
+                            state.compare_pick_b = false;
+                        } else {
+                            state.select(c, i);
+                        }
                     }
                 }
             }
@@ -1047,6 +1153,45 @@ pub fn showroom_panel_ui(
                 }
                 if !item.tags.is_empty() {
                     ui.small(format!("tags: {}", item.tags.join(", ")));
+                }
+                // N5-② part breakdown: isolate one part of the composition.
+                if item.parts.len() >= 2 {
+                    ui.label("Parts");
+                    ui.horizontal(|ui| {
+                        if ui
+                            .selectable_label(state.selected_part.is_none(), "All")
+                            .clicked()
+                        {
+                            state.selected_part = None;
+                        }
+                        for (pi, pname) in item.parts.iter().enumerate() {
+                            if ui
+                                .selectable_label(state.selected_part == Some(pi), pname.clone())
+                                .clicked()
+                            {
+                                state.selected_part =
+                                    if state.selected_part == Some(pi) { None } else { Some(pi) };
+                            }
+                        }
+                    });
+                }
+                // SM8 compare: A = current entry, B = next list click.
+                ui.horizontal(|ui| {
+                    if ui.button("Compare: A = current").clicked() {
+                        state.compare = Some(((state.category, state.item), (state.category, state.item)));
+                        state.gallery = false;
+                        state.selected_part = None;
+                        state.compare_pick_b = true;
+                    }
+                    if state.compare_pick_b && ui.button("Cancel pick B").clicked() {
+                        state.compare_pick_b = false;
+                        state.compare = None;
+                    } else if state.compare.is_some() && !state.compare_pick_b && ui.button("Exit compare").clicked() {
+                        state.compare = None;
+                    }
+                });
+                if state.compare_pick_b {
+                    ui.small("pick B: click any list entry");
                 }
                 // --- clip browser (SM2) ---
                 if let Ok(mut anim) = anims.single_mut() {

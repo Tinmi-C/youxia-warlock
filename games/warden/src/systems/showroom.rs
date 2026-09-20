@@ -7,7 +7,7 @@
 //! sweep-kept (their entity ids are cached in a Local).
 
 use bevy::prelude::*;
-use showroom_viewer::{ShowroomCatalog, ShowroomItem, enter_studio};
+use showroom_viewer::{Origin, ShowroomCatalog, ShowroomItem, enter_studio};
 
 // Re-exported so the plugin registration and the tests keep one import
 // path for the viewer symbols.
@@ -20,7 +20,9 @@ use crate::resources::{EnemyDefs, FusionDefs, Lang, TowerDefs};
 use crate::states::GameState;
 use crate::systems::enemy::{ENEMY_MODELS, ENEMY_SCALES, enemy_base_color};
 use crate::systems::hud::UiFont;
-use crate::systems::tower::{attach_tower_appearance, fused_tower_color};
+use crate::systems::tower::{
+    attach_tower_appearance, fused_tower_color, ARROW_TOWER_MODEL, BALLISTA_MODEL,
+};
 
 fn pick_lang<'a>(zh: &'a str, en: &'a str, lang: &Lang) -> &'a str {
     match *lang {
@@ -45,7 +47,8 @@ pub fn enter_showroom(world: &mut World) {
             }
         }
     }
-    let catalog = build_catalog(world);
+    let manifest = load_manifest();
+    let catalog = build_catalog(world, &manifest);
     let font = world.resource::<UiFont>().0.clone();
     world
         .resource_mut::<NextState<GameState>>()
@@ -55,7 +58,48 @@ pub fn enter_showroom(world: &mut World) {
 
 /// The Warden catalog: towers (base + fused) then enemies, live-read from
 /// the definition tables — new defs join the list with zero changes here.
-fn build_catalog(world: &World) -> ShowroomCatalog {
+/// Parsed art-assets.json (ADR-0009): game-dest path -> (id, name, version).
+/// Missing file => empty map: origins degrade to GameLocal, never block.
+type Manifest = std::collections::HashMap<String, (String, String, String)>;
+
+fn load_manifest() -> Manifest {
+    let Ok(raw) = std::fs::read_to_string("art-assets.json") else {
+        return Manifest::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Manifest::new();
+    };
+    let mut m = Manifest::new();
+    if let Some(assets) = v.get("assets").and_then(|a| a.as_array()) {
+        for a in assets {
+            let id = a.get("id").and_then(|x| x.as_str()).unwrap_or("?").to_string();
+            let name = a.get("name").and_then(|x| x.as_str()).unwrap_or("?").to_string();
+            let version = a
+                .get("version")
+                .and_then(|x| x.as_i64())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "?".into());
+            if let Some(files) = a.get("files").and_then(|f| f.as_object()) {
+                for dest in files.values() {
+                    if let Some(d) = dest.as_str() {
+                        m.insert(d.to_string(), (id.clone(), name.clone(), version.clone()));
+                    }
+                }
+            }
+        }
+    }
+    m
+}
+
+fn manifest_id(m: &Manifest, path: &str) -> Option<String> {
+    m.get(path).map(|(i, _, _)| i.clone())
+}
+
+fn manifest_version(m: &Manifest, path: &str) -> Option<String> {
+    m.get(path).map(|(_, _, v)| v.clone())
+}
+
+fn build_catalog(world: &World, manifest: &Manifest) -> ShowroomCatalog {
     let towers = world.resource::<TowerDefs>();
     let fusions = world.resource::<FusionDefs>();
     let enemies = world.resource::<EnemyDefs>();
@@ -83,15 +127,38 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
         let tags = vec![def.name.to_string(), def.label.to_string(), "tower".into()];
         // Catalog closures are 'static — the def must be owned, not borrowed.
         let def = def.clone();
+        let is_archer = i == 0;
         builder = builder.item(ShowroomItem {
             name: def.name.to_string(),
             info_rows,
             tags,
-            origin: vec![],
+            origin: if is_archer {
+                vec![
+                    Origin::Vault {
+                        name: "tower_arrow".into(),
+                        id: manifest_id(&manifest, ARROW_TOWER_MODEL).unwrap_or("?".into()),
+                        version: manifest_version(&manifest, ARROW_TOWER_MODEL).unwrap_or("?".into()),
+                        role: Some("tower body".into()),
+                    },
+                    Origin::Vault {
+                        name: "weapon_ballista".into(),
+                        id: manifest_id(&manifest, BALLISTA_MODEL).unwrap_or("?".into()),
+                        version: manifest_version(&manifest, BALLISTA_MODEL).unwrap_or("?".into()),
+                        role: Some("ballista".into()),
+                    },
+                ]
+            } else {
+                vec![Origin::GameLocal { note: Some("gray box".into()) }]
+            },
             plate: Some(plate),
             anchor_y: 0.6,
             plate_y: 2.4,
             gltf: None,
+            parts: if is_archer {
+                vec!["body (tower_arrow)".into(), "ballista (weapon_ballista)".into()]
+            } else {
+                vec![]
+            },
             spawn: Box::new(
                 move |commands: &mut Commands, root, ctx: &mut showroom_viewer::SpawnCtx| {
                     attach_tower_appearance(
@@ -133,11 +200,14 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
             name: def.name.to_string(),
             info_rows,
             tags,
-            origin: vec![],
+            origin: vec![Origin::GameLocal {
+                note: Some("game-side fusion (gray box)".into()),
+            }],
             plate: Some(plate),
             anchor_y: 0.6,
             plate_y: 2.4,
             gltf: None,
+            parts: vec![],
             spawn: Box::new(move |commands: &mut Commands, root, ctx: &mut showroom_viewer::SpawnCtx| {
                 let _ = ctx;
                 commands.entity(root).insert((
@@ -178,15 +248,22 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
                 );
                 let gltf = server.load::<bevy::gltf::Gltf>(model);
                 let scale = ENEMY_SCALES.get(i).copied().unwrap_or(0.8);
+                let model = ENEMY_MODELS.get(i).copied().unwrap_or("");
                 let item = ShowroomItem {
                     name: def.name.to_string(),
                     info_rows: info_rows.clone(),
                     tags: tags.clone(),
-                    origin: vec![],
+                    origin: vec![Origin::Vault {
+                        name: model.to_string(),
+                        id: manifest_id(&manifest, model).unwrap_or("?".into()),
+                        version: manifest_version(&manifest, model).unwrap_or("?".into()),
+                        role: None,
+                    }],
                     plate: Some(plate),
                     anchor_y: 0.0, // feet-origin models sit on the pad
                     plate_y: 2.0,
                     gltf: Some(gltf),
+                    parts: vec![],
                     spawn: Box::new(
                         move |commands: &mut Commands, root, _ctx: &mut showroom_viewer::SpawnCtx| {
                             commands.entity(root).with_children(|p| {
@@ -206,11 +283,12 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
                     name: def.name.to_string(),
                     info_rows: info_rows.clone(),
                     tags: tags.clone(),
-                    origin: vec![],
+                    origin: vec![Origin::GameLocal { note: Some("gray box".into()) }],
                     plate: Some(plate),
                     anchor_y: 0.4,
                     plate_y: 1.7,
                     gltf: None,
+                    parts: vec![],
                     spawn: Box::new(
                         move |commands: &mut Commands, root, ctx: &mut showroom_viewer::SpawnCtx| {
                             commands.entity(root).insert((
