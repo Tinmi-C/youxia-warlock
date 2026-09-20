@@ -70,3 +70,4 @@ updated: 2026-09-02
 - [[topics/game-design/ai-asset-pipeline|AI 生成美术管线八站流程]]（新增，howto：八站人机分工；normalize/turntable 速查；玩家模型 50k→10k 面/30.9→3.3MB 实测；prompt 模板）
 - [[topics/game-design/unirig-auto-rigging-research|UniRig 自动绑骨调研]]（新增，reference：绑骨+蒙皮自动化、无动画；许可证最高优先级待验证；管线缺口=动画重定向，四条路线对比）
 - [[topics/game-design/design-target-anchors|设计目标锚点框架（平衡数值方法论）]]（新增，howto：先定目标体验→反推数值；5 字段锚点 + headless 读数闭环；跨游戏可复用、数值各藏；数据驱动≠外部化，见 ADR-0008）
+- [[topics/engine/bevy-macos-background-cpu-burn-pitfall|踩坑：Bevy macOS 后台 CPU 爆炸（vsync 失效 + 每帧 Text 重排）]]（新增，pitfall：warden 后台 >100% CPU 三因叠加——每帧无条件重写 Text 强制 CJK 重排 + icu_provider 刷警告 1200 条/秒、winit reactive 限帧 macOS 不生效、Window::focused 默认 true；正解=写前比较 + LogPlugin 过滤 + 睡眠式帧限制，实测 110%→19%）

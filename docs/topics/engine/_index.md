@@ -37,3 +37,4 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[topics/engine/powershell-pipeline-utf8-corruption-pitfall|PowerShell 文本管道写坏 UTF-8 源码]]（high）：`Get-Content | -replace | Set-Content` 按 ANSI 双重转码 → rustc 报非法 UTF-8；改文件只走编辑器类工具或显式编码 API。
 - [[topics/engine/rapier-stepping-ignores-game-states-pitfall|rapier 物理步进不受游戏状态门控]]（high，待团队 review）：暂停只 gate 了自研系统，动态刚体带残速继续被积分 → 暂停画面怪物滑行；用 `RapierConfiguration.physics_pipeline_active` 镜像游戏状态，配位移双向回归钉死。
 - [[topics/engine/shared-anchor-component-order-pitfall|观察系统共用锚点组件——后读者恒见零位移]]（high，待团队 review）：「上一帧状态」锚点被两个系统读写，先写者偷走时间差；锚点定唯一 owner-writer、其余只读，执行顺序跟所有权走；附带「断言方向要区别于默认值」的恒真测试教训。
+- [[topics/engine/bevy-macos-background-cpu-burn-pitfall|Bevy macOS 后台 CPU 爆炸（vsync 失效 + 每帧 Text 重排）]]（high）：后台/遮挡窗口 CPU>100% 三因叠加——每帧无条件重写 Text 强制 CJK 重排 + icu_provider 刷警告（实测 1200 条/秒）、winit reactive 限帧在 macOS 不生效、`Window::focused` 默认 true 不可信；正解=写前比较 + 日志过滤 + 睡眠式帧限制（焦点自维护、启动假设未聚焦），实测 110%→19%。

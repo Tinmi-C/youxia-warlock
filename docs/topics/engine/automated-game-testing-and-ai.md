@@ -76,6 +76,21 @@ warden ART2 视觉验收重做时连翻两车，教训升格为硬纪律：
 4. 推论：TEST2 的自动视觉回归优先做**像素 diff 基线**（机器对机器，无幻觉面），
    AI 视觉读图只作辅助解释层，不单独作为验收判据。
 
+**三犯追加（2026-09-20，warden ART3）与可用配方**：窗口激活失败 + 整屏截图后按窗口 bounds 裁剪，
+裁剪区域错位得到黑图；「有没有道路/金币文字」式提问仍属引导性（yes-bias），视觉模型再次幻觉出完整
+画面（所谓交叉核对的数据源本身就是幻觉产物，等于循环论证），被用户肉眼戳穿。实测可用的 macOS 截图配方：
+
+1. `osascript -e 'tell application "System Events" to perform action "AXRaise" of window 1 of
+   (first process whose unix id is <pid>)'` 抬窗（`set frontmost` 可能返回 false 且不可靠；
+   以 AX 窗口的 main/focused 为准）；
+2. `screencapture -x -l <window_id> out.png` 按窗口直截——成功即文件体积显著（数百 KB 以上），
+   **禁止再走「整屏截图 + 坐标换算裁剪」路线**（AX bounds 与图像坐标系有翻转陷阱，sips cropOffset
+   语义又自成一派，两次换算必错）；`screencapture -l` 失败（could not create image from window）
+   = 窗口未真正置前，先回第 1 步，不要退回裁剪路线；
+3. 中性提问的**下限形态**是「逐字读出图中全部文字」+「只描述确定存在的东西，不存在直接说不存在」，
+   连「有没有 X」都不要问；文字逐字读出天然抗幻觉（要编出一串恰好等于 dash 数字的中文成本极高），
+   再与 dash 对账即闭环。
+
 ## 参考
 
 - [Leveraging LLM Agents for Automated Video Game Testing (TITAN, arXiv 2509.22170)](https://arxiv.org/html/2509.22170v1)
