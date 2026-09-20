@@ -27,10 +27,16 @@ pub const ARROW_TOWER_MODEL: &str = "models/tower_arrow.glb";
 /// reflow: 4096→2048 PNG, 35.2 MB → 8.9 MB, geometry untouched). Mounted on
 /// the archer tower (ART2 assembly handoff).
 pub const BALLISTA_MODEL: &str = "models/weapon_ballista.glb";
-/// Mount height above the tower's logic anchor: the tower visual spans
-/// world 0.0–1.9, the ballista origin is bottom-centered, so it rides at the
-/// tower top (1.9 − 0.6 anchor = 1.3).
-pub const BALLISTA_MOUNT_Y: f32 = 1.3;
+/// Mount height above the tower's logic anchor. The tower visual spans
+/// world 0.0–1.9, but its bbox top (+0.953 model space) is thin tip
+/// decoration — the vertex histogram shows the actual deck plane at +0.75
+/// (1077-vertex full-footprint band; parapet ring caps at +0.83). The
+/// ballista origin is bottom-centered, so it rides the DECK: 0.6 anchor +
+/// 0.35 child offset puts the tower origin at world 0.95, deck at world
+/// 1.70 → tower-local 1.10. (ART2 first set 1.3 = bbox top, which visibly
+/// floated the weapon above the deck; corrected 2026-09-20 from offline
+/// vertex analysis after a user report.)
+pub const BALLISTA_MOUNT_Y: f32 = 1.10;
 /// The ballista reads large against the tower — uniform shrink (handoff:
 /// 0.7–0.75; 0.72 chosen, tune on visual acceptance).
 pub const BALLISTA_SCALE: f32 = 0.72;

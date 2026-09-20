@@ -567,8 +567,13 @@
 - 接口: `assets/models/weapon_ballista.glb`（岩库 **v2** = 游戏侧压缩回流：贴图 4096→2048 PNG 重打包 35.2MB→8.9MB，
   几何零改动；v2 经 REST `POST /assets/{id}/versions` 回流岩库，清单锁 v2——ADR-0009 回流闭环首次走通）。
 - 行为（组装参数按 WorkBuddy 交接）: 弓箭手塔 = 塔身 + 塔顶床弩——`BallistaMount` 独立子实体
-  （挂塔逻辑父实体，y=+1.3 即世界 1.9 塔顶；scale 0.72；射击方向沿 ±X 与模型长轴一致）；
+  （挂塔逻辑父实体；scale 0.72；射击方向沿 ±X 与模型长轴一致）；
   弩保留独立实体供后续转向追踪/程序化开火动画（模型 767 碎块拼合、弦为独立几何，分件动画后续可做）。
+- **挂载高度修正（2026-09-20，用户实机报告"弩悬空"）**: 交接参数 y=+1.3（=塔包围盒顶世界 1.9）把弩挂在了
+  顶饰尖上——离线顶点直方图显示包围盒顶 +0.953 只是零星尖饰，**真甲板面在 +0.75**（1077 顶点满脚印带，
+  垛墙帽 +0.83）；弩自身原点实测贴底（min y=0.000）。`BALLISTA_MOUNT_Y` 1.3 → **1.10**（弩底精确落甲板，
+  构造性贴合；弩臂探出垛墙读作"武备出垛口"为预期观感）。教训：**包围盒顶 ≠ 可站立面，挂点要按顶点
+  密度找结构面**。
 - 验收句（已入 `tests/behavior.rs`）: `arrow_tower_asset_is_pinned` 扩展——弩文件+清单锁定 v2+**15MiB 单文件上限断言**（ADR-0009）。
   ⚠️ 视觉人工验收项（2026-09-18 截图+视觉模型确认通过）：两塔顶各架一台床弩、坐在塔顶、比例协调、无穿模，长轴 ±X。
   ~~视觉验收通过~~ **该确认作废**（见下方修复）：提交 `22f8de3` 只含常量+组件定义、挂载 spawn 代码未入库——
@@ -818,11 +823,23 @@
   一致（读图核过）。依赖声明无条件（cargo 无法按 profile 门控依赖，同 bevy_egui 先例），代码层只在
   debug 构建 引用。全量 120 断言绿。
 
-### SM2 · 展示场交互：动画触发 + 自由观察（debug·表现层）—— 📝 待立卡（依赖 SM1）
-- 范围: v2 已覆盖相机自由观察与列表面板——本卡只剩**动画触发**：按键触发一次性动画
-  （attack/hit/death，单次/循环切换）+ idle 自动循环（有 clip 的资产）。
-  DB3 时间控制天然可用（F6 冻结 / F8 单帧逐帧看动画）——ART7-10 弩瞄准/后坐/弦箭与后续角色动画的逐帧验收场；
-  ART11 敌人骨骼模型已带 walk/run clip，是首个受益资产。
+### SM2 · 展示场交互：动画触发（debug·表现层）—— ✅ 已实现（2026-09-20，v2 已含相机/面板，引擎 crate 内实现）
+- 接口: `ShowroomItem` 增 `gltf: Option<Handle<Gltf>>`（整文件句柄）；引擎新系统 `showroom_animate` +
+  展品根标记 `ShowroomAnim{index, wired}`；输入 Space；输出 驱动场景内 `AnimationPlayer` 循环播 clip。
+- 行为: 首次接线自动选名字含 **idle** 的 clip（无则 clip 0）循环播放；**Space** 循环切下一 clip；
+  egui 面板 **Clips 列表**逐名点选（与 Space 同一 rewiring 路径）；无 clip 资产静默跳过（wired=MAX 停止重试）。
+  接线遵循 ART11 验证过的姿势：等 Gltf 资源**和**场景实例化出的播放器都到位（异步、逐帧重试），
+  `AnimationGraph::from_clip` + `player.play(node).repeat()` + 播放器实体插 handle——**绝不外挂播放器**
+  （骨骼绑在加载器播放器上，外挂= T-pose 静止，ART11 踩过）。
+- 验收句: 带 clip 的展品上台后自动循环 idle（非 T-pose）；Space 换 clip 且日志 `[sm] clip playing: <name>`
+  跟随；无 clip 展品零报错零重试风暴；面板 Clips 列表与点击等效。headless：动画接线依赖真 Gltf 资产
+  （headless 无 AssetServer，行为退化为无标记/无 clip——由真机日志+读图验证，姿势非 T-pose）。
+- 实现: 引擎 crate `showroom_animate`（HashMap named_animations 按名排序收集→稳定循环序；首接线
+  idle 偏好；Space 在 wired≠MAX 时 index+1 触发 rewiring）+ 面板 Clips 区（读当前展品 `ShowroomAnim` 的
+  gltf → 排序列表 → 点选置 index 并清 wired）。warden 适配层：敌人条目从灰盒升级为 **ART11 模型**
+  （`ENEMY_MODELS/SCALES` 同表，feet-origin 场景子+缩放，gltf 句柄供 clip 浏览；headless 保留灰盒双路径）；
+  bin 条目携带 gltf 句柄。真机验证：asset-viewer 开 warden 模型库，KayKit 骑士自动播
+  `Rig_Medium.001|Jump_Idle`（读图确认自然姿势非 T-pose），面板 Clips 列表 22 项可读、Jump_Idle 高亮。
 
 ### SM3 · 实弹区：真目标 + 技能/特效实放（debug·skills/fx）—— 📝 待立卡（依赖 SM1）
 - 范围: 展示场一角划实弹区——真 Enemy 木桩（沿路径行走 + 周期重刷）+ 可选真塔 + 技能 CD 置短（≤2s）无成本
