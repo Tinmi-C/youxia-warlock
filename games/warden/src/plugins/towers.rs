@@ -18,15 +18,19 @@ impl Plugin for TowersPlugin {
         app.insert_resource(TowerDefs::palette())
             .insert_resource(FusionDefs::palette())
             .init_resource::<Boosts>()
+            .add_message::<systems::tower::TowerFired>()
             .add_systems(
                 Update,
                 (
                     // ART7: mirror the rule target into the mount, THEN turn
                     // the mount, THEN fire (the muzzle reads this frame's
                     // facing). Presentation leads, rhythm stays with fire.
+                    // ART8: recoil reacts to the fire message right after it,
+                    // so the kick lands on the fire frame.
                     systems::tower::tower_aim_bridge,
                     systems::tower::tick_aim_trackers,
                     systems::tower::tower_fire,
+                    systems::tower::tick_fire_recoil,
                     systems::tower::tick_slow,
                 )
                     .chain()

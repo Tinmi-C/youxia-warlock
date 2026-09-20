@@ -127,6 +127,11 @@ pub struct TowerDef {
     /// world units; starting value 0.5). Copied onto the mount's `AimTracker`
     /// at spawn; only towers that actually carry a mount read it.
     pub muzzle_offset: f32,
+    /// ART8 recoil peak displacement along the mount's backward axis (world
+    /// units; starting value 0.12). Read at spawn by the mount's `FireRecoil`.
+    pub recoil_depth: f32,
+    /// ART8 recoil recovery time in seconds (linear back to rest; 0.18).
+    pub recoil_recover_secs: f32,
     /// One-line role summary for tooltips (requirements §5 定位 column).
     pub role: &'static str,
     /// English role line (UI12 tooltip).
@@ -143,10 +148,10 @@ impl TowerDefs {
     pub fn palette() -> Self {
         Self {
             list: vec![
-                TowerDef { name: "archer", label: "弓箭手塔", label_en: "Archer Tower", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical, muzzle_offset: 0.5,  role: "单体输出（点杀精英/BOSS/治疗）", role_en: "Single-target DPS (elites / bosses / healers)" },
-                TowerDef { name: "shield", label: "盾塔", label_en: "Shield Tower", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical, muzzle_offset: 0.5,  role: "控制/减速（攻击附 30% 减速）", role_en: "Control / 30% slow on hit" },
-                TowerDef { name: "mage", label: "法师塔", label_en: "Mage Tower", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic, muzzle_offset: 0.5,  role: "范围输出（魔法穿物理护甲）", role_en: "AOE (magic pierces armor)" },
-                TowerDef { name: "cannon", label: "炮塔", label_en: "Cannon Tower", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical, muzzle_offset: 0.5,  role: "大范围清群（攻速慢是平衡点）", role_en: "Wide AOE clear (slow firing)" },
+                TowerDef { name: "archer", label: "弓箭手塔", label_en: "Archer Tower", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "单体输出（点杀精英/BOSS/治疗）", role_en: "Single-target DPS (elites / bosses / healers)" },
+                TowerDef { name: "shield", label: "盾塔", label_en: "Shield Tower", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "控制/减速（攻击附 30% 减速）", role_en: "Control / 30% slow on hit" },
+                TowerDef { name: "mage", label: "法师塔", label_en: "Mage Tower", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "范围输出（魔法穿物理护甲）", role_en: "AOE (magic pierces armor)" },
+                TowerDef { name: "cannon", label: "炮塔", label_en: "Cannon Tower", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "大范围清群（攻速慢是平衡点）", role_en: "Wide AOE clear (slow firing)" },
             ],
         }
     }

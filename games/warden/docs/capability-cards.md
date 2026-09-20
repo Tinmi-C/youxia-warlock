@@ -666,12 +666,23 @@
   `ballista_projectile_spawns_at_muzzle`（出生点投影断言 ±0.05 + 前向符号钉死 + 挂件世界位 1.9 复合校验）。
   ⚠️ 人工验收项：弩转向视觉平滑、+X 定向终裁、出弹视觉一致（人工视觉一次）。
 
-### ART8 · 弩击发后坐（towers·表现层）—— ▶ 待实现（依赖 ART7）
+### ART8 · 弩击发后坐（towers·表现层）—— ✅ 已实现（2026-09-20，依赖 ART7）
 - 接口: 新通用组件 `FireRecoil{depth, recover_secs}`；读 ART7 的发射时刻；输出 挂件沿 -前向 的位移曲线。
 - 行为: 开火帧触发（起点 depth 0.12 / 回复 0.18s，进 TowerDef 配置）；重触发即重置（防叠加爆冲）；与 AimTracker
   同族通用件，法师塔/炮塔换装后直接复用。
 - 验收句: 击发帧出现后坐位移、0.18s 内回落至 <10% 峰值；狂暴 0.67s 冷却连发下位移峰值不超上限（重置语义）；
   无开火无位移；转向+后坐组合下弩朝向断言仍 ±5°（后坐不干扰转向）。
+- 实现: `FireRecoil`（挂件自配 depth/recover_secs + 静止位快照 + 运行态 elapsed：Option<f32>，None=闲）+
+  新消息 `TowerFired{tower}`（`tower_fire` 每次开火写一条，近战远程同源——**开火时刻缝**：表现层（后坐现在、
+  ART10 弦箭将来）自取所需，规则侧零感知）+ `tick_fire_recoil`（tower_fire 之后同帧跑：击发帧即出位移；
+  位移=depth×线性回落，重触发 elapsed 归零=重置防叠加）。**取舍**：① 位移只写挂件 translation、朝向真值仍归
+  AimTracker 的 rotation——两系统显式 chain 消解 Transform 写冲突，后坐天然不干扰转向；② 击发帧顺序=先出弹
+  （ART7 炮口位）后踢（弹离弦瞬间挂件仍在静止位，物理上自洽），muzzle 测试按击发瞬间静止位断言；
+  ③ 回复曲线取线性（起点值，手感属人工验收可调，曲线形状进 ART10 再统一定夺）。
+- 验收句已入 `tests/behavior.rs`：`ballista_recoil_kicks_recovers_resets_and_never_stacks`
+  （击发帧位移≈depth / 0.18s 内 <10% / 写 TowerFired 消息半恢复期重触发→重置回满踢不叠加 / 狂暴连发 3s 峰值
+  ≤depth / 连发下朝向仍收敛 ±5°）、`ballista_recoil_idle_without_fire`（无火无位移）。重置语义红绿验证过。
+  ⚠️ 人工验收项：后坐手感（depth/时长/曲线）真窗口观察。
 
 ### ART9 · 弩模型分件手术 v3（资产侧 + tools/）—— ▶ 待实现（依赖分件规范）
 - 接口: 输入 `weapon_ballista.glb` v2；输出 v3（弦/箭滑轨独立命名对象+正确轴心）+ `tools/` 定向手术脚本

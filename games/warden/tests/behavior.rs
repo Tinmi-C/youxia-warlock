@@ -4565,17 +4565,30 @@ fn ballista_aim_converges_holds_then_returns_to_rest() {
 /// subtracting that step.
 #[test]
 fn ballista_projectile_spawns_at_muzzle() {
-    let (mut app, _tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
+    let (mut app, tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
     let target = Vec3::new(6.0, 0.4, -6.0); // bearing +45°, 8.49 units: in range
     static_enemy(&mut app, target);
     app.update(); // launch frame: one aim step (240°/s → 4°), one round out
 
     let step = warden::resources::PROJECTILE_SPEED / 60.0;
-    let (mount_pos, yaw) = {
-        let tf = app.world().get::<Transform>(mount).unwrap();
-        let g = app.world().get::<GlobalTransform>(mount).unwrap();
-        (g.translation(), tf.rotation.to_euler(EulerRot::YXZ).0)
-    };
+    // Fire-frame ordering (ART8): tower_fire spawns the round from the mount
+    // BEFORE this frame's recoil kick applies (the round leaves the muzzle,
+    // THEN the weapon kicks), so the birth reference is the mount's REST
+    // world position — tower anchor + the mount's rest translation — not the
+    // post-kick GlobalTransform.
+    let mount_pos = app.world().get::<Transform>(tower).unwrap().translation
+        + app
+            .world()
+            .get::<warden::components::FireRecoil>(mount)
+            .expect("the mount carries a FireRecoil")
+            .rest_translation;
+    let yaw = app
+        .world()
+        .get::<Transform>(mount)
+        .unwrap()
+        .rotation
+        .to_euler(EulerRot::YXZ)
+        .0;
     // The forward-sign pin (ART7): the muzzle side of the model is +X —
     // offline vertex analysis found the tallest cluster (raised rail bridge)
     // on the +X half; see `BALLISTA_FORWARD_AXIS` in tower.rs. A flip MUST
@@ -4604,9 +4617,107 @@ fn ballista_projectile_spawns_at_muzzle() {
         (offset.normalize() - forward).length() < 0.01,
         "the launch offset must project onto the ballista facing (弹向与弩朝向一致)"
     );
-    // And the mount itself sits at the composed tower-top position.
+    // And the mount rests at the composed tower-top position.
     assert!(
         mount_pos.distance(Vec3::new(0.0, 1.9, 0.0)) < 1e-4,
         "mount world position = tower anchor 0.6 + mount y 1.3, got {mount_pos:?}"
+    );
+}
+
+/// Capability card ART8 — acceptance: the kick appears on the fire frame,
+/// falls back under 10% of the peak within the 0.18s window; a re-trigger
+/// mid-recovery RESETS the cycle (never stacks — the peak stays under the
+/// configured depth, frenzy refire included); and under continuous fire the
+/// aim keeps converging (recoil never disturbs tracking).
+#[test]
+fn ballista_recoil_kicks_recovers_resets_and_never_stacks() {
+    let (mut app, tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
+    static_enemy(&mut app, Vec3::new(6.0, 0.4, -6.0)); // bearing +45°, in range
+
+    let rest = Vec3::new(0.0, warden::systems::tower::BALLISTA_MOUNT_Y, 0.0);
+    let disp = |app: &App| -> f32 {
+        app.world()
+            .get::<Transform>(mount)
+            .unwrap()
+            .translation
+            .distance(rest)
+    };
+
+    // The very first update is the fire frame (cooldown starts at 0): the
+    // kick is already visible, one tick into the recovery.
+    app.update();
+    let kick = disp(&app);
+    assert!(
+        (0.09..=0.12).contains(&kick),
+        "the kick must appear on the fire frame (~depth 0.12 one tick in), got {kick:.3}"
+    );
+
+    // Falls back under 10% of the peak within the 0.18s recover window.
+    for _ in 0..13 {
+        app.update(); // fire frame + 13 ticks = 0.233s ≥ 0.18s
+    }
+    let settled = disp(&app);
+    assert!(
+        settled < 0.1 * 0.12,
+        "must fall back under 10% of depth within 0.18s, got {settled:.4}"
+    );
+
+    // Re-trigger mid-recovery RESETS the cycle instead of stacking. Driven
+    // through the same `TowerFired` message the rules write on every shot.
+    app.world_mut()
+        .write_message(warden::systems::tower::TowerFired { tower });
+    app.update();
+    for _ in 0..5 {
+        app.update(); // ≈ half recovered
+    }
+    let mid = disp(&app);
+    assert!(
+        mid < kick * 0.75,
+        "mid-recovery displacement must have decayed first, got {mid:.3}"
+    );
+    app.world_mut()
+        .write_message(warden::systems::tower::TowerFired { tower });
+    app.update();
+    let reset = disp(&app);
+    assert!(
+        (reset - kick).abs() < 0.01,
+        "a re-trigger must RESET back to the full kick, not stack (kick={kick:.3}, after={reset:.3})"
+    );
+
+    // Frenzy refire (0.67s cooldown): the peak never exceeds the configured
+    // depth, and the aim keeps converging under continuous fire.
+    app.world_mut()
+        .resource_mut::<warden::resources::WarFrenzy>()
+        .remaining = 2.0;
+    let mut peak = disp(&app);
+    for _ in 0..180 {
+        app.update();
+        peak = peak.max(disp(&app));
+    }
+    assert!(
+        peak <= 0.12 + 1e-4,
+        "peak displacement must never exceed depth (reset semantics), got {peak:.4}"
+    );
+    let yaw = mount_yaw_deg(&app, mount);
+    assert!(
+        (yaw - 45.0).abs() <= 5.0,
+        "aim stays converged (±5°) while recoiling, got {yaw:.1}°"
+    );
+}
+
+/// Capability card ART8 — acceptance: without a fire there is no displacement.
+#[test]
+fn ballista_recoil_idle_without_fire() {
+    let (mut app, _tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
+    // No enemy → no acquisition → no fire for a full second.
+    for _ in 0..60 {
+        app.update();
+    }
+    let tf = app.world().get::<Transform>(mount).unwrap();
+    assert!(
+        tf.translation
+            .distance(Vec3::new(0.0, warden::systems::tower::BALLISTA_MOUNT_Y, 0.0))
+            < 1e-6,
+        "no fire, no displacement"
     );
 }

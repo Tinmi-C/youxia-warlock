@@ -11,8 +11,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimTracker, AttackType, BallistaMount, Enemy, FusionKind, Projectile, ProjectileOrigin, Slow,
-    Tower, TowerKind,
+    AimTracker, AttackType, BallistaMount, Enemy, FireRecoil, FusionKind, Projectile,
+    ProjectileOrigin, Slow, Tower, TowerKind,
 };
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
@@ -61,6 +61,14 @@ pub const BALLISTA_FORWARD_AXIS: Vec3 = Vec3::X;
 fn wrap_angle(a: f32) -> f32 {
     (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
         - std::f32::consts::PI
+}
+
+/// ART8: one message per tower fire — the fire-moment seam the presentation
+/// layer reacts to (mount recoil now; the ART10 string/bolt animation later)
+/// without the rule side knowing any of them.
+#[derive(Message, Debug)]
+pub struct TowerFired {
+    pub tower: Entity,
 }
 
 /// Yaw (radians) that faces `from` toward `to` on the XZ plane, or None when
@@ -116,6 +124,47 @@ pub fn tick_aim_trackers(
         let max_step = tracker.turn_rate.to_radians() * dt;
         let diff = wrap_angle(desired - yaw).clamp(-max_step, max_step);
         tf.rotation = Quat::from_rotation_y(yaw + diff);
+    }
+}
+
+/// ART8 recoil driver: a `TowerFired` for an owning tower RESETS every
+/// mounted `FireRecoil` child's cycle (a re-trigger mid-recovery restarts —
+/// kicks never accumulate), then the displacement eases linearly back to
+/// rest. Runs right after `tower_fire` so the kick appears on the fire
+/// frame. Pure presentation: rules, targeting and the muzzle math read
+/// nothing from it, and the kick only rides the part's TRANSLATION (aim
+/// convergence owns the rotation), so recoil never disturbs tracking.
+pub fn tick_fire_recoil(
+    time: Res<Time>,
+    mut fired: MessageReader<TowerFired>,
+    towers: Query<&Children>,
+    mut parts: Query<(&mut FireRecoil, &mut Transform, &AimTracker)>,
+) {
+    for msg in fired.read() {
+        if let Ok(children) = towers.get(msg.tower) {
+            for child in children {
+                if let Ok((mut recoil, _, _)) = parts.get_mut(*child) {
+                    recoil.elapsed = Some(0.0);
+                }
+            }
+        }
+    }
+    let dt = time.delta_secs();
+    for (mut recoil, mut tf, aim) in &mut parts {
+        let displacement = match recoil.elapsed {
+            None => 0.0,
+            Some(t) => {
+                let t = t + dt;
+                recoil.elapsed = (t < recoil.recover_secs).then_some(t);
+                recoil.depth * (1.0 - t / recoil.recover_secs).clamp(0.0, 1.0)
+            }
+        };
+        // Kick along the part's OWN backward axis (parent-space direction;
+        // mount parents are unrotated tower roots, so parent == world — and
+        // using the live rotation keeps the offset axis correct while the
+        // AimTracker turns mid-recovery).
+        let backward = tf.rotation * -aim.forward_axis;
+        tf.translation = recoil.rest_translation + backward * displacement;
     }
 }
 
@@ -176,6 +225,8 @@ pub fn spawn_base_tower(
                 // and procedural fire cards can drive it independently.
                 // ART7: it carries the generic AimTracker (turn-to-track +
                 // muzzle offset from the def) driving that rotation.
+                // ART8: plus the generic FireRecoil (kick + linear recovery,
+                // also def-configured) riding its translation.
                 p.spawn((
                     BallistaMount,
                     AimTracker {
@@ -186,6 +237,12 @@ pub fn spawn_base_tower(
                         muzzle_offset: def.muzzle_offset,
                         target: None,
                         since_target: 0.0,
+                    },
+                    FireRecoil {
+                        depth: def.recoil_depth,
+                        recover_secs: def.recoil_recover_secs,
+                        rest_translation: Vec3::new(0.0, BALLISTA_MOUNT_Y, 0.0),
+                        elapsed: None,
                     },
                     bevy::world_serialization::WorldAssetRoot(ballista),
                     Transform::from_xyz(0.0, BALLISTA_MOUNT_Y, 0.0)
@@ -229,6 +286,7 @@ pub fn tower_fire(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut fired: MessageWriter<TowerFired>,
     mut towers: Query<(Entity, &mut Tower, &Transform, Option<&Children>)>,
     mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
     mounts: Query<(&Transform, &AimTracker), With<BallistaMount>>,
@@ -240,8 +298,8 @@ pub fn tower_fire(
     } else {
         1.0
     };
-    // `_tower_eid` becomes `tower_eid` when ART8 wires the fire message.
-    for (_tower_eid, mut tower, ttf, children) in &mut towers {
+    // `tower_eid` feeds the ART8 fire-moment message.
+    for (tower_eid, mut tower, ttf, children) in &mut towers {
         tower.cooldown -= time.delta_secs();
 
         let marksman = tower.kind == TowerKind::Fused(FusionKind::Marksman);
@@ -355,6 +413,10 @@ pub fn tower_fire(
                 Transform::from_translation(start),
             ));
         }
+
+        // ART8: the fire-moment seam — one message per shot (melee and
+        // ranged alike); presentation (recoil, later ART10) self-selects.
+        fired.write(TowerFired { tower: tower_eid });
 
         tower.cooldown = 1.0 / (tower.attack_speed * speed_mult * frenzy_mult);
     }

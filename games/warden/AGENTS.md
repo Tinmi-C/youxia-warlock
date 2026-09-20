@@ -184,6 +184,12 @@ assets/{models,textures,audio,fonts,ui}/
   （离线顶点分析：最高簇在 +X 半侧）常量+测试钉死，**待人工视觉终裁**。测试 harness `ballista_app`
   （真 AssetServer+TransformPlugin 走 spawn_base_tower 网关）+ 2 断言（收敛/保持/回正 ±5°、出生点投影 ±0.05+符号钉死），
   红绿验证过；`cargo test` 全绿 108 条（behavior 102 + art_assets 4 + balance 2）。
+- **ART8 弩击发后坐（2026-09-20，ART7 同日续卡）**：新通用组件 `FireRecoil`（挂件自配 depth 0.12/回复 0.18s
+  进 TowerDef + 静止位快照 + elapsed 运行态）+ 开火时刻缝消息 `TowerFired`（tower_fire 每发一条，ART10 弦箭
+  动画同缝复用）+ `tick_fire_recoil`（tower_fire 后同帧：击发帧出位移、线性回落、重触发归零重置防叠加）。
+  取舍：后坐只写 translation、朝向归 AimTracker 的 rotation（chain 消解写冲突→后坐不干扰转向）；击发帧
+  先出弹后踢。断言 2 条入 behavior（击发/回落<10%/重置/狂暴峰值/连发下朝向 ±5°、无火无位移），重置语义
+  红绿验证过；`cargo test` 全绿 **110 条**（behavior 104 + art_assets 4 + balance 2）。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
@@ -198,7 +204,7 @@ assets/{models,textures,audio,fonts,ui}/
   `docs/topics/graphics/model-part-animation-prep-spec.md`（本次手术即规范首次实施）；升格判据：第 2 个模型手术成功 →
   脚本泛化 + 用户级 skill。编号说明：ART3-6 为地形线，ART7+ 为弩线，按立项时间。
 - **下一步**：**双美术线并行 + 真人试玩**——①地形线：ART4 基地/入口 → ART5 点缀 → ART6 黄昏光照（ART3 已落地待负责人试玩验收）；
-  ②弩射击线：ART8 后坐 → ART9 分件手术 v3 → ART10 弦箭动画（ART7 瞄准+炮口出弹已落地）；③**真人试玩盯 §15 信号**
+  ②弩射击线：ART9 分件手术 v3 → ART10 弦箭动画（ART7 瞄准+炮口出弹、ART8 后坐已落地）；③**真人试玩盯 §15 信号**
   （技能两新信号对照 ≤20% 输出锚点）；balance 数值仍按负责人意见暂缓。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。

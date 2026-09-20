@@ -106,6 +106,26 @@ pub struct AimTracker {
     pub since_target: f32,
 }
 
+/// ART8: a generic fire-recoil driver for a mounted weapon part (same family
+/// as `AimTracker`; first user: the ballista — future weapon swaps reuse it
+/// directly). On the owning tower's fire frame (`tower::TowerFired`) the part
+/// is kicked `depth` units along its own backward axis and eases back to rest
+/// linearly over `recover_secs`. Re-triggering mid-recovery RESETS the cycle
+/// (displacements never stack). The kick rides only the part's translation —
+/// rotation stays owned by `AimTracker` — so recoil never disturbs aim
+/// convergence.
+#[derive(Component, Debug)]
+pub struct FireRecoil {
+    /// Peak displacement along the part's backward axis (world units).
+    pub depth: f32,
+    /// Seconds from full kick back to rest (linear recovery; starting 0.18).
+    pub recover_secs: f32,
+    /// Local translation at rest (captured at attach; recovery returns here).
+    pub rest_translation: Vec3,
+    /// Seconds since the trigger; None = idle at rest (runtime state).
+    pub elapsed: Option<f32>,
+}
+
 
 /// A temporary slow effect on an enemy (e.g. from the shield / bastion tower).
 #[derive(Component)]
