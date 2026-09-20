@@ -11,8 +11,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AttackType, BallistaMount, Enemy, FusionKind, Projectile, ProjectileOrigin, Slow, Tower,
-    TowerKind,
+    AimTracker, AttackType, BallistaMount, Enemy, FusionKind, Projectile, ProjectileOrigin, Slow,
+    Tower, TowerKind,
 };
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
@@ -34,6 +34,91 @@ pub const BALLISTA_MOUNT_Y: f32 = 1.3;
 /// The ballista reads large against the tower — uniform shrink (handoff:
 /// 0.7–0.75; 0.72 chosen, tune on visual acceptance).
 pub const BALLISTA_SCALE: f32 = 0.72;
+
+// --- ART7: aim tracking + muzzle launch --------------------------------------
+
+/// Max turn rate of the mounted weapon in degrees per second (card starting
+/// value; tune on visual acceptance — 240°/s covers any practical target
+/// swing at projectile speed 10).
+pub const AIM_TURN_RATE: f32 = 240.0;
+/// Seconds without a target before the weapon eases back to its rest bearing
+/// (card starting value 2.0).
+pub const AIM_RETURN_DELAY: f32 = 2.0;
+/// Rest bearing in degrees — 0 keeps the spawn orientation (+X world, the
+/// towers face the enemy entry side of the L-path on most slots).
+pub const BALLISTA_REST_BEARING: f32 = 0.0;
+/// Model-space unit axis pointing out of the muzzle — the ART7 forward-sign
+/// pin. Orientation basis (offline vertex analysis of the merged 767-piece
+/// mesh, 2026-09-20): both ±X ends taper symmetrically so lateral width
+/// gives no signal, but the tallest cluster (the raised bridge over the
+/// rail, ymax≈+0.27) sits at x≈+0.1 — the +X half — so +X is taken as the
+/// muzzle side. To be visually confirmed ONCE at manual acceptance (card
+/// ART7 acceptance line); if the manual look disagrees, flip this constant
+/// together with the pinned test `ballista_projectile_spawns_at_muzzle`.
+pub const BALLISTA_FORWARD_AXIS: Vec3 = Vec3::X;
+
+/// Wrap an angle difference into (-π, π] (shortest rotational direction).
+fn wrap_angle(a: f32) -> f32 {
+    (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+        - std::f32::consts::PI
+}
+
+/// Yaw (radians) that faces `from` toward `to` on the XZ plane, or None when
+/// the two positions share XZ coordinates (degenerate — keep current facing).
+fn bearing_yaw(from: Vec3, to: Vec3) -> Option<f32> {
+    let d = to - from;
+    (d.x * d.x + d.z * d.z > 1e-8).then_some(f32::atan2(-d.z, d.x))
+}
+
+/// ART7 domain bridge: mirror each tower's current rule-layer target into
+/// its mounted part's `AimTracker`. Keeps `tick_aim_trackers` free of any
+/// tower dependency (the generic turner only knows `AimTracker`).
+pub fn tower_aim_bridge(
+    towers: Query<(&Tower, &Children)>,
+    mut parts: Query<&mut AimTracker>,
+) {
+    for (tower, children) in &towers {
+        for child in children {
+            if let Ok(mut tracker) = parts.get_mut(*child) {
+                tracker.target = tower.target;
+            }
+        }
+    }
+}
+
+/// ART7 generic turner: rotate every `AimTracker` part toward its target's
+/// bearing at `turn_rate` (yaw only — the ballista trains horizontally);
+/// after `return_delay` seconds without a target, rotate back to
+/// `rest_bearing`. Pure presentation: never fires, never blocks firing
+/// (rhythm stays owned by `tower_fire`, the ART1 gateway philosophy).
+pub fn tick_aim_trackers(
+    time: Res<Time>,
+    mut parts: Query<(&mut AimTracker, &mut Transform, &GlobalTransform)>,
+    targets: Query<&Transform, Without<AimTracker>>,
+) {
+    let dt = time.delta_secs();
+    for (mut tracker, mut tf, gtf) in &mut parts {
+        // Read the facing back from the transform (we own it: only yaw is
+        // ever written here).
+        let yaw = tf.rotation.to_euler(EulerRot::YXZ).0;
+        let desired = match tracker.target.and_then(|e| targets.get(e).ok()) {
+            Some(ttf) => {
+                tracker.since_target = 0.0;
+                bearing_yaw(gtf.translation(), ttf.translation)
+            }
+            None => {
+                tracker.since_target += dt;
+                (tracker.since_target >= tracker.return_delay)
+                    .then_some(tracker.rest_bearing.to_radians())
+            }
+        };
+        let Some(desired) = desired else { continue };
+        let max_step = tracker.turn_rate.to_radians() * dt;
+        let diff = wrap_angle(desired - yaw).clamp(-max_step, max_step);
+        tf.rotation = Quat::from_rotation_y(yaw + diff);
+    }
+}
+
 
 /// Spawn a placed base tower of archetype `def` at world position `pos`
 /// (shared by the player flows and the DB debug scenarios). Returns the
@@ -89,8 +174,19 @@ pub fn spawn_base_tower(
                 // ART2: the ballista rides the tower top as its own entity
                 // (not part of the body scene) so the future turn-to-track
                 // and procedural fire cards can drive it independently.
+                // ART7: it carries the generic AimTracker (turn-to-track +
+                // muzzle offset from the def) driving that rotation.
                 p.spawn((
                     BallistaMount,
+                    AimTracker {
+                        turn_rate: AIM_TURN_RATE,
+                        rest_bearing: BALLISTA_REST_BEARING,
+                        return_delay: AIM_RETURN_DELAY,
+                        forward_axis: BALLISTA_FORWARD_AXIS,
+                        muzzle_offset: def.muzzle_offset,
+                        target: None,
+                        since_target: 0.0,
+                    },
                     bevy::world_serialization::WorldAssetRoot(ballista),
                     Transform::from_xyz(0.0, BALLISTA_MOUNT_Y, 0.0)
                         .with_scale(Vec3::splat(BALLISTA_SCALE)),
@@ -133,8 +229,9 @@ pub fn tower_fire(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut towers: Query<(&mut Tower, &Transform)>,
+    mut towers: Query<(Entity, &mut Tower, &Transform, Option<&Children>)>,
     mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
+    mounts: Query<(&Transform, &AimTracker), With<BallistaMount>>,
 ) {
     // SK4: a global timed multiplier — while the frenzy lasts, EVERY tower's
     // fire cooldown is divided by it (towers placed mid-frenzy included).
@@ -143,7 +240,8 @@ pub fn tower_fire(
     } else {
         1.0
     };
-    for (mut tower, ttf) in &mut towers {
+    // `_tower_eid` becomes `tower_eid` when ART8 wires the fire message.
+    for (_tower_eid, mut tower, ttf, children) in &mut towers {
         tower.cooldown -= time.delta_secs();
 
         let marksman = tower.kind == TowerKind::Fused(FusionKind::Marksman);
@@ -182,6 +280,10 @@ pub fn tower_fire(
                 best = Some((eid, d, en.hp));
             }
         }
+        // ART7: persist the acquisition so the presentation layer (mount
+        // turn-to-track via `tower_aim_bridge`) can follow it. This is
+        // rule→rule bookkeeping only — the fire decision below is unchanged.
+        tower.target = best.map(|(eid, _, _)| eid);
         let Some((target, _, _)) = best else {
             continue;
         };
@@ -213,7 +315,22 @@ pub fn tower_fire(
         } else {
             // Ranged: launch a homing projectile (§5.1) — damage and type are
             // snapshotted here; armor resolves at impact (projectiles.rs).
-            let start = ttf.translation + Vec3::Y * 0.4;
+            // ART7 muzzle launch: when the tower carries an aimed mount (the
+            // ballista), the round leaves the mount's world position offset
+            // along the mount's CURRENT facing — presentation supplies the
+            // birth point, the rules stay unchanged (firing does NOT wait
+            // for the turn to converge; the homing round corrects course).
+            // Mount-less towers (every headless world, gray-box types) keep
+            // the original anchor+0.4Y birth point, so all pre-ART7 flight
+            // timing regressions (PR1 ≈0.8s band) are untouched.
+            let start = children
+                .and_then(|ch| ch.iter().find_map(|c| mounts.get(c).ok()))
+                .map(|(mtf, tracker)| {
+                    let world = ttf.mul_transform(*mtf);
+                    let forward = (world.rotation * tracker.forward_axis).normalize_or_zero();
+                    world.translation + forward * tracker.muzzle_offset
+                })
+                .unwrap_or_else(|| ttf.translation + Vec3::Y * 0.4);
             let (mesh, color) = projectile_visual(&tower, tower.aoe_radius);
             commands.spawn((
                 Projectile {

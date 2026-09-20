@@ -78,6 +78,35 @@ pub struct Tower {
 #[derive(Component)]
 pub struct BallistaMount;
 
+/// ART7: a generic smooth turn-to-track driver for any mounted 3D part
+/// (first user: the ballista; future weapon swaps reuse it as-is). Angular
+/// fields are in DEGREES (card language); the system converts to radians.
+/// The part's yaw-only facing is the entity's `Transform` rotation — the
+/// component holds only config plus runtime target state, so the transform
+/// stays the single source of truth for orientation.
+#[derive(Component, Debug)]
+pub struct AimTracker {
+    /// Max angular speed in degrees per second (card starting value 240).
+    pub turn_rate: f32,
+    /// Rest bearing (degrees) held after `return_delay` seconds without a
+    /// target. 0 = the spawn orientation.
+    pub rest_bearing: f32,
+    /// Seconds without a target before easing back to `rest_bearing`.
+    pub return_delay: f32,
+    /// Model-space unit axis pointing out of the MUZZLE (which long-axis
+    /// sign is the front — decided once per model, pinned by test; ballista:
+    /// `tower::BALLISTA_FORWARD_AXIS`).
+    pub forward_axis: Vec3,
+    /// Muzzle distance along `forward_axis` in world units (from `TowerDef`).
+    pub muzzle_offset: f32,
+    /// Current look target (mirrored from the owning tower by the domain
+    /// bridge `tower_aim_bridge`; None = idle).
+    pub target: Option<Entity>,
+    /// Seconds since a target was last present (runtime; 0 while tracking).
+    pub since_target: f32,
+}
+
+
 /// A temporary slow effect on an enemy (e.g. from the shield / bastion tower).
 #[derive(Component)]
 pub struct Slow {

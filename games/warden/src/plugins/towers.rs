@@ -21,6 +21,11 @@ impl Plugin for TowersPlugin {
             .add_systems(
                 Update,
                 (
+                    // ART7: mirror the rule target into the mount, THEN turn
+                    // the mount, THEN fire (the muzzle reads this frame's
+                    // facing). Presentation leads, rhythm stays with fire.
+                    systems::tower::tower_aim_bridge,
+                    systems::tower::tick_aim_trackers,
                     systems::tower::tower_fire,
                     systems::tower::tick_slow,
                 )

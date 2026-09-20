@@ -4430,3 +4430,183 @@ fn map_ground_texture_branch_is_pinned() {
         "ground normal map must be wired"
     );
 }
+
+// --- ART7/ART8: ballista aim tracking + muzzle launch + fire recoil ----------
+
+/// ART7/ART8 harness: a headless world with a REAL AssetServer (mirrors the
+/// L3 pattern of `archer_tower_assembly_is_pinned`) plus `TransformPlugin` so
+/// the mount's `GlobalTransform` propagates exactly like the real game.
+/// Places ONE archer tower through the shared `spawn_base_tower` gateway (the
+/// same code path as the player flows) and returns (app, tower, mount).
+fn ballista_app(tower_xz: Vec2) -> (App, bevy::ecs::entity::Entity, bevy::ecs::entity::Entity) {
+    let mut app = test_app();
+    app.add_plugins(bevy::asset::AssetPlugin::default());
+    // Same registration set as `archer_tower_assembly_is_pinned` (load paths
+    // touched headless; loaders absent is fine — we pin wiring, not pixels).
+    app.init_asset::<bevy::text::Font>();
+    app.init_asset::<bevy::world_serialization::WorldAsset>();
+    app.init_asset::<bevy::image::Image>();
+    app.add_plugins(bevy::transform::TransformPlugin);
+    app.update(); // startup: deal hand + build the command card
+
+    let tower = app
+        .world_mut()
+        .resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+            world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+                let def = world.resource::<TowerDefs>().list[0].clone();
+                let server = world.resource::<AssetServer>().clone();
+                let mut commands = world.commands();
+                warden::systems::tower::spawn_base_tower(
+                    &mut commands,
+                    &def,
+                    0,
+                    Vec3::new(tower_xz.x, 0.0, tower_xz.y),
+                    &mut meshes,
+                    &mut materials,
+                    Some(&server),
+                )
+            })
+        });
+    app.world_mut().flush();
+    let mount = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<warden::components::BallistaMount>>();
+        q.single(app.world_mut()).expect("one BallistaMount per placed archer")
+    };
+    (app, tower, mount)
+}
+
+/// A stationary, tanky ordinary enemy (never dies to the test shots, never
+/// moves — keeps the bearing static so yaw assertions are exact).
+fn static_enemy(app: &mut App, pos: Vec3) -> bevy::ecs::entity::Entity {
+    app.world_mut()
+        .spawn((
+            Enemy {
+                hp: 500.0,
+                max_hp: 500.0,
+                speed: 0.0,
+                leak: 0,
+                kill_gold: 0,
+                physical_armor: false,
+                def_index: 0,
+                next_wp: 0,
+            },
+            Transform::from_translation(pos),
+        ))
+        .id()
+}
+
+fn mount_yaw_deg(app: &App, mount: bevy::ecs::entity::Entity) -> f32 {
+    app.world()
+        .get::<Transform>(mount)
+        .expect("mount has a Transform")
+        .rotation
+        .to_euler(EulerRot::YXZ)
+        .0
+        .to_degrees()
+}
+
+/// Capability card ART7 — acceptance: locking a target at bearing θ, the
+/// ballista yaw converges to θ (±5°); after the target is gone it HOLDS the
+/// bearing for the 2s return delay, then rotates back to the rest bearing
+/// (±5°). Also pins the tracker config starting values (240°/s, 2s, 0.5).
+#[test]
+fn ballista_aim_converges_holds_then_returns_to_rest() {
+    let (mut app, _tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
+    {
+        let t = app
+            .world()
+            .get::<warden::components::AimTracker>(mount)
+            .expect("the mount carries an AimTracker");
+        assert_eq!(t.turn_rate, 240.0, "card starting value 240°/s");
+        assert_eq!(t.return_delay, 2.0, "card starting value 2s");
+        assert_eq!(t.muzzle_offset, 0.5, "card starting value 0.5");
+        assert_eq!(t.forward_axis, Vec3::X, "forward-sign pin (see tower.rs)");
+    }
+    // Enemy at (6, ·, -6) from the tower at the origin → bearing +45°.
+    let enemy = static_enemy(&mut app, Vec3::new(6.0, 0.4, -6.0));
+    for _ in 0..30 {
+        app.update(); // 0.5s — 45° at 240°/s needs only ~0.19s
+    }
+    let yaw = mount_yaw_deg(&app, mount);
+    assert!(
+        (yaw - 45.0).abs() <= 5.0,
+        "aim must converge to the target bearing 45° (±5°), got {yaw:.1}°"
+    );
+
+    // Target gone: hold the bearing during the 2s return delay…
+    app.world_mut().despawn(enemy);
+    for _ in 0..60 {
+        app.update(); // 1.0s < 2.0s delay → still on bearing
+    }
+    let yaw = mount_yaw_deg(&app, mount);
+    assert!(
+        (yaw - 45.0).abs() <= 5.0,
+        "must HOLD the bearing through the 2s return delay, got {yaw:.1}°"
+    );
+
+    // …then rotate back to rest (2.5s total > 2.0 delay + 0.19 turn).
+    for _ in 0..90 {
+        app.update();
+    }
+    let yaw = mount_yaw_deg(&app, mount);
+    assert!(
+        yaw.abs() <= 5.0,
+        "must return to the rest bearing 0° (±5°), got {yaw:.1}°"
+    );
+}
+
+/// Capability card ART7 — acceptance: the projectile is BORN at
+/// mount position + forward × muzzle_offset (±0.05), i.e. the launch offset
+/// projects onto the ballista's facing (投影断言); the forward sign (+X) is
+/// pinned here. `fly_projectiles` moves the round its first deterministic
+/// step in the same frame, so the birth point is reconstructed by
+/// subtracting that step.
+#[test]
+fn ballista_projectile_spawns_at_muzzle() {
+    let (mut app, _tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
+    let target = Vec3::new(6.0, 0.4, -6.0); // bearing +45°, 8.49 units: in range
+    static_enemy(&mut app, target);
+    app.update(); // launch frame: one aim step (240°/s → 4°), one round out
+
+    let step = warden::resources::PROJECTILE_SPEED / 60.0;
+    let (mount_pos, yaw) = {
+        let tf = app.world().get::<Transform>(mount).unwrap();
+        let g = app.world().get::<GlobalTransform>(mount).unwrap();
+        (g.translation(), tf.rotation.to_euler(EulerRot::YXZ).0)
+    };
+    // The forward-sign pin (ART7): the muzzle side of the model is +X —
+    // offline vertex analysis found the tallest cluster (raised rail bridge)
+    // on the +X half; see `BALLISTA_FORWARD_AXIS` in tower.rs. A flip MUST
+    // break this test on purpose (constant + expectation change together,
+    // after the one-time visual confirmation the card schedules).
+    assert_eq!(warden::systems::tower::BALLISTA_FORWARD_AXIS, Vec3::X);
+    let forward = Quat::from_rotation_y(yaw) * warden::systems::tower::BALLISTA_FORWARD_AXIS;
+
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&Transform, With<Projectile>>();
+    let ptf = *q
+        .single(app.world_mut())
+        .expect("exactly one projectile on the launch frame");
+    // Reconstruct the birth point by removing the first homing step (fully
+    // deterministic: fixed dt, known target position).
+    let dir = (target - (mount_pos + forward * 0.5)).normalize();
+    let spawn = ptf.translation - dir * step;
+    let offset = spawn - mount_pos;
+    assert!(
+        (offset.length() - 0.5).abs() <= 0.05,
+        "birth point must sit muzzle_offset (0.5 ±0.05) from the mount, got {}",
+        offset.length()
+    );
+    assert!(
+        (offset.normalize() - forward).length() < 0.01,
+        "the launch offset must project onto the ballista facing (弹向与弩朝向一致)"
+    );
+    // And the mount itself sits at the composed tower-top position.
+    assert!(
+        mount_pos.distance(Vec3::new(0.0, 1.9, 0.0)) < 1e-4,
+        "mount world position = tower anchor 0.6 + mount y 1.3, got {mount_pos:?}"
+    );
+}

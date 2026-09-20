@@ -176,6 +176,14 @@ assets/{models,textures,audio,fonts,ui}/
   窗口直截 → 真中性逐字读 UI + dash 独立对账：金币0/基地10/10/波次1建造期/下一波普通×5 全部吻合；
   截图 `docs/img/warden_art3_terrain.png`）。ART4 基地入口/ART5 点缀/ART6 光照卡已立（📝），方向稿
   `.blend` 存 `_art/map-style/`。**待负责人试玩验收后一卡一提交。**
+- **ART7 弩瞄准追踪 + 炮口出弹（2026-09-20，弩射击动作线首卡）**：新通用组件 `AimTracker`
+  （挂 `BallistaMount`；角度用度、朝向真值在 Transform、组件只存配置+目标态）+ 域桥 `tower_aim_bridge`
+  （Tower.target→挂件，转向系统零塔依赖）+ `tick_aim_trackers`（yaw-only 240°/s 步进、失联 2s 回正）；
+  `tower_fire` 补落盘 `tower.target`（开火决策零改动），出弹点=挂件世界位+前向×`muzzle_offset`（TowerDef 新字段 0.5）。
+  **关键取舍**：无挂件塔出生点维持锚点+0.4Y 原式 → PR1 等 106 条既有断言零扰动；前向符号取 +X
+  （离线顶点分析：最高簇在 +X 半侧）常量+测试钉死，**待人工视觉终裁**。测试 harness `ballista_app`
+  （真 AssetServer+TransformPlugin 走 spawn_base_tower 网关）+ 2 断言（收敛/保持/回正 ±5°、出生点投影 ±0.05+符号钉死），
+  红绿验证过；`cargo test` 全绿 108 条（behavior 102 + art_assets 4 + balance 2）。
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；
@@ -184,9 +192,14 @@ assets/{models,textures,audio,fonts,ui}/
 - **操作归属法则定稿（2026-09-14，纯设计无实现）**：requirements §16.9 补立「操作归属三分法」（对象[塔/塔位]/
   指挥官/系统）+ 热键按归属分域禁跨域复用 + 容量增长路径 + 转向门槛（avatar 翻案 / 单塔操作>4 / 指挥官技能>5 / 多阵营）；
   「显式指挥官」UI 改造评估**推迟至技能二期压力测试**（GDD 点子池留痕）。后续任何新 UI 卡立卡先答「操作归谁」。
-- **下一步**：DB1/DB2/DB3 与技能一期 SK1-SK4 均已落地（BAL1 已重取，SK 零影响）→
-  **真人试玩盯 §15 信号**（战斗期能动性已上线，另观察「技能是否被主动用/是否挤压塔」两个新信号，对照 ≤20% 输出锚点）→
-  balance 数值仍按负责人意见暂缓（BAL2 锚点表随时可收敛「早战经济压力」）。
+- **弩射击动作线定稿（2026-09-20，方案 B：程序化分件动画）**：ART7-10 已立——ART7 瞄准追踪+炮口出弹（`AimTracker` 通用件）、
+  ART8 击发后坐（`FireRecoil` 通用件，后续塔换装复用）、ART9 资产分件手术 v3（AI 写 Blender 无头脚本主刀、人验收、
+  ADR-0009 回流岩库）、ART10 弦箭分件动画（完整射击循环）。分件规范入知识库
+  `docs/topics/graphics/model-part-animation-prep-spec.md`（本次手术即规范首次实施）；升格判据：第 2 个模型手术成功 →
+  脚本泛化 + 用户级 skill。编号说明：ART3-6 为地形线，ART7+ 为弩线，按立项时间。
+- **下一步**：**双美术线并行 + 真人试玩**——①地形线：ART4 基地/入口 → ART5 点缀 → ART6 黄昏光照（ART3 已落地待负责人试玩验收）；
+  ②弩射击线：ART8 后坐 → ART9 分件手术 v3 → ART10 弦箭动画（ART7 瞄准+炮口出弹已落地）；③**真人试玩盯 §15 信号**
+  （技能两新信号对照 ≤20% 输出锚点）；balance 数值仍按负责人意见暂缓。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
