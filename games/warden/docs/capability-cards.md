@@ -649,10 +649,21 @@
   未受损（FX 断言全绿 + 截图中路径/塔位可读性铁律未触犯）。
 - ⚠️ 后续若试玩反馈「整体太暗/太橙」，先调 `illuminance`/`brightness` 再动色值（锚点改先 art-direction.md 留痕）。
 
-### ART4 · 基地与入口体块换装（map·表现层）—— 📝 待立卡（地形线收官卡）
-- 方向稿：基地=石门楼（主楼+双柱+旗杆）、入口=双柱石拱（参照 Blender 稿 Base/Entry 体块）；
-  需图生 3D 走美术管线（blender-asset-pipeline 阶段 0 参照图门：需经人确认的参照图，
-  存 `assets/refs/confirmed/<asset_id>.png`）。
+### ART4 · 基地石门楼 + 入口拱（map·表现层）—— ✅ 已实现（2026-09-20，地形线收官）
+- 接口: `models/structure_gatehouse.glb` + `structure_entry_arch.glb`（岩库 **v3** 锁定：Blender 体块砌筑
+  `build_gatehouse.py`——双塔+过梁门洞+堆堞+旗杆旗 / 双柱+楣石+残齿+碎块，182 面共 3.2MB；贴
+  PolyHaven CC0 `castle_wall_varriation` 1k，UV 平铺 ~1.5m/次）；输出 = `spawn_structures`：
+  门楼居中于基地 waypoint（敌人走进门洞）、入口拱转 90° 骑跨路径起点，均挂 `MapStructure` 标记。
+- 行为: headless 回落同数质量块（每结构一实体，两世界恒 2 根）。**路线拍板记录**：Sketchfab CC-BY 遗产扫描
+  短名单（11 件，岩库 archived 存档）被负责人否决（token/署名/重打包太复杂）→ 取体块+CC0 贴图路线，
+  零授权摩擦；后续若要写实度升级再评估。
+- 验收句: ① `map_structures_spawn_headless`：恰 2 根，门楼@(12,-9)、拱@(-13,9)；② `structures_geometry_facts`：
+  聚合 accessor bbox（新增 `scene_bbox` 跨全 mesh 聚合）钉死装配假设——门洞轴向 ±X、高度带 3.0-5.5、
+  拱本地跨 X；③ models 目录约定自动覆盖；④ 视觉验收通过（正姿配方截图，逐字 UI 对账 + 双构筑物/四类
+  道具清点吻合，存档 `docs/img/warden_art4_gatehouse.png`）。
+- ⚠️ **v1/v2 教训入档**：建模 location 把高度误入 Blender Y 轴（模型横躺半埋），渲染预览竟被视觉模型
+  读成"比例协调的门楼"——**预览图会骗眼睛，数值 bbox 门（X/Z 跨比 + z_min≥0 + 高度带）必须在看图前先跑**；
+  另 `matrix_world` 是上次求值快照，校验前必须 `view_layer.update()`（三连翻车根因）。
 
 ---
 
@@ -730,11 +741,18 @@
   （KayKit 名带 `Rig_Medium.001|` 前缀）建图循环播放，无匹配则静默保持绑定姿势；`move_enemy` 顺带写朝向
   （+Z 前向假设，`ENEMY_FORWARD_YAW_OFFSET=0` 首验即中，弩的 forward-pin 同款保底机制）。
 - 验收句: 六模型入库且清单锁 v2（id 逐一断言）+ 15MiB 上限；驱动真实 `wave_spawn`（非直调）后 模型敌无
-  Mesh3d、缩放=网关表、BOSS 走/刺客跑；无服务器路径保持方块（其余百条测试隐式钉死）；L4 真窗口：fx 场景
-  路径带双帧 0.5s 像素差 1.41%（静态区 0.00%）证动画在动、姿势迈步朝向正确（`docs/img/warden_art11_enemies.png`）。
+  Mesh3d、缩放=网关表、BOSS 走/刺客跑；无服务器路径保持方块（其余百条测试隐式钉死）。
+- 验收句已入 `tests/behavior.rs`：`enemy_models_are_pinned` + `enemy_assembly_is_pinned`。
+- **L4 验收翻车与重做（2026-09-20，用户戳穿 T-Pose）**：首版把 `AnimationPlayer` 插在包装实体上——
+  但 0.19 的 gltf 加载器（`load_animations` 默认开）会在场景内部自带播放器，并用 `AnimatedBy` 把
+  每根骨骼链接到它；骨骼永远不会重指到外挂播放器 → **T-Pose 滑行**。且首版"双帧像素差 1.41%"的
+  验收证据只证平移不证姿势（位移同样产生像素差），被用户肉眼否决。重做：① `start_enemy_walk` 改为
+  在模型子树内**找到加载器自带的播放器**驱动之（`find_player` DFS；`EnemyAnim` 标记保留到场景真正
+  实例化出播放器为止，防"资产已载、场景未实例化"时序窗）；加 `[art11] walk wired` 打点（真局 5/5
+  命中）；② 验收方法升级：**紧裁剪单只主体 + 0.18s 近间隔双帧对比姿势变化**（步幅收拢/手臂摆动），
+  网格化像素差仅用于定位主体——位移与姿势自此分离取证。测试 113+2+5 全绿。
 - 已知缺陷: 受击闪白/减速变色调 MeshMaterial3d，模型敌不生效（血条/死亡壳/伤害逻辑不受影响）——后续卡与 ART12
   候选；精英/BOSS 缩放仅测试钉值，观感属人工验收可调。
-- 验收句已入 `tests/behavior.rs`：`enemy_models_are_pinned` + `enemy_assembly_is_pinned`。
 
 ---
 
@@ -782,6 +800,13 @@
   headless 断言 3 条入 behavior（`showroom::*`：进场中性影棚+零干扰 / 全量遍历 / 面板等效+轨道相机）。
   视觉自检通过（置前直截+中性读图：影棚灰白无橙调、左面板 Showroom 列表+On the pad 数值可读、无 HUD/底栏、
   铭牌「弓箭手塔 · 塔 1/8」）。
+  **v2.1 修复（同日，真人试玩发现）**：进场清扫漏掉**异步长出的装饰物**——ART5 props/ART4 结构体是
+  `WorldAssetRoot` 根实体（自身无 Mesh3d，GLB 场景子网格晚几帧才实例化），一次性 Mesh3d 清扫扑空。修法 =
+  **驻守式清扫** `showroom_sweep`（Input、present 之后每帧）：影棚活跃期间，任何带 3D 视觉组件
+  （Mesh3d/WorldAssetRoot/DirectionalLight）的**非影棚根实体**一冒头即 despawn（被清根的异步孤儿下一帧以
+  无标记根实体浮现、再被补扫——自愈）；白名单 = Floor/Pad/Exhibit/Light/Camera/HoverGhost（UI Node 无 3D
+  组件天然豁免）。实机日志 14 个流窜实体被清、读图确认场景零多余物体。断言 +1
+  （`showroom_sweep_removes_strays_keeps_studio`）→ 共 4 条。
 
 ### SM2 · 展示场交互：动画触发 + 自由观察（debug·表现层）—— 📝 待立卡（依赖 SM1）
 - 范围: 单件浏览已天然聚焦，本卡补——按键触发一次性动画（attack/hit/death，单次/循环切换）；相机自由观察

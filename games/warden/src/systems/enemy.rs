@@ -173,37 +173,68 @@ pub fn spawn_enemy_at(
 }
 
 /// ART11: once an enemy model's Gltf asset is in, wire the locomotion clip.
-/// KayKit clip names carry a `Rig_Medium.001|` prefix, so match by substring
-/// (`walking` / `running`); a model without a locomotion clip keeps its bind
-/// pose and the marker is dropped (no per-frame retry burn).
+/// Bevy 0.19's gltf loader (load_animations: true by default) plants an
+/// `AnimationPlayer` INSIDE the spawned scene on the animation root and links
+/// every bone to it via `AnimatedBy` — so the player we must drive is that
+/// one, found in the model subtree. Attaching our own player on the wrapper
+/// plays into the void (bones stay bound to the loader's player): T-pose
+/// sliding. KayKit clip names carry a `Rig_Medium.001|` prefix, so match by
+/// substring (`walking` / `running`). The marker survives until the scene
+/// has actually instantiated its player (asset-loaded alone is not enough).
 pub fn start_enemy_walk(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     pending: Query<(Entity, &EnemyAnim)>,
+    children: Query<&Children>,
+    mut players: Query<&mut AnimationPlayer>,
 ) {
-    for (eid, anim) in &pending {
+    for (wrapper, anim) in &pending {
         let Some(gltf) = gltfs.get(&anim.gltf) else {
-            continue;
+            continue; // still loading — retry next frame
         };
         let want = if anim.run { "running" } else { "walking" };
-        let Some((_name, clip)) = gltf
+        let Some((clip_name, clip)) = gltf
             .named_animations
             .iter()
             .find(|(name, _)| name.to_lowercase().contains(want))
         else {
-            commands.entity(eid).remove::<EnemyAnim>();
+            // No locomotion clip: keep the bind pose, stop retrying.
+            info!("[art11] no locomotion clip for {}", want);
+            commands.entity(wrapper).remove::<EnemyAnim>();
+            continue;
+        };
+        // The scene instantiates a frame or more after the assets land, so
+        // the loader's player may not exist yet — keep the marker and retry.
+        let Some(player_entity) = find_player(wrapper, &children, &players) else {
             continue;
         };
         let (graph, node) = AnimationGraph::from_clip(clip.clone());
         let handle = graphs.add(graph);
-        let mut player = AnimationPlayer::default();
+        let Ok(mut player) = players.get_mut(player_entity) else {
+            continue;
+        };
         player.play(node).repeat();
         commands
-            .entity(eid)
-            .insert((AnimationGraphHandle(handle), player))
-            .remove::<EnemyAnim>();
+            .entity(player_entity)
+            .insert(AnimationGraphHandle(handle));
+        commands.entity(wrapper).remove::<EnemyAnim>();
+        info!("[art11] walk wired: {clip_name}");
     }
+}
+
+/// Depth-first search for the scene's own `AnimationPlayer` below `root`.
+fn find_player(
+    root: Entity,
+    children: &Query<&Children>,
+    players: &Query<&mut AnimationPlayer>,
+) -> Option<Entity> {
+    if players.get(root).is_ok() {
+        return Some(root);
+    }
+    let kids = children.get(root).ok()?;
+    kids.iter()
+        .find_map(|k| find_player(k, children, players))
 }
 
 /// Advance every live enemy toward its next waypoint. On reaching the last one
