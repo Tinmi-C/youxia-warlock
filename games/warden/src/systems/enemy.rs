@@ -114,7 +114,7 @@ pub fn spawn_enemy_at(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     server: Option<&AssetServer>,
-) {
+) -> bevy::ecs::entity::Entity {
     let hp = hp_override.unwrap_or(def.hp);
     let eid = commands
         .spawn((
@@ -170,7 +170,13 @@ pub fn spawn_enemy_at(
             tick_timer: HEALER_PERIOD,
         });
     }
+    eid
 }
+
+/// Marker for the debug range's stationary dummies (SM3R): excluded from
+/// path movement — they stand and take it.
+#[derive(Component)]
+pub struct RangeDummy;
 
 /// ART11: once an enemy model's Gltf asset is in, wire the locomotion clip.
 /// Bevy 0.19's gltf loader (load_animations: true by default) plants an
@@ -245,7 +251,7 @@ pub fn move_enemy(
     mut base: ResMut<BaseHp>,
     mut wave: ResMut<WaveState>,
     mut commands: Commands,
-    mut enemies: Query<(Entity, &mut Enemy, &mut Transform)>,
+    mut enemies: Query<(Entity, &mut Enemy, &mut Transform), Without<RangeDummy>>,
     slowed: Query<&Slow>,
 ) {
     for (eid, mut enemy, mut tf) in &mut enemies {

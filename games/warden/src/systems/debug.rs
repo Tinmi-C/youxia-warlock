@@ -432,11 +432,13 @@ pub enum Scenario {
     FullBoard,
     /// The asset showroom: one-exhibit browsing on a display pad (SM1).
     Showroom,
+    /// The shooting range: one real attacker vs stationary dummies (SM3R).
+    Range,
 }
 
 impl Scenario {
     /// All scenarios with their CLI/panel names, in display order.
-    pub const ALL: [(Scenario, &'static str); 7] = [
+    pub const ALL: [(Scenario, &'static str); 8] = [
         (Scenario::Fusion, "fusion"),
         (Scenario::Projectile, "projectile"),
         (Scenario::Fx, "fx"),
@@ -444,6 +446,7 @@ impl Scenario {
         (Scenario::Choice, "choice"),
         (Scenario::FullBoard, "full-board"),
         (Scenario::Showroom, "showroom"),
+        (Scenario::Range, "range"),
     ];
 
     pub fn name(self) -> &'static str {
@@ -617,6 +620,11 @@ fn apply_scenario(world: &mut World, scenario: Scenario) {
         // exhibit is spawned by `showroom_browse` the same frame).
         Scenario::Showroom => {
             crate::systems::showroom::enter_showroom(world);
+        }
+        // SM3R: the shooting range (attacker + dummies spawn via the
+        // maintenance system on the requested reset).
+        Scenario::Range => {
+            crate::systems::range::enter_range(world);
         }
     }
     info!("[debug] scenario '{}' loaded", scenario.name());

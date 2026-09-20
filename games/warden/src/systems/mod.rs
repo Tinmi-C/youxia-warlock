@@ -20,6 +20,9 @@ pub mod projectiles;
 // Showroom single-exhibit browser (SM1): same debug-only gate as DB1-3.
 #[cfg(debug_assertions)]
 pub mod showroom;
+// Shooting range (SM3R): same debug-only gate.
+#[cfg(debug_assertions)]
+pub mod range;
 pub mod skills;
 pub mod tower;
 pub mod wave;

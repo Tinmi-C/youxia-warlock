@@ -2694,6 +2694,14 @@ mod debug_cheats {
                     .in_set(GameSet::Input),
             )
             .add_plugins(showroom_viewer::ShowroomPlugin)
+            // SM3R: range maintenance + ledger (guards inside).
+            .add_systems(
+                Update,
+                (
+                    warden::systems::range::range_maintain,
+                    warden::systems::range::range_ledger,
+                ),
+            )
             // The orbit system reads/writes these; the real app gets them
             // from DefaultPlugins' InputPlugin.
             .init_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
@@ -5461,5 +5469,116 @@ mod showroom {
                 .compare
                 .is_none()
         );
+    }
+}
+
+// --- SM3R: debug shooting range --------------------------------------------------
+//
+// One real attacker (real spawn/fire/impact pipeline) versus stationary
+// dummies with a damage ledger; entered via Scenario::Range. The tool never
+// fakes combat logic — the ledger just polls the dummies' real hp.
+
+#[cfg(debug_assertions)]
+mod range_tests {
+    use super::debug_cheats::debug_app;
+    use super::*;
+    use warden::systems::debug::{DebugScenarioQueue, Scenario};
+    use warden::systems::enemy::RangeDummy;
+    use warden::systems::range::{RangeLedger, RangeState};
+
+    fn enter_range(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<DebugScenarioQueue>()
+            .0
+            .push(Scenario::Range);
+    }
+
+    fn dummy_count(app: &mut App) -> usize {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Transform, With<RangeDummy>>();
+        q.iter(app.world()).count()
+    }
+
+    fn dummy_positions(app: &mut App) -> Vec<Vec3> {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Transform, With<RangeDummy>>();
+        q.iter(app.world()).map(|t| t.translation).collect()
+    }
+
+    /// SM3R acceptance: the range lands one attacker + three STATIONARY
+    /// dummies; the real fire pipeline damages them and the ledger
+    /// accumulates (total damage / hits).
+    #[test]
+    fn range_fires_at_stationary_dummies_and_ledgers() {
+        let mut app = debug_app();
+        app.update();
+        enter_range(&mut app);
+        for _ in 0..3 {
+            app.update(); // executor -> maintenance reset lands the board
+        }
+        let mut towers = app.world_mut().query::<&Tower>();
+        assert_eq!(towers.iter(app.world()).count(), 1, "one attacker tower");
+        assert_eq!(dummy_count(&mut app), 3, "three dummies");
+        // Dummies never move (RangeDummy is excluded from path movement).
+        let before = dummy_positions(&mut app);
+        for _ in 0..60 {
+            app.update();
+        }
+        let mut after = dummy_positions(&mut app);
+        // Query iteration order is arbitrary — compare as sorted sets.
+        let mut before = before;
+        before.sort_by_key(|v| (v.x.to_bits(), v.z.to_bits()));
+        after.sort_by_key(|v| (v.x.to_bits(), v.z.to_bits()));
+        assert_eq!(before, after, "dummies are stationary");
+        // The real pipeline fires: after 5 s the ledger has real damage
+        // (archer: 10 dmg, 1/s — dummies are ordinary, no healers).
+        for _ in 0..300 {
+            app.update();
+        }
+        let l = app.world().resource::<RangeLedger>();
+        assert!(
+            l.total >= 10.0,
+            "ledger accumulated damage (total {})",
+            l.total
+        );
+        assert!(l.hits >= 1, "ledger counted hits ({})", l.hits);
+    }
+
+    /// SM3R acceptance: a killed dummy (real death path) is replaced, and a
+    /// reset respawns everything and zeroes the ledger.
+    #[test]
+    fn range_respawns_dead_dummy_and_resets() {
+        let mut app = debug_app();
+        app.update();
+        enter_range(&mut app);
+        for _ in 0..3 {
+            app.update();
+        }
+        // Kill one dummy through the real hp field: death despawns (+gold),
+        // maintenance refills the row.
+        {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<&mut Enemy, With<RangeDummy>>();
+            let Some(mut first) = q.iter_mut(app.world_mut()).next() else {
+                panic!("dummies on the board");
+            };
+            first.hp = 0.0;
+        }
+        app.update(); // death settles
+        app.update(); // maintenance refills
+        app.update(); // spawn lands
+        assert_eq!(dummy_count(&mut app), 3, "dead dummy replaced");
+        // Reset: fresh board, ledger zeroed.
+        app.world_mut().resource_mut::<RangeState>().reset = true;
+        app.update();
+        app.update();
+        let l = app.world().resource::<RangeLedger>();
+        assert_eq!(l.total, 0.0, "reset zeroes the ledger");
+        assert_eq!(dummy_count(&mut app), 3, "reset respawns the dummies");
+        let mut towers = app.world_mut().query::<&Tower>();
+        assert_eq!(towers.iter(app.world()).count(), 1, "attacker respawned");
     }
 }

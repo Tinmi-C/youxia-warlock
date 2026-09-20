@@ -40,6 +40,7 @@ fn build_debug(app: &mut App) {
     use crate::sets::GameSet;
     use crate::systems::debug as dbg;
     use crate::systems::debug_time as db3;
+    use crate::systems::range as rng;
 
     app.init_resource::<FpsLog>()
         .init_resource::<dbg::DebugQueue>()
@@ -54,9 +55,12 @@ fn build_debug(app: &mut App) {
         // only registers the catalog on scenario entry. Added after
         // EguiPlugin so the list panel wires up.
         .add_plugins(showroom_viewer::ShowroomPlugin)
+            // SM3R: range maintenance + ledger run whenever the range is
+            // active (guards inside on RangeState existing).
+            .add_systems(Update, (rng::range_maintain, rng::range_ledger))
         .add_systems(
             bevy_egui::EguiPrimaryContextPass,
-            debug_panel_ui,
+            (debug_panel_ui, rng::range_panel_ui),
         )
         .add_systems(Update, (log_dashboard, screenshot_on_f12, dbg::debug_panel_toggle))
         // The single cheat drain point runs in Input so the same frame's
