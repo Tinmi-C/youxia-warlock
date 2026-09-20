@@ -121,15 +121,19 @@ fn scan_and_enter(world: &mut World) {
     let server = world.resource::<AssetServer>();
     let mut catalog = ShowroomCatalog::build().category("Files");
     for f in found {
-        let info = std::fs::metadata(root_dir.join(&f.rel))
+        let size = std::fs::metadata(root_dir.join(&f.rel))
             .map(|m| format!("{:.1} MiB", m.len() as f64 / (1 << 20) as f64))
             .unwrap_or_else(|_| "? MiB".into());
+        let info_rows = vec![("Size".to_string(), size)];
+        let tags = vec![f.label.clone()];
         let rel = f.rel.clone();
         // Whole-file handle: named clips feed the studio's clip browser.
         let gltf = server.load::<bevy::gltf::Gltf>(rel.clone());
         catalog = catalog.item(ShowroomItem {
-            name: f.label,
-            info,
+            name: f.label.clone(),
+            info_rows,
+            tags,
+            origin: vec![],
             plate: None,
             anchor_y: 0.0,
             plate_y: 2.0,

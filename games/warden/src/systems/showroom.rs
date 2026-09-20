@@ -73,15 +73,21 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
             i + 1,
             n_towers
         );
-        let info = format!(
-            "dmg {:.0} · atk {}/s\nrange {:.0} · {:?}\ncost {}",
-            def.damage, def.attack_speed, def.range, def.attack_type, def.cost
-        );
+        let info_rows = vec![
+            ("Damage".into(), format!("{:.0}", def.damage)),
+            ("Attack speed".into(), format!("{}/s", def.attack_speed)),
+            ("Range".into(), format!("{:.0}", def.range)),
+            ("Type".into(), format!("{:?}", def.attack_type)),
+            ("Cost".into(), format!("{}", def.cost)),
+        ];
+        let tags = vec![def.name.to_string(), def.label.to_string(), "tower".into()];
         // Catalog closures are 'static — the def must be owned, not borrowed.
         let def = def.clone();
         builder = builder.item(ShowroomItem {
             name: def.name.to_string(),
-            info,
+            info_rows,
+            tags,
+            origin: vec![],
             plate: Some(plate),
             anchor_y: 0.6,
             plate_y: 2.4,
@@ -108,20 +114,26 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
             towers.list.len() + j + 1,
             n_towers
         );
-        let info = format!(
-            "dmg {:.0} · atk {}/s\nrange {:.0} · {:?}\naoe {:.1} · slow {:.2}/{:.1}s",
-            def.damage,
-            def.attack_speed,
-            def.range,
-            def.attack_type,
-            def.aoe_radius,
-            def.slow_factor,
-            def.slow_duration
-        );
+        let info_rows = vec![
+            ("Damage".into(), format!("{:.0}", def.damage)),
+            ("Attack speed".into(), format!("{}/s", def.attack_speed)),
+            ("Range".into(), format!("{:.0}", def.range)),
+            ("Type".into(), format!("{:?}", def.attack_type)),
+            ("AOE".into(), format!("{:.1}", def.aoe_radius)),
+            ("Slow".into(), format!("{:.2}/{:.1}s", def.slow_factor, def.slow_duration)),
+        ];
+        let tags = vec![
+            def.name.to_string(),
+            def.label.to_string(),
+            "tower".into(),
+            "fusion".into(),
+        ];
         let kind = def.kind;
         builder = builder.item(ShowroomItem {
             name: def.name.to_string(),
-            info,
+            info_rows,
+            tags,
+            origin: vec![],
             plate: Some(plate),
             anchor_y: 0.6,
             plate_y: 2.4,
@@ -148,15 +160,15 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
             i + 1,
             enemies.list.len()
         );
-        let info = format!(
-            "hp {:.0} · speed {:.1}\narmor {} · healer {}\nleak {} · gold {}",
-            def.hp,
-            def.speed,
-            def.physical_armor,
-            def.healer,
-            def.leak,
-            def.kill_gold
-        );
+        let info_rows = vec![
+            ("HP".into(), format!("{:.0}", def.hp)),
+            ("Speed".into(), format!("{:.1}", def.speed)),
+            ("Armor".into(), format!("{}", def.physical_armor)),
+            ("Healer".into(), format!("{}", def.healer)),
+            ("Leak".into(), format!("{}", def.leak)),
+            ("Kill gold".into(), format!("{}", def.kill_gold)),
+        ];
+        let tags = vec![def.name.to_string(), def.label.to_string(), "enemy".into()];
         let (item, anchor_y, plate_y) = match server
             .zip(ENEMY_MODELS.get(i).copied())
         {
@@ -168,7 +180,9 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
                 let scale = ENEMY_SCALES.get(i).copied().unwrap_or(0.8);
                 let item = ShowroomItem {
                     name: def.name.to_string(),
-                    info,
+                    info_rows: info_rows.clone(),
+                    tags: tags.clone(),
+                    origin: vec![],
                     plate: Some(plate),
                     anchor_y: 0.0, // feet-origin models sit on the pad
                     plate_y: 2.0,
@@ -190,7 +204,9 @@ fn build_catalog(world: &World) -> ShowroomCatalog {
                 let color = enemy_base_color(def);
                 let item = ShowroomItem {
                     name: def.name.to_string(),
-                    info,
+                    info_rows: info_rows.clone(),
+                    tags: tags.clone(),
+                    origin: vec![],
                     plate: Some(plate),
                     anchor_y: 0.4,
                     plate_y: 1.7,

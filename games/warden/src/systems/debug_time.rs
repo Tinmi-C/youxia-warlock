@@ -120,7 +120,13 @@ pub fn debug_time_clock(
     time: Res<Time>,
     mut virt: ResMut<Time<Virtual>>,
     mut dt: ResMut<DebugTime>,
+    showroom: Option<Res<showroom_viewer::ShowroomState>>,
 ) {
+    // Clock ownership: while the showroom studio is active its own playback
+    // control owns Time<Virtual> (SM5); DB3 yields to avoid unpausing it.
+    if showroom.is_some() {
+        return;
+    }
     let delta = time.delta_secs();
     // Spend this frame's delta against a running step budget; a spent budget
     // re-engages the pause from the next frame on.

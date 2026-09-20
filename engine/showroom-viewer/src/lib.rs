@@ -25,19 +25,27 @@ pub const SHOWROOM_PAD_RADIUS: f32 = 1.7;
 /// Orbit target height (roughly the exhibit's mid-body).
 pub const ORBIT_TARGET: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 
-/// The browser cursor + what is currently on the pad. `spawned` differing
-/// from the wanted stage (mode, category, item) is the single respawn
-/// trigger — keys and the egui panel both only move the cursor, one present
-/// system does the swapping. `gallery` lays the WHOLE current category out
-/// in a grid instead of one exhibit (SM1 v2.3): every item on stage at once,
-/// each with its own name plate and auto-idle animation; clicking an exhibit
-/// (or a list entry) returns to focus mode with that item.
+/// The browser cursor + what is currently on the pad. The stage key
+/// (query, gallery, category, item) differing from what is staged is the
+/// single respawn trigger — keys and the egui panel both only move the
+/// cursor, one present system does the swapping. `gallery` lays the WHOLE
+/// current category (or, with an active search, the hit set) out in a
+/// grid; clicking an exhibit (or a list entry) returns to focus mode.
 #[derive(Resource)]
 pub struct ShowroomState {
     pub category: usize,
     pub item: usize,
     pub gallery: bool,
-    stage: Option<(bool, usize, usize)>, // (gallery, category, item-as-0-in-gallery)
+    stage: Option<Stage>,
+}
+
+/// What is currently staged (respawn whenever the wanted stage differs).
+#[derive(PartialEq)]
+struct Stage {
+    query: String,
+    gallery: bool,
+    category: usize,
+    item: usize,
 }
 
 impl ShowroomState {
@@ -47,12 +55,12 @@ impl ShowroomState {
         self.item = item;
     }
 
-    /// The stage key that decides whether a respawn is needed.
-    fn wanted_stage(&self) -> (bool, usize, usize) {
-        if self.gallery {
-            (true, self.category, 0)
-        } else {
-            (false, self.category, self.item)
+    fn wanted_stage(&self, query: &str) -> Stage {
+        Stage {
+            query: query.to_string(),
+            gallery: self.gallery,
+            category: self.category,
+            item: self.item,
         }
     }
 }
@@ -144,8 +152,13 @@ pub struct ShowroomCategory {
 pub struct ShowroomItem {
     /// Panel label.
     pub name: String,
-    /// Stats block shown under "On the pad" (preformatted by the game).
-    pub info: String,
+    /// Asset card: structured label/value rows (extensible — N4).
+    pub info_rows: Vec<(String, String)>,
+    /// Search/filter metadata (name is always searchable; tags add type,
+    /// localized names, composition parts, provenance ids, ...).
+    pub tags: Vec<String>,
+    /// Provenance rows (filled by the game from its asset manifest; P2).
+    pub origin: Vec<Origin>,
     /// World-space plate text (None or no font => no plate).
     pub plate: Option<String>,
     /// Root anchor height (match the in-game placement anchor).
@@ -157,6 +170,69 @@ pub struct ShowroomItem {
     pub gltf: Option<Handle<bevy::gltf::Gltf>>,
     #[allow(clippy::type_complexity)]
     pub spawn: Box<dyn Fn(&mut Commands, Entity, &mut SpawnCtx) + Send + Sync>,
+}
+
+/// Where a catalog entry (or one part of a composition) comes from.
+#[derive(Clone)]
+pub enum Origin {
+    /// A vault asset (ADR-0009): id + pinned version + human name.
+    Vault {
+        name: String,
+        id: String,
+        version: String,
+        /// Part role inside a composition (e.g. "tower body" / "ballista").
+        role: Option<String>,
+    },
+    /// Made/adjusted game-side; not (yet) backflowed to the vault.
+    GameLocal { note: Option<String> },
+}
+
+impl Origin {
+    /// One card row for this origin.
+    pub fn row(&self) -> String {
+        match self {
+            Origin::Vault { name, id, version, role } => {
+                let r = role
+                    .as_ref()
+                    .map(|s| format!(" · {s}"))
+                    .unwrap_or_default();
+                format!("{name} v{version}{r} · {id}")
+            }
+            Origin::GameLocal { note } => note
+                .as_ref()
+                .map(|s| format!("游戏本地 · {s}"))
+                .unwrap_or_else(|| "游戏本地".into()),
+        }
+    }
+}
+
+/// Search state: empty text = no filtering. Matching is a case-insensitive
+/// substring over name + tags; hits flatten across categories.
+#[derive(Resource, Default)]
+pub struct SearchQuery {
+    pub text: String,
+}
+
+/// Playback time control (SM5): writes the virtual clock, so animations,
+/// the turntable and everything else slow/freeze coherently. `step` lets
+/// exactly N frames run while paused.
+#[derive(Resource)]
+pub struct ShowroomTime {
+    pub paused: bool,
+    pub speed: f32,
+    pub step: u32,
+}
+
+impl Default for ShowroomTime {
+    fn default() -> Self {
+        Self { paused: false, speed: 1.0, step: 0 }
+    }
+}
+
+/// Turntable auto-rotate toggle (SM5).
+#[derive(Resource, Default)]
+pub struct ShowroomTurntable {
+    pub on: bool,
 }
 
 /// What the spawn closure may use to assemble the exhibit (mutable:\            
@@ -295,7 +371,7 @@ pub fn enter_studio(world: &mut World, catalog: ShowroomCatalog, font: FontSourc
             ..default()
         },
     ));
-    // 4) Catalog + browser state.
+    // 4) Catalog + browser state (+ search/time/turntable defaults).
     world.insert_resource(catalog);
     world.insert_resource(ShowroomFont(font));
     world.insert_resource(ShowroomState {
@@ -305,6 +381,9 @@ pub fn enter_studio(world: &mut World, catalog: ShowroomCatalog, font: FontSourc
         stage: None,
     });
     world.init_resource::<ShowroomOrbit>();
+    world.init_resource::<SearchQuery>();
+    world.init_resource::<ShowroomTime>();
+    world.init_resource::<ShowroomTurntable>();
     info!("[sm] studio showroom entered (Tab/arrows or panel; drag orbit, wheel zoom)");
 }
 
@@ -331,15 +410,21 @@ impl Plugin for ShowroomPlugin {
             .add_systems(Update, showroom_sweep)
             .add_systems(Update, showroom_animate)
             .add_systems(Update, showroom_pick)
+            .add_systems(Update, showroom_time_control)
             .add_systems(Update, showroom_orbit);
     }
 }
 
-/// Browse keys: Tab cycles category, ←/→ cycles the item. Only moves the
-/// cursor; `showroom_present` swaps.
+/// Browse keys: Tab cycles category, ←/→ cycles the item, G toggles the
+/// gallery grid, T the turntable, R resets the camera. Typing into the
+/// panel's search box suspends them (panel sets the keyboard flag). Only
+/// moves the cursor; `showroom_present` swaps.
 pub fn showroom_keys(
     keys: Res<ButtonInput<KeyCode>>,
-    state: Option<ResMut<ShowroomState>>,
+    mut state: Option<ResMut<ShowroomState>>,
+    mut orbit: Option<ResMut<ShowroomOrbit>>,
+    mut turntable: Option<ResMut<ShowroomTurntable>>,
+    panel_keyboard: Option<Res<PanelKeyboard>>,
     catalog: Option<Res<ShowroomCatalog>>,
 ) {
     let Some(mut state) = state else {
@@ -348,6 +433,19 @@ pub fn showroom_keys(
     let Some(catalog) = catalog else {
         return;
     };
+    if panel_keyboard.map(|p| p.0).unwrap_or(false) {
+        return;
+    }
+    if keys.just_pressed(KeyCode::KeyR) {
+        if let Some(o) = orbit.as_mut() {
+            **o = ShowroomOrbit::default();
+        }
+    }
+    if keys.just_pressed(KeyCode::KeyT) {
+        if let Some(t) = turntable.as_mut() {
+            t.on = !t.on;
+        }
+    }
     let len = |c: usize| {
         catalog
             .categories
@@ -372,11 +470,33 @@ pub fn showroom_keys(
     }
 }
 
-/// The single stage-swap point: whenever the wanted stage (mode/category/
-/// item) differs from what is on the floor, despawn everything and rebuild.
-/// Focus mode puts ONE exhibit on the pad; gallery mode lays the whole
-/// current category out in a grid — every item on stage at once, each with
-/// its own name plate and auto-idle clip, pull-back camera to frame it.
+/// Case-insensitive substring match over name + tags, flattened across
+/// categories (SM6).
+fn matching(catalog: &ShowroomCatalog, q: &str) -> Vec<(usize, usize)> {
+    catalog
+        .categories
+        .iter()
+        .enumerate()
+        .flat_map(|(c, cat)| {
+            cat.items
+                .iter()
+                .enumerate()
+                .filter_map(move |(i, it)| {
+                    let name_hit = it.name.to_lowercase().contains(q);
+                    let tag_hit = it.tags.iter().any(|t| t.to_lowercase().contains(q));
+                    (name_hit || tag_hit).then_some((c, i))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The single stage-swap point: whenever the wanted stage (query/mode/
+/// category/item) differs from what is on the floor, despawn everything
+/// and rebuild. Focus mode puts ONE exhibit on the pad (search keeps the
+/// current item only while it matches, else jumps to the first hit);
+/// gallery mode lays the current category — or, with an active search, the
+/// flattened hit set — out in a grid.
 #[allow(clippy::too_many_arguments)]
 pub fn showroom_present(
     mut commands: Commands,
@@ -384,6 +504,7 @@ pub fn showroom_present(
     mut orbit: Option<ResMut<ShowroomOrbit>>,
     exhibits: Query<Entity, With<ShowroomExhibit>>,
     catalog: Option<Res<ShowroomCatalog>>,
+    query: Option<Res<SearchQuery>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     server: Option<Res<AssetServer>>,
@@ -395,16 +516,24 @@ pub fn showroom_present(
     let Some(catalog) = catalog else {
         return;
     };
-    let wanted = state.wanted_stage();
-    if state.stage == Some(wanted) {
-        return;
+    let query = query
+        .map(|q| q.text.trim().to_lowercase())
+        .unwrap_or_default();
+    let hits = if query.is_empty() {
+        None
+    } else {
+        Some(matching(&catalog, &query))
+    };
+    // Search-guided focus: the current item stays only while it matches.
+    if let Some(hits) = &hits {
+        if !state.gallery && !hits.contains(&(state.category, state.item)) {
+            if let Some(&(c, i)) = hits.first() {
+                state.select(c, i);
+            }
+        }
     }
-    let items = catalog
-        .categories
-        .get(state.category)
-        .map(|c| c.items.as_slice())
-        .unwrap_or(&[]);
-    if items.is_empty() {
+    let wanted = state.wanted_stage(&query);
+    if state.stage.as_ref() == Some(&wanted) {
         return;
     }
     for e in &exhibits {
@@ -417,33 +546,53 @@ pub fn showroom_present(
     };
     let plate_font = font.map(|f| f.0.clone()).unwrap_or_default();
 
-    // What goes on stage: focus = the one item at the origin; gallery =
-    // every item of the category in a centered grid.
-    let mut stage: Vec<(usize, &ShowroomItem, Vec3)> = Vec::new();
+    let mut stage: Vec<(usize, usize, &ShowroomItem, Vec3)> = Vec::new();
     if state.gallery {
         const SPACING: f32 = 3.4;
-        let cols = (items.len() as f32).sqrt().ceil().max(1.0) as usize;
-        let rows = (items.len() + cols - 1) / cols;
-        for (i, item) in items.iter().enumerate() {
-            let (col, row) = (i % cols, i / cols);
+        let set: Vec<(usize, usize)> = hits.unwrap_or_else(|| {
+            (0..catalog.categories.get(state.category).map(|c| c.items.len()).unwrap_or(0))
+                .map(|i| (state.category, i))
+                .collect()
+        });
+        if set.is_empty() {
+            return;
+        }
+        let cols = (set.len() as f32).sqrt().ceil().max(1.0) as usize;
+        let rows = (set.len() + cols - 1) / cols;
+        for (n, &(c, i)) in set.iter().enumerate() {
+            let Some(item) = catalog.categories.get(c).and_then(|cat| cat.items.get(i)) else {
+                continue;
+            };
+            let (col, row) = (n % cols, n / cols);
             let x = (col as f32 - (cols - 1) as f32 / 2.0) * SPACING;
             let z = (row as f32 - (rows - 1) as f32 / 2.0) * SPACING;
-            stage.push((i, item, Vec3::new(x, item.anchor_y, z)));
+            stage.push((c, i, item, Vec3::new(x, item.anchor_y, z)));
         }
-        // Pull the camera back enough to frame the grid (clamped by orbit).
         if let Some(orbit) = orbit.as_mut() {
             let extent = cols.max(rows) as f32 * SPACING;
             orbit.dist = (extent * 1.35).clamp(6.5, 15.5);
         }
         info!(
             "[sm] gallery: {} items on stage ({cols}x{rows})",
-            items.len()
+            set.len()
         );
     } else {
-        stage.push((state.item, &items[state.item % items.len()], Vec3::new(0.0, items[state.item % items.len()].anchor_y, 0.0)));
+        let Some(item) = catalog
+            .categories
+            .get(state.category)
+            .and_then(|c| c.items.get(state.item))
+        else {
+            return;
+        };
+        stage.push((
+            state.category,
+            state.item,
+            item,
+            Vec3::new(0.0, item.anchor_y, 0.0),
+        ));
     }
 
-    for (idx, item, pos) in stage {
+    for (cat_idx, idx, item, pos) in stage {
         let mut ec = commands.spawn((
             ShowroomExhibit,
             Visibility::Visible,
@@ -452,7 +601,7 @@ pub fn showroom_present(
         let root = ec.id();
         if state.gallery {
             ec.insert(ShowroomGalleryItem {
-                category: state.category,
+                category: cat_idx,
                 item: idx,
             });
         }
@@ -669,15 +818,46 @@ fn find_animation_player(
         .find_map(|k| find_animation_player(k, children, players))
 }
 
+/// SM5: apply the playback time control to the virtual clock while the
+/// studio is active. Pause freezes everything coherently (animations,
+/// turntable); `step` lets exactly N frames through; `speed` scales them.
+/// Mirrors warden's DB3 mechanism (same clock, same semantics).
+pub fn showroom_time_control(
+    state: Option<Res<ShowroomState>>,
+    mut tm: Option<ResMut<ShowroomTime>>,
+    mut virt: ResMut<Time<Virtual>>,
+) {
+    if state.is_none() {
+        return;
+    }
+    let Some(mut tm) = tm else {
+        return;
+    };
+    if tm.paused {
+        if tm.step > 0 {
+            tm.step -= 1;
+            virt.unpause();
+            virt.set_relative_speed(tm.speed);
+        } else {
+            virt.pause();
+        }
+    } else {
+        virt.unpause();
+        virt.set_relative_speed(tm.speed);
+    }
+}
+
 /// Orbit + zoom camera: left-drag orbits around the exhibit, wheel zooms.
 /// Pointer over any egui panel disables both (the panel sets the capture).
 pub fn showroom_orbit(
+    time: Res<Time>,
     buttons: Res<ButtonInput<bevy::input::mouse::MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mut panel_pointer: Option<ResMut<PanelPointer>>,
     state: Option<Res<ShowroomState>>,
-    orbit: Option<ResMut<ShowroomOrbit>>,
+    turntable: Option<Res<ShowroomTurntable>>,
+    mut orbit: Option<ResMut<ShowroomOrbit>>,
     mut cameras: Query<&mut Transform, With<Camera>>,
 ) {
     if state.is_none() {
@@ -690,6 +870,9 @@ pub fn showroom_orbit(
     if !over_panel && buttons.pressed(bevy::input::mouse::MouseButton::Left) {
         orbit.yaw_deg += motion.delta.x * 0.4;
         orbit.pitch_deg = (orbit.pitch_deg + motion.delta.y * 0.3).clamp(8.0, 80.0);
+    }
+    if turntable.map(|t| t.on).unwrap_or(false) {
+        orbit.yaw_deg += time.delta_secs() * 30.0; // virtual dt: pauses with playback
     }
     for ev in wheel.read() {
         orbit.dist = (orbit.dist - ev.y * 0.8).clamp(2.2, 16.0);
@@ -708,12 +891,24 @@ pub fn showroom_orbit(
 #[derive(Resource, Default)]
 pub struct PanelPointer(pub bool);
 
-/// The egui asset list (left docked window): click a def to put it on the
-/// pad, read its info below. Also flags pointer-over-panel for the orbit.
+/// Keyboard-focus-on-egui flag (typing in the search box suspends the
+/// browse/pick hotkeys).
+#[derive(Resource, Default)]
+pub struct PanelKeyboard(pub bool);
+
+/// The egui operation panel (SM5 v2): the single complete surface for the
+/// tool — search, mode/view controls, playback time control, category list
+/// (filtered), the current asset's card (info rows + origins + tags) and
+/// the clip browser. Hotkeys stay as accelerators.
 pub fn showroom_panel_ui(
     mut contexts: bevy_egui::EguiContexts,
     mut panel_pointer: Option<ResMut<PanelPointer>>,
-    state: Option<ResMut<ShowroomState>>,
+    mut panel_keyboard: Option<ResMut<PanelKeyboard>>,
+    mut state: Option<ResMut<ShowroomState>>,
+    mut query: Option<ResMut<SearchQuery>>,
+    mut time: Option<ResMut<ShowroomTime>>,
+    mut turntable: Option<ResMut<ShowroomTurntable>>,
+    mut orbit: Option<ResMut<ShowroomOrbit>>,
     catalog: Option<Res<ShowroomCatalog>>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     mut anims: Query<&mut ShowroomAnim>,
@@ -731,45 +926,129 @@ pub fn showroom_panel_ui(
     if let Some(p) = panel_pointer.as_mut() {
         p.0 = over;
     }
+    let typing = ctx.egui_wants_keyboard_input();
+    if let Some(k) = panel_keyboard.as_mut() {
+        k.0 = typing;
+    }
     use bevy_egui::egui;
     egui::Window::new("Showroom")
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
         .movable(false)
         .resizable(false)
         .collapsible(false)
-        .default_width(240.0)
+        .default_width(250.0)
         .show(ctx, |ui| {
             ui.heading("Showroom");
-            ui.separator();
-            if ui
-                .button(if state.gallery {
-                    "Focus [G]"
-                } else {
-                    "Gallery [G]"
-                })
-                .clicked()
-            {
-                state.gallery = !state.gallery;
+            // --- search (SM6) ---
+            if let Some(q) = query.as_mut() {
+                ui.add(egui::TextEdit::singleline(&mut q.text).hint_text("search name/tags..."));
+            }
+            // --- mode & view (SM5) ---
+            ui.horizontal(|ui| {
+                if ui
+                    .button(if state.gallery { "Focus [G]" } else { "Gallery [G]" })
+                    .clicked()
+                {
+                    state.gallery = !state.gallery;
+                }
+                if ui.button("Reset view [R]").clicked() {
+                    if let Some(o) = orbit.as_mut() {
+                        **o = ShowroomOrbit::default();
+                    }
+                }
+                if let Some(t) = turntable.as_mut() {
+                    if ui
+                        .button(if t.on { "Turntable ON [T]" } else { "Turntable [T]" })
+                        .clicked()
+                    {
+                        t.on = !t.on;
+                    }
+                }
+            });
+            // --- playback time control (SM5) ---
+            if let Some(tm) = time.as_mut() {
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(if tm.paused { "Resume" } else { "Pause" })
+                        .clicked()
+                    {
+                        tm.paused = !tm.paused;
+                    }
+                    if ui.button("Step").clicked() {
+                        tm.step = 1;
+                    }
+                    for s in [0.25, 0.5, 1.0, 2.0] {
+                        if ui
+                            .selectable_label(tm.speed == s, format!("{s}x"))
+                            .clicked()
+                        {
+                            tm.speed = s;
+                        }
+                    }
+                });
             }
             ui.separator();
-            for (c, cat) in catalog.categories.iter().enumerate() {
-                ui.label(cat.name.clone());
-                for (i, item) in cat.items.iter().enumerate() {
+            // --- category list / search results (SM6) ---
+            let q = query
+                .as_ref()
+                .map(|q| q.text.trim().to_lowercase())
+                .unwrap_or_default();
+            if q.is_empty() {
+                for (c, cat) in catalog.categories.iter().enumerate() {
+                    egui::CollapsingHeader::new(cat.name.clone())
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            for (i, item) in cat.items.iter().enumerate() {
+                                let selected = state.category == c && state.item == i;
+                                if ui
+                                    .selectable_label(selected, format!("  {}", item.name))
+                                    .clicked()
+                                {
+                                    state.select(c, i);
+                                }
+                            }
+                        });
+                }
+            } else {
+                let hits = matching(&catalog, &q);
+                ui.label(format!("Results ({})", hits.len()));
+                for &(c, i) in &hits {
+                    let name = &catalog.categories[c].items[i].name;
                     let selected = state.category == c && state.item == i;
-                    if ui.selectable_label(selected, format!("  {}", item.name)).clicked() {
+                    if ui
+                        .selectable_label(selected, format!("  {name}"))
+                        .clicked()
+                    {
                         state.select(c, i);
                     }
                 }
-                ui.separator();
             }
+            ui.separator();
+            // --- asset card (SM6/SM7) ---
             if let Some(item) = catalog
                 .categories
                 .get(state.category)
                 .and_then(|c| c.items.get(state.item))
             {
                 ui.label("On the pad");
-                ui.monospace(item.info.clone());
-                // SM2: clip browser for animated exhibits (Space cycles too).
+                for (k, v) in &item.info_rows {
+                    ui.horizontal(|ui| {
+                        ui.label(k.clone());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.monospace(v.clone());
+                        });
+                    });
+                }
+                if !item.origin.is_empty() {
+                    ui.label("Origins");
+                    for o in &item.origin {
+                        ui.small(o.row());
+                    }
+                }
+                if !item.tags.is_empty() {
+                    ui.small(format!("tags: {}", item.tags.join(", ")));
+                }
+                // --- clip browser (SM2) ---
                 if let Ok(mut anim) = anims.single_mut() {
                     if let Some(gltf) = gltfs.get(&anim.gltf) {
                         let mut clips: Vec<(&Box<str>, &Handle<AnimationClip>)> =
@@ -794,6 +1073,6 @@ pub fn showroom_panel_ui(
                 }
             }
             ui.separator();
-            ui.small("Tab/arrows switch · drag orbit · wheel zoom");
+            ui.small("Tab/arrows · G gallery · R reset view · T turntable · drag orbit · wheel zoom");
         });
 }

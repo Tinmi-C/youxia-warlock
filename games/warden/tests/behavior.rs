@@ -4944,6 +4944,7 @@ mod showroom {
     use warden::systems::showroom::{
         ShowroomExhibit, ShowroomFloor, ShowroomLight, ShowroomPad, ShowroomPlate, ShowroomState,
     };
+    use showroom_viewer::ShowroomOrbit;
 
     fn enter(app: &mut App) {
         app.world_mut()
@@ -5274,5 +5275,120 @@ mod showroom {
         assert_eq!(count_exhibits(&mut app), n_towers);
         press(&mut app, KeyCode::KeyG);
         assert_eq!(count_exhibits(&mut app), 1);
+    }
+
+    /// SM6 acceptance: search filters by name/tags, drives focus to the
+    /// first hit, and flattens the hit set in gallery mode.
+    #[test]
+    fn showroom_search_filters_focus_and_gallery() {
+        let mut app = debug_app();
+        app.update();
+        enter(&mut app);
+        app.update();
+        app.update();
+        // "mage" hits the mage tower by name; focus auto-jumps to it.
+        app.world_mut()
+            .resource_mut::<showroom_viewer::SearchQuery>()
+            .text = "mage".into();
+        app.update();
+        app.update(); // present reacts to the stage change
+        assert_eq!(count_exhibits(&mut app), 1);
+        assert!(
+            plate_text(&mut app).contains("法师塔"),
+            "focus jumps to the first hit (plate '{}')",
+            plate_text(&mut app)
+        );
+        // Chinese tag search: the zh label is a searchable tag.
+        app.world_mut()
+            .resource_mut::<showroom_viewer::SearchQuery>()
+            .text = "弓箭手".into();
+        app.update();
+        app.update();
+        assert!(plate_text(&mut app).contains("弓箭手塔"), "zh tag matches");
+        // Gallery + search: the flattened hit set goes on stage ("enemy"
+        // tag matches all six enemies, none of the towers).
+        app.world_mut()
+            .resource_mut::<showroom_viewer::ShowroomState>()
+            .gallery = true;
+        app.world_mut()
+            .resource_mut::<showroom_viewer::SearchQuery>()
+            .text = "enemy".into();
+        app.update();
+        app.update();
+        assert_eq!(count_exhibits(&mut app), 6, "six enemies match the tag");
+        // Clearing the query restores the plain category gallery.
+        app.world_mut()
+            .resource_mut::<showroom_viewer::SearchQuery>()
+            .text = String::new();
+        app.update();
+        app.update();
+        let n_towers = app.world().resource::<TowerDefs>().list.len()
+            + app.world().resource::<FusionDefs>().list.len();
+        assert_eq!(count_exhibits(&mut app), n_towers, "empty query = full category");
+    }
+
+    /// SM5 acceptance: playback time control writes the virtual clock
+    /// (pause freezes, step lets one frame through), the turntable rotates,
+    /// and R resets the camera.
+    #[test]
+    fn showroom_time_control_turntable_and_view_reset() {
+        let mut app = debug_app();
+        app.update();
+        enter(&mut app);
+        app.update();
+        app.update();
+        // Pause freezes the virtual clock.
+        {
+            let mut tm = app
+                .world_mut()
+                .resource_mut::<showroom_viewer::ShowroomTime>();
+            tm.paused = true;
+        }
+        app.update();
+        assert!(
+            app.world().resource::<Time<Virtual>>().is_paused(),
+            "panel pause freezes the virtual clock"
+        );
+        // Step lets exactly one frame through, then re-freezes.
+        {
+            let mut tm = app
+                .world_mut()
+                .resource_mut::<showroom_viewer::ShowroomTime>();
+            tm.step = 1;
+        }
+        app.update(); // stepped frame
+        app.update(); // re-frozen
+        assert!(
+            app.world().resource::<Time<Virtual>>().is_paused(),
+            "step re-freezes after one frame"
+        );
+        // Speed writes through.
+        {
+            let mut tm = app
+                .world_mut()
+                .resource_mut::<showroom_viewer::ShowroomTime>();
+            tm.paused = false;
+            tm.speed = 0.5;
+        }
+        app.update();
+        assert!((app.world().resource::<Time<Virtual>>().relative_speed() - 0.5).abs() < 1e-3);
+        // Turntable rotates the yaw over time (virtual dt; unpaused here).
+        {
+            let mut t = app
+                .world_mut()
+                .resource_mut::<showroom_viewer::ShowroomTurntable>();
+            t.on = true;
+        }
+        let yaw0 = app.world().resource::<showroom_viewer::ShowroomOrbit>().yaw_deg;
+        for _ in 0..30 {
+            app.update();
+        }
+        let yaw1 = app.world().resource::<showroom_viewer::ShowroomOrbit>().yaw_deg;
+        assert!(yaw1 - yaw0 > 1.0, "turntable rotates ({} -> {yaw1})", yaw0);
+        // R resets the camera pose to defaults.
+        press(&mut app, KeyCode::KeyR);
+        let o = app.world().resource::<showroom_viewer::ShowroomOrbit>();
+        assert_eq!(o.yaw_deg, ShowroomOrbit::default().yaw_deg);
+        assert_eq!(o.dist, ShowroomOrbit::default().dist);
     }
 }
