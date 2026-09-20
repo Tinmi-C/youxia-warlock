@@ -22,6 +22,7 @@ pub fn wave_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    server: Option<Res<AssetServer>>,
 ) {
     if wave.phase != WavePhase::Combat || wave.spawn_queue.is_empty() {
         return;
@@ -36,6 +37,7 @@ pub fn wave_spawn(
                 index,
                 &mut *meshes,
                 &mut *materials,
+                server.as_deref(),
             );
             wave.active += 1;
         }

@@ -32,6 +32,82 @@
         "path_cobblestone_diff_1k.jpg": "textures/path_cobblestone_diff_1k.jpg",
         "path_cobblestone_nor_gl_1k.jpg": "textures/path_cobblestone_nor_gl_1k.jpg"
       }
+    },
+    {
+      "id": "ce21d9c6b19247cdb7ce6aa91418d8ef",
+      "name": "荒隘点缀 props 四件套",
+      "version": 1,
+      "license": "CC0（PolyHaven：dead_quiver_trunk / boulder_01 / tree_stump_01 / dry_branches_medium_01，1k 贴图，pack_gltf_folder.py 打包+原点归一）；ART5",
+      "files": {
+        "prop_dead_quiver_trunk.glb": "models/prop_dead_quiver_trunk.glb",
+        "prop_boulder_01.glb": "models/prop_boulder_01.glb",
+        "prop_tree_stump_01.glb": "models/prop_tree_stump_01.glb",
+        "prop_dry_branches_medium_01.glb": "models/prop_dry_branches_medium_01.glb"
+      }
+    },
+    {
+      "id": "785b039ebd1d4cf499940a6201cdf499",
+      "name": "KayKit Skeleton Minion 骷髅小兵 kaykit_skeleton_minion",
+      "version": 2,
+      "license": "CC0（KayKit Skeletons，作者 Kay Lousberg；v2=岩库 alphaMode BLEND→OPAQUE 修复版，几何/动画未动）；ART11 敌人=普通怪",
+      "files": {
+        "kaykit_skeleton_minion.glb": "models/enemy_minion.glb"
+      }
+    },
+    {
+      "id": "08aba7a551034bd4a4a75c22aa026d98",
+      "name": "KayKit Skeleton Rogue 骷髅刺客 kaykit_skeleton_rogue",
+      "version": 2,
+      "license": "CC0（KayKit Skeletons，作者 Kay Lousberg；v2=alphaMode 修复版）；ART11 敌人=快速怪（配 Run 动画）",
+      "files": {
+        "kaykit_skeleton_rogue.glb": "models/enemy_rogue.glb"
+      }
+    },
+    {
+      "id": "eb5122f7c20341619b9395503c0c6cd3",
+      "name": "KayKit Skeleton Warrior 骷髅战士 kaykit_skeleton_warrior",
+      "version": 2,
+      "license": "CC0（KayKit Skeletons，作者 Kay Lousberg；v2=alphaMode 修复版）；ART11 敌人=盾兵怪",
+      "files": {
+        "kaykit_skeleton_warrior.glb": "models/enemy_warrior.glb"
+      }
+    },
+    {
+      "id": "40d07424137d4bb583aba5402a801743",
+      "name": "KayKit Skeleton Mage 骷髅法师 kaykit_skeleton_mage",
+      "version": 2,
+      "license": "CC0（KayKit Skeletons，作者 Kay Lousberg；v2=alphaMode 修复版）；ART11 敌人=治疗怪",
+      "files": {
+        "kaykit_skeleton_mage.glb": "models/enemy_mage.glb"
+      }
+    },
+    {
+      "id": "3cc5e9d31a014fb49c2a57ca7ace2023",
+      "name": "KayKit Barbarian 蛮族 kaykit_barbarian",
+      "version": 2,
+      "license": "CC0（KayKit Adventurers，作者 Kay Lousberg；v2=alphaMode 修复版）；ART11 敌人=精英（缩放 1.35x）",
+      "files": {
+        "kaykit_barbarian.glb": "models/enemy_elite.glb"
+      }
+    },
+    {
+      "id": "5d93efa63b7f493ebcf6972512f5802c",
+      "name": "KayKit Knight 骑士 kaykit_knight",
+      "version": 2,
+      "license": "CC0（KayKit Adventurers，作者 Kay Lousberg；v2=alphaMode 修复版）；ART11 敌人=BOSS（缩放 1.9x）",
+      "files": {
+        "kaykit_knight.glb": "models/enemy_boss.glb"
+      }
+    },
+    {
+      "id": "6b9bb3035db94267a52cc163a35a261e",
+      "name": "荒隘门楼+入口拱（体块砌筑件）",
+      "version": 3,
+      "license": "自有资产（Blender 体块建模）+ CC0 贴图（PolyHaven castle_wall_varriation 1k）；ART4；v3=轴向修正（v1/v2 模型横躺，数值 bbox 门拦截）",
+      "files": {
+        "structure_gatehouse.glb": "models/structure_gatehouse.glb",
+        "structure_entry_arch.glb": "models/structure_entry_arch.glb"
+      }
     }
   ]
 }

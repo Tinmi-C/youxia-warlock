@@ -46,7 +46,7 @@
 | meta | `plugins/meta.rs`(新增) | 解锁链 |
 | projectiles | `plugins/projectiles.rs`(新增) | 弹体生成/飞行/命中/清场（PR 卡） |
 | fx | `plugins/fx.rs`(新增) | 血条/受击/死亡/状态表现（FX 卡） |
-| debug | `plugins/debug.rs` | 观察通道/调试面板/作弊/场景直达（DB 卡） |
+| debug | `plugins/debug.rs` | 观察通道/调试面板/作弊/场景直达（DB 卡）/展示场（SM 卡） |
 | skills | `plugins/skills.rs`(新增) | 指挥官技能/冷却/施放（SK 卡） |
 
 > 跨领域时序一律走 `GameSet`（`src/sets.rs`），不要手调系统链。
@@ -625,14 +625,34 @@
   （金币0/基地10/10/波次1建造期/下一波普通×5 全吻合），存档 `docs/img/warden_art3_terrain.png`；
   ②③④ `cargo test` 106 条全绿。
 
-### ART4 · 基地与入口体块换装（map·表现层）—— 📝 待立卡
-- 方向稿：基地=石门楼（主楼+双柱+旗杆）、入口=双柱石拱（参照 Blender 稿 Base/Entry 体块）；图生 3D 走美术管线入岩库。
+### ART5 · 荒原点缀 props（map·表现层）—— ✅ 已实现（2026-09-20）
+- 接口: `assets/models/prop_{dead_quiver_trunk,boulder_01,tree_stump_01,dry_branches_medium_01}.glb`
+  （岩库 v1 锁定：PolyHaven CC0 四件套，`pack_gltf_folder.py` 打包为单文件 glb + 原点归一 bbox 底心，
+  面数实测 18k/66k/41k/17k，合计 ~16MB）；输出 = `spawn_props`：PROP_LAYOUT 布局表 12 实例
+  （4 枯树 / 3 巨石 / 2 树桩 / 3 干枝丛，位置沿用方向稿、已核算与路径带/塔位/基地/入口的安全间距）。
+- 行为: 有 AssetServer → 每实例挂 GLB 场景（同 kind 共享句柄）；headless → B 色板色块回落（实例数不变）。
+  纯表现层，gameplay 零感知。**不走图生 3D**（CC0 现成模型直采，无参照图门需求）；枯树选箭袋树干
+  （立姿 2m；dead_tree_trunk 实测为 3m 横木，弃用）。assembly 测试的 WorldAssetRoot 计数加
+  `Without<MapProp>` 过滤（道具场景实例不属塔装配）。
+- 验收句: ① `map_props_spawn_headless`：MapProp 恰 12 个且贴地；② models 目录约定测试自动覆盖四件新 glb；
+  ③ 视觉验收（2026-09-20 通过）：AXRaise+screencapture -l 直截，中性逐字读 UI（金币100/基地10/10/波次1建造期）
+  与 dash 对账吻合、四类道具计数吻合、无穿模/悬空/黑块；视觉模型把浅色树桩截面误读为「白塔」，经
+  gold=100 未购塔的经济真相排除（模型误读非渲染错误）。存档 `docs/img/warden_art5_props_dusk.png`。
 
-### ART5 · 荒原点缀 props（map·表现层）—— 📝 待立卡
-- 方向稿：枯树/风化岩/残墙断柱，贴边为主 + 少量中场低矮件；严格让开路径/塔位/基地视线（可读性铁律 §3）。
+### ART6 · 黄昏光照氛围（camera·表现层）—— ✅ 已实现（2026-09-20）
+- 接口: `camera.rs` 主光 + `GamePlugin` 全局环境光/清屏色；锚点值全部来自 `docs/art-direction.md` 光照段。
+- 行为: 主光暖橙 (1.0,0.55,0.25) × 9000 lux、低角度（俯仰 -0.32 rad ≈ 18° 长影；方位角沿用旧正午 rig 0.9）、
+  投影开；`GlobalAmbientLight` 冷紫 (0.40,0.32,0.50)×40（bevy 0.19 环境光已从 AmbientLight 资源改
+  GlobalAmbientLight，编译期实测）；`ClearColor` 暮色 (0.30,0.17,0.13)。
+- 验收句: `dusk_lighting_is_pinned`：唯一主光色/照度/姿态四断言 + 环境光/清屏色资源断言；
+  视觉验收随 ART5 截图（黄昏氛围、左上低角度长影在图中可辨）；血条/减速变蓝/受击闪白等 FX 可读性
+  未受损（FX 断言全绿 + 截图中路径/塔位可读性铁律未触犯）。
+- ⚠️ 后续若试玩反馈「整体太暗/太橙」，先调 `illuminance`/`brightness` 再动色值（锚点改先 art-direction.md 留痕）。
 
-### ART6 · 黄昏光照氛围（camera·表现层）—— 📝 待立卡
-- 锚点值见 `docs/art-direction.md` 光照段；全局性改动（影响塔/敌/UI 可读性），独立验收，放换装链最后。
+### ART4 · 基地与入口体块换装（map·表现层）—— 📝 待立卡（地形线收官卡）
+- 方向稿：基地=石门楼（主楼+双柱+旗杆）、入口=双柱石拱（参照 Blender 稿 Base/Entry 体块）；
+  需图生 3D 走美术管线（blender-asset-pipeline 阶段 0 参照图门：需经人确认的参照图，
+  存 `assets/refs/confirmed/<asset_id>.png`）。
 
 ---
 
@@ -700,6 +720,82 @@
   全部代码驱动，行程/时长进配置。
 - 验收句: 开火帧弦前弹并在**当前冷却期内**回拉到位（攻速 1.0 与狂暴 0.67 两种冷却下均完成）；弦位移不超规范行程
   （断言上限）；箭件开火帧隐藏、回拉完成后重现；PR1 与 SK 既有断言不改全绿。
+
+### ART11 · 敌人 3D 模型换装（enemies·表现层）—— ✅ 已实现（2026-09-20）
+- 接口: `ENEMY_MODELS/ENEMY_SCALES/ENEMY_RUNS`（按 EnemyDefs 索引的网关表）+ `EnemyAnim{gltf, run}` 组件 +
+  `start_enemy_walk` 系统；`spawn_enemy/spawn_enemy_at` 增 `server: Option<&AssetServer>`（与塔网关同构，
+  无头测试走方块回退）。资产=岩库 KayKit 六件（骷髅小兵/刺客/战士/法师 + 蛮族 + 骑士，锁 v2=alphaMode 修复版，
+  各 ~0.9MiB/22 动画/23 骨，CC0），映射 普通怪/快速怪/盾兵怪/治疗怪/精英(1.05x)/BOSS(1.5x)。
+- 行为: 有 AssetServer → 脚底原点场景子实体挂 `EnemyAnim`（缩放进网关表）；Gltf 就绪后按名匹配 `walking/running`
+  （KayKit 名带 `Rig_Medium.001|` 前缀）建图循环播放，无匹配则静默保持绑定姿势；`move_enemy` 顺带写朝向
+  （+Z 前向假设，`ENEMY_FORWARD_YAW_OFFSET=0` 首验即中，弩的 forward-pin 同款保底机制）。
+- 验收句: 六模型入库且清单锁 v2（id 逐一断言）+ 15MiB 上限；驱动真实 `wave_spawn`（非直调）后 模型敌无
+  Mesh3d、缩放=网关表、BOSS 走/刺客跑；无服务器路径保持方块（其余百条测试隐式钉死）；L4 真窗口：fx 场景
+  路径带双帧 0.5s 像素差 1.41%（静态区 0.00%）证动画在动、姿势迈步朝向正确（`docs/img/warden_art11_enemies.png`）。
+- 已知缺陷: 受击闪白/减速变色调 MeshMaterial3d，模型敌不生效（血条/死亡壳/伤害逻辑不受影响）——后续卡与 ART12
+  候选；精英/BOSS 缩放仅测试钉值，观感属人工验收可调。
+- 验收句已入 `tests/behavior.rs`：`enemy_models_are_pinned` + `enemy_assembly_is_pinned`。
+
+---
+
+## 展示场 Showroom（美术/技能资产验收通道，2026-09-20 立项）
+
+> 定位：把「美术资产渲染测试 / 视觉验收」从「开真局试玩」变成「一条命令直达」——DB2 场景机制上的常驻场景，
+> 服务 ART 线（模型/动画/特效验收）、技能特效验收（SK）与将来一切「要看渲染效果」的资产。
+> 补齐美术测试金字塔的 L4（L1/L2 离线 GLB 解析 → L3 headless 装配 → **L4 实机视觉**）——ART2/ART3 视觉验收
+> 三次返工的根因（验收通道太贵：每次开真局、摆条件、抓窗口）由此收口。
+> 铁律：**①自动枚举**——展品读 `TowerDefs`/`EnemyDefs`/融合配方等定义表，新资产零维护自动出现（技能多了、
+> 资产多了都不怕的解法）；**②展示即实战**——真实地图 + ART6 黄昏光照锚点 + 复用实战组装路径（组装代码单源，
+> 不复制——防展示场与现实漂移）；**③零干扰**——SM1/SM2 展品为纯表现实体，不带 Enemy/Tower/Projectile 规则
+> 组件，规则系统查询自然跳过（老系统零改动）；**④开发侧工具**——cfg 门控 + release 扫描，场景直达即标记
+> 调试局（存档隔离），同 DB 系卡纪律。
+> 领域 debug（复用 DB2 `Scenario` 机制）。实施顺序：**SM1 骨架 → SM2 聚焦/动画 → SM3 实弹区 → SM4 截图基线**。
+
+### SM1 · 展示场：中性影棚查看器 v2（debug·表现层）—— ✅ 已实现（2026-09-20 v1 同日重做）
+> v1（战场上的展示台）被负责人实机否决：形态不是想要的编辑器、黄昏色调污染观感。v2 定稿：
+> **中性影棚 + egui 资产列表 + 环绕相机**；「展示即实战」铁律修订——查看资产用中性环境（本色不被染），
+> 实战语境交给 SM3 实弹区。
+- 接口: DB2 `Scenario::Showroom`（CLI `--scenario showroom` / F1 按钮）；读 `TowerDefs`/`FusionDefs`/`EnemyDefs`
+  + 实战外观组装缝 + `GameState`；输出 影棚环境（清扫战场后）+ 当前单件展品 + egui 左侧列表面板（点选/数值）
+  + 环绕/缩放相机 + 新 `GameState::Showroom`。
+- 行为: 进场 = 清场重搭——despawn 全部 Mesh3d（战场/路径/塔位/props，HoverGhost 例外只隐藏）+ 方向光，
+  隐藏全部 bevy_ui 根节点（无 HUD/命令栏），落中性影棚（浅灰地面 60×60 + 深灰展示台 + 白主光 + 中性环境光 +
+  淡灰清屏色），切到 `GameState::Showroom`（Playing 门控的玩法/UI 系统全冻结；P 键无效；离开=重启）。
+  浏览双通道同一游标：egui 列表点选 或 Tab 切分类（塔含融合态/怪）、←/→ 切条目；单一 present 换展点
+  （游标 ≠ 台上件时 despawn+spawn，含进场首帧）。展品仍走外观缝（attach_tower_appearance /
+  fused_tower_color / enemy_base_color）不带规则组件；铭牌 Text2d 22px 双语名+序号。相机：左键拖拽环绕
+  （yaw/pitch 钳制）、滚轮缩放（2.2-16），指针悬停 egui 面板时失效（DebugPanelCapture）。
+- 验收句: `--scenario showroom` 启动 ≤2s：影棚落地（floor/pad 各 1、MapGround/TowerSlot 为 0、
+  CommandBarRoot Visibility::Hidden、`GameState::Showroom`）；场上恰 1 展品、无规则组件实体；
+  3s 采样经济/基地血/波次不变；headless 遍历断言每型塔（含融合）与每型敌人都上台 ≥1 次、任一时刻 ≤1 件、
+  铭牌点名；面板等效（`select` 直写=点击，plate 跟随）；左键拖拽相机位移≠0 且默认距离 6.5±0.1；
+  加新 def 自动进列表零改动；release 扫描 `[sm]` 串仍过。
+- 实现: `systems/showroom.rs` v2 全重写（v1 的 browse 拆为 keys→present 两系统 + orbit + egui 面板；
+  enter_showroom 承担清场/影棚/状态切换）。**关键取舍**：①清场用「despawn 全部 Mesh3d」而非逐标记枚举——
+  战场视觉全是 Mesh3d、展品在清扫之后才生成，永不会误伤（幽灵例外：Local 缓存实体 id，只隐藏）；
+  ②UI 隐藏打在**根 Node**（CommandBarRoot 等）上，子节点继承隐藏——`refresh_bar_visibility` 每帧用
+  Display 覆盖的是另一套机制，与 Visibility 正交不冲突；③`GameState::Showroom` 新变体：玩法/UI 系统本来
+  就 Playing 门控→零改动冻结，`apply_pause` 补 Showroom 自映射臂；④egui 0.36 无 SidePanel/CentralPanel
+  （Panel 吃 root Ui）——左列表用**锚定不可动 Window** 实现（`Panel::left`+`default_size` 编译验证过路径，
+  Window::anchor/movable/resizable/collapsible 全可用）；⑤fork 差异记档：Event→Message（MouseWheel 走
+  `MessageReader`，headless 需 `add_message` 显式注册）、`Parent`→`ChildOf`、`AccumulatedMouseMotion` 为资源。
+  headless 断言 3 条入 behavior（`showroom::*`：进场中性影棚+零干扰 / 全量遍历 / 面板等效+轨道相机）。
+  视觉自检通过（置前直截+中性读图：影棚灰白无橙调、左面板 Showroom 列表+On the pad 数值可读、无 HUD/底栏、
+  铭牌「弓箭手塔 · 塔 1/8」）。
+
+### SM2 · 展示场交互：动画触发 + 自由观察（debug·表现层）—— 📝 待立卡（依赖 SM1）
+- 范围: 单件浏览已天然聚焦，本卡补——按键触发一次性动画（attack/hit/death，单次/循环切换）；相机自由观察
+  （绕展示台旋转/缩放，一键回默认机位）；可选 F1 面板目录（分类/条目列表点击直达，与键盘切换同队列）。
+  DB3 时间控制天然可用（F6 冻结 / F8 单帧逐帧看动画）——ART7-10 弩瞄准/后坐/弦箭与后续角色动画的逐帧验收场。
+
+### SM3 · 实弹区：真目标 + 技能/特效实放（debug·skills/fx）—— 📝 待立卡（依赖 SM1）
+- 范围: 展示场一角划实弹区——真 Enemy 木桩（沿路径行走 + 周期重刷）+ 可选真塔 + 技能 CD 置短（≤2s）无成本
+  连放；服务技能特效、命中 FX、塔动态（瞄准/后坐/弦箭）的动态验收；DB3 敌头顶 hp 面板直接读数
+  （命中前后差 = 技能数值）。原「技能靶场」需求并入本卡。
+
+### SM4 · 截图基线与对比流程（debug·工具链）—— 📝 待立卡（依赖 SM1，建议 SM2 后）
+- 范围: 每展区固定机位 + 固定 seed，复用置前 + 窗口直截流程脚本化；基线图存 `docs/img/showroom/`；任何美术/
+  特效改动后重截同机位对比（先人工对比；headless 渲染自动对比留作升格判据触发后再做，不过度设计）。
 
 ---
 

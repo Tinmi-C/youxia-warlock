@@ -162,6 +162,9 @@ pub struct CheatsBoard<'w, 's> {
     pub path: Res<'w, PathInfo>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub materials: ResMut<'w, Assets<StandardMaterial>>,
+    /// ART11: present in the real app (enemy models), absent in headless
+    /// tests (box fallback) — mirrors the tower gateway's Option.
+    pub server: Option<Res<'w, AssetServer>>,
     pub rng: ResMut<'w, RunRng>,
     pub meta: Res<'w, MetaState>,
     pub boosts: ResMut<'w, Boosts>,
@@ -229,6 +232,7 @@ pub fn debug_cheat_executor(mut core: CheatsCore, mut board: CheatsBoard) {
                         def_index,
                         &mut board.meshes,
                         &mut board.materials,
+                        board.server.as_deref(),
                     );
                     core.wave.active += 1;
                 }
@@ -718,6 +722,7 @@ fn spawn_debug_enemy(
     let mut queue = CommandQueue::default();
     world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
         world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+            let server = world.get_resource::<AssetServer>();
             let mut cmds = Commands::new(&mut queue, world);
             spawn_enemy_at(
                 &mut cmds,
@@ -729,6 +734,7 @@ fn spawn_debug_enemy(
                 units,
                 &mut meshes,
                 &mut materials,
+                server,
             );
         });
     });

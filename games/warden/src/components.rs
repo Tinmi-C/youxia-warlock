@@ -197,3 +197,24 @@ pub struct BaseMarker;
 /// and which material branch (textured vs flat fallback) was taken.
 #[derive(Component)]
 pub struct MapGround;
+
+/// ART5 marker: one wasteland scatter prop instance (tree/boulder/stump/
+/// branches). Purely visual dressing; gameplay never reads them.
+#[derive(Component)]
+pub struct MapProp;
+
+/// ART4 marker: a masonry structure root (base gatehouse / entry arch).
+/// Purely visual; gameplay never reads them.
+#[derive(Component)]
+pub struct MapStructure;
+
+/// ART11: deferred walk-animation wiring on an enemy model scene. The Gltf
+/// asset loads async; `start_enemy_walk` consumes this marker once the named
+/// animations are available, attaches an AnimationPlayer on the same entity,
+/// and plays the archetype's locomotion clip (Walking for most, Running for
+/// fast enemies) on loop.
+#[derive(Component)]
+pub struct EnemyAnim {
+    pub gltf: Handle<bevy::gltf::Gltf>,
+    pub run: bool,
+}

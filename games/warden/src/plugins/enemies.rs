@@ -19,6 +19,13 @@ impl Plugin for EnemiesPlugin {
                     .in_set(GameSet::Simulate)
                     .run_if(in_state(GameState::Playing)),
             )
+            // ART11: wire walk/run loops once each model's Gltf is loaded.
+            .add_systems(
+                Update,
+                systems::enemy::start_enemy_walk
+                    .in_set(GameSet::Simulate)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 Update,
                 systems::enemy::heal_aura

@@ -62,6 +62,13 @@ fn test_app() -> App {
         .init_resource::<ButtonInput<bevy::input::mouse::MouseButton>>()
         .init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<StandardMaterial>>()
+        // ART11: `start_enemy_walk` takes Res<Assets<Gltf>> +
+        // ResMut<Assets<AnimationGraph>> (normally provided by the gltf /
+        // animation plugins, absent headless). init_resource only —
+        // init_asset would demand an AssetServer, which MinimalPlugins
+        // does not provide.
+        .init_resource::<Assets<bevy::gltf::Gltf>>()
+        .init_resource::<Assets<AnimationGraph>>()
         // Fixed timestep makes tests reproducible (1/60 s per update).
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
             1.0 / 60.0,
@@ -2674,7 +2681,9 @@ mod debug_cheats {
             // The single cheat drain point runs in Input so the same frame's
             // wave/combat systems observe the settled cheat state; scenario
             // loads run after it, then the DB3 time clock (mirrors
-            // DebugPlugin's ordering), then the SM1 showroom browser.
+            // DebugPlugin's ordering), then the SM1 studio viewer (keys ->
+            // single present/swap point + orbit camera; the egui list panel
+            // is skipped headless like debug_panel_ui).
             .add_systems(
                 Update,
                 (
@@ -2682,10 +2691,16 @@ mod debug_cheats {
                     debug_cheat_executor,
                     debug_scenario_executor.after(debug_cheat_executor),
                     db3::debug_time_clock.after(debug_scenario_executor),
-                    sm::showroom_browse.after(debug_scenario_executor),
+                    sm::showroom_keys.after(debug_scenario_executor),
+                    sm::showroom_present.after(sm::showroom_keys),
                 )
                     .in_set(GameSet::Input),
             )
+            .add_systems(Update, sm::showroom_orbit.in_set(GameSet::Observe))
+            // The orbit system reads/writes these; the real app gets them
+            // from DefaultPlugins' InputPlugin.
+            .init_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
+            .add_message::<bevy::input::mouse::MouseWheel>()
             .add_systems(
                 Update,
                 (
@@ -4252,6 +4267,118 @@ fn arrow_tower_asset_is_pinned() {
     );
 }
 
+/// Capability card ART11 — acceptance L0: all six enemy archetype models are
+/// pinned in the art-sync manifest with their vault ids (KayKit v2,
+/// alphaMode-fix re-ingest), present on disk, and under the 15 MiB cap.
+/// Index order mirrors `enemy::ENEMY_MODELS` (0 normal … 5 boss).
+#[test]
+fn enemy_models_are_pinned() {
+    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let vault_ids = [
+        ("enemy_minion.glb", "785b039ebd1d4cf499940a6201cdf499"),
+        ("enemy_rogue.glb", "08aba7a551034bd4a4a75c22aa026d98"),
+        ("enemy_warrior.glb", "eb5122f7c20341619b9395503c0c6cd3"),
+        ("enemy_mage.glb", "40d07424137d4bb583aba5402a801743"),
+        ("enemy_elite.glb", "3cc5e9d31a014fb49c2a57ca7ace2023"),
+        ("enemy_boss.glb", "5d93efa63b7f493ebcf6972512f5802c"),
+    ];
+    // Code pin: the gateway table and the manifest agree entry by entry.
+    let code = warden::systems::enemy::ENEMY_MODELS;
+    assert_eq!(code.len(), 6, "one model per archetype");
+    let manifest = std::fs::read_to_string(base.join("art-assets.json")).expect("manifest");
+    for (i, (file, id)) in vault_ids.iter().enumerate() {
+        let path = base.join("assets/models").join(file);
+        assert!(path.is_file(), "assets/models/{file} must exist (ART11)");
+        assert!(
+            path.metadata().unwrap().len() <= 15 * 1024 * 1024,
+            "{file} stays under the ADR-0009 15 MiB cap"
+        );
+        assert!(
+            manifest.contains(*id) && manifest.contains(*file),
+            "the manifest must pin {file} ({id})"
+        );
+        assert!(
+            code[i].ends_with(file),
+            "ENEMY_MODELS[{i}] must reference {file}, got {}",
+            code[i]
+        );
+    }
+}
+
+/// Capability card ART11 — acceptance L3: the enemy gateway's entity
+/// structure. With an AssetServer the archetype model rides as a feet-origin
+/// scene child carrying the deferred `EnemyAnim` wiring at the archetype
+/// scale; without one the box fallback keeps its mesh (headless tests).
+#[test]
+fn enemy_assembly_is_pinned() {
+    let mut app = test_app();
+    app.add_plugins(bevy::asset::AssetPlugin::default());
+    app.init_asset::<bevy::text::Font>();
+    app.init_asset::<bevy::world_serialization::WorldAsset>();
+    app.init_asset::<bevy::image::Image>();
+    app.init_asset::<bevy::gltf::Gltf>();
+    app.update();
+
+    // Drive the REAL wave_spawn system with a boss (5) then a fast rogue (1)
+    // queued, so the gateway runs exactly as it does in play (AssetServer
+    // present -> both take the model path). The no-server cuboid fallback is
+    // pinned by every other headless test in this file (Mesh3d on Enemy is
+    // what the FX queries see there).
+    {
+        let mut wave = app
+            .world_mut()
+            .resource_mut::<warden::resources::WaveState>();
+        wave.phase = warden::resources::WavePhase::Combat;
+        wave.spawn_queue.clear();
+        wave.spawn_queue.push_back(5);
+        wave.spawn_queue.push_back(1);
+        wave.spawn_timer = 0.0;
+        wave.spawn_interval = 0.0; // pop one per update tick
+    }
+    app.update(); // boss spawns (model path)
+    app.update(); // rogue spawns (model path, run clip)
+
+    let mut enemies = app.world_mut().query_filtered::<Entity, With<Enemy>>();
+    assert_eq!(enemies.iter(app.world()).count(), 2, "both queued spawns");
+
+    // Model-path enemies have no mesh on the logic entity — that's the
+    // structural difference from the cuboid fallback.
+    let mut boxed = app
+        .world_mut()
+        .query_filtered::<(), (With<Enemy>, With<Mesh3d>)>();
+    assert_eq!(
+        boxed.iter(app.world()).count(),
+        0,
+        "model-path enemies are scene-backed, not cuboids"
+    );
+
+    let mut anims = app
+        .world_mut()
+        .query_filtered::<(&Transform, &warden::components::EnemyAnim), With<bevy::world_serialization::WorldAssetRoot>>();
+    let rows: Vec<(&Transform, &warden::components::EnemyAnim)> = anims.iter(app.world()).collect();
+    assert_eq!(rows.len(), 2, "one model scene child per model enemy");
+    let scales: Vec<f32> = rows.iter().map(|(tf, _)| tf.scale.x).collect();
+    assert!(
+        scales
+            .iter()
+            .all(|&s| (s - warden::systems::enemy::ENEMY_SCALES[5]).abs() < 1e-6
+                || (s - warden::systems::enemy::ENEMY_SCALES[1]).abs() < 1e-6),
+        "scales must be the pinned archetype values, got {scales:?}"
+    );
+    for (tf, _) in &rows {
+        assert!(
+            tf.scale.x == tf.scale.y && tf.scale.y == tf.scale.z,
+            "uniform archetype scale, got {:?}",
+            tf.scale
+        );
+    }
+    let runs: Vec<bool> = rows.iter().map(|(_, a)| a.run).collect();
+    assert!(
+        runs.contains(&false) && runs.contains(&true),
+        "boss walks, fast rogue runs (ENEMY_RUNS), got {runs:?}"
+    );
+}
+
 /// Capability card ART1/ART2 — the engine assembly pin (L3 of the art test
 /// pyramid): with a real AssetServer present (headless: bevy_asset only, no
 /// renderer — `server.load` returns handles without needing them to finish),
@@ -4311,12 +4438,14 @@ fn archer_tower_assembly_is_pinned() {
         "the mount must be a child of the tower entity"
     );
     // Both scene roots ride the tower: body (y 0.35) + ballista (y 1.3).
-    // (ART5 map props also spawn WorldAssetRoot scenes — exclude them.)
+    // (ART5 map props and ART4 map structures also spawn WorldAssetRoot
+    // scenes — exclude them.)
     let mut roots = app.world_mut().query_filtered::<
         &Transform,
         (
             With<bevy::world_serialization::WorldAssetRoot>,
             Without<warden::components::MapProp>,
+            Without<warden::components::MapStructure>,
         ),
     >();
     let ys: Vec<f32> = roots
@@ -4481,6 +4610,32 @@ fn dusk_lighting_is_pinned() {
     for tf in xforms.iter(app.world()) {
         assert!(tf.rotation.abs_diff_eq(expected, 1e-6));
     }
+}
+
+/// ART4: exactly two masonry structures — the gatehouse on the base waypoint
+/// and the entry arch on the path start (headless = massing fallback, the
+/// textured branch spawns the same two roots).
+#[test]
+fn map_structures_spawn_headless() {
+    let mut app = test_app();
+    app.update();
+    let mut roots = app
+        .world_mut()
+        .query_filtered::<&Transform, With<warden::components::MapStructure>>();
+    let all: Vec<&Transform> = roots.iter(app.world()).collect();
+    assert_eq!(all.len(), 2, "gatehouse + entry arch roots");
+    let positions: Vec<(f32, f32)> = all
+        .iter()
+        .map(|tf| (tf.translation.x, tf.translation.z))
+        .collect();
+    assert!(
+        positions.contains(&(12.0, -9.0)),
+        "gatehouse on the base waypoint, got {positions:?}"
+    );
+    assert!(
+        positions.contains(&(-13.0, -9.0)),
+        "entry arch on the path start, got {positions:?}"
+    );
 }
 
 // --- ART7/ART8: ballista aim tracking + muzzle launch + fire recoil ----------
@@ -4774,11 +4929,12 @@ fn ballista_recoil_idle_without_fire() {
     );
 }
 
-// --- SM1: showroom single-exhibit browser ---------------------------------------
+// --- SM1 v2: studio showroom (neutral viewer) ------------------------------------
 //
 // Headless equivalents of the live acceptance: `cargo run -- --scenario
-// showroom` then browse with Tab / ←/→. Exhibits are pure presentation
-// entities — every assertion below also pins the zero-interference law.
+// showroom` = neutral studio (no map/HUD/dusk), egui list or Tab / ←/→ to
+// browse, drag orbit / wheel zoom. Exhibits are pure presentation entities
+// — every assertion below also pins the zero-interference law.
 
 #[cfg(debug_assertions)]
 mod showroom {
@@ -4786,7 +4942,9 @@ mod showroom {
     use super::*;
     use warden::resources::{DebugRun, EnemyDefs, FusionDefs};
     use warden::systems::debug::{DebugScenarioQueue, Scenario};
-    use warden::systems::showroom::{ShowroomExhibit, ShowroomPad, ShowroomPlate, ShowroomState};
+    use warden::systems::showroom::{
+        ShowroomExhibit, ShowroomFloor, ShowroomPad, ShowroomPlate, ShowroomState,
+    };
 
     fn enter(app: &mut App) {
         app.world_mut()
@@ -4820,23 +4978,45 @@ mod showroom {
         keys.clear_just_pressed(key);
     }
 
-    /// SM1 acceptance: entering the showroom lands the browser state with
-    /// exactly one exhibit on the pad (plus the pad itself) on the entry
-    /// frame, marks the run (save isolation), leaves no rule entities on the
-    /// board, and three seconds of idling change nothing.
+    /// SM1 v2 acceptance: entering the studio sweeps the battlefield away
+    /// (no map/slots), hides the game UI, moves to GameState::Showroom,
+    /// lands floor + pad + exactly one exhibit on the entry frame, marks the
+    /// run (save isolation), leaves no rule entities, and three seconds of
+    /// idling change nothing.
     #[test]
-    fn showroom_enters_one_exhibit_zero_interference() {
+    fn showroom_enters_neutral_studio_zero_interference() {
         let mut app = debug_app();
         app.update(); // startup baseline: gold 100, base 10/10, wave 1
         enter(&mut app);
-        app.update(); // executor + browse land the first exhibit this frame
+        app.update(); // executor builds the studio; present spawns the exhibit
+        app.update(); // the GameState::Showroom transition applies
         assert!(
             app.world().get_resource::<ShowroomState>().is_some(),
             "browser state is inserted on entry"
         );
         assert_eq!(count_exhibits(&mut app), 1, "exactly one exhibit on the pad");
+        let mut floors = app.world_mut().query_filtered::<(), With<ShowroomFloor>>();
+        assert_eq!(floors.iter(app.world()).count(), 1, "the studio floor exists");
         let mut pads = app.world_mut().query_filtered::<(), With<ShowroomPad>>();
         assert_eq!(pads.iter(app.world()).count(), 1, "the display pad exists");
+        // Battlefield swept: no ground, no tower slots remain.
+        let mut ground = app.world_mut().query::<&warden::components::MapGround>();
+        assert_eq!(ground.iter(app.world()).count(), 0, "the arena terrain is gone");
+        let mut slots = app.world_mut().query::<&TowerSlot>();
+        assert_eq!(slots.iter(app.world()).count(), 0, "the tower slots are gone");
+        // Game UI hidden: the command-bar ROOT is invisible (its children
+        // inherit the hidden state — ControlZoneRoot stays `Inherited`).
+        let mut bars = app
+            .world_mut()
+            .query_filtered::<&Visibility, With<warden::systems::command::CommandBarRoot>>();
+        for vis in bars.iter(app.world()) {
+            assert_eq!(*vis, Visibility::Hidden, "the game UI must be hidden");
+        }
+        assert_eq!(
+            app.world().resource::<State<GameState>>().get(),
+            &GameState::Showroom,
+            "the studio runs in its own game state"
+        );
         assert!(
             app.world().resource::<DebugRun>().marked,
             "scenario entry marks the run (save isolation)"
@@ -4852,6 +5032,14 @@ mod showroom {
             enemies.iter(app.world()).count(),
             0,
             "exhibits carry no Enemy rule component"
+        );
+        // Orbit camera framed the exhibit (default pose ~6.5 units out).
+        let mut cams = app.world_mut().query_filtered::<&Transform, With<Camera>>();
+        let cam = cams.single(app.world()).expect("one camera");
+        let dist = cam.translation.distance(Vec3::new(0.0, 1.0, 0.0));
+        assert!(
+            (dist - 6.5).abs() < 0.1,
+            "camera sits at the default orbit distance (got {dist})"
         );
         let (gold, base, wave) = {
             let w = app.world().resource::<WaveState>();
@@ -4937,5 +5125,48 @@ mod showroom {
         press(&mut app, KeyCode::ArrowLeft);
         assert_eq!(count_exhibits(&mut app), 1);
         assert_ne!(plate_text(&mut app), *seen.last().unwrap());
+    }
+
+    /// SM1 v2 acceptance: the egui list and the keys share one cursor —
+    /// a `select` write (exactly what a panel click does) swaps the exhibit
+    /// through the same present path; and left-drag orbits the camera.
+    #[test]
+    fn showroom_panel_select_and_orbit_camera() {
+        let mut app = debug_app();
+        app.update();
+        enter(&mut app);
+        app.update();
+        // Panel-equivalent selection: enemy 3 (healer) straight from item 0.
+        app.world_mut()
+            .resource_mut::<ShowroomState>()
+            .select(1, 3);
+        app.update();
+        assert_eq!(count_exhibits(&mut app), 1, "one exhibit after panel select");
+        let plate = plate_text(&mut app);
+        let healer = app.world().resource::<EnemyDefs>().list[3].label;
+        assert!(
+            plate.contains(healer),
+            "panel select puts the clicked def on the pad (plate '{plate}')"
+        );
+        // Orbit: hold left + mouse motion moves the camera around the pad.
+        let mut cams = app.world_mut().query_filtered::<&Transform, With<Camera>>();
+        let before = cams.single(app.world()).unwrap().translation;
+        {
+            let mut mice = app
+                .world_mut()
+                .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>();
+            mice.press(bevy::input::mouse::MouseButton::Left);
+        }
+        app.world_mut()
+            .insert_resource(bevy::input::mouse::AccumulatedMouseMotion {
+                delta: Vec2::new(60.0, 0.0),
+            });
+        app.update();
+        let mut cams = app.world_mut().query_filtered::<&Transform, With<Camera>>();
+        let after = cams.single(app.world()).unwrap().translation;
+        assert_ne!(
+            before, after,
+            "dragging must orbit the camera around the exhibit"
+        );
     }
 }

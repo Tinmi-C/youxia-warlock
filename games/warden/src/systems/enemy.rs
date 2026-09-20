@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Enemy, Healer, Slow};
+use crate::components::{Enemy, EnemyAnim, Healer, Slow};
 use crate::resources::{BaseHp, Boosts, Economy, EnemyDefs, PathInfo, WaveState};
 
 /// EN5 starting values (requirements §9 gives no numbers — tunable on the
@@ -12,6 +12,33 @@ use crate::resources::{BaseHp, Boosts, Economy, EnemyDefs, PathInfo, WaveState};
 const HEALER_RADIUS: f32 = 6.0;
 const HEALER_PERIOD: f32 = 1.0;
 const HEALER_HEAL_PER_TICK: f32 = 3.0;
+
+// --- ART11: enemy presentation gateway ----------------------------------------
+
+/// Per-archetype model pin (index = EnemyDefs order: 0 normal, 1 fast,
+/// 2 shield, 3 healer, 4 elite, 5 boss). KayKit rigs, ArtVault v2
+/// (alphaMode fix), feet-origin GLBs ~2.2–2.5 m tall in bind pose.
+pub const ENEMY_MODELS: [&str; 6] = [
+    "models/enemy_minion.glb",  // 普通怪: 骷髅小兵
+    "models/enemy_rogue.glb",   // 快速怪: 骷髅刺客（跑步动画）
+    "models/enemy_warrior.glb", // 盾兵怪: 骷髅战士
+    "models/enemy_mage.glb",    // 治疗怪: 骷髅法师
+    "models/enemy_elite.glb",   // 精英: 蛮族
+    "models/enemy_boss.glb",    // BOSS: 骑士
+];
+
+/// Uniform visual scale per archetype: bind-pose heights 2.17–2.54 m, so
+/// normals land ≈1.75 m (0.8), elite 2.5 m (1.05), boss 3.8 m (1.5).
+pub const ENEMY_SCALES: [f32; 6] = [0.8, 0.8, 0.8, 0.8, 1.05, 1.5];
+
+/// Fast enemies run instead of walk (matches their 1.8x speed fantasy).
+pub const ENEMY_RUNS: [bool; 6] = [false, true, false, false, false, false];
+
+/// Yaw added on top of the computed bearing. KayKit exports are taken as
+/// +Z-facing (`atan2(dir.x, dir.z)`); if the visual acceptance shows models
+/// moonwalking, flip this to PI once — same pin pattern as the ballista's
+/// `BALLISTA_FORWARD_AXIS`.
+pub const ENEMY_FORWARD_YAW_OFFSET: f32 = 0.0;
 
 /// requirements §9 anchor: speed 1.0 should cross the entry->base path in
 /// ~20 seconds. The per-point unit rate is derived from the actual path length
@@ -38,6 +65,7 @@ pub fn spawn_enemy(
     index: usize,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    server: Option<&AssetServer>,
 ) {
     let Some(def) = defs.list.get(index) else {
         return;
@@ -53,6 +81,7 @@ pub fn spawn_enemy(
         path_units_per_point(path),
         meshes,
         materials,
+        server,
     );
 }
 
@@ -70,6 +99,10 @@ pub fn path_units_per_point(path: &PathInfo) -> f32 {
 /// Spawn one enemy at an explicit position (debug scenarios, DB2): same
 /// construction as `spawn_enemy`, plus overrides for the spawn point, the
 /// first waypoint to head toward and the starting HP (残血 setups for FX).
+/// ART11: with an AssetServer the archetype model rides as a feet-origin
+/// scene child (deferred walk animation via `EnemyAnim`); without one the
+/// tinted cuboid fallback stays (headless tests).
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_enemy_at(
     commands: &mut Commands,
     def: &crate::resources::EnemyDef,
@@ -80,8 +113,8 @@ pub fn spawn_enemy_at(
     units_per_point: f32,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    server: Option<&AssetServer>,
 ) {
-    let color = enemy_base_color(def);
     let hp = hp_override.unwrap_or(def.hp);
     let eid = commands
         .spawn((
@@ -95,11 +128,40 @@ pub fn spawn_enemy_at(
                 def_index: index,
                 next_wp,
             },
-            Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
-            MeshMaterial3d(materials.add(color)),
-            Transform::from_xyz(pos.x, 0.4, pos.z),
+            // Explicit Visibility: the model path has no mesh on this entity,
+            // so without it the scene child's InheritedVisibility breaks (B0004).
+            Visibility::Visible,
+            // Feet-origin models sit at ground level; the box fallback below
+            // re-centers itself (y = 0.35 = half its 0.7 height).
+            Transform::from_xyz(pos.x, 0.0, pos.z),
         ))
         .id();
+    let model = server.zip(ENEMY_MODELS.get(index).copied());
+    match model {
+        Some((server, model)) => {
+            let scene = server.load(
+                bevy::gltf::GltfAssetLabel::Scene(0).from_asset(model),
+            );
+            let gltf = server.load::<bevy::gltf::Gltf>(model);
+            let scale = ENEMY_SCALES.get(index).copied().unwrap_or(0.8);
+            let run = ENEMY_RUNS.get(index).copied().unwrap_or(false);
+            commands.entity(eid).with_children(|p| {
+                p.spawn((
+                    EnemyAnim { gltf, run },
+                    bevy::world_serialization::WorldAssetRoot(scene),
+                    Transform::from_scale(Vec3::splat(scale)),
+                ));
+            });
+        }
+        None => {
+            let color = enemy_base_color(def);
+            commands.entity(eid).insert((
+                Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
+                MeshMaterial3d(materials.add(color)),
+                Transform::from_xyz(pos.x, 0.35, pos.z),
+            ));
+        }
+    }
     if def.healer {
         commands.entity(eid).insert(Healer {
             radius: HEALER_RADIUS,
@@ -107,6 +169,40 @@ pub fn spawn_enemy_at(
             heal_per_tick: HEALER_HEAL_PER_TICK,
             tick_timer: HEALER_PERIOD,
         });
+    }
+}
+
+/// ART11: once an enemy model's Gltf asset is in, wire the locomotion clip.
+/// KayKit clip names carry a `Rig_Medium.001|` prefix, so match by substring
+/// (`walking` / `running`); a model without a locomotion clip keeps its bind
+/// pose and the marker is dropped (no per-frame retry burn).
+pub fn start_enemy_walk(
+    mut commands: Commands,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    gltfs: Res<Assets<bevy::gltf::Gltf>>,
+    pending: Query<(Entity, &EnemyAnim)>,
+) {
+    for (eid, anim) in &pending {
+        let Some(gltf) = gltfs.get(&anim.gltf) else {
+            continue;
+        };
+        let want = if anim.run { "running" } else { "walking" };
+        let Some((_name, clip)) = gltf
+            .named_animations
+            .iter()
+            .find(|(name, _)| name.to_lowercase().contains(want))
+        else {
+            commands.entity(eid).remove::<EnemyAnim>();
+            continue;
+        };
+        let (graph, node) = AnimationGraph::from_clip(clip.clone());
+        let handle = graphs.add(graph);
+        let mut player = AnimationPlayer::default();
+        player.play(node).repeat();
+        commands
+            .entity(eid)
+            .insert((AnimationGraphHandle(handle), player))
+            .remove::<EnemyAnim>();
     }
 }
 
@@ -146,7 +242,14 @@ pub fn move_enemy(
             continue;
         }
         let step = (speed * time.delta_secs()).min(dir.length());
-        tf.translation += dir.normalize() * step;
+        let heading = dir.normalize();
+        tf.translation += heading * step;
+        // ART11: face the movement direction. Models are taken as +Z-forward
+        // (see ENEMY_FORWARD_YAW_OFFSET); the symmetric box fallback rotates
+        // invisibly, so one code path serves both.
+        tf.rotation = Quat::from_rotation_y(
+            f32::atan2(heading.x, heading.z) + ENEMY_FORWARD_YAW_OFFSET,
+        );
     }
 }
 

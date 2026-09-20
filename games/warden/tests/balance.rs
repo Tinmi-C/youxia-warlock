@@ -56,6 +56,13 @@ fn test_app() -> App {
         .init_resource::<ButtonInput<bevy::input::mouse::MouseButton>>()
         .init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<StandardMaterial>>()
+        // ART11: `start_enemy_walk` takes Res<Assets<Gltf>> +
+        // ResMut<Assets<AnimationGraph>> (normally provided by the gltf /
+        // animation plugins, absent headless). init_resource only —
+        // init_asset would demand an AssetServer, which MinimalPlugins
+        // does not provide.
+        .init_resource::<Assets<bevy::gltf::Gltf>>()
+        .init_resource::<Assets<AnimationGraph>>()
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
             1.0 / 60.0,
         )));
