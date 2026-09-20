@@ -142,3 +142,9 @@ pub struct TowerSlot {
 /// Marks the base entity (the path endpoint; HP lives in the `BaseHp` resource).
 #[derive(Component)]
 pub struct BaseMarker;
+
+/// ART3 marker: the arena ground top face. Purely visual (the cliff skirt is
+/// unmarked); gameplay never reads the terrain — pins only assert existence
+/// and which material branch (textured vs flat fallback) was taken.
+#[derive(Component)]
+pub struct MapGround;

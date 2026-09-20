@@ -188,3 +188,67 @@ fn ballista_geometry_facts() {
     let tris = index_count(&glb);
     assert!(tris > 0, "indexed geometry expected");
 }
+
+fn textures_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/textures")
+}
+
+/// L1 for textures (ART3): the same ADR-0009 repo conventions as models/ —
+/// single level, snake_case, jpg-only, 15 MiB cap, JPEG magic bytes — and
+/// the art-sync manifest agrees with the directory in BOTH directions.
+#[test]
+fn textures_dir_conventions_and_manifest_agree() {
+    let mut jpgs = Vec::new();
+    for entry in std::fs::read_dir(textures_dir()).expect("assets/textures exists") {
+        let entry = entry.expect("dir entry");
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        assert!(
+            !entry.path().is_dir(),
+            "textures/ must stay single-level (ADR-0009): {name}"
+        );
+        assert!(
+            name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.'),
+            "texture names are snake_case: {name}"
+        );
+        assert!(name.ends_with(".jpg"), "only .jpg ships in textures/: {name}");
+        assert!(
+            entry.metadata().unwrap().len() <= 15 * 1024 * 1024,
+            "{name} exceeds the 15 MiB cap"
+        );
+        let bytes = std::fs::read(entry.path()).unwrap();
+        assert_eq!(&bytes[0..2], &[0xFF, 0xD8], "{name} is not a JPEG");
+        jpgs.push(name);
+    }
+    assert!(!jpgs.is_empty(), "the game ships at least one texture");
+
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("art-assets.json"),
+        )
+        .expect("art-assets.json"),
+    )
+    .expect("manifest JSON");
+    let listed: Vec<String> = manifest["assets"]
+        .as_array()
+        .expect("assets array")
+        .iter()
+        .flat_map(|a| {
+            a["files"]
+                .as_object()
+                .expect("files map")
+                .values()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    for name in &jpgs {
+        let rel = format!("textures/{name}");
+        assert!(
+            listed.contains(&rel),
+            "{name} exists in textures/ but is NOT in art-assets.json — assets enter only via the vault lock (ADR-0009)"
+        );
+    }
+}

@@ -162,6 +162,20 @@ assets/{models,textures,audio,fonts,ui}/
   macOS 停绘截出黑图、引导性提问让视觉模型对黑图幻觉出塔弩被用户戳穿，纪律已沉淀知识库）**；
   截图存 `docs/img/warden_fusion_art2.png`；期间清掉 ART 会话遗留的旧进程；
   `cargo test` 全绿 **102 条**（behavior 97 + art_assets 3 + balance 2）。
+- **ART3 战场地表与路径铺装（2026-09-20，方向 B「黄昏荒隘」拍板后首卡）**：
+  美术方向三选一（A 晴昼草野/B 黄昏荒隘/C 夜幕边境，Blender 真坐标方向稿）定 **B**——方向基线唯一依据
+  `docs/art-direction.md`（色板/光照锚点/可读性铁律），定稿图 `docs/img/warden_map_style_B_dusk.png`。
+  战场从「悬浮灰条」变完整地形：PolyHaven CC0 贴图（`brown_mud_rocks_01` 地表 + `cobblestone_02` 石板路，
+  1k diffuse+GL 法线，岩库 v1 锁定，art-sync 落盘 ~4.2MB；2k 评估后弃用——俯视+平铺下收益小体积 3 倍）
+  + 悬崖裙边体块 + 路径分段铺装（~2 单位/砖、取整对缝）+ 塔位垫/基地块 B 色板校色；headless 回落 B 色板纯色，
+  游戏逻辑零改动（拾取走投影不吃地形 mesh）。带 AssetServer 的测试世界需补注册 `init_asset::<Image>`
+  （assembly 测试同步补）。`cargo test` 全绿 **106 条**（behavior 100 + art_assets 4 + balance 2；新增
+  `map_ground_spawns_headless` / `map_ground_texture_branch_is_pinned` / `textures_dir_conventions_and_manifest_agree`）。
+  视觉验收通过（**重做后**：首张截图裁剪错位+半引导性提问让视觉模型幻觉，被用户肉眼戳穿作废——
+  黑图坑第三次重演，教训同 ART2；正姿：`osascript` System Events AXRaise 置前 → `screencapture -l <wid>`
+  窗口直截 → 真中性逐字读 UI + dash 独立对账：金币0/基地10/10/波次1建造期/下一波普通×5 全部吻合；
+  截图 `docs/img/warden_art3_terrain.png`）。ART4 基地入口/ART5 点缀/ART6 光照卡已立（📝），方向稿
+  `.blend` 存 `_art/map-style/`。**待负责人试玩验收后一卡一提交。**
 - **⚠️ 待设计负责人拍板**（实现取了保守解释，详见 capability-cards.md 对应卡）：
   ① AC3 掉落池：requirements §8「全塔池」vs §7.1「融合塔不掉落」矛盾——现按 §7.1（只掉 4 基础塔）；
   ② ME1 升级1 语义：「弓箭手进开局手牌池」有歧义——现取「开局必含弓箭手」；

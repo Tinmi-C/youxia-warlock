@@ -23,7 +23,11 @@ impl Plugin for MapPlugin {
             .init_resource::<BaseHp>()
             .add_systems(
                 Startup,
-                (systems::map::spawn_path, systems::map::spawn_slots),
+                (
+                    systems::map::spawn_ground,
+                    systems::map::spawn_path,
+                    systems::map::spawn_slots,
+                ),
             );
     }
 }

@@ -601,6 +601,41 @@
 
 ---
 
+## 美术换装 · 方向 B「黄昏荒隘」（2026-09-20 拍板）
+
+> 方向基线（色板/光照锚点/可读性铁律）唯一依据 `docs/art-direction.md`；定稿预览图 `docs/img/warden_map_style_B_dusk.png`
+> （A/C 方向稿存 `_art/map-style/` 未入 git）。分层推进：**ART3 地形 → ART4 基地/入口 → ART5 点缀 → ART6 光照**，
+> 每卡独立验收；换装期间游戏逻辑零改动（纯表现层，headless 回落纯色）。
+
+### ART3 · 战场地表与路径铺装（map·表现层）—— ✅ 已实现（2026-09-20）
+- 接口: `assets/textures/`（岩库 v1 锁定：PolyHaven CC0 `brown_mud_rocks_01` + `cobblestone_02`，各 1k diffuse + GL 法线，
+  合计 ~4.2MB）+ 新 `spawn_ground` 系统；输出 = 地表贴图平面 + 悬崖裙边体块 + 路径条石板铺装 + 塔位垫/基方块 B 色板校色。
+- 行为: 战场从「悬浮灰条」变为完整地形体——贴图地表（UV 平铺 10×8，Repeat 采样）+ 深岩色悬崖边框（31×25.5×2.5 体块）
+  + 路径铺装（每段独立材质，平铺 ~2 单位/砖，取整对缝）+ 塔位垫/基地块 B 色板纯色。
+  headless（无 AssetServer）回落 B 色板纯色；敌人寻路/塔位逻辑/相机取景零改动。
+- 验收句: ① 真窗口地表=泥岩碎石、路径=石板、两者一眼可辨（视觉验收：激活窗口+中性提问+dash 地面真相交叉核对）；
+  ② headless `map_ground_spawns_headless`：MapGround 面存在、y=-0.01、材质为 B 色板纯色（无贴图分支不炸）；
+  ③ `map_ground_texture_branch_is_pinned`：带 AssetServer 时地表材质挂 diffuse+法线句柄；
+  ④ `textures_dir_conventions_and_manifest_agree`：贴图目录 ADR-0009 约定（单层/snake_case/jpg/15MiB/JPEG 魔数）+ 清单双向对账。
+- ⚠️ 2k 贴图曾评估弃用（俯视+平铺下收益小、体积 3 倍）；后续若特写镜头需要再升版走 art-sync。
+- **验收记录（2026-09-20）**：① 视觉验收**首验作废**——窗口未真正置前导致截图错位黑图 + 半引导性提问
+  （问「有没有道路/金币」）让视觉模型幻觉出完整画面，被用户肉眼当场戳穿（黑图坑三犯，前两次见 ART2）；
+  **重做通过**：`osascript` System Events `AXRaise` 置前（frontmost 可能仍报 false，以窗口 main/focused 为准）
+  → `screencapture -l <window_id>` 窗口直截（绕开裁剪坐标换算）→ 真中性「逐字读出文字」+ dash 独立对账
+  （金币0/基地10/10/波次1建造期/下一波普通×5 全吻合），存档 `docs/img/warden_art3_terrain.png`；
+  ②③④ `cargo test` 106 条全绿。
+
+### ART4 · 基地与入口体块换装（map·表现层）—— 📝 待立卡
+- 方向稿：基地=石门楼（主楼+双柱+旗杆）、入口=双柱石拱（参照 Blender 稿 Base/Entry 体块）；图生 3D 走美术管线入岩库。
+
+### ART5 · 荒原点缀 props（map·表现层）—— 📝 待立卡
+- 方向稿：枯树/风化岩/残墙断柱，贴边为主 + 少量中场低矮件；严格让开路径/塔位/基地视线（可读性铁律 §3）。
+
+### ART6 · 黄昏光照氛围（camera·表现层）—— 📝 待立卡
+- 锚点值见 `docs/art-direction.md` 光照段；全局性改动（影响塔/敌/UI 可读性），独立验收，放换装链最后。
+
+---
+
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. phase=.. gold=.. lives=.. wave=.. entities=..`（`src/plugins/debug.rs`）。

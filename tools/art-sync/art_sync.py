@@ -78,18 +78,28 @@ def dest_under(assets_root: Path, rel: str) -> Path:
 
     Containment comes from construction: exactly two fixed components, the
     first restricted to the five conventional subdirs, the second matching
-    a conservative filename charset (no separators, no '..').
+    a conservative filename charset (no separators, no '.'/'..' dot names).
     """
     if "\\" in rel:
         raise ValueError(f"非法的目标路径 {rel!r}")
     parts = PurePosixPath(rel).parts
-    if len(parts) != 2 or parts[0] not in ASSET_SUBDIRS or not SAFE_NAME.match(parts[1]):
+    if (
+        len(parts) != 2
+        or parts[0] not in ASSET_SUBDIRS
+        or not SAFE_NAME.match(parts[1])
+        or parts[1] in {".", ".."}
+    ):
         raise ValueError(f"目标路径必须是 {'/'.join(ASSET_SUBDIRS)} 之一的单文件名: {rel!r}")
     return assets_root.joinpath(parts[0], parts[1])
 
 
-def download(url: str, dest: Path) -> None:
-    """Stream to <dest>.part next to the validated dest, atomic rename."""
+def download(url: str, rel: str, assets_root: Path) -> None:
+    """Stream to <dest>.part next to the validated dest, atomic rename.
+
+    Takes the raw manifest mapping, not a Path: the destination is built
+    ONLY through dest_under, so no caller can hand in an unvalidated path.
+    """
+    dest = dest_under(assets_root, rel)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
     with _OPENER.open(url, timeout=60) as resp, open(tmp, "wb") as out:
@@ -182,7 +192,7 @@ def main() -> int:
                 print(f"[art-sync] 将下载: {dest} <- {vault_name} v{pinned} ({reason})")
             else:
                 try:
-                    download(f"{source}/files/{f['id']}/download", dest)
+                    download(f"{source}/files/{f['id']}/download", rel, assets_root)
                     print(f"[art-sync] 已下载: {dest} (v{pinned}, {reason})")
                     actions += 1
                 except (IOError, urllib.error.URLError) as e:

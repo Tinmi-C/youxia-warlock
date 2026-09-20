@@ -4268,6 +4268,7 @@ fn archer_tower_assembly_is_pinned() {
     // test pins entity structure, not loaded content).
     app.init_asset::<bevy::text::Font>();
     app.init_asset::<bevy::world_serialization::WorldAsset>();
+    app.init_asset::<bevy::image::Image>();
     app.update(); // startup: deal hand + build the command card
     // Force the archer into the hand so the Build button targets it.
     app.world_mut().resource_scope(|_w, mut hand: Mut<Hand>| {
@@ -4362,4 +4363,70 @@ fn camera_framing_covers_all_slots() {
         count += 1;
     }
     assert_eq!(count, 8, "the map has eight slots");
+}
+
+/// ART3: the arena terrain spawns in every world — headless (no AssetServer)
+/// takes the flat direction-B fallback: exactly one `MapGround` top face at
+/// the diorama height, with the palette color from docs/art-direction.md.
+#[test]
+fn map_ground_spawns_headless() {
+    let mut app = test_app();
+    app.update();
+    let mut ground = app
+        .world_mut()
+        .query_filtered::<&MeshMaterial3d<StandardMaterial>, With<warden::components::MapGround>>();
+    let handle = ground
+        .iter(app.world())
+        .next()
+        .expect("one MapGround top face")
+        .0
+        .clone();
+    let mats = app.world().resource::<Assets<StandardMaterial>>();
+    let mat = mats.get(&handle).expect("ground material exists");
+    assert_eq!(mat.base_color, Color::srgb(0.42, 0.32, 0.19));
+    assert!(
+        mat.base_color_texture.is_none(),
+        "headless must stay on the flat fallback branch"
+    );
+    let mut tf = app
+        .world_mut()
+        .query_filtered::<&Transform, With<warden::components::MapGround>>();
+    let tf = tf.iter(app.world()).next().expect("ground transform");
+    assert!((tf.translation.y - (-0.01)).abs() < 1e-6);
+}
+
+/// ART3: with a real AssetServer the ground takes the textured branch
+/// (diffuse + GL normal wired with a tiling uv transform). Mirrors the L3
+/// pattern of `archer_tower_assembly_is_pinned`: pins the wiring, not the
+/// loaded pixels.
+#[test]
+fn map_ground_texture_branch_is_pinned() {
+    let mut app = test_app();
+    app.add_plugins(bevy::asset::AssetPlugin::default());
+    // Same registration set as `archer_tower_assembly_is_pinned`: the UI
+    // font path loads Font/WorldAsset, ART3's terrain loads Image — all
+    // without loaders, which only logs (we pin wiring, not pixels).
+    app.init_asset::<bevy::text::Font>();
+    app.init_asset::<bevy::world_serialization::WorldAsset>();
+    app.init_asset::<bevy::image::Image>();
+    app.update();
+    let mut ground = app
+        .world_mut()
+        .query_filtered::<&MeshMaterial3d<StandardMaterial>, With<warden::components::MapGround>>();
+    let handle = ground
+        .iter(app.world())
+        .next()
+        .expect("one MapGround top face")
+        .0
+        .clone();
+    let mats = app.world().resource::<Assets<StandardMaterial>>();
+    let mat = mats.get(&handle).expect("ground material exists");
+    assert!(
+        mat.base_color_texture.is_some(),
+        "ground must be textured when an AssetServer exists"
+    );
+    assert!(
+        mat.normal_map_texture.is_some(),
+        "ground normal map must be wired"
+    );
 }
