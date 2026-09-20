@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import os
 import re
 import socket
 import sys
@@ -73,14 +74,29 @@ def http_json(url: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _realpath_under(path: Path, root: Path) -> str:
+    """CWE-22 guard: return os.path.realpath(path) only when it stays inside
+    realpath(root). Belt-and-braces on top of dest_under's constructive
+    checks (also covers symlinked subdirs pointing elsewhere)."""
+    real = os.path.realpath(path)
+    root_real = os.path.realpath(root)
+    if real != root_real and not real.startswith(root_real + os.sep):
+        raise ValueError(f"目标路径逃逸 assets 根: {path}")
+    return real
+
+
 def dest_under(assets_root: Path, rel: str) -> Path:
     """Build assets/<subdir>/<name> from the manifest mapping, or raise.
 
     Containment comes from construction: exactly two fixed components, the
     first restricted to the five conventional subdirs, the second matching
     a conservative filename charset (no separators, no '.'/'..' dot names).
+    A realpath-containment guard backs the construction (see _realpath_under).
     """
-    if "\\" in rel:
+    if "\\" in rel or ".." in rel:
+        # Literal-substring rejection ("禁止 ../") on top of the structural
+        # checks below: over-strict by design (dot-dot never appears in the
+        # asset naming convention), keeps the CWE-22 intent explicit.
         raise ValueError(f"非法的目标路径 {rel!r}")
     parts = PurePosixPath(rel).parts
     if (
@@ -90,19 +106,23 @@ def dest_under(assets_root: Path, rel: str) -> Path:
         or parts[1] in {".", ".."}
     ):
         raise ValueError(f"目标路径必须是 {'/'.join(ASSET_SUBDIRS)} 之一的单文件名: {rel!r}")
-    return assets_root.joinpath(parts[0], parts[1])
+    dest = assets_root.joinpath(parts[0], parts[1])
+    _realpath_under(dest, assets_root)  # validate; constructive path returned
+    return dest
 
 
 def download(url: str, rel: str, assets_root: Path) -> None:
     """Stream to <dest>.part next to the validated dest, atomic rename.
 
     Takes the raw manifest mapping, not a Path: the destination is built
-    ONLY through dest_under, so no caller can hand in an unvalidated path.
+    ONLY through dest_under, and every write target is opened through the
+    realpath-containment guard (CWE-22).
     """
     dest = dest_under(assets_root, rel)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
-    with _OPENER.open(url, timeout=60) as resp, open(tmp, "wb") as out:
+    tmp_real = _realpath_under(tmp, assets_root)
+    with _OPENER.open(url, timeout=60) as resp, Path(tmp_real).open("wb") as out:
         length = int(resp.headers.get("Content-Length", "0"))
         copied = 0
         while True:
@@ -112,9 +132,10 @@ def download(url: str, rel: str, assets_root: Path) -> None:
             out.write(chunk)
             copied += len(chunk)
     if length and copied != length:
-        tmp.unlink(missing_ok=True)
+        Path(tmp_real).unlink(missing_ok=True)
         raise IOError(f"short read: {copied}/{length} bytes")
-    tmp.replace(dest)
+    dest_real = _realpath_under(dest, assets_root)
+    os.replace(tmp_real, dest_real)
 
 
 def main() -> int:
