@@ -207,6 +207,22 @@ pub fn spawn_base_tower(
         Visibility::Visible,
         Transform::from_xyz(pos.x, 0.6, pos.z),
     ));
+    attach_tower_appearance(&mut ec, def, tower_index, meshes, materials, server);
+    ec.id()
+}
+
+/// The in-game look of a base tower (SM1 appearance seam): the archer model
+/// scene with its ballista mount, or the tinted gray box. Pure presentation —
+/// no rule components. Shared by `spawn_base_tower` and the showroom exhibit
+/// spawner so the display can never drift from the real game.
+pub fn attach_tower_appearance(
+    ec: &mut EntityCommands,
+    def: &TowerDef,
+    tower_index: usize,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    server: Option<&AssetServer>,
+) {
     if tower_index == 0 {
         if let Some(server) = server {
             let scene = server.load(
@@ -249,7 +265,7 @@ pub fn spawn_base_tower(
                         .with_scale(Vec3::splat(BALLISTA_SCALE)),
                 ));
             });
-            return ec.id();
+            return;
         }
     }
     // Gray-box fallback: every other tower + all headless test worlds.
@@ -261,7 +277,18 @@ pub fn spawn_base_tower(
             AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
         })),
     ));
-    ec.id()
+}
+
+/// The in-game look of a fused tower: its per-kind color on a 1.2 box (SM1
+/// appearance seam — the single source the fusion placement and the showroom
+/// both read, extracted from command.rs unchanged).
+pub fn fused_tower_color(kind: FusionKind) -> Color {
+    match kind {
+        FusionKind::Marksman => Color::srgb(0.2, 0.8, 1.0),
+        FusionKind::Archmage => Color::srgb(0.7, 0.2, 1.0),
+        FusionKind::Hybrid => Color::srgb(0.2, 0.9, 0.4),
+        FusionKind::Bastion => Color::srgb(1.0, 0.6, 0.1),
+    }
 }
 
 /// Resolve one-axis armor: physical is halved vs armored enemies; magic and

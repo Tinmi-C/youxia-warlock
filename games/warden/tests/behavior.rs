@@ -2662,6 +2662,7 @@ mod debug_cheats {
     /// DB3 (time control + overlays) is wired the same way since DB3.
     pub(crate) fn debug_app() -> App {
         use warden::systems::debug_time as db3;
+        use warden::systems::showroom as sm;
         let mut app = test_app();
         app.init_resource::<DebugQueue>()
             .init_resource::<DebugPanel>()
@@ -2672,8 +2673,8 @@ mod debug_cheats {
             .add_systems(Update, debug_panel_toggle)
             // The single cheat drain point runs in Input so the same frame's
             // wave/combat systems observe the settled cheat state; scenario
-            // loads run right after it, then the DB3 time clock (mirrors
-            // DebugPlugin's ordering).
+            // loads run after it, then the DB3 time clock (mirrors
+            // DebugPlugin's ordering), then the SM1 showroom browser.
             .add_systems(
                 Update,
                 (
@@ -2681,6 +2682,7 @@ mod debug_cheats {
                     debug_cheat_executor,
                     debug_scenario_executor.after(debug_cheat_executor),
                     db3::debug_time_clock.after(debug_scenario_executor),
+                    sm::showroom_browse.after(debug_scenario_executor),
                 )
                     .in_set(GameSet::Input),
             )
@@ -4309,9 +4311,14 @@ fn archer_tower_assembly_is_pinned() {
         "the mount must be a child of the tower entity"
     );
     // Both scene roots ride the tower: body (y 0.35) + ballista (y 1.3).
-    let mut roots = app
-        .world_mut()
-        .query_filtered::<&Transform, With<bevy::world_serialization::WorldAssetRoot>>();
+    // (ART5 map props also spawn WorldAssetRoot scenes — exclude them.)
+    let mut roots = app.world_mut().query_filtered::<
+        &Transform,
+        (
+            With<bevy::world_serialization::WorldAssetRoot>,
+            Without<warden::components::MapProp>,
+        ),
+    >();
     let ys: Vec<f32> = roots
         .iter(app.world())
         .map(|t| t.translation.y)
@@ -4429,6 +4436,51 @@ fn map_ground_texture_branch_is_pinned() {
         mat.normal_map_texture.is_some(),
         "ground normal map must be wired"
     );
+}
+
+/// ART5: scatter props spawn in every world — headless takes the B-palette
+/// box fallback; exactly one `MapProp` per PROP_LAYOUT row, all grounded.
+#[test]
+fn map_props_spawn_headless() {
+    let mut app = test_app();
+    app.update();
+    let mut props = app
+        .world_mut()
+        .query_filtered::<&Transform, With<warden::components::MapProp>>();
+    let all: Vec<&Transform> = props.iter(app.world()).collect();
+    assert_eq!(all.len(), 12, "one instance per PROP_LAYOUT row");
+    for tf in all {
+        assert!(tf.translation.y.abs() < 1e-6, "props sit on the ground");
+    }
+}
+
+/// ART6: dusk rig values from docs/art-direction.md — one warm low sun with
+/// long shadows, cool purple ambient bounce, dusk clear color.
+#[test]
+fn dusk_lighting_is_pinned() {
+    let mut app = test_app();
+    app.update();
+    let mut lights = app.world_mut().query::<&DirectionalLight>();
+    let mut n = 0;
+    for l in lights.iter(app.world()) {
+        n += 1;
+        assert_eq!(l.color, Color::srgb(1.0, 0.55, 0.25));
+        assert!((l.illuminance - 9_000.0).abs() < 1e-3);
+    }
+    assert_eq!(n, 1, "exactly one directional light");
+    let ambient = app.world().resource::<GlobalAmbientLight>();
+    assert_eq!(ambient.color, Color::srgb(0.40, 0.32, 0.50));
+    let clear = app.world().resource::<ClearColor>();
+    assert_eq!(clear.0, Color::srgb(0.30, 0.17, 0.13));
+    // The sun hangs low (pitch -0.32 ≈ 18°, long shadows) at the same
+    // azimuth as the old noon rig.
+    let mut xforms = app
+        .world_mut()
+        .query_filtered::<&Transform, With<DirectionalLight>>();
+    let expected = Quat::from_euler(EulerRot::ZYX, 0.0, 0.9, -0.32);
+    for tf in xforms.iter(app.world()) {
+        assert!(tf.rotation.abs_diff_eq(expected, 1e-6));
+    }
 }
 
 // --- ART7/ART8: ballista aim tracking + muzzle launch + fire recoil ----------
@@ -4720,4 +4772,170 @@ fn ballista_recoil_idle_without_fire() {
             < 1e-6,
         "no fire, no displacement"
     );
+}
+
+// --- SM1: showroom single-exhibit browser ---------------------------------------
+//
+// Headless equivalents of the live acceptance: `cargo run -- --scenario
+// showroom` then browse with Tab / ←/→. Exhibits are pure presentation
+// entities — every assertion below also pins the zero-interference law.
+
+#[cfg(debug_assertions)]
+mod showroom {
+    use super::debug_cheats::debug_app;
+    use super::*;
+    use warden::resources::{DebugRun, EnemyDefs, FusionDefs};
+    use warden::systems::debug::{DebugScenarioQueue, Scenario};
+    use warden::systems::showroom::{ShowroomExhibit, ShowroomPad, ShowroomPlate, ShowroomState};
+
+    fn enter(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<DebugScenarioQueue>()
+            .0
+            .push(Scenario::Showroom);
+    }
+
+    fn count_exhibits(app: &mut App) -> usize {
+        let mut q = app.world_mut().query_filtered::<(), With<ShowroomExhibit>>();
+        q.iter(app.world()).count()
+    }
+
+    fn plate_text(app: &mut App) -> String {
+        let mut q = app.world_mut().query_filtered::<&Text2d, With<ShowroomPlate>>();
+        q.single(app.world())
+            .expect("exactly one name plate")
+            .0
+            .clone()
+    }
+
+    fn press(app: &mut App, key: KeyCode) {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(key);
+        app.update();
+        // MinimalPlugins has no InputPlugin, so nothing auto-resets the button
+        // state between frames — release + clear or the key stays "held" and
+        // re-fires on every later update (and blocks the next press()).
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(key);
+        keys.clear_just_pressed(key);
+    }
+
+    /// SM1 acceptance: entering the showroom lands the browser state with
+    /// exactly one exhibit on the pad (plus the pad itself) on the entry
+    /// frame, marks the run (save isolation), leaves no rule entities on the
+    /// board, and three seconds of idling change nothing.
+    #[test]
+    fn showroom_enters_one_exhibit_zero_interference() {
+        let mut app = debug_app();
+        app.update(); // startup baseline: gold 100, base 10/10, wave 1
+        enter(&mut app);
+        app.update(); // executor + browse land the first exhibit this frame
+        assert!(
+            app.world().get_resource::<ShowroomState>().is_some(),
+            "browser state is inserted on entry"
+        );
+        assert_eq!(count_exhibits(&mut app), 1, "exactly one exhibit on the pad");
+        let mut pads = app.world_mut().query_filtered::<(), With<ShowroomPad>>();
+        assert_eq!(pads.iter(app.world()).count(), 1, "the display pad exists");
+        assert!(
+            app.world().resource::<DebugRun>().marked,
+            "scenario entry marks the run (save isolation)"
+        );
+        let mut towers = app.world_mut().query::<&Tower>();
+        assert_eq!(
+            towers.iter(app.world()).count(),
+            0,
+            "exhibits carry no Tower rule component"
+        );
+        let mut enemies = app.world_mut().query::<&Enemy>();
+        assert_eq!(
+            enemies.iter(app.world()).count(),
+            0,
+            "exhibits carry no Enemy rule component"
+        );
+        let (gold, base, wave) = {
+            let w = app.world().resource::<WaveState>();
+            (
+                app.world().resource::<Economy>().gold,
+                app.world().resource::<BaseHp>().hp,
+                w.current,
+            )
+        };
+        // 3 s of idling at the fixed 1/60 s timestep.
+        for _ in 0..180 {
+            app.update();
+        }
+        assert_eq!(count_exhibits(&mut app), 1, "still exactly one exhibit");
+        let w = app.world().resource::<WaveState>();
+        assert_eq!(
+            app.world().resource::<Economy>().gold,
+            gold,
+            "browsing must not touch the economy"
+        );
+        assert_eq!(app.world().resource::<BaseHp>().hp, base);
+        assert_eq!(w.current, wave, "waves must not advance in the showroom");
+    }
+
+    /// SM1 acceptance: the browse list auto-enumerates — → cycles through
+    /// every tower (base + fused) and every enemy, Tab switches category,
+    /// with at most one exhibit alive at every step and the name plate naming
+    /// the def on stage (adding a def to the tables extends the cycle with
+    /// zero showroom changes — the lists are read live from the defs).
+    #[test]
+    fn showroom_traversal_visits_every_def_single_exhibit() {
+        let mut app = debug_app();
+        app.update();
+        enter(&mut app);
+        app.update();
+        let (tower_labels, fusion_labels, enemy_labels) = {
+            let towers = app.world().resource::<TowerDefs>();
+            let fusions = app.world().resource::<FusionDefs>();
+            let enemies = app.world().resource::<EnemyDefs>();
+            (
+                towers.list.iter().map(|d| d.label).collect::<Vec<_>>(),
+                fusions.list.iter().map(|d| d.label).collect::<Vec<_>>(),
+                enemies.list.iter().map(|d| d.label).collect::<Vec<_>>(),
+            )
+        };
+        let n_towers = tower_labels.len() + fusion_labels.len();
+        let n_enemies = enemy_labels.len();
+        assert!(n_towers >= 2 && n_enemies >= 2, "the defs must be non-trivial");
+
+        let mut seen: Vec<String> = vec![plate_text(&mut app)]; // item 0 is on stage
+        for _ in 0..n_towers {
+            press(&mut app, KeyCode::ArrowRight);
+            assert_eq!(count_exhibits(&mut app), 1, "one exhibit at a time");
+            seen.push(plate_text(&mut app));
+        }
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(count_exhibits(&mut app), 1, "category switch keeps one exhibit");
+        seen.push(plate_text(&mut app)); // enemies item 0
+        for _ in 0..n_enemies {
+            press(&mut app, KeyCode::ArrowRight);
+            assert_eq!(count_exhibits(&mut app), 1, "one exhibit at a time");
+            seen.push(plate_text(&mut app));
+        }
+        for label in tower_labels
+            .iter()
+            .chain(fusion_labels.iter())
+            .chain(enemy_labels.iter())
+        {
+            assert!(
+                seen.iter().any(|t| t.contains(label)),
+                "def '{label}' must take the stage at least once (plates: {seen:?})"
+            );
+        }
+        let mut distinct = seen.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(
+            distinct.len(),
+            n_towers + n_enemies,
+            "exactly one distinct exhibit per def (cycle wraps back to item 0)"
+        );
+        // Browsing keys also work backwards.
+        press(&mut app, KeyCode::ArrowLeft);
+        assert_eq!(count_exhibits(&mut app), 1);
+        assert_ne!(plate_text(&mut app), *seen.last().unwrap());
+    }
 }

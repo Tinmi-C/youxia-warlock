@@ -36,6 +36,7 @@ DEBUG_STRINGS=(
     "screenshot saved"           # F12 screenshot log
     "dash] fps"                  # log dashboard prefix
     "[db3]"                      # DB3 time/overlay log + HUD strip prefix
+    "[sm]"                       # SM1 showroom log prefix
 )
 for s in "${DEBUG_STRINGS[@]}"; do
     if LC_ALL=C grep -aqF -- "$s" "$BIN"; then

@@ -40,6 +40,7 @@ fn build_debug(app: &mut App) {
     use crate::sets::GameSet;
     use crate::systems::debug as dbg;
     use crate::systems::debug_time as db3;
+    use crate::systems::showroom as sm;
 
     app.init_resource::<FpsLog>()
         .init_resource::<dbg::DebugQueue>()
@@ -65,6 +66,10 @@ fn build_debug(app: &mut App) {
                 dbg::debug_cheat_executor,
                 dbg::debug_scenario_executor.after(dbg::debug_cheat_executor),
                 db3::debug_time_clock.after(dbg::debug_scenario_executor),
+                // SM1: browse keys + exhibit spawn; runs after the scenario
+                // executor so the showroom's first exhibit lands on the same
+                // frame the scenario is entered (no-ops without ShowroomState).
+                sm::showroom_browse.after(dbg::debug_scenario_executor),
             )
                 .in_set(GameSet::Input),
         )

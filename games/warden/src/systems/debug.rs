@@ -410,8 +410,8 @@ fn hide_ghosts(core: &mut CheatsCore, board: &mut CheatsBoard) {
 //   - F1 panel: the scenario buttons push into the same queue.
 // Loading ANY scenario marks the run as debug (DB1 save isolation).
 
-/// The six preset scenarios (DB2). `name` doubles as the CLI value and the
-/// panel button label.
+/// The seven preset scenarios (DB2 + SM1). `name` doubles as the CLI value
+/// and the panel button label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scenario {
     /// Two archers on the board + 100 gold + build phase (fusion testing).
@@ -426,17 +426,20 @@ pub enum Scenario {
     Choice,
     /// All 8 slots occupied (full-board tests).
     FullBoard,
+    /// The asset showroom: one-exhibit browsing on a display pad (SM1).
+    Showroom,
 }
 
 impl Scenario {
     /// All scenarios with their CLI/panel names, in display order.
-    pub const ALL: [(Scenario, &'static str); 6] = [
+    pub const ALL: [(Scenario, &'static str); 7] = [
         (Scenario::Fusion, "fusion"),
         (Scenario::Projectile, "projectile"),
         (Scenario::Fx, "fx"),
         (Scenario::Meta, "meta"),
         (Scenario::Choice, "choice"),
         (Scenario::FullBoard, "full-board"),
+        (Scenario::Showroom, "showroom"),
     ];
 
     pub fn name(self) -> &'static str {
@@ -605,6 +608,11 @@ fn apply_scenario(world: &mut World, scenario: Scenario) {
             for (i, slot) in slots.iter().enumerate() {
                 place_towers(world, i % 4, &[*slot]); // cycle the 4 base types
             }
+        }
+        // SM1: the asset showroom (display pad + browser state; the first
+        // exhibit is spawned by `showroom_browse` the same frame).
+        Scenario::Showroom => {
+            crate::systems::showroom::enter_showroom(world);
         }
     }
     info!("[debug] scenario '{}' loaded", scenario.name());

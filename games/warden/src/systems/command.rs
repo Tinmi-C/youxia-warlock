@@ -1098,12 +1098,9 @@ pub fn confirm_fusion_target(
                 invested: cost_ing + fee,
             },
             Mesh3d(meshes.add(Cuboid::new(1.2, 1.2, 1.2))),
-            MeshMaterial3d(materials.add(match recipe.kind {
-                crate::components::FusionKind::Marksman => Color::srgb(0.2, 0.8, 1.0),
-                crate::components::FusionKind::Archmage => Color::srgb(0.7, 0.2, 1.0),
-                crate::components::FusionKind::Hybrid => Color::srgb(0.2, 0.9, 0.4),
-                crate::components::FusionKind::Bastion => Color::srgb(1.0, 0.6, 0.1),
-            })),
+            MeshMaterial3d(materials.add(crate::systems::tower::fused_tower_color(
+                recipe.kind,
+            ))),
             Transform::from_xyz(pos_b.x, 0.6, pos_b.z),
         ))
         .id();
