@@ -3,13 +3,19 @@
 > 团队自研 crate 仓库：装**跨玩法可复用**的"主观玩法机制"（数值引擎、通用战斗原语、验证工具等）。
 > **不是"自造引擎底座"**——引擎底座是 Bevy（ADR-0004 已退役手写渲染/ECS 路线），客观技术（物理/碰撞/粒子）走生态插件。
 > 沉淀时机：**玩法机制第 2 次被另一个游戏用到，才从已留好的接缝处机械抽出**（见根 `AGENTS.md` / 知识库"免重复准则"）。
-> 因此**当前为空是正常状态**——不要为了"看起来有引擎"而提前抽 code。
+> 不为"看起来有引擎"而提前抽 code——首例 ADR-0010（showroom-viewer）即以"引擎 crate + 独立 bin"双消费方成立。
 
 位于整体 monorepo 内，不单独建仓：
 
 ```
 engine/<crate-name>/     # 例如 engine/<crate-name>/
 ```
+
+## 现有 crate
+
+- `showroom-viewer/` — 通用中性影棚资产查看器（ADR-0010）：影棚环境/清扫/资产目录/egui 列表/
+  环绕相机全部通用；各游戏只注册自己的目录（warden 已接入），另带零接入的 `asset-viewer`
+  bin（`cargo run -p showroom-viewer --bin asset-viewer -- <目录>` 扫看任意 GLB）。
 
 ## 放什么
 

@@ -807,11 +807,22 @@
   无标记根实体浮现、再被补扫——自愈）；白名单 = Floor/Pad/Exhibit/Light/Camera/HoverGhost（UI Node 无 3D
   组件天然豁免）。实机日志 14 个流窜实体被清、读图确认场景零多余物体。断言 +1
   （`showroom_sweep_removes_strays_keeps_studio`）→ 共 4 条。
+  **v2.2 通用化（同日，负责人定方向：跨游戏可用）→ ADR-0010**：机制全量上收为共享 crate
+  `engine/showroom-viewer`（影棚/进场+驻守清扫/目录模型 `ShowroomCatalog`/egui 列表/环绕相机/键盘流，
+  egui 不在场自动不注册面板；`ShowroomKept` 标记豁免游戏侧必须存活的实体）。warden 侧瘦成适配层
+  `systems/showroom.rs`：`build_catalog` 读定义表 + 条目闭包走外观缝、幽灵标记 Kept、切
+  `GameState::Showroom` 后交 `enter_studio`；测试路径靠 re-export 保持不动（4 条断言零改）。
+  **第二消费方 = crate 自带 `asset-viewer` bin**：`cargo run -p showroom-viewer --bin asset-viewer -- <目录>`
+  递归扫 .glb/.gltf 即看（目录设为 bevy 资产根，按相对路径加载；无字体则只 egui 列表无铭牌）——
+  对 warden/assets/models 实测：14 文件全列、KayKit 骑士上台、中性影棚。warden 回归：UX 与 v2.1 完全
+  一致（读图核过）。依赖声明无条件（cargo 无法按 profile 门控依赖，同 bevy_egui 先例），代码层只在
+  debug 构建 引用。全量 120 断言绿。
 
 ### SM2 · 展示场交互：动画触发 + 自由观察（debug·表现层）—— 📝 待立卡（依赖 SM1）
-- 范围: 单件浏览已天然聚焦，本卡补——按键触发一次性动画（attack/hit/death，单次/循环切换）；相机自由观察
-  （绕展示台旋转/缩放，一键回默认机位）；可选 F1 面板目录（分类/条目列表点击直达，与键盘切换同队列）。
-  DB3 时间控制天然可用（F6 冻结 / F8 单帧逐帧看动画）——ART7-10 弩瞄准/后坐/弦箭与后续角色动画的逐帧验收场。
+- 范围: v2 已覆盖相机自由观察与列表面板——本卡只剩**动画触发**：按键触发一次性动画
+  （attack/hit/death，单次/循环切换）+ idle 自动循环（有 clip 的资产）。
+  DB3 时间控制天然可用（F6 冻结 / F8 单帧逐帧看动画）——ART7-10 弩瞄准/后坐/弦箭与后续角色动画的逐帧验收场；
+  ART11 敌人骨骼模型已带 walk/run clip，是首个受益资产。
 
 ### SM3 · 实弹区：真目标 + 技能/特效实放（debug·skills/fx）—— 📝 待立卡（依赖 SM1）
 - 范围: 展示场一角划实弹区——真 Enemy 木桩（沿路径行走 + 周期重刷）+ 可选真塔 + 技能 CD 置短（≤2s）无成本

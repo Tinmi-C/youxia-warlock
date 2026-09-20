@@ -27,6 +27,12 @@ rand = "0.10"    # 随机（AC1 开局手牌/AC2 商店刷新/AC3 掉落）；�
 # (zero debug surface in release builds — see the DB1 card for the check).
 bevy_egui = "0.42"
 
+# Generic neutral-studio asset viewer (ADR-0010): mechanisms live in the
+# engine crate; Warden only registers its catalog. Dependency declared
+# unconditionally (cargo cannot gate by profile — same as bevy_egui above),
+# the gate lives in the code: only debug builds reference it.
+showroom-viewer = { path = "../../engine/showroom-viewer" }
+
 [dev-dependencies]
 # Art asset gates (tests/art_assets.rs): parse the GLB JSON chunk offline
 # (bbox/counts/animation facts) — already in the dependency tree via Bevy.

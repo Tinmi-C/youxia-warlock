@@ -21,3 +21,4 @@
 | [[decisions/0007-animation-state-machine-table-driven\|ADR-0007]] | 动画状态机采用表驱动形态（面向动画规模增长 20+） | accepted | 2026-09-02 |
 | [[decisions/0008-numeric-data-in-code-not-external\|ADR-0008]] | 游戏数值数据暂留代码内，不外部化到数据文件/数据库（定迁移门槛） | accepted | 2026-09-02 |
 | [[decisions/0009-art-vault-to-game-asset-flow\|ADR-0009]] | 美术资产从岩库（ArtVault）进入游戏仓库——清单锁定 + art-sync 桥 | accepted | 2026-09-14 |
+| [[decisions/0010-showroom-generic-asset-viewer\|ADR-0010]] | 展示场（美术资产查看器）通用化——抽入 engine/showroom-viewer（warden 适配 + 独立 asset-viewer bin 双消费方） | accepted | 2026-09-20 |

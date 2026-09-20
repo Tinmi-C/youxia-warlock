@@ -2669,7 +2669,6 @@ mod debug_cheats {
     /// DB3 (time control + overlays) is wired the same way since DB3.
     pub(crate) fn debug_app() -> App {
         use warden::systems::debug_time as db3;
-        use warden::systems::showroom as sm;
         let mut app = test_app();
         app.init_resource::<DebugQueue>()
             .init_resource::<DebugPanel>()
@@ -2681,9 +2680,9 @@ mod debug_cheats {
             // The single cheat drain point runs in Input so the same frame's
             // wave/combat systems observe the settled cheat state; scenario
             // loads run after it, then the DB3 time clock (mirrors
-            // DebugPlugin's ordering), then the SM1 studio viewer (keys ->
-            // single present/swap point + orbit camera; the egui list panel
-            // is skipped headless like debug_panel_ui).
+            // DebugPlugin's ordering). SM1 (ADR-0010): the generic studio
+            // comes from the engine crate's plugin — no bevy_egui here, so
+            // the egui list panel self-skips.
             .add_systems(
                 Update,
                 (
@@ -2691,13 +2690,10 @@ mod debug_cheats {
                     debug_cheat_executor,
                     debug_scenario_executor.after(debug_cheat_executor),
                     db3::debug_time_clock.after(debug_scenario_executor),
-                    sm::showroom_keys.after(debug_scenario_executor),
-                    sm::showroom_present.after(sm::showroom_keys),
-                    sm::showroom_sweep.after(sm::showroom_present),
                 )
                     .in_set(GameSet::Input),
             )
-            .add_systems(Update, sm::showroom_orbit.in_set(GameSet::Observe))
+            .add_plugins(showroom_viewer::ShowroomPlugin)
             // The orbit system reads/writes these; the real app gets them
             // from DefaultPlugins' InputPlugin.
             .init_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
@@ -5075,6 +5071,9 @@ mod showroom {
         let mut app = debug_app();
         app.update();
         enter(&mut app);
+        // Plugin ordering vs the executor is unspecified — the exhibit lands
+        // by the second frame after entry.
+        app.update();
         app.update();
         let (tower_labels, fusion_labels, enemy_labels) = {
             let towers = app.world().resource::<TowerDefs>();
@@ -5137,6 +5136,7 @@ mod showroom {
         app.update();
         enter(&mut app);
         app.update();
+        app.update(); // exhibit lands by the second frame (plugin ordering)
         // Panel-equivalent selection: enemy 3 (healer) straight from item 0.
         app.world_mut()
             .resource_mut::<ShowroomState>()
@@ -5181,6 +5181,7 @@ mod showroom {
         app.update();
         enter(&mut app);
         app.update();
+        app.update(); // exhibit lands by the second frame (plugin ordering)
         // A stray unmarked mesh root and an async-scene-style root appear
         // AFTER the studio is up (props materialize late in the real app).
         let mesh = app

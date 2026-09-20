@@ -40,7 +40,6 @@ fn build_debug(app: &mut App) {
     use crate::sets::GameSet;
     use crate::systems::debug as dbg;
     use crate::systems::debug_time as db3;
-    use crate::systems::showroom as sm;
 
     app.init_resource::<FpsLog>()
         .init_resource::<dbg::DebugQueue>()
@@ -50,9 +49,14 @@ fn build_debug(app: &mut App) {
         .init_resource::<db3::DebugTime>()
         .init_resource::<db3::DebugOverlays>()
         .add_plugins(bevy_egui::EguiPlugin::default())
+        // SM1 (ADR-0010): the generic studio viewer — keys/present/sweep/
+        // orbit/egui list all live in the engine crate; Warden's adapter
+        // only registers the catalog on scenario entry. Added after
+        // EguiPlugin so the list panel wires up.
+        .add_plugins(showroom_viewer::ShowroomPlugin)
         .add_systems(
             bevy_egui::EguiPrimaryContextPass,
-            (debug_panel_ui, sm::showroom_panel_ui.after(debug_panel_ui)),
+            debug_panel_ui,
         )
         .add_systems(Update, (log_dashboard, screenshot_on_f12, dbg::debug_panel_toggle))
         // The single cheat drain point runs in Input so the same frame's
@@ -69,19 +73,9 @@ fn build_debug(app: &mut App) {
                 dbg::debug_cheat_executor,
                 dbg::debug_scenario_executor.after(dbg::debug_cheat_executor),
                 db3::debug_time_clock.after(dbg::debug_scenario_executor),
-                // SM1: browse keys -> single present/swap point; runs after
-                // the scenario executor so the first exhibit lands on the
-                // entry frame (no-ops without ShowroomState).
-                sm::showroom_keys.after(dbg::debug_scenario_executor),
-                sm::showroom_present.after(sm::showroom_keys),
-                // v2.1: resident sweep — async scene strays (props etc.)
-                // are removed the frame they surface.
-                sm::showroom_sweep.after(sm::showroom_present),
             )
                 .in_set(GameSet::Input),
         )
-        // SM1: orbit camera writes the pose whenever the showroom is active.
-        .add_systems(Update, sm::showroom_orbit.in_set(GameSet::Observe))
         // DB3 info overlays + the always-on debug HUD strip.
         .add_systems(
             Update,
