@@ -877,38 +877,42 @@ fn find_animation_player(
 /// children with part indices, then isolate the selected part (the rest
 /// hidden). Fresh exhibits start untagged; children spawn deferred, so
 /// pairing runs every frame until done.
-pub fn showroom_parts(
-    state: Option<Res<ShowroomState>>,
-    mut commands: Commands,
-    roots: Query<(Entity, &ShowroomPartsTag, &Children)>,
-    parts: Query<&ShowroomPart>,
-) {
-    let Some(state) = state else {
+pub fn showroom_parts(world: &mut World) {
+    let Some(state) = world.get_resource::<ShowroomState>() else {
         return;
     };
-    for (root, tag, children) in &roots {
+    let sel = state.selected_part;
+    // Exclusive ON PURPOSE: `showroom_present` despawns swapped exhibits
+    // via deferred commands; an exclusive system forces that flush first,
+    // so pairing/isolation only ever touches live entities (queuing
+    // inserts on a child that dies in the same frame panics at apply).
+    let roots: Vec<(usize, Vec<Entity>)> = world
+        .query_filtered::<(&ShowroomPartsTag, &Children), With<ShowroomExhibit>>()
+        .iter(world)
+        .map(|(tag, children)| (tag.0, children.iter().collect()))
+        .collect();
+    for (n_parts, children) in roots {
         // Pair once: mark every still-unmarked top-level child by order.
         let mut next = 0usize;
-        for child in children.iter() {
-            if parts.get(child).is_ok() {
+        for child in &children {
+            if world.get::<ShowroomPart>(*child).is_some() {
                 continue;
             }
-            if next >= tag.0 {
+            if next >= n_parts {
                 break;
             }
-            commands.entity(child).insert(ShowroomPart(next));
+            world.entity_mut(*child).insert(ShowroomPart(next));
             next += 1;
         }
-        let _ = root;
         // Isolate: only the selected part stays visible.
-        for child in children.iter() {
-            if let Ok(p) = parts.get(child) {
-                let vis = if state.selected_part.map(|s| s != p.0).unwrap_or(false) {
+        for child in &children {
+            if let Some(p) = world.get::<ShowroomPart>(*child) {
+                let vis = if sel.map(|s| s != p.0).unwrap_or(false) {
                     Visibility::Hidden
                 } else {
                     Visibility::Inherited
                 };
-                commands.entity(child).insert(vis);
+                world.entity_mut(*child).insert(vis);
             }
         }
     }

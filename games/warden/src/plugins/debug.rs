@@ -57,7 +57,14 @@ fn build_debug(app: &mut App) {
         .add_plugins(showroom_viewer::ShowroomPlugin)
             // SM3R: range maintenance + ledger run whenever the range is
             // active (guards inside on RangeState existing).
-            .add_systems(Update, (rng::range_maintain, rng::range_ledger))
+            .add_systems(
+                Update,
+                (
+                    rng::range_maintain,
+                    rng::range_ledger,
+                    rng::range_sweep,
+                ),
+            )
         .add_systems(
             bevy_egui::EguiPrimaryContextPass,
             (debug_panel_ui, rng::range_panel_ui),

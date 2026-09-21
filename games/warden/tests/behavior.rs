@@ -2700,6 +2700,7 @@ mod debug_cheats {
                 (
                     warden::systems::range::range_maintain,
                     warden::systems::range::range_ledger,
+                    warden::systems::range::range_sweep,
                 ),
             )
             // The orbit system reads/writes these; the real app gets them
@@ -5393,7 +5394,11 @@ mod showroom {
         }
         let yaw1 = app.world().resource::<showroom_viewer::ShowroomOrbit>().yaw_deg;
         assert!(yaw1 - yaw0 > 1.0, "turntable rotates ({} -> {yaw1})", yaw0);
-        // R resets the camera pose to defaults.
+        // R resets the camera pose to defaults (turn the turntable off
+        // first, or it rotates the fresh pose on the very same frame).
+        app.world_mut()
+            .resource_mut::<showroom_viewer::ShowroomTurntable>()
+            .on = false;
         press(&mut app, KeyCode::KeyR);
         let o = app.world().resource::<showroom_viewer::ShowroomOrbit>();
         assert_eq!(o.yaw_deg, ShowroomOrbit::default().yaw_deg);
@@ -5521,6 +5526,21 @@ mod range_tests {
         let mut towers = app.world_mut().query::<&Tower>();
         assert_eq!(towers.iter(app.world()).count(), 1, "one attacker tower");
         assert_eq!(dummy_count(&mut app), 3, "three dummies");
+        // Clean stage: battlefield gone, game UI hidden, studio floor in.
+        let mut ground = app.world_mut().query::<&warden::components::MapGround>();
+        assert_eq!(ground.iter(app.world()).count(), 0, "battlefield swept");
+        let mut slots = app.world_mut().query::<&TowerSlot>();
+        assert_eq!(slots.iter(app.world()).count(), 0, "tower slots swept");
+        let mut bars = app
+            .world_mut()
+            .query_filtered::<&Visibility, With<warden::systems::command::CommandBarRoot>>();
+        for vis in bars.iter(app.world()) {
+            assert_eq!(*vis, Visibility::Hidden, "game UI hidden in the range");
+        }
+        let mut floors = app
+            .world_mut()
+            .query_filtered::<(), With<showroom_viewer::ShowroomFloor>>();
+        assert_eq!(floors.iter(app.world()).count(), 1, "studio floor present");
         // Dummies never move (RangeDummy is excluded from path movement).
         let before = dummy_positions(&mut app);
         for _ in 0..60 {

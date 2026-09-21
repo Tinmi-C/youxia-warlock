@@ -4,12 +4,16 @@
 //! docs/showroom-v3-proposal.md: the tool never fakes combat logic.
 //!
 //! Enter via DB2 `Scenario::Range` (--scenario range or the F1 button).
-//! Runs in normal Playing state (gameplay systems live); dummies carry
-//! `RangeDummy` and are excluded from path movement.
+//! Runs in Playing state (the REAL gameplay systems live — that is the
+//! point), but on a CLEAN STAGE like the showroom studio: the battlefield
+//! is swept away, every game UI root is hidden, and a neutral floor/light
+//! rig replaces the arena — no command bar, no HUD, no wave text. Dummies
+//! carry `RangeDummy` and are excluded from path movement.
 
 use bevy::prelude::*;
+use showroom_viewer::{ShowroomFloor, ShowroomKept, ShowroomLight};
 
-use crate::components::{Enemy, Tower};
+use crate::components::{Enemy, Projectile, Tower};
 use crate::resources::{EnemyDefs, PathInfo, TowerDefs};
 use crate::systems::enemy::{RangeDummy, path_units_per_point, spawn_enemy_at};
 use crate::systems::tower::spawn_base_tower;
@@ -55,10 +59,95 @@ fn dummy_pos(origin: Vec3, n: u32, count: u32) -> Vec3 {
     Vec3::new(origin.x + DUMMY_DIST, 0.0, origin.z + offset)
 }
 
-/// Enter the range (Scenario::Range): insert the range state + ledger and
-/// request the initial reset (maintenance spawns the attacker + dummies).
-/// The scenario executor already ran clear_board.
+/// Enter the range (Scenario::Range): build the clean stage (sweep the
+/// battlefield, hide the game UI, neutral floor/light — same palette as the
+/// showroom studio), then insert the range state and request the initial
+/// reset (maintenance spawns the attacker + dummies). Gameplay systems
+/// keep running: they are gated on the Playing STATE, not on the map.
 pub fn enter_range(world: &mut World) {
+    // 1) One-shot sweep of the battlefield visuals (mesh roots, async scene
+    //    roots, lights) — the resident sweep below catches late stragglers.
+    {
+        let doomed: Vec<Entity> = {
+            let mut q = world.query_filtered::<
+                Entity,
+                (
+                    Or<(
+                        With<Mesh3d>,
+                        With<bevy::world_serialization::WorldAssetRoot>,
+                        With<DirectionalLight>,
+                    )>,
+                    Without<Enemy>,
+                    Without<Tower>,
+                    Without<Projectile>,
+                    Without<Camera3d>,
+                    Without<ShowroomKept>,
+                ),
+            >();
+            q.iter(world).collect()
+        };
+        for e in doomed {
+            world.despawn(e);
+        }
+    }
+    // 2) Hide every game UI root (command bar, HUD, wave preview, skills)
+    //    — the range panel is egui and stays.
+    {
+        let mut q = world.query_filtered::<Entity, (With<Node>, Without<ChildOf>)>();
+        let roots: Vec<Entity> = q.iter(world).collect();
+        for e in roots {
+            if let Some(mut vis) = world.get_mut::<Visibility>(e) {
+                *vis = Visibility::Hidden;
+            }
+        }
+    }
+    // Hover ghosts must survive the resident sweep (UI3 caches ids).
+    {
+        let mut q =
+            world.query_filtered::<Entity, With<crate::systems::pointer::HoverGhost>>();
+        let ghosts: Vec<Entity> = q.iter(world).collect();
+        for e in ghosts {
+            world.entity_mut(e).insert(ShowroomKept);
+            if let Some(mut vis) = world.get_mut::<Visibility>(e) {
+                *vis = Visibility::Hidden;
+            }
+        }
+    }
+    // 3) Neutral stage: same palette as the showroom studio.
+    world.insert_resource(ClearColor(Color::srgb(0.78, 0.78, 0.82)));
+    world.insert_resource(GlobalAmbientLight {
+        color: Color::srgb(0.95, 0.95, 1.0),
+        brightness: 120.0,
+        ..default()
+    });
+    let floor_mesh = world
+        .resource_mut::<Assets<Mesh>>()
+        .add(Plane3d::new(Vec3::Y, Vec2::new(30.0, 30.0)));
+    let floor_mat = world
+        .resource_mut::<Assets<StandardMaterial>>()
+        .add(StandardMaterial {
+            base_color: Color::srgb(0.62, 0.62, 0.66),
+            perceptual_roughness: 1.0,
+            ..default()
+        });
+    world.spawn((
+        ShowroomFloor,
+        Mesh3d(floor_mesh),
+        MeshMaterial3d(floor_mat),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+    ));
+    world.spawn((
+        ShowroomLight,
+        Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 0.0, 0.7, -0.9)),
+        DirectionalLight {
+            color: Color::srgb(1.0, 0.98, 0.95),
+            illuminance: 16_000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
+    ));
+    // 4) Range state; maintenance spawns attacker + dummies AFTER the sweep
+    //    (deferred commands), so they survive it.
     world.insert_resource(RangeLedger::default());
     // Placeholder until the first maintenance reset spawns the real tower.
     world.insert_resource(RangeTower(Entity::PLACEHOLDER));
@@ -69,7 +158,41 @@ pub fn enter_range(world: &mut World) {
         origin: RANGE_ORIGIN,
         reset: true,
     });
-    info!("[sm3r] range entered (attacker archer · 3 ordinary dummies)");
+    info!("[sm3r] range entered on a clean stage (attacker archer · 3 ordinary dummies)");
+}
+
+/// Resident sweep: while the range is active, any battlefield visual that
+/// materializes late (async props/structures) is removed the frame it
+/// surfaces. Combat entities (towers/enemies/projectiles), the stage
+/// floor/light and the camera are exempt.
+pub fn range_sweep(
+    state: Option<Res<RangeState>>,
+    mut commands: Commands,
+    strays: Query<
+        Entity,
+        (
+            Or<(
+                With<Mesh3d>,
+                With<bevy::world_serialization::WorldAssetRoot>,
+                With<DirectionalLight>,
+            )>,
+            Without<ChildOf>,
+            Without<Camera3d>,
+            Without<Enemy>,
+            Without<Tower>,
+            Without<Projectile>,
+            Without<ShowroomKept>,
+            Without<ShowroomFloor>,
+            Without<ShowroomLight>,
+        ),
+    >,
+) {
+    if state.is_none() {
+        return;
+    }
+    for e in &strays {
+        commands.entity(e).despawn();
+    }
 }
 
 /// The live attacker entity (set by maintenance on every reset).
