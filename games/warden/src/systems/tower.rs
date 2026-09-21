@@ -50,18 +50,19 @@ pub const AIM_TURN_RATE: f32 = 240.0;
 /// Seconds without a target before the weapon eases back to its rest bearing
 /// (card starting value 2.0).
 pub const AIM_RETURN_DELAY: f32 = 2.0;
-/// Rest bearing in degrees — 0 keeps the spawn orientation (+X world, the
-/// towers face the enemy entry side of the L-path on most slots).
-pub const BALLISTA_REST_BEARING: f32 = 0.0;
-/// Model-space unit axis pointing out of the muzzle — the ART7 forward-sign
-/// pin. Orientation basis (offline vertex analysis of the merged 767-piece
-/// mesh, 2026-09-20): both ±X ends taper symmetrically so lateral width
-/// gives no signal, but the tallest cluster (the raised bridge over the
-/// rail, ymax≈+0.27) sits at x≈+0.1 — the +X half — so +X is taken as the
-/// muzzle side. To be visually confirmed ONCE at manual acceptance (card
-/// ART7 acceptance line); if the manual look disagrees, flip this constant
-/// together with the pinned test `ballista_projectile_spawns_at_muzzle`.
-pub const BALLISTA_FORWARD_AXIS: Vec3 = Vec3::X;
+/// Rest bearing in degrees — 180 keeps the −X muzzle facing +X world at
+/// rest (the towers face the enemy entry side of the L-path on most slots);
+/// mirrored from the original 0° when the forward sign flipped (2026-09-21).
+pub const BALLISTA_REST_BEARING: f32 = 180.0;
+/// Model-space unit axis pointing out of the MUZZLE. Orientation basis:
+/// the offline vertex heuristic (2026-09-20: tallest rail-bridge cluster on
+/// the +X half → +X) was WRONG — the one-time manual acceptance (2026-09-21,
+/// youxia via the shooting range) saw the weapon facing away from the bolt
+/// direction and the recoil kicking the wrong way, so the muzzle is −X.
+/// Flipped together with the pinned tests `ballista_projectile_spawns_at_muzzle`
+/// and `ballista_aim_converges_holds_then_returns_to_rest` per the ART7
+/// flip protocol.
+pub const BALLISTA_FORWARD_AXIS: Vec3 = Vec3::NEG_X;
 
 /// Wrap an angle difference into (-π, π] (shortest rotational direction).
 fn wrap_angle(a: f32) -> f32 {
@@ -77,11 +78,20 @@ pub struct TowerFired {
     pub tower: Entity,
 }
 
-/// Yaw (radians) that faces `from` toward `to` on the XZ plane, or None when
-/// the two positions share XZ coordinates (degenerate — keep current facing).
-fn bearing_yaw(from: Vec3, to: Vec3) -> Option<f32> {
+/// Yaw (radians, +X-frame: `rot_y(0)·X = +X`) of a horizontal direction —
+/// the yaw whose `rot_y·X` points along `v` on the XZ plane.
+fn xz_yaw(v: Vec3) -> f32 {
+    f32::atan2(-v.z, v.x)
+}
+
+/// Yaw (radians) that rotates the model-space `forward` axis to point from
+/// `from` toward `to` on the XZ plane, or None when the two share XZ
+/// coordinates (degenerate — keep current facing). Axis-aware: desired =
+/// yaw(dir) − yaw(forward), so a −X-muzzle model tracks 180° apart from a
+/// +X one while both end up visually facing the target.
+fn bearing_yaw(from: Vec3, to: Vec3, forward: Vec3) -> Option<f32> {
     let d = to - from;
-    (d.x * d.x + d.z * d.z > 1e-8).then_some(f32::atan2(-d.z, d.x))
+    (d.x * d.x + d.z * d.z > 1e-8).then_some(wrap_angle(xz_yaw(d) - xz_yaw(forward)))
 }
 
 /// ART7 domain bridge: mirror each tower's current rule-layer target into
@@ -118,7 +128,7 @@ pub fn tick_aim_trackers(
         let desired = match tracker.target.and_then(|e| targets.get(e).ok()) {
             Some(ttf) => {
                 tracker.since_target = 0.0;
-                bearing_yaw(gtf.translation(), ttf.translation)
+                bearing_yaw(gtf.translation(), ttf.translation, tracker.forward_axis)
             }
             None => {
                 tracker.since_target += dt;
@@ -267,7 +277,14 @@ pub fn attach_tower_appearance(
                         elapsed: None,
                     },
                     bevy::world_serialization::WorldAssetRoot(ballista),
+                    // Spawn AT the rest bearing (not identity) so the
+                    // muzzle faces +X world before the first target — with
+                    // the −X forward sign this is 180°, and identity would
+                    // have the weapon spawn backwards.
                     Transform::from_xyz(0.0, BALLISTA_MOUNT_Y, 0.0)
+                        .with_rotation(Quat::from_rotation_y(
+                            BALLISTA_REST_BEARING.to_radians(),
+                        ))
                         .with_scale(Vec3::splat(BALLISTA_SCALE)),
                 ));
             });

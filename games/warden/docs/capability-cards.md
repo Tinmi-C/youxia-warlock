@@ -697,6 +697,14 @@
   PR1 等全部既有飞行时序断言零扰动（硬约束达成）；② 前向符号取 **+X**：离线顶点分析（合并网格两端对称收窄无信号，
   最高簇=轨道上方桥架 ymax≈0.27 位于 x≈+0.1 即 +X 半侧）→ 常量 `BALLISTA_FORWARD_AXIS` + 测试钉死 + 红绿验证，
   **待人工视觉一次终裁**（翻案=改常量+同步测试）；③ 开火不等转向收敛（表现不回写规则），追踪弹发射后自行修偏。
+- **前向符号终裁翻转（2026-09-21，youxia 射击场人工验收）**：弩朝向与弹向相反、后坐蹬向错误——+X 猜错，
+  炮口实为 **−X**。按卡上翻转协议执行：`BALLISTA_FORWARD_AXIS=−X`、`BALLISTA_REST_BEARING` 0°→180°（−X 炮口
+  静止仍朝 +X 世界）、`bearing_yaw` 改轴感知（desired = yaw(dir)−yaw(forward)，±X 模型通用）、**挂件生成旋转
+  从单位元改为 rest 朝向**（翻转暴露的隐藏缺口：此前 0°=rest 纯属巧合）、两个钉死测试同步翻（aim 收敛 −135°/
+  回正 180°、muzzle 前向 pin −X），红绿验证（旧代码下 pin 立红：+X vs −X）。真机视觉确认：射击场截图
+  （`docs/img/warden_range_art7_flip.png`）弩口对准左下假人靶、飞行弩箭正好在瞄准线上；后坐方向由
+  `ballista_recoil_*` 单测保证（沿新前向的反向）。教训：离线顶点启发式（最高簇=桥架在 +X 半侧）对
+  两端近对称模型不可靠——「实现时视觉定向一次」这一步不能省。
 - 验收句已入 `tests/behavior.rs`（`ballista_app` harness：真 AssetServer + TransformPlugin，`spawn_base_tower` 网关放置）：
   `ballista_aim_converges_holds_then_returns_to_rest`（收敛±5°/2s 保持/回正±5° + 配置起点值钉死）、
   `ballista_projectile_spawns_at_muzzle`（出生点投影断言 ±0.05 + 前向符号钉死 + 挂件世界位 1.9 复合校验）。

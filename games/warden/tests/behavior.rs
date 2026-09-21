@@ -4737,17 +4737,22 @@ fn ballista_aim_converges_holds_then_returns_to_rest() {
         assert_eq!(t.turn_rate, 240.0, "card starting value 240°/s");
         assert_eq!(t.return_delay, 2.0, "card starting value 2s");
         assert_eq!(t.muzzle_offset, 0.5, "card starting value 0.5");
-        assert_eq!(t.forward_axis, Vec3::X, "forward-sign pin (see tower.rs)");
+        assert_eq!(
+            t.forward_axis,
+            Vec3::NEG_X,
+            "forward-sign pin (flipped 2026-09-21 per manual acceptance; see tower.rs)"
+        );
     }
-    // Enemy at (6, ·, -6) from the tower at the origin → bearing +45°.
+    // Enemy at (6, ·, -6) from the tower at the origin → +X-frame bearing
+    // +45°; with the −X muzzle the mount yaw converges to 45° − 180° = −135°.
     let enemy = static_enemy(&mut app, Vec3::new(6.0, 0.4, -6.0));
     for _ in 0..30 {
         app.update(); // 0.5s — 45° at 240°/s needs only ~0.19s
     }
     let yaw = mount_yaw_deg(&app, mount);
     assert!(
-        (yaw - 45.0).abs() <= 5.0,
-        "aim must converge to the target bearing 45° (±5°), got {yaw:.1}°"
+        (yaw + 135.0).abs() <= 5.0,
+        "aim must converge to the −X-muzzle bearing −135° (±5°), got {yaw:.1}°"
     );
 
     // Target gone: hold the bearing during the 2s return delay…
@@ -4757,18 +4762,19 @@ fn ballista_aim_converges_holds_then_returns_to_rest() {
     }
     let yaw = mount_yaw_deg(&app, mount);
     assert!(
-        (yaw - 45.0).abs() <= 5.0,
+        (yaw + 135.0).abs() <= 5.0,
         "must HOLD the bearing through the 2s return delay, got {yaw:.1}°"
     );
 
-    // …then rotate back to rest (2.5s total > 2.0 delay + 0.19 turn).
+    // …then rotate back to rest 180° (the −X muzzle faces +X world; the
+    // wrap point sits mid-path so accept ±180 readings).
     for _ in 0..90 {
         app.update();
     }
     let yaw = mount_yaw_deg(&app, mount);
     assert!(
-        yaw.abs() <= 5.0,
-        "must return to the rest bearing 0° (±5°), got {yaw:.1}°"
+        (yaw - 180.0).abs() <= 5.0 || (yaw + 180.0).abs() <= 5.0,
+        "must return to the rest bearing 180° (±5°), got {yaw:.1}°"
     );
 }
 
@@ -4804,12 +4810,15 @@ fn ballista_projectile_spawns_at_muzzle() {
         .rotation
         .to_euler(EulerRot::YXZ)
         .0;
-    // The forward-sign pin (ART7): the muzzle side of the model is +X —
-    // offline vertex analysis found the tallest cluster (raised rail bridge)
-    // on the +X half; see `BALLISTA_FORWARD_AXIS` in tower.rs. A flip MUST
-    // break this test on purpose (constant + expectation change together,
-    // after the one-time visual confirmation the card schedules).
-    assert_eq!(warden::systems::tower::BALLISTA_FORWARD_AXIS, Vec3::X);
+    // The forward-sign pin (ART7): the muzzle side of the model is −X —
+    // flipped 2026-09-21 after the one-time manual acceptance (shooting
+    // range: the weapon faced away from the bolt direction and the recoil
+    // kicked the wrong way); see `BALLISTA_FORWARD_AXIS` in tower.rs. Any
+    // future flip MUST change constant + expectation together again.
+    assert_eq!(
+        warden::systems::tower::BALLISTA_FORWARD_AXIS,
+        Vec3::NEG_X
+    );
     let forward = Quat::from_rotation_y(yaw) * warden::systems::tower::BALLISTA_FORWARD_AXIS;
 
     let mut q = app
@@ -4915,8 +4924,8 @@ fn ballista_recoil_kicks_recovers_resets_and_never_stacks() {
     );
     let yaw = mount_yaw_deg(&app, mount);
     assert!(
-        (yaw - 45.0).abs() <= 5.0,
-        "aim stays converged (±5°) while recoiling, got {yaw:.1}°"
+        (yaw + 135.0).abs() <= 5.0,
+        "aim stays converged on the −X-muzzle bearing −135° (±5°) while recoiling, got {yaw:.1}°"
     );
 }
 
