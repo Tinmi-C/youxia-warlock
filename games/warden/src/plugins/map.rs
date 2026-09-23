@@ -27,6 +27,8 @@ impl Plugin for MapPlugin {
                     systems::map::spawn_ground,
                     systems::map::spawn_path,
                     systems::map::spawn_slots,
+                    systems::map::spawn_props,
+                    systems::map::spawn_structures,
                 ),
             );
     }

@@ -6,7 +6,7 @@ use bevy::math::Affine2;
 use bevy::prelude::*;
 use bevy::render::render_resource::AddressMode;
 
-use crate::components::{MapGround, TowerSlot};
+use crate::components::{MapGround, MapProp, MapStructure, TowerSlot};
 use crate::resources::PathInfo;
 
 /// Tower slot positions (XZ), placed beside the path. The path is an L:
@@ -150,16 +150,61 @@ pub fn spawn_path(
             Transform::from_xyz(mid.x, 0.05, mid.z),
         ));
     }
-    // Base at the final waypoint (B-palette stone; gatehouse model = ART4).
-    if let Some(&p) = path.waypoints.last() {
-        commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(2.0, 1.2, 2.0))),
-            MeshMaterial3d(flat_mat(
-                &mut materials,
-                Color::srgb(0.34, 0.30, 0.27),
-            )),
-            Transform::from_xyz(p.x, 0.6, p.z),
-        ));
+    // The base waypoint visual lives in `spawn_structures` since ART4
+    // (gatehouse GLB / massing fallback); enemies walk waypoints either way.
+}
+
+/// ART4: masonry structures — the gatehouse on the base waypoint and the
+/// entry arch straddling the path start. Vault GLBs when an AssetServer
+/// exists; headless keeps one B-palette massing block per structure so both
+/// worlds carry exactly two `MapStructure` roots. Purely visual (BaseHp is a
+/// resource; enemies walk waypoints, meshes carry no gameplay).
+pub fn spawn_structures(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    path: Res<PathInfo>,
+    server: Option<Res<AssetServer>>,
+) {
+    let (Some(&base), Some(&entry)) = (path.waypoints.last(), path.waypoints.first()) else {
+        return;
+    };
+    match server.as_deref() {
+        Some(server) => {
+            // Gatehouse: local passage runs along X, so no rotation faces the
+            // arriving path; centered on the endpoint so enemies walk into
+            // the gate tunnel. Entry arch: rotated a quarter turn so its
+            // pillars straddle the path instead of sitting on it.
+            for (model, tf) in [
+                (
+                    "models/structure_gatehouse.glb",
+                    Transform::from_translation(base),
+                ),
+                (
+                    "models/structure_entry_arch.glb",
+                    Transform::from_translation(entry)
+                        .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+                ),
+            ] {
+                let scene =
+                    server.load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(model));
+                commands.spawn((MapStructure, bevy::world_serialization::WorldAssetRoot(scene), tf));
+            }
+        }
+        None => {
+            commands.spawn((
+                MapStructure,
+                Mesh3d(meshes.add(Cuboid::new(2.0, 1.2, 2.0))),
+                MeshMaterial3d(flat_mat(&mut materials, Color::srgb(0.34, 0.30, 0.27))),
+                Transform::from_xyz(base.x, 0.6, base.z),
+            ));
+            commands.spawn((
+                MapStructure,
+                Mesh3d(meshes.add(Cuboid::new(0.7, 2.6, 3.0))),
+                MeshMaterial3d(flat_mat(&mut materials, Color::srgb(0.26, 0.23, 0.20))),
+                Transform::from_xyz(entry.x, 1.3, entry.z),
+            ));
+        }
     }
 }
 
@@ -180,5 +225,85 @@ pub fn spawn_slots(
             MeshMaterial3d(mat.clone()),
             Transform::from_xyz(*x, 0.1, *z),
         ));
+    }
+}
+
+/// ART5: wasteland scatter kinds. One GLB per kind from the vault (PolyHaven
+/// CC0, origin normalized to bbox bottom-center by pack_gltf_folder.py), so
+/// engine placement is a plain ground translation + scale.
+#[derive(Clone, Copy)]
+enum PropKind {
+    Tree,
+    Boulder,
+    Stump,
+    Branches,
+}
+
+impl PropKind {
+    fn model(self) -> &'static str {
+        match self {
+            PropKind::Tree => "models/prop_dead_quiver_trunk.glb",
+            PropKind::Boulder => "models/prop_boulder_01.glb",
+            PropKind::Stump => "models/prop_tree_stump_01.glb",
+            PropKind::Branches => "models/prop_dry_branches_medium_01.glb",
+        }
+    }
+
+    /// B-palette flat fallback for headless worlds (docs/art-direction.md).
+    fn fallback_color(self) -> Color {
+        match self {
+            PropKind::Tree | PropKind::Branches => Color::srgb(0.26, 0.20, 0.14),
+            PropKind::Boulder | PropKind::Stump => Color::srgb(0.40, 0.33, 0.26),
+        }
+    }
+}
+
+/// (kind, x, z, rot_y, uniform scale) — positions mirror the style-preview
+/// dressing and keep clear of the path bands (z = ±9 / x = −4 rows), every
+/// slot pad, the base, and the entry arch (readability rule, art-direction
+/// §3). Purely visual; scale = target size ÷ native bbox (tree native 1.99 m).
+const PROP_LAYOUT: [(PropKind, f32, f32, f32, f32); 12] = [
+    (PropKind::Tree, -14.6, -3.4, 0.4, 1.30),
+    (PropKind::Tree, -14.4, 5.0, 2.1, 1.10),
+    (PropKind::Tree, 14.3, 4.2, 4.0, 1.45),
+    (PropKind::Tree, 13.8, -3.6, 5.3, 1.20),
+    (PropKind::Boulder, -9.2, -3.8, 1.0, 1.00),
+    (PropKind::Boulder, 2.6, 4.2, 2.6, 1.20),
+    (PropKind::Boulder, 12.2, 6.4, 0.7, 1.10),
+    (PropKind::Stump, 4.6, -1.4, 0.0, 1.00),
+    (PropKind::Stump, -8.5, -5.4, 1.9, 0.80),
+    (PropKind::Branches, -2.0, -5.6, 0.8, 1.20),
+    (PropKind::Branches, 5.6, 6.4, 3.4, 1.30),
+    (PropKind::Branches, -11.8, -6.8, 5.0, 1.40),
+];
+
+/// ART5: scatter the wasteland dressing. With an AssetServer each instance
+/// is the vault GLB (shared handle per kind); headless keeps world-shape
+/// parity with a B-palette box so pin tests see the same instance count.
+pub fn spawn_props(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    server: Option<Res<AssetServer>>,
+) {
+    for (kind, x, z, rot, s) in PROP_LAYOUT {
+        let tf = Transform::from_xyz(x, 0.0, z)
+            .with_rotation(Quat::from_rotation_y(rot))
+            .with_scale(Vec3::splat(s));
+        match server.as_deref() {
+            Some(server) => {
+                let scene = server
+                    .load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(kind.model()));
+                commands.spawn((MapProp, bevy::world_serialization::WorldAssetRoot(scene), tf));
+            }
+            None => {
+                commands.spawn((
+                    MapProp,
+                    Mesh3d(meshes.add(Cuboid::new(0.6, 1.0, 0.6))),
+                    MeshMaterial3d(flat_mat(&mut materials, kind.fallback_color())),
+                    tf,
+                ));
+            }
+        }
     }
 }

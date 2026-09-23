@@ -252,3 +252,67 @@ fn textures_dir_conventions_and_manifest_agree() {
         );
     }
 }
+
+/// L2: ART4 masonry geometry facts. The mounting assumptions `spawn_structures`
+/// depends on: the gatehouse passage runs along ±X (so rotation 0 faces the
+/// arriving path), heights stay human-scale for the arena, and the arch spans
+/// X locally (rotated a quarter turn in-game to straddle the path).
+///
+/// Multi-mesh assemblies (16 objects in the gatehouse): aggregate the
+/// accessor min/max of every primitive's POSITION, not just the first mesh.
+fn scene_bbox(glb: &Glb) -> ([f64; 3], [f64; 3]) {
+    let mut min = [f64::MAX; 3];
+    let mut max = [f64::MIN; 3];
+    let mut used = 0;
+    for mesh in glb.json["meshes"].as_array().into_iter().flatten() {
+        for prim in mesh["primitives"].as_array().into_iter().flatten() {
+            let Some(idx) = prim["attributes"]["POSITION"].as_u64() else {
+                continue;
+            };
+            let acc = &glb.json["accessors"][idx as usize];
+            let pick = |v: &Value, i: usize| {
+                v.as_array().and_then(|a| a.get(i)).and_then(|x| x.as_f64())
+            };
+            for i in 0..3 {
+                if let Some(lo) = pick(&acc["min"], i) {
+                    min[i] = min[i].min(lo);
+                }
+                if let Some(hi) = pick(&acc["max"], i) {
+                    max[i] = max[i].max(hi);
+                }
+            }
+            used += 1;
+        }
+    }
+    assert!(used > 0, "no POSITION accessors found");
+    (min, max)
+}
+
+#[test]
+fn structures_geometry_facts() {
+    let (gh_min, gh_max) = scene_bbox(&load_glb(&models_dir().join("structure_gatehouse.glb")));
+    let (ea_min, ea_max) = scene_bbox(&load_glb(&models_dir().join("structure_entry_arch.glb")));
+    let extent = |min: &[f64; 3], max: &[f64; 3], a: usize| max[a] - min[a];
+    assert!(
+        extent(&gh_min, &gh_max, 0) > extent(&gh_min, &gh_max, 2),
+        "gatehouse passage must run along ±X: X={} Z={}",
+        extent(&gh_min, &gh_max, 0),
+        extent(&gh_min, &gh_max, 2)
+    );
+    assert!(
+        (3.0..=5.5).contains(&extent(&gh_min, &gh_max, 1)),
+        "gatehouse height band 3.0-5.5 (flags included), got {}",
+        extent(&gh_min, &gh_max, 1)
+    );
+    assert!(
+        extent(&ea_min, &ea_max, 0) > extent(&ea_min, &ea_max, 2),
+        "entry arch must span ±X locally, got X={} Z={}",
+        extent(&ea_min, &ea_max, 0),
+        extent(&ea_min, &ea_max, 2)
+    );
+    assert!(
+        (1.5..=4.0).contains(&extent(&ea_min, &ea_max, 1)),
+        "entry arch height band 1.5-4.0, got {}",
+        extent(&ea_min, &ea_max, 1)
+    );
+}
