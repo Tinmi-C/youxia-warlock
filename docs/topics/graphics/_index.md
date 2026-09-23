@@ -11,6 +11,7 @@ wgpu、WGSL、渲染管线、纹理、相机 / 矩阵、光照、模型加载。
 | [[topics/graphics/wgpu-quad-movement\|wgpu 第三步：方块 + 移动]] | learning | draft | M1 第 3 步，uniform + delta time + 输入 + 数据竞争 |
 | [[topics/graphics/wgpu-camera-mvp\|wgpu 第四步：相机 + MVP]] | learning | draft | M1 终章，MVP 三段旅程 + 轨道相机 + 深度测试 |
 | [[topics/graphics/wgpu-ui-state-machine\|wgpu 第五步：UI + 状态机]] | learning | draft | M2 Step 3，UI 管线 + 游戏状态机 + alpha 混合 |
+| [[topics/graphics/model-part-animation-prep-spec\|可动画 3D 资产分件规范]] | reference | draft | 机械件程序化动画的前提合同：独立网格/命名/轴心；首例=warden 弩 v3 |
 
 ## 相关决策
 
