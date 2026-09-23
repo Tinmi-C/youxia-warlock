@@ -5,20 +5,31 @@
 #   1. Compile-level: the debug module (src/systems/debug.rs) and every debug
 #      registration in DebugPlugin are #[cfg(debug_assertions)]-gated, so any
 #      leak of debug code into a release path is a *compile error* — this
-#      script's `cargo build --release` step fails on such a leak.
+#      script's build step fails on such a leak.
 #   2. Binary-level: unique debug-only strings (egui panel title, cheat/log
 #      prefixes) must be absent from the built binary. This proves the code
 #      paths were cfg-stripped, not just unreachable.
 #
-# Usage: scripts/check_release_debug_surface.sh   (run from games/warden)
+# Both gates are profile-independent as long as debug_assertions is OFF, so the
+# fast `release-check` profile (no LTO, opt-level 0) preserves the check's
+# semantics while skipping the multi-minute thin-LTO link.
+#
+# Usage: scripts/check_release_debug_surface.sh [--full]   (run from games/warden)
+#   default : release-check profile — fast, for everyday iteration
+#   --full  : real release profile (thin-LTO) — final gate before shipping
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "[1/2] cargo build --release (compile-level gate: ungated debug refs fail here)"
-cargo build --release
+PROFILE="release-check"
+if [[ "${1:-}" == "--full" ]]; then
+    PROFILE="release"
+fi
 
-BIN="target/release/warden"
+echo "[1/2] cargo build --profile $PROFILE (compile-level gate: ungated debug refs fail here)"
+cargo build --profile "$PROFILE"
+
+BIN="target/$PROFILE/warden"
 if [[ ! -f "$BIN" ]]; then
     echo "FAIL: release binary not found at $BIN" >&2
     exit 1
@@ -48,4 +59,4 @@ done
 if [[ "$FAILED" -ne 0 ]]; then
     exit 1
 fi
-echo "OK: release build has zero debug surface (compile + binary level)"
+echo "OK: $PROFILE build has zero debug surface (compile + binary level)"
