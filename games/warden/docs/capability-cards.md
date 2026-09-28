@@ -767,6 +767,25 @@
 - 已知缺陷: 受击闪白/减速变色调 MeshMaterial3d，模型敌不生效（血条/死亡壳/伤害逻辑不受影响）——后续卡与 ART12
   候选；精英/BOSS 缩放仅测试钉值，观感属人工验收可调。
 
+### ART12 · 弓箭手塔换装游侠人物（towers·表现层重设计）—— ✅ 已实现（2026-09-28）
+> 用户方向拍板：防守不用箭塔建模，直接用人物；武器要用上、攻击动作用上；UI 先不管（后续整体重设计）。
+- 接口: `RANGER_MODEL/SCALE/MOUNT_Y`（KayKit Ranger 岩库 v2，人物即防御者，0.8 缩放脚踩地面）+
+  `BOW_MODEL`（武器库 v1 的 bow_withString——**角色 GLB 不含武器**，弓挂 KayKit 骨架自带的
+  `handslot.r` 骨骼上随手动）+ `RangerRig/RangerBody/RangerCombat` 组件三件套
+  （接线/朝向锚/待机+攻击双节点状态）；弩挂载（BallistaMount/AimTracker/FireRecoil）从弓箭手
+  生成路径下线，系统保留为通用机械（测试夹具手动挂载钉死）。
+- 行为: `wire_ranger` 延迟接线（Gltf 就绪后驱动加载器自带播放器——ART11 T-Pose 教训复用）建
+  Idle_A+Throw 双节点图；`ranger_play_attack` 订阅 `TowerFired` 消息播放 Throw 单次（KayKit 无射箭
+  clip，Throw 抽臂投掷即放箭观感），`ranger_tick_recover` 倒计时回 Idle 循环；`ranger_face_targets`
+  身体朝当前目标（+Z 前向，与敌人同约定）；弹射物出弹点回退改弓位（anchor+0.9Y=世界 1.5）。
+- 验收句: 装配=一个 RangerBody@RANGER_MOUNT_Y/均匀 RANGER_SCALE 挂塔实体下、零 BallistaMount
+  （`archer_tower_assembly_is_pinned` 重写）；弩机械测试夹具化（`ballista_app` 手动挂载）；126 全绿；
+  真局 projectile 场景 `[art12] ranger wired: idle=Idle_A attack=Throw` 打点命中 + 截图（兜帽绿衣、
+  背箭袋、右手弓，`docs/img/warden_art12_ranger.png`）。
+- 顺带: 岩库服务当天在宿主退出后 8765 被 OrbStack 转发给 vtrip 上另一项目的复现服务器（root 进程、
+  空闲）——清除后重启岩库（art-asset-manager uvicorn）；武器库 v2 是预览脚本生成的残缺版（仅 2 文件），
+  清单锁 v1 完整库。
+
 ---
 
 ## 展示场 Showroom（美术/技能资产验收通道，2026-09-20 立项）

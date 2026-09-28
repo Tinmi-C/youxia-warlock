@@ -69,6 +69,7 @@ fn test_app() -> App {
         // does not provide.
         .init_resource::<Assets<bevy::gltf::Gltf>>()
         .init_resource::<Assets<AnimationGraph>>()
+        .init_resource::<Assets<AnimationClip>>()
         // Fixed timestep makes tests reproducible (1/60 s per update).
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
             1.0 / 60.0,
@@ -4385,14 +4386,14 @@ fn enemy_assembly_is_pinned() {
     );
 }
 
-/// Capability card ART1/ART2 — the engine assembly pin (L3 of the art test
+/// Capability card ART12 — the engine assembly pin (L3 of the art test
 /// pyramid): with a real AssetServer present (headless: bevy_asset only, no
-/// renderer — `server.load` returns handles without needing them to finish),
-/// building the archer tower mounts BOTH scene children: the tower body at
-/// y+0.35 and the independent BallistaMount at the handoff transform
-/// (y +1.3 tower top, scale 0.72). This is the layer that caught ART2's
-/// mount code missing from its shipped commit (constants + component were
-/// committed, the actual `with_children` spawn was not).
+/// renderer), building the archer tower spawns the RANGER defender — one
+/// scene child (RangerRig deferred wiring + RangerBody facing marker) at
+/// feet-on-ground height with the uniform defender scale — and NO ballista
+/// mount anywhere (the mount fixture for the machinery tests lives in
+/// `ballista_app`). This is the layer that caught ART2's mount code missing
+/// from its shipped commit.
 #[test]
 fn archer_tower_assembly_is_pinned() {
     let mut app = test_app();
@@ -4404,6 +4405,7 @@ fn archer_tower_assembly_is_pinned() {
     app.init_asset::<bevy::text::Font>();
     app.init_asset::<bevy::world_serialization::WorldAsset>();
     app.init_asset::<bevy::image::Image>();
+    app.init_asset::<bevy::gltf::Gltf>();
     app.update(); // startup: deal hand + build the command card
     // Force the archer into the hand so the Build button targets it.
     app.world_mut().resource_scope(|_w, mut hand: Mut<Hand>| {
@@ -4425,43 +4427,44 @@ fn archer_tower_assembly_is_pinned() {
     );
     app.update();
 
-    // Exactly one ballista mount, at the handoff transform, parented to the
-    // tower entity.
+    // Exactly one ranger body, feet on the ground, parented to the tower.
+    let mut bodies = app
+        .world_mut()
+        .query_filtered::<(&Transform, &ChildOf), With<warden::components::RangerBody>>();
+    let all: Vec<(&Transform, &ChildOf)> = bodies.iter(app.world()).collect();
+    assert_eq!(all.len(), 1, "one RangerBody per placed archer");
+    let (tf, parent) = all[0];
+    assert!(
+        (tf.translation.y - warden::systems::tower::RANGER_MOUNT_Y).abs() < 1e-6,
+        "ranger feet at ground level (wrapper y = RANGER_MOUNT_Y), got {}",
+        tf.translation.y
+    );
+    assert!(
+        (tf.scale.x - warden::systems::tower::RANGER_SCALE).abs() < 1e-6
+            && tf.scale.x == tf.scale.y
+            && tf.scale.y == tf.scale.z,
+        "uniform defender scale, got {:?}",
+        tf.scale
+    );
+    assert!(
+        app.world().get::<Tower>(parent.0).is_some(),
+        "the ranger body must be a child of the tower entity"
+    );
+    // The deferred rig marker rides the same entity (wire_ranger trigger).
+    assert!(
+        app.world()
+            .get::<warden::components::RangerRig>(parent.0)
+            .is_none(),
+        "RangerRig lives on the wrapper child, not the tower"
+    );
+    // ART12: no ballista rides a placed archer anymore.
     let mut mounts = app
         .world_mut()
-        .query_filtered::<(&Transform, &ChildOf), With<warden::components::BallistaMount>>();
-    let all: Vec<(&Transform, &ChildOf)> = mounts.iter(app.world()).collect();
-    assert_eq!(all.len(), 1, "one BallistaMount per archer tower");
-    let (tf, parent) = all[0];
-    assert!((tf.translation.y - warden::systems::tower::BALLISTA_MOUNT_Y).abs() < 1e-6);
-    assert!((tf.scale.x - warden::systems::tower::BALLISTA_SCALE).abs() < 1e-6);
-    assert!(
-        tf.scale.x == tf.scale.y && tf.scale.y == tf.scale.z,
-        "handoff says uniform shrink"
-    );
-    assert!(
-        app.world().get::<Tower>(parent.parent()).is_some(),
-        "the mount must be a child of the tower entity"
-    );
-    // Both scene roots ride the tower: body (y 0.35) + ballista (y 1.3).
-    // (ART5 map props and ART4 map structures also spawn WorldAssetRoot
-    // scenes — exclude them.)
-    let mut roots = app.world_mut().query_filtered::<
-        &Transform,
-        (
-            With<bevy::world_serialization::WorldAssetRoot>,
-            Without<warden::components::MapProp>,
-            Without<warden::components::MapStructure>,
-        ),
-    >();
-    let ys: Vec<f32> = roots
-        .iter(app.world())
-        .map(|t| t.translation.y)
-        .collect();
-    assert_eq!(ys.len(), 2, "tower body scene + ballista scene, got {ys:?}");
-    assert!(
-        ys.contains(&0.35) && ys.contains(&warden::systems::tower::BALLISTA_MOUNT_Y),
-        "assembly heights must be 0.35 (body) and 1.3 (ballista), got {ys:?}"
+        .query_filtered::<(), With<warden::components::BallistaMount>>();
+    assert_eq!(
+        mounts.iter(app.world()).count(),
+        0,
+        "the archer look retired the ballista mount"
     );
 }
 
@@ -4661,6 +4664,8 @@ fn ballista_app(tower_xz: Vec2) -> (App, bevy::ecs::entity::Entity, bevy::ecs::e
     app.init_asset::<bevy::text::Font>();
     app.init_asset::<bevy::world_serialization::WorldAsset>();
     app.init_asset::<bevy::image::Image>();
+    // ART12: the ranger look loads a Gltf handle for the deferred wiring.
+    app.init_asset::<bevy::gltf::Gltf>();
     app.add_plugins(bevy::transform::TransformPlugin);
     app.update(); // startup: deal hand + build the command card
 
@@ -4683,11 +4688,42 @@ fn ballista_app(tower_xz: Vec2) -> (App, bevy::ecs::entity::Entity, bevy::ecs::e
             })
         });
     app.world_mut().flush();
+    // ART12: the archer now spawns the RANGER look — the ballista mount is no
+    // longer part of the placed tower. These tests pin the generic mount
+    // MACHINERY (AimTracker / FireRecoil / muzzle launch), so the fixture
+    // attaches a mount manually, mirroring the pre-ART12 assembly constants.
     let mount = {
-        let mut q = app
-            .world_mut()
-            .query_filtered::<Entity, With<warden::components::BallistaMount>>();
-        q.single(app.world_mut()).expect("one BallistaMount per placed archer")
+        let world = app.world_mut();
+        let def = world.resource::<TowerDefs>().list[0].clone();
+        let mut commands = world.commands();
+        let mount = commands
+            .spawn((
+                warden::components::BallistaMount,
+                warden::components::AimTracker {
+                    turn_rate: warden::systems::tower::AIM_TURN_RATE,
+                    rest_bearing: warden::systems::tower::BALLISTA_REST_BEARING,
+                    return_delay: warden::systems::tower::AIM_RETURN_DELAY,
+                    forward_axis: warden::systems::tower::BALLISTA_FORWARD_AXIS,
+                    muzzle_offset: def.muzzle_offset,
+                    target: None,
+                    since_target: 0.0,
+                },
+                warden::components::FireRecoil {
+                    depth: def.recoil_depth,
+                    recover_secs: def.recoil_recover_secs,
+                    rest_translation: Vec3::new(0.0, warden::systems::tower::BALLISTA_MOUNT_Y, 0.0),
+                    elapsed: None,
+                },
+                Transform::from_xyz(0.0, warden::systems::tower::BALLISTA_MOUNT_Y, 0.0)
+                    .with_rotation(Quat::from_rotation_y(
+                        warden::systems::tower::BALLISTA_REST_BEARING.to_radians(),
+                    ))
+                    .with_scale(Vec3::splat(warden::systems::tower::BALLISTA_SCALE)),
+            ))
+            .id();
+        commands.entity(tower).add_child(mount);
+        world.flush();
+        mount
     };
     (app, tower, mount)
 }

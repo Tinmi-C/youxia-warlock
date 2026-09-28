@@ -36,6 +36,24 @@ impl Plugin for TowersPlugin {
                     .chain()
                     .in_set(GameSet::Simulate)
                     .run_if(in_state(GameState::Playing)),
+            )
+            // ART12: the ranger defender — rig wiring is one-shot (marker
+            // consumed), attack reacts to the fire message, recovery counts
+            // back to idle, the body faces the current target.
+            .add_systems(
+                Update,
+                systems::tower::wire_ranger.run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                (
+                    systems::tower::ranger_play_attack,
+                    systems::tower::ranger_tick_recover,
+                    systems::tower::ranger_face_targets,
+                )
+                    .chain()
+                    .in_set(GameSet::Simulate)
+                    .run_if(in_state(GameState::Playing)),
             );
     }
 }

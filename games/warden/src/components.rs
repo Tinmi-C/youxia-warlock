@@ -208,6 +208,33 @@ pub struct MapProp;
 #[derive(Component)]
 pub struct MapStructure;
 
+/// ART12: deferred rig wiring on the ranger defender scene (archer tower
+/// look). `wire_ranger` consumes it once the Gltf lands: drives the LOADER's
+/// player (same lesson as ART11's T-pose), builds an idle+attack graph,
+/// attaches the bow to the `handslot.r` bone, and swaps this marker for
+/// `RangerCombat` on the player entity.
+#[derive(Component)]
+pub struct RangerRig {
+    pub gltf: Handle<bevy::gltf::Gltf>,
+}
+
+/// ART12 marker on the ranger scene wrapper (the entity whose yaw is turned
+/// to face the current target; uniform scale rides the same Transform).
+#[derive(Component)]
+pub struct RangerBody;
+
+/// ART12: idle/attack state on the ranger's animation player entity.
+/// `TowerFired` switches to the one-shot attack clip; when `recover`
+/// counts out, the idle loop resumes. `tower` links back for message lookup.
+#[derive(Component)]
+pub struct RangerCombat {
+    pub tower: Entity,
+    pub idle: AnimationNodeIndex,
+    pub attack: AnimationNodeIndex,
+    pub attack_secs: f32,
+    pub recover: f32,
+}
+
 /// ART11: deferred walk-animation wiring on an enemy model scene. The Gltf
 /// asset loads async; `start_enemy_walk` consumes this marker once the named
 /// animations are available, attaches an AnimationPlayer on the same entity,

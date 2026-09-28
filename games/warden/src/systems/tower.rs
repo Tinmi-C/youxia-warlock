@@ -14,6 +14,8 @@ use crate::components::{
     AimTracker, AttackType, BallistaMount, Enemy, FireRecoil, FusionKind, Projectile,
     ProjectileOrigin, Slow, Tower, TowerKind,
 };
+// ART12 ranger defender wiring shares the enemy rig machinery.
+use crate::components::{RangerBody, RangerCombat, RangerRig};
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
 
@@ -21,7 +23,33 @@ use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
 /// `art-assets.json` is the source of truth). Rodin image-to-3D, 23332 tris,
 /// bbox ±0.95 in Y centered at the model origin. Known defect: the flag did
 /// not generate (ADR-0009) — an in-engine patch is a follow-up card.
+/// ART12: RETIRED from the archer look (the ranger defender replaced the
+/// building+ballista assembly); kept pinned — the showroom and any future
+/// "building" skins still reference it.
 pub const ARROW_TOWER_MODEL: &str = "models/tower_arrow.glb";
+
+/// ART12: the archer tower IS the KayKit Ranger character (岩库 v2), bow in
+/// hand — the defense reads as a person, not a building. Same rig family as
+/// the enemies (feet origin, ~2.17 m bind pose, 22 clips, loader-planted
+/// AnimationPlayer + AnimatedBy links — drive THAT player, see ART11's
+/// T-pose lesson).
+pub const RANGER_MODEL: &str = "models/tower_ranger.glb";
+/// Visual scale: matches the enemy archetypes (0.8 → ≈1.75 m).
+pub const RANGER_SCALE: f32 = 0.8;
+/// The ranger's feet sit on the ground (world 0) — the tower logic anchor
+/// rides at 0.6, so the scene child offsets -0.6.
+pub const RANGER_MOUNT_Y: f32 = -0.6;
+/// Bow with string (KayKit weapons pack, 岩库 v2). The ranger body ships
+/// without a weapon mesh; KayKit rigs expose a dedicated `handslot.r` bone
+/// exactly for this.
+pub const BOW_MODEL: &str = "models/weapon_bow.glb";
+/// KayKit's right-hand weapon mount bone (named node inside the rig scene).
+pub const BOW_SLOT_NODE: &str = "handslot.r";
+/// Idle clip preference (KayKit names: `Rig_Medium.002|Idle_A/B`).
+pub const RANGER_IDLE_CLIP: &str = "idle_a";
+/// Attack clip: KayKit has no bow-shoot clip; `Throw` (draw arm back, snap
+/// forward) is the pack's stand-in and reads as loosing an arrow.
+pub const RANGER_ATTACK_CLIP: &str = "throw";
 
 /// The bundled ballista weapon (ArtVault v2 — the game-side compressed
 /// reflow: 4096→2048 PNG, 35.2 MB → 8.9 MB, geometry untouched). Mounted on
@@ -227,10 +255,12 @@ pub fn spawn_base_tower(
     ec.id()
 }
 
-/// The in-game look of a base tower (SM1 appearance seam): the archer model
-/// scene with its ballista mount, or the tinted gray box. Pure presentation —
-/// no rule components. Shared by `spawn_base_tower` and the showroom exhibit
-/// spawner so the display can never drift from the real game.
+/// The in-game look of a base tower (SM1 appearance seam): ART12 — the
+/// archer IS the KayKit Ranger character (bow wired to handslot.r, idle loop
+/// + Throw-on-fire, body yaw follows the target); every other tower keeps
+/// the tinted gray box. Pure presentation — no rule components. Shared by
+/// `spawn_base_tower` and the showroom exhibit spawner so the display can
+/// never drift from the real game.
 pub fn attach_tower_appearance(
     ec: &mut EntityCommands,
     def: &TowerDef,
@@ -241,51 +271,18 @@ pub fn attach_tower_appearance(
 ) {
     if tower_index == 0 {
         if let Some(server) = server {
-            let scene = server.load(
-                bevy::gltf::GltfAssetLabel::Scene(0).from_asset(ARROW_TOWER_MODEL),
-            );
-            let ballista = server.load(
-                bevy::gltf::GltfAssetLabel::Scene(0).from_asset(BALLISTA_MODEL),
-            );
+            let scene =
+                server.load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(RANGER_MODEL));
+            let gltf = server.load::<bevy::gltf::Gltf>(RANGER_MODEL);
             ec.with_children(|p| {
+                // Feet on the ground (world 0); the uniform scale shares the
+                // Transform that `ranger_face_targets` yaws.
                 p.spawn((
+                    RangerRig { gltf },
+                    crate::components::RangerBody,
                     bevy::world_serialization::WorldAssetRoot(scene),
-                    Transform::from_xyz(0.0, 0.35, 0.0),
-                ));
-                // ART2: the ballista rides the tower top as its own entity
-                // (not part of the body scene) so the future turn-to-track
-                // and procedural fire cards can drive it independently.
-                // ART7: it carries the generic AimTracker (turn-to-track +
-                // muzzle offset from the def) driving that rotation.
-                // ART8: plus the generic FireRecoil (kick + linear recovery,
-                // also def-configured) riding its translation.
-                p.spawn((
-                    BallistaMount,
-                    AimTracker {
-                        turn_rate: AIM_TURN_RATE,
-                        rest_bearing: BALLISTA_REST_BEARING,
-                        return_delay: AIM_RETURN_DELAY,
-                        forward_axis: BALLISTA_FORWARD_AXIS,
-                        muzzle_offset: def.muzzle_offset,
-                        target: None,
-                        since_target: 0.0,
-                    },
-                    FireRecoil {
-                        depth: def.recoil_depth,
-                        recover_secs: def.recoil_recover_secs,
-                        rest_translation: Vec3::new(0.0, BALLISTA_MOUNT_Y, 0.0),
-                        elapsed: None,
-                    },
-                    bevy::world_serialization::WorldAssetRoot(ballista),
-                    // Spawn AT the rest bearing (not identity) so the
-                    // muzzle faces +X world before the first target — with
-                    // the −X forward sign this is 180°, and identity would
-                    // have the weapon spawn backwards.
-                    Transform::from_xyz(0.0, BALLISTA_MOUNT_Y, 0.0)
-                        .with_rotation(Quat::from_rotation_y(
-                            BALLISTA_REST_BEARING.to_radians(),
-                        ))
-                        .with_scale(Vec3::splat(BALLISTA_SCALE)),
+                    Transform::from_xyz(0.0, RANGER_MOUNT_Y, 0.0)
+                        .with_scale(Vec3::splat(RANGER_SCALE)),
                 ));
             });
             return;
@@ -300,6 +297,120 @@ pub fn attach_tower_appearance(
             AttackType::Mixed => Color::srgb(0.6, 0.9, 0.6),
         })),
     ));
+}
+
+/// ART12: once the ranger's Gltf asset is in, wire the rig — drive the
+/// LOADER's player (ART11 lesson), build an idle+attack two-clip graph,
+/// hang the bow on the `handslot.r` bone, and arm `RangerCombat`.
+pub fn wire_ranger(
+    mut commands: Commands,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    gltfs: Res<Assets<bevy::gltf::Gltf>>,
+    clips: Res<Assets<AnimationClip>>,
+    pending: Query<(Entity, &RangerRig, &ChildOf)>,
+    children: Query<&Children>,
+    mut players: Query<&mut AnimationPlayer>,
+    names: Query<&Name>,
+    server: Option<Res<AssetServer>>,
+) {
+    for (wrapper, rig, parent) in &pending {
+        let Some(gltf) = gltfs.get(&rig.gltf) else {
+            continue; // still loading — retry next frame
+        };
+        // Clip lookup by substring, preferring the `_A` variant of a family.
+        let find_clip = |want: &str| -> Option<(String, Handle<AnimationClip>, f32)> {
+            let mut best: Option<(&Box<str>, &Handle<AnimationClip>, bool)> = None;
+            for (name, handle) in &gltf.named_animations {
+                let lower = name.to_lowercase();
+                if !lower.contains(want) {
+                    continue;
+                }
+                let preferred = lower.ends_with("_a");
+                let take = match best {
+                    None => true,
+                    Some((_, _, best_pref)) => preferred && !best_pref,
+                };
+                if take {
+                    best = Some((name, handle, preferred));
+                }
+            }
+            best.map(|(name, handle, _)| {
+                let secs = clips
+                    .get(handle)
+                    .map(|c| c.duration())
+                    .unwrap_or(0.5);
+                (name.to_string(), handle.clone(), secs)
+            })
+        };
+        let Some((idle_name, idle_clip, _)) = find_clip(RANGER_IDLE_CLIP) else {
+            info!("[art12] ranger has no idle clip — static pose");
+            commands
+                .entity(wrapper)
+                .remove::<RangerRig>();
+            continue;
+        };
+        let (attack_name, attack_clip, attack_secs) =
+            find_clip(RANGER_ATTACK_CLIP).unwrap_or_else(|| {
+                (idle_name.clone(), idle_clip.clone(), 0.5)
+            });
+        // The scene may still be one frame from instantiating its player.
+        let Some(player_e) = crate::systems::enemy::find_player(wrapper, &children, &players)
+        else {
+            continue;
+        };
+        let (mut graph, idle_node) = AnimationGraph::from_clip(idle_clip);
+        let attack_node = graph.add_clip(attack_clip, 1.0, graph.root);
+        let handle = graphs.add(graph);
+        let Ok(mut player) = players.get_mut(player_e) else {
+            continue;
+        };
+        player.play(idle_node).repeat();
+        commands.entity(player_e).insert((
+            AnimationGraphHandle(handle),
+            RangerCombat {
+                tower: parent.0,
+                idle: idle_node,
+                attack: attack_node,
+                attack_secs,
+                recover: 0.0,
+            },
+        ));
+        // Bow on the dedicated weapon bone (children of animated bones
+        // follow the hand; the wrapper's 0.8 scale applies through it).
+        if let Some(server) = server.as_deref() {
+            let bow = server.load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(BOW_MODEL));
+            match find_named(wrapper, BOW_SLOT_NODE, &children, &names) {
+                Some(slot) => {
+                    commands.entity(slot).with_children(|p| {
+                        p.spawn((
+                            bevy::world_serialization::WorldAssetRoot(bow),
+                            Transform::IDENTITY,
+                        ));
+                    });
+                }
+                None => info!("[art12] handslot.r not found — bow skipped"),
+            }
+        }
+        commands.entity(wrapper).remove::<RangerRig>();
+        info!("[art12] ranger wired: idle={idle_name} attack={attack_name}");
+    }
+}
+
+/// Depth-first search for the entity named `want` below `root` (rig bones
+/// carry their authoring `Name`s into the spawned scene).
+fn find_named(
+    root: Entity,
+    want: &str,
+    children: &Query<&Children>,
+    names: &Query<&Name>,
+) -> Option<Entity> {
+    if let Ok(n) = names.get(root) {
+        if n.as_str() == want {
+            return Some(root);
+        }
+    }
+    let kids = children.get(root).ok()?;
+    kids.iter().find_map(|k| find_named(k, want, children, names))
 }
 
 /// The in-game look of a fused tower: its per-kind color on a 1.2 box (SM1
@@ -428,9 +539,9 @@ pub fn tower_fire(
             // along the mount's CURRENT facing — presentation supplies the
             // birth point, the rules stay unchanged (firing does NOT wait
             // for the turn to converge; the homing round corrects course).
-            // Mount-less towers (every headless world, gray-box types) keep
-            // the original anchor+0.4Y birth point, so all pre-ART7 flight
-            // timing regressions (PR1 ≈0.8s band) are untouched.
+            // ART12: the ranger defender carries no mount — the round leaves
+            // from bow height (anchor 0.6 + 0.9 = world 1.5 for a 1.75 m
+            // archer); every headless world keeps this same fallback.
             let start = children
                 .and_then(|ch| ch.iter().find_map(|c| mounts.get(c).ok()))
                 .map(|(mtf, tracker)| {
@@ -438,7 +549,7 @@ pub fn tower_fire(
                     let forward = (world.rotation * tracker.forward_axis).normalize_or_zero();
                     world.translation + forward * tracker.muzzle_offset
                 })
-                .unwrap_or_else(|| ttf.translation + Vec3::Y * 0.4);
+                .unwrap_or_else(|| ttf.translation + Vec3::Y * 0.9);
             let (mesh, color) = projectile_visual(&tower, tower.aoe_radius);
             commands.spawn((
                 Projectile {
@@ -469,6 +580,68 @@ pub fn tower_fire(
         fired.write(TowerFired { tower: tower_eid });
 
         tower.cooldown = 1.0 / (tower.attack_speed * speed_mult * frenzy_mult);
+    }
+}
+
+/// ART12: the fire-moment seam for the ranger — each shot plays the one-shot
+/// attack clip (Throw) and arms the recovery timer; when it counts out the
+/// idle loop resumes. Re-firing mid-attack restarts the clip (matches the
+/// ART8 recoil reset semantics).
+pub fn ranger_play_attack(
+    mut fired: MessageReader<TowerFired>,
+    mut rangers: Query<(&mut AnimationPlayer, &mut RangerCombat)>,
+) {
+    for msg in fired.read() {
+        for (mut player, mut combat) in &mut rangers {
+            if combat.tower == msg.tower {
+                player.play(combat.attack);
+                combat.recover = combat.attack_secs;
+            }
+        }
+    }
+}
+
+/// ART12: countdown back to the idle loop once the attack clip finished.
+pub fn ranger_tick_recover(
+    time: Res<Time>,
+    mut rangers: Query<(&mut AnimationPlayer, &mut RangerCombat)>,
+) {
+    for (mut player, mut combat) in &mut rangers {
+        if combat.recover > 0.0 {
+            combat.recover -= time.delta_secs();
+            if combat.recover <= 0.0 {
+                player.play(combat.idle).repeat();
+            }
+        }
+    }
+}
+
+/// ART12: the ranger's body faces the current target (same +Z-forward
+/// convention as the enemies; the head/arms detail comes from the rig).
+/// Without a target the last facing holds — towers idle exactly where they
+/// last aimed, which reads naturally for a standing guard.
+pub fn ranger_face_targets(
+    towers: Query<(&Tower, &Transform)>,
+    enemies: Query<&Transform, With<Enemy>>,
+    mut bodies: Query<
+        (&mut Transform, &ChildOf),
+        (With<RangerBody>, Without<Tower>, Without<Enemy>),
+    >,
+) {
+    for (mut tf, parent) in &mut bodies {
+        let Ok((tower, ttf)) = towers.get(parent.0) else {
+            continue;
+        };
+        let Some(target) = tower.target else {
+            continue;
+        };
+        let Ok(etf) = enemies.get(target) else {
+            continue;
+        };
+        let d = etf.translation - ttf.translation;
+        if d.x * d.x + d.z * d.z > 1e-8 {
+            tf.rotation = Quat::from_rotation_y(f32::atan2(d.x, d.z));
+        }
     }
 }
 

@@ -108,6 +108,24 @@
         "structure_gatehouse.glb": "models/structure_gatehouse.glb",
         "structure_entry_arch.glb": "models/structure_entry_arch.glb"
       }
+    },
+    {
+      "id": "15d27ccd0c024379b6ec2a83dcc64b89",
+      "name": "KayKit Ranger 游侠 kaykit_ranger",
+      "version": 2,
+      "license": "CC0（KayKit Adventurers，作者 Kay Lousberg；v2=alphaMode 修复版）；ART12 防御者=弓箭手塔换装",
+      "files": {
+        "kaykit_ranger.glb": "models/tower_ranger.glb"
+      }
+    },
+    {
+      "id": "60f2be47be6e451590af040528b1e639",
+      "name": "KayKit 武器配件库 kaykit_weapons",
+      "version": 1,
+      "license": "CC0（KayKit Adventurers，作者 Kay Lousberg）；v2=预览脚本生成的残缺版（仅2文件），锁 v1 完整库；ART12 只取 bow_withString.glb（带弦弓）挂游侠 handslot.r",
+      "files": {
+        "bow_withString.glb": "models/weapon_bow.glb"
+      }
     }
   ]
 }
