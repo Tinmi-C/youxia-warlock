@@ -160,6 +160,10 @@ pub struct Projectile {
     /// Who fired this round — forwarded into the DamageRequest at impact so
     /// the unified pipeline can attribute every hit (SK7).
     pub source: crate::systems::damage::DamageSource,
+    /// The shot rolled a critical (SK9 鹰眼): the damage snapshot already
+    /// includes the multiplier; the flag rides along for FX and the BAL
+    /// readout.
+    pub crit: bool,
     /// 0 => single-target (hits only the target); >0 => AOE: everything within
     /// this radius of the impact point takes damage (armor per-enemy).
     pub aoe_radius: f32,

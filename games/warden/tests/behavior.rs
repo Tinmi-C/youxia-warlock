@@ -2461,6 +2461,7 @@ fn wave_end_clears_in_flight_projectiles() {
             damage: 1.0,
             attack_type: AttackType::Physical,
             source: warden::systems::damage::DamageSource::System,
+            crit: false,
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
@@ -6391,5 +6392,329 @@ mod damage_pipeline {
             "both victims took hits (armored one survives half damage)"
         );
         let _ = victims;
+    }
+}
+
+// --- SK9: archer tower skill kit (ADR-0011) -----------------------------------------
+
+mod skills_archer {
+    use super::*;
+    use bevy::ecs::message::MessageCursor;
+    use warden::components::{EffectiveStats, SkillCaster, StatMods, Tower, TowerKind};
+    use warden::resources::{RunRng, SkillDefs, TowerDefs};
+    use warden::systems::archer_skills::{
+        archer_skill_caster, SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT,
+    };
+    use warden::systems::damage::{DamageDealt, DamageSource};
+    use warden::systems::skills::{learn_skill, CastSkill};
+
+    /// An archer tower carrying the stock kit. `cooldown` starts high so the
+    /// normal auto-fire never interferes with skill-driven assertions.
+    fn spawn_archer(app: &mut App, attack_speed: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Tower {
+                    tower_index: 0,
+                    damage: 10.0,
+                    attack_speed,
+                    range: 20.0,
+                    attack_type: AttackType::Physical,
+                    cooldown: 999.0,
+                    target: None,
+                    kind: TowerKind::Base(0),
+                    aoe_radius: 0.0,
+                    slow_factor: 0.0,
+                    slow_duration: 0.0,
+                    invested: 0,
+                },
+                StatMods::default(),
+                archer_skill_caster(),
+                Transform::from_xyz(0.0, 0.5, 0.0),
+            ))
+            .id()
+    }
+
+    fn spawn_dummy(app: &mut App, pos: Vec3, hp: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Enemy {
+                    hp,
+                    max_hp: hp,
+                    speed: 0.0,
+                    leak: 0,
+                    kill_gold: 0,
+                    physical_armor: false,
+                    def_index: 0,
+                    next_wp: 0,
+                },
+                Transform::from_xyz(pos.x, 0.4, pos.z),
+            ))
+            .id()
+    }
+
+    /// Slot index of a def on the caster (panic if absent).
+    fn slot_of(app: &mut App, tower: Entity, def: usize) -> usize {
+        app.world()
+            .get::<SkillCaster>(tower)
+            .expect("caster")
+            .slots
+            .iter()
+            .position(|s| s.def == def)
+            .expect("skill on caster")
+    }
+
+    fn request_cast(app: &mut App, tower: Entity, def: usize) {
+        let slot = slot_of(app, tower, def);
+        app.world_mut()
+            .resource_mut::<Messages<CastSkill>>()
+            .write(CastSkill {
+                caster: tower,
+                slot,
+            });
+    }
+
+    fn estats(app: &App, tower: Entity) -> EffectiveStats {
+        *app.world().get::<EffectiveStats>(tower).expect("aggregated")
+    }
+
+    /// SK9 acceptance: the archer gateway attaches the kit at level 1 and an
+    /// empty StatMods bag (出厂自带).
+    #[test]
+    fn spawn_base_tower_ships_the_archer_kit() {
+        let mut app = test_app();
+        let tower = {
+            // Borrow dance: the plain-fn gateway wants &mut Assets while
+            // Commands borrows the world — take the asset stores out.
+            let mut meshes = std::mem::take(&mut *app.world_mut().resource_mut::<Assets<Mesh>>());
+            let mut materials =
+                std::mem::take(&mut *app.world_mut().resource_mut::<Assets<StandardMaterial>>());
+            let def = app.world().resource::<TowerDefs>().list[0].clone();
+            let mut queue = bevy::ecs::world::CommandQueue::default();
+            let tower = {
+                let mut commands = Commands::new(&mut queue, app.world());
+                warden::systems::tower::spawn_base_tower(
+                    &mut commands,
+                    &def,
+                    0,
+                    Vec3::ZERO,
+                    &mut meshes,
+                    &mut materials,
+                    None,
+                )
+            };
+            queue.apply(app.world_mut());
+            *app.world_mut().resource_mut::<Assets<Mesh>>() = meshes;
+            *app.world_mut().resource_mut::<Assets<StandardMaterial>>() = materials;
+            tower
+        };
+        let caster = app.world().get::<SkillCaster>(tower).expect("kit attached");
+        assert_eq!(caster.slots.len(), 3, "three skills at lv1");
+        assert!(caster.slots.iter().all(|s| s.level == 1));
+        assert_eq!(
+            caster
+                .slots
+                .iter()
+                .map(|s| s.def)
+                .collect::<Vec<_>>(),
+            vec![SKILL_EAGLE_EYE, SKILL_MULTISHOT, SKILL_FIRE_ARROWS]
+        );
+        assert!(
+            app.world().get::<StatMods>(tower).is_some(),
+            "StatMods bag attached for passives/buffs"
+        );
+    }
+
+    /// SK9 acceptance: eagle-eye lv3 (20%, ×2.5) makes the long-run average
+    /// per shot match base × (1 + 0.2 × 1.5) = 13 within tolerance.
+    #[test]
+    fn eagle_eye_crit_average_matches_theory() {
+        let mut app = test_app();
+        app.world_mut().insert_resource(RunRng::seeded(1234));
+        let tower = spawn_archer(&mut app, 60.0); // ~1 shot per frame
+        app.world_mut()
+            .get_mut::<Tower>(tower)
+            .unwrap()
+            .cooldown = 0.0; // this test WANTS the auto-fire running
+        {
+            let mut caster = app
+                .world_mut()
+                .get_mut::<SkillCaster>(tower)
+                .expect("caster");
+            learn_skill(&mut caster, SKILL_EAGLE_EYE, 3);
+        }
+        app.update(); // passive sync folds lv3 into EffectiveStats
+        let e = estats(&app, tower);
+        assert!((e.crit_chance - 0.20).abs() < 1e-4, "lv3 crit chance");
+        assert!((e.crit_multiplier - 2.5).abs() < 1e-4, "lv3 crit multiplier");
+        spawn_dummy(&mut app, Vec3::new(2.0, 0.0, 0.0), 1_000_000.0);
+        let mut dealt = MessageCursor::<DamageDealt>::default();
+        let (mut total, mut hits, mut crits) = (0.0f32, 0u32, 0u32);
+        for _ in 0..1500 {
+            app.update();
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            for d in dealt.read(msgs) {
+                if matches!(d.source, DamageSource::Tower(t) if t == tower) {
+                    total += d.amount;
+                    hits += 1;
+                    crits += d.crit as u32;
+                }
+            }
+        }
+        assert!(hits >= 1200, "enough samples (got {hits})");
+        let mean = total / hits as f32;
+        assert!(
+            (mean - 13.0).abs() / 13.0 < 0.05,
+            "mean damage {mean:.2} within ±5% of the 13.0 expectation"
+        );
+        let crit_rate = crits as f32 / hits as f32;
+        assert!(
+            (crit_rate - 0.20).abs() < 0.05,
+            "crit rate {crit_rate:.3} near 20%"
+        );
+    }
+
+    /// SK9 acceptance: multishot lv1 fires exactly 3 arrows at the 3 nearest
+    /// DISTINCT targets in range (nothing beyond range, no double arrows).
+    #[test]
+    fn multishot_hits_three_nearest_distinct_targets() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app, 1.0);
+        let in_range = [
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(3.0, 0.0, 0.0),
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(5.0, 0.0, 0.0),
+        ];
+        for p in in_range {
+            spawn_dummy(&mut app, p, 10_000.0);
+        }
+        spawn_dummy(&mut app, Vec3::new(80.0, 0.0, 80.0), 10_000.0); // out of range
+        let mut dealt = MessageCursor::<DamageDealt>::default();
+        app.update();
+        request_cast(&mut app, tower, SKILL_MULTISHOT);
+        let mut skill_hits: Vec<(Entity, f32)> = Vec::new();
+        for _ in 0..90 {
+            app.update(); // request validates, volley flies, impacts land
+            // Messages are double-buffered: drain every frame or events drop.
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            for d in dealt.read(msgs) {
+                if let DamageSource::TowerSkill { tower: t, skill } = d.source {
+                    if t == tower && skill == SKILL_MULTISHOT {
+                        skill_hits.push((d.victim, d.amount));
+                    }
+                }
+            }
+        }
+        assert_eq!(skill_hits.len(), 3, "exactly three skill arrows landed");
+        let mut victims: Vec<Entity> = skill_hits.iter().map(|(v, _)| *v).collect();
+        victims.sort();
+        victims.dedup();
+        assert_eq!(victims.len(), 3, "three DISTINCT victims");
+        for (_, amount) in &skill_hits {
+            assert!(
+                (*amount - 10.0).abs() < 1e-4,
+                "arrow damage = the aggregated tower damage (got {amount})"
+            );
+        }
+        // The 4th-nearest in-range dummy (lv1 = 3 arrows) and the faraway
+        // one are both untouched by the volley.
+        let full = {
+            let mut q = app.world_mut().query::<&Enemy>();
+            q.iter(app.world()).filter(|e| e.hp == 10_000.0).count()
+        };
+        assert_eq!(full, 2, "only the 4th-nearest and the far dummy are unharmed");
+    }
+
+    /// SK9 acceptance: fire arrows (autocast ON) boosts normal-attack damage
+    /// by the table value for its duration, expires, then auto-recasts
+    /// roughly on its 20s cooldown; with the toggle OFF it never casts.
+    #[test]
+    fn fire_arrows_buff_expires_and_autocasts_on_cooldown() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app, 1.0);
+        spawn_dummy(&mut app, Vec3::new(2.0, 0.0, 0.0), 1_000_000.0);
+        // Toggle autocast ON (the SK10 UI does this with a right-click).
+        {
+            let slot = slot_of(&mut app, tower, SKILL_FIRE_ARROWS);
+            let mut caster = app.world_mut().get_mut::<SkillCaster>(tower).unwrap();
+            caster.slots[slot].autocast = true;
+        }
+        app.update();
+        // A few frames: acquire target -> autocast queues -> cast confirms
+        // -> effect lands -> (aggregate and effect order inside Simulate is
+        // unspecified, so allow a frame of slack) -> stats fold the buff.
+        for _ in 0..6 {
+            app.update();
+        }
+        let boosted = estats(&app, tower).damage;
+        assert!(
+            (boosted - 13.0).abs() < 1e-4,
+            "fire arrows +3 while active (got {boosted})"
+        );
+        let cd = {
+            let slot = slot_of(&mut app, tower, SKILL_FIRE_ARROWS);
+            app.world().get::<SkillCaster>(tower).unwrap().slots[slot].cooldown
+        };
+        assert!(cd > 19.0 && cd <= 20.0, "the 20s cooldown started (got {cd})");
+        // Buff expires at 8s; cooldown (20s) still running → no recast yet.
+        for _ in 0..(60 * 10) {
+            app.update();
+        }
+        assert_eq!(
+            estats(&app, tower).damage,
+            10.0,
+            "buff expired, no recast while the CD runs"
+        );
+        // ~21s total: the autocast recast fires and the buff returns.
+        for _ in 0..(60 * 12) {
+            app.update();
+        }
+        assert!(
+            estats(&app, tower).damage > 12.0,
+            "autocast re-applied the buff after the cooldown"
+        );
+    }
+
+    /// SK9: with the toggle OFF (the learn default), the autocast trigger
+    /// never queues a cast even with a target in range.
+    #[test]
+    fn fire_arrows_autocast_off_never_casts() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app, 1.0);
+        spawn_dummy(&mut app, Vec3::new(2.0, 0.0, 0.0), 1_000_000.0);
+        for _ in 0..120 {
+            app.update();
+        }
+        assert_eq!(
+            estats(&app, tower).damage,
+            10.0,
+            "no buff without the autocast toggle"
+        );
+        let slot = slot_of(&mut app, tower, SKILL_FIRE_ARROWS);
+        assert_eq!(
+            app.world().get::<SkillCaster>(tower).unwrap().slots[slot].cooldown,
+            0.0,
+            "nothing was cast"
+        );
+    }
+
+    /// SK9 acceptance: level_up refreshes the passive's numbers through the
+    /// idempotent sync system (the SK10 upgrade button will call the same).
+    #[test]
+    fn eagle_eye_level_up_refreshes_passive_values() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app, 1.0);
+        app.update();
+        assert!((estats(&app, tower).crit_chance - 0.10).abs() < 1e-4, "lv1");
+        {
+            let slot = slot_of(&mut app, tower, SKILL_EAGLE_EYE);
+            let defs = warden::systems::skills::production_skill_defs();
+            let mut caster = app.world_mut().get_mut::<SkillCaster>(tower).unwrap();
+            let _ = warden::systems::skills::level_up(&defs, &mut caster, slot);
+        }
+        app.update(); // sync re-asserts the lv2 entries
+        let e = estats(&app, tower);
+        assert!((e.crit_chance - 0.15).abs() < 1e-4, "lv2 chance");
+        assert!((e.crit_multiplier - 2.25).abs() < 1e-4, "lv2 multiplier");
     }
 }

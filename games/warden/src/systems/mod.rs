@@ -27,6 +27,8 @@ pub mod showroom;
 #[cfg(debug_assertions)]
 pub mod range;
 pub mod skills;
+// Archer tower skill kit (SK9) — first tower-owned consumer of the framework.
+pub mod archer_skills;
 // Stat modification pipeline (SK6): StatMods -> EffectiveStats aggregation.
 pub mod stats;
 pub mod tower;

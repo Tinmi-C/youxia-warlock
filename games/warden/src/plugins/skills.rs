@@ -51,12 +51,26 @@ impl Plugin for SkillsPlugin {
                     systems::skills::commander_skill_effects,
                     systems::skills::release_meteor_shots
                         .after(systems::skills::commander_skill_effects),
+                    // SK9: the archer kit's effects + the fire-arrow
+                    // autocast trigger (needs this frame's tower target).
+                    systems::archer_skills::archer_skill_effects,
+                    systems::archer_skills::archer_autocast_fire_arrows,
                     // SK4: frenzy countdown.
                     systems::skills::tick_war_frenzy,
                     // SK5: per-entity slot cooldowns, same law.
                     systems::skills::tick_caster_cooldowns,
                 )
                     .in_set(GameSet::Simulate)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            // SK9: eagle-eye passive entries re-assert before the stats
+            // aggregation folds them (same-frame values).
+            .add_systems(
+                Update,
+                systems::archer_skills::sync_archer_passives
+                    .in_set(GameSet::Simulate)
+                    .before(systems::stats::tick_stat_mods)
+                    .before(systems::stats::aggregate_stats)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(

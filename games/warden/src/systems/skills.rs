@@ -38,10 +38,10 @@ pub const SKILL_METEOR_RAIN: usize = 0;
 pub const SKILL_FROST_NOVA: usize = 1;
 pub const SKILL_WAR_FRENZY: usize = 2;
 
-/// The production skill registry (SK8: the three commander rows; SK9 appends
-/// the archer kit). Structure only — numbers live in `SkillBalance`.
+/// The production skill registry (SK8 commander rows + SK9 archer rows).
+/// Structure only — numbers live in `SkillBalance`.
 pub fn production_skill_defs() -> SkillDefs {
-    SkillDefs(vec![
+    let mut defs = vec![
         SkillDef {
             name: "meteor_rain",
             kind: SkillKind::Active,
@@ -69,18 +69,33 @@ pub fn production_skill_defs() -> SkillDefs {
             hotkey: Some(KeyCode::KeyC),
             indicator_radius: 0.0,
         },
-    ])
+    ];
+    defs.extend(crate::systems::archer_skills::archer_skill_defs());
+    SkillDefs(defs)
 }
 
-/// The production `SkillBalance` rows, parallel to the registry (SK8). The
-/// cooldown constants move here wholesale with SK11.
+/// The production `SkillBalance` rows, parallel to the registry (SK8/9).
+/// The phase-1 cooldown constants move here wholesale with SK11; the SK9
+/// archer starting values (§14 tuning rows) live here and nowhere else.
 pub fn production_skill_balance() -> SkillBalance {
     SkillBalance {
         cooldowns: vec![
             vec![SKILL_COOLDOWNS[0]],
             vec![SKILL_COOLDOWNS[1]],
             vec![SKILL_COOLDOWNS[2]],
+            // The archer kit: a passive never casts; multishot 25s; fire 20s.
+            vec![0.0],
+            vec![25.0, 25.0, 25.0],
+            vec![20.0, 20.0, 20.0],
         ],
+        // 鹰眼 crit rows (registry ids 0-2 are the commander: empty).
+        crit_chance: vec![vec![], vec![], vec![], vec![0.10, 0.15, 0.20]],
+        crit_multiplier_add: vec![vec![], vec![], vec![], vec![0.0, 0.25, 0.5]],
+        // 多重射击 arrows = distinct targets per cast.
+        multishot_targets: vec![vec![], vec![], vec![], vec![], vec![3.0, 4.0, 5.0]],
+        // 火焰箭: flat damage bonus for its duration.
+        fire_arrow_bonus: vec![vec![], vec![], vec![], vec![], vec![], vec![3.0, 5.0, 8.0]],
+        fire_arrow_duration: vec![vec![], vec![], vec![], vec![], vec![], vec![8.0, 8.0, 8.0]],
     }
 }
 
@@ -163,6 +178,7 @@ pub fn release_meteor_shots(
                 source: crate::systems::damage::DamageSource::CommanderSkill(
                     SkillId::MeteorRain.index(),
                 ),
+                crit: false,
                 aoe_radius: METEOR_RADIUS,
                 slow_factor: 0.0,
                 slow_duration: 0.0,

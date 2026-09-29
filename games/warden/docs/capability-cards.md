@@ -1023,7 +1023,7 @@
   换成指挥官实体访问器（commander_cooldowns/set_commander_cooldown 入 behavior.rs 文件级助手）；
   damage_pipeline 流星归因测试同步走新路径。136 behavior 全绿。热键/按钮/指示圈手感 ⚠️人工回归待跑。
 
-### SK9 · 弓箭手塔技能组：鹰眼/多重射击/火焰箭（skills/towers）—— ▶ 待实现（依赖 SK5/SK6/SK7）
+### SK9 · 弓箭手塔技能组：鹰眼/多重射击/火焰箭（skills/towers）—— ✅ 已实现（2026-09-29，依赖 SK5/SK6/SK7）
 - 接口: `SkillDefs` 注册三技能；建塔时 `spawn_base_tower` 附 SkillCaster（lv1）；invest 升级处同步 level_up 并刷新
   被动 StatMod 条目；效果系统按 id 分发。数值（CD/加成/箭数/时限）全部进 SkillBalance 起始值。
 - 行为: **鹰眼**（Passive）暴击率 +10/15/20%、暴击倍率 ×2.0/2.25/2.5——tower_fire 从 EffectiveStats 掷暴击，
@@ -1032,6 +1032,21 @@
   （限时 StatMod），autocast 开启时 CD 好且有目标自动重施。
 - 验收句: 暴击期望伤害锚点（固定种子长序列均值落在 ±5% 理论带）；多重射击生成箭数=等级对应目标数且目标互不重复；
   火焰箭持续期内伤害加成可见、到期回落、autocast 自动重施间隔≈CD；invest 升级后三技能等级+1 且被动数值刷新。
+- 实现: 新模块 `systems/archer_skills.rs`（注册表 3-5 行 / `archer_skill_caster()` 出厂包 / `sync_archer_passives`
+  幂等被动同步 / `archer_skill_effects` 按 def 分发 / `archer_autocast_fire_arrows` 触发器 / `roll_crit`）。
+  挂载：`spawn_base_tower` 对 tower_index 0 附 SkillCaster，所有塔附空 StatMods。**鹰眼**：StatMod(CritChance,
+  CritMultiplier-add) 每帧幂等重申——升级/重学零钩子自愈（`.before(aggregate_stats)` 同帧折算）；**暴击**：
+  tower_fire（近战+远程）经 roll_crit（`random_bool`，**短路：无暴击属性不耗 RNG**——保住既有测试的随机序列
+  稳定），快照伤害×倍率与 crit 标记进 Projectile（新字段）→ DamageRequest；**多重射击**：射程内最近 N 个互异
+  活目标各一箭（Homing、AOE 0、来源 TowerSkill、发 TowerFired 播 Throw）；**火焰箭**：限时 StatMod(Damage add)
+  + autocast 触发器（有目标且 CD 好自动排 CastSkill，间隔≈CD）。数值全进 SkillBalance 新列（crit_chance/
+  crit_multiplier_add/multishot_targets/fire_arrow_bonus/fire_arrow_duration，按 def×level 键控，缺行读 0）。
+  **偏差记录**：立项时设想的「invest 塔升级体系」并不存在（`invested` 只是卖塔退款记账，UPGRADE1/2 是 Meta 强化）
+  → 技能升级落地为 SK10 指令卡付费升级按钮（占预留升级格）调用 level_up；本卡先交付等级机制与 API（验收句第 4
+  条由 level_up 刷新断言代行）。**取舍**：技能属实体——弓箭手被融合消耗时技能随实体消失（与「融合=换定位腾塔位」
+  一致）；融合产物新实体无技能。`skills_archer::*` 6 断言（网关出厂三件套 / 暴击均值 ±5%+暴击率带 / 多重射击
+  3 箭 3 互异目标+射程外与第 4 近不受击 / 火焰箭 +3→8s 到期→CD 后自动重施 / autocast 关闭零施放 / level_up
+  刷新被动数值）。149 全绿。
 
 ### SK10 · 指令卡技能槽 UI（ui/command）—— ▶ 待实现（依赖 SK9）
 - 接口: 选中塔时指令卡预留的两个置灰槽激活为技能格（徽章、等级点、CD 剩余秒数、tooltip 双语）；点击=施法

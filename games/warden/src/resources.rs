@@ -689,15 +689,59 @@ impl SkillDefs {
 /// scattered skill consts into it). Rows parallel `SkillDefs`; each holds
 /// per-level values (index level-1; levels beyond the array clamp to the
 /// last entry — a max_level-1 skill simply has a one-element slice).
+/// Missing rows/cells read as 0.0 (commander rows have no crit entries).
 #[derive(Resource, Default)]
 pub struct SkillBalance {
     /// Full cast cooldown per (def, level).
     pub cooldowns: Vec<Vec<f32>>,
+    /// 鹰眼: crit chance bonus (0..1).
+    pub crit_chance: Vec<Vec<f32>>,
+    /// 鹰眼: additive crit-multiplier bonus (base multiplier is 2.0).
+    pub crit_multiplier_add: Vec<Vec<f32>>,
+    /// 多重射击: arrows = distinct targets per cast.
+    pub multishot_targets: Vec<Vec<f32>>,
+    /// 火焰箭: flat damage bonus per normal attack while active.
+    pub fire_arrow_bonus: Vec<Vec<f32>>,
+    /// 火焰箭: buff duration in seconds.
+    pub fire_arrow_duration: Vec<Vec<f32>>,
 }
 
 impl SkillBalance {
+    fn level_value(rows: &[Vec<f32>], def: usize, level: u8) -> f32 {
+        rows.get(def)
+            .and_then(|r| r.get(level.saturating_sub(1) as usize).or_else(|| r.last()))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// Cooldowns PANIC on a missing row: every castable def must register
+    /// one (a silent 0 would mean free casting).
     pub fn cooldown(&self, def: usize, level: u8) -> f32 {
-        let per_level = self.cooldowns.get(def).expect("skill balance row");
-        per_level[(level.saturating_sub(1) as usize).min(per_level.len() - 1)]
+        let per_level = self.cooldowns.get(def).expect("skill balance cooldown row");
+        per_level
+            .get(level.saturating_sub(1) as usize)
+            .or_else(|| per_level.last())
+            .copied()
+            .expect("at least one cooldown level")
+    }
+
+    pub fn crit_chance(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.crit_chance, def, level)
+    }
+
+    pub fn crit_multiplier_add(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.crit_multiplier_add, def, level)
+    }
+
+    pub fn multishot_targets(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.multishot_targets, def, level)
+    }
+
+    pub fn fire_arrow_bonus(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.fire_arrow_bonus, def, level)
+    }
+
+    pub fn fire_arrow_duration(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.fire_arrow_duration, def, level)
     }
 }

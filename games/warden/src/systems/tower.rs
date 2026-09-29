@@ -251,6 +251,12 @@ pub fn spawn_base_tower(
         Visibility::Visible,
         Transform::from_xyz(pos.x, 0.6, pos.z),
     ));
+    // SK9: the archer ships with its skill kit (出厂自带 lv1); every tower
+    // gets an empty StatMods bag so passive sync and buffs have their home.
+    if tower_index == 0 {
+        ec.insert(crate::systems::archer_skills::archer_skill_caster());
+    }
+    ec.insert(crate::components::StatMods::default());
     attach_tower_appearance(&mut ec, def, tower_index, meshes, materials, server);
     ec.id()
 }
@@ -471,6 +477,7 @@ fn is_melee(tower: &Tower) -> bool {
 
 pub fn tower_fire(
     time: Res<Time>,
+    mut rng: ResMut<crate::resources::RunRng>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -489,8 +496,6 @@ pub fn tower_fire(
         tower.cooldown -= time.delta_secs();
 
         let marksman = tower.kind == TowerKind::Fused(FusionKind::Marksman);
-
-        let base_dmg = estats.damage;
         let effective_range = estats.range;
 
         // Pick target: nearest, or highest-HP for the Marksman.
@@ -535,12 +540,15 @@ pub fn tower_fire(
             // the shared merge path (SK3 semantics).
             if let Ok((_, _, en)) = enemies.get(target) {
                 if en.hp > 0.0 {
+                    // SK9: crit rolls once per shot (melee included).
+                    let (crit, dmg) =
+                        crate::systems::archer_skills::roll_crit(&mut rng, estats);
                     requests.write(DamageRequest {
                         victim: target,
-                        amount: base_dmg,
+                        amount: dmg,
                         attack_type: tower.attack_type,
                         source: DamageSource::Tower(tower_eid),
-                        crit: false,
+                        crit,
                     });
                     if tower.slow_factor > 0.0 {
                         apply_slow(
@@ -572,12 +580,16 @@ pub fn tower_fire(
                 })
                 .unwrap_or_else(|| ttf.translation + Vec3::Y * 0.9);
             let (mesh, color) = projectile_visual(&tower, tower.aoe_radius);
+            // SK9: the crit roll snapshots the multiplied damage (and flag)
+            // into the round — the unified pipeline forwards both (SK7).
+            let (crit, shot_dmg) = crate::systems::archer_skills::roll_crit(&mut rng, estats);
             commands.spawn((
                 Projectile {
                     origin: ProjectileOrigin::Homing { target },
-                    damage: base_dmg,
+                    damage: shot_dmg,
                     attack_type: tower.attack_type,
                     source: DamageSource::Tower(tower_eid),
+                    crit,
                     aoe_radius: tower.aoe_radius,
                     slow_factor: tower.slow_factor,
                     slow_duration: tower.slow_duration,
@@ -670,7 +682,7 @@ pub fn ranger_face_targets(
 
 /// Round visuals (§5.1): arrow = grey-white sliver, magic round = purple
 /// sphere, cannon round = orange sphere.
-fn projectile_visual(tower: &Tower, aoe_radius: f32) -> (Mesh, Color) {
+pub fn projectile_visual(tower: &Tower, aoe_radius: f32) -> (Mesh, Color) {
     match tower.attack_type {
         AttackType::Physical if aoe_radius > 0.0 => {
             (Mesh::from(Sphere::new(0.25)), Color::srgb(1.0, 0.6, 0.15))

@@ -126,7 +126,7 @@ fn resolve_impact(
                 amount: proj.damage,
                 attack_type: proj.attack_type,
                 source: proj.source,
-                crit: false,
+                crit: proj.crit,
             });
             if proj.slow_factor > 0.0 {
                 // Shared merge path (SK3 semantics): strongest factor wins.
