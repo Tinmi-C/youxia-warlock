@@ -1068,7 +1068,7 @@
   有生命周期坑，可变查询留独立参数）。`skills_ui::*` 4 断言（选中出技能钮 / 按钮施法+CD 文本+升级扣费全升 /
   右键切 autocast 且不取消选中 / 无选中时 E 键无效）。153 全绿。视觉走查 ⚠️人工待跑。
 
-### SK11 · SkillBalance 单源表 + BAL 技能贡献读数（skills/balance）—— ▶ 待实现（依赖 SK7）
+### SK11 · SkillBalance 单源表 + BAL 技能贡献读数（skills/balance）—— ✅ 已实现（2026-09-29，依赖 SK7）
 - 接口: `resources.rs` 新 `SkillBalance`（按 技能×等级 键控，收编 SKILL_COOLDOWNS/NOVA_*/METEOR_*/FRENZY_* 与
   SK9 全部数值）；散落 const 删除、读取方全改走表；balance.rs 全程读数按 DamageSource 分组输出伤害占比
   （塔普攻/指挥官技能/塔技能三列）。
@@ -1076,6 +1076,18 @@
   「指挥官技能 ≤ 全场输出 20%」既有锚点，新立「塔技能伤害占比」锚点（目标区间按 BAL 方法论定，写 requirements §14）。
 - 验收句: 仓库内不再有散落的技能数值 const（grep 可验）；BAL 全程读数能输出三列占比；弓箭手塔出场局中塔技能列
   与塔普攻列均非零。
+- 实现: SkillBalance 扩列收编全部数值（cooldowns/radius/crit_chance/crit_multiplier_add/multishot_targets/
+  fire_arrow_bonus/fire_arrow_duration/meteor_count/meteor_interval/meteor_damage 皆按 def×level；nova_slow_factor/
+  nova_slow_duration/frenzy_speed_mult/frenzy_duration/upgrade_costs 单值列）；删除 SKILL_COOLDOWNS/NOVA_*/
+  METEOR_COUNT|INTERVAL|DAMAGE|RADIUS/FRENZY_* 常量（METEOR_FALL_HEIGHT 留作表现层注释常量，循环 C 的 FxStyle
+  领地）；SkillDef 删 indicator_radius——指示圈半径改读表 radius 列（环半径=效果半径单源）。读取方迁移：
+  commander_skill_effects/release_meteor_shots/aggregate_stats/update_aim_picking/l10n::skill_tooltip（tooltip
+  文案数字改为 format! 自表取数，中英双语）。测试不再硬编码技能数值——behavior.rs 增 cd_secs/nova_*/frenzy_*/
+  meteor_n 文件级读表助手。BAL：balance.rs 建塔走网关语义（弓箭手带技能组），arm_archer_skills 开火焰箭
+  autocast、每波 ~3s cast_multishot，逐帧 drain DamageDealt 按 DamageSource 分账，全程读数新增
+  「damage share: towers | tower skills | commander skills」三列（首跑：塔 96.4% / 塔技能 3.6% / 指挥官 0%——
+  该策略不驱动指挥官技能，20% 锚点复核留给 BAL2 锚点卡加驱动策略）；断言两列非零。锚点建议已写 requirements
+  §14（塔技能 ≤10% 起步带）。153 全绿。
 
 ---
 
