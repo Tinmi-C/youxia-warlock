@@ -1,6 +1,9 @@
 pub mod acquisition;
 pub mod camera;
 pub mod command;
+// Unified damage pipeline (SK7): DamageRequest in, single Enemy.hp writer,
+// DamageDealt out.
+pub mod damage;
 // Debug cheat core (DB1/DB2): the whole module is debug-only — release
 // builds have zero debug surface (panel, cheats, scenarios).
 #[cfg(debug_assertions)]

@@ -203,6 +203,11 @@ pub fn release_meteor_shots(
                 },
                 damage: METEOR_DAMAGE,
                 attack_type: AttackType::Magic,
+                // Legacy SkillId index until SK8 registers the commander
+                // skills in the SkillDefs registry.
+                source: crate::systems::damage::DamageSource::CommanderSkill(
+                    SkillId::MeteorRain.index(),
+                ),
                 aoe_radius: METEOR_RADIUS,
                 slow_factor: 0.0,
                 slow_duration: 0.0,

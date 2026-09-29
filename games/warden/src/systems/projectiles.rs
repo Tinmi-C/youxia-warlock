@@ -10,9 +10,8 @@
 use bevy::prelude::*;
 
 use crate::components::{Enemy, Projectile, ProjectileOrigin};
-use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{WavePhase, WaveState};
-use crate::systems::tower::effective_damage;
+use crate::systems::damage::DamageRequest;
 
 /// Observability seam for the FX cards (FX2 spawns its impact feedback from
 /// these) and for tests: one event per resolved projectile impact.
@@ -25,15 +24,18 @@ pub struct ProjectileImpact {
 /// Fly every projectile toward its destination and resolve impacts (PR1).
 /// A homing target that died mid-flight: single-target rounds despawn
 /// harmlessly; AOE rounds detonate at the target's last known position (PR2).
-/// Fixed-point skill shots always reach their point.
+/// Fixed-point skill shots always reach their point. Since SK7 impacts only
+/// QUEUE DamageRequests — the subtraction happens in
+/// `systems::damage::resolve_damage`.
 pub fn fly_projectiles(
     time: Res<Time>,
     mut commands: Commands,
     mut impacts: MessageWriter<ProjectileImpact>,
+    mut requests: MessageWriter<DamageRequest>,
     // Without<Enemy> keeps the Transform write (projectiles) disjoint from
     // the enemies' Transform read — B0001 otherwise.
     mut q: Query<(Entity, &mut Projectile, &mut Transform), Without<Enemy>>,
-    mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
+    enemies: Query<(Entity, &Transform, &Enemy)>,
 ) {
     for (eid, mut proj, mut tf) in &mut q {
         // Steer toward the destination: the homing target's *current*
@@ -51,7 +53,15 @@ pub fn fly_projectiles(
             if proj.aoe_radius > 0.0 {
                 // AOE rounds still detonate at the last known position.
                 let detonate_at = proj.last_target_pos;
-                resolve_impact(&mut commands, &mut enemies, &mut impacts, eid, &mut proj, detonate_at);
+                resolve_impact(
+                    &mut commands,
+                    &enemies,
+                    &mut impacts,
+                    &mut requests,
+                    eid,
+                    &mut proj,
+                    detonate_at,
+                );
             } else {
                 // Overkill waste is a real tactical cost (§5.1).
                 commands.entity(eid).despawn();
@@ -61,7 +71,15 @@ pub fn fly_projectiles(
         proj.last_target_pos = pos;
         let step = proj.speed * time.delta_secs();
         if tf.translation.distance(pos) <= step {
-            resolve_impact(&mut commands, &mut enemies, &mut impacts, eid, &mut proj, pos);
+            resolve_impact(
+                &mut commands,
+                &enemies,
+                &mut impacts,
+                &mut requests,
+                eid,
+                &mut proj,
+                pos,
+            );
         } else {
             let dir = (pos - tf.translation).normalize();
             tf.translation += dir * step;
@@ -69,12 +87,14 @@ pub fn fly_projectiles(
     }
 }
 
-/// Resolve one projectile impact at `pos`: damage (+slow payload) to the
-/// single target, or to everything within the AOE radius of the blast.
+/// Resolve one projectile impact at `pos`: queue a DamageRequest per victim
+/// (the unified pipeline resolves armor/hp/flash/kill credit, SK7) and apply
+/// the slow payload here (a status effect, not damage — it stays on the hit).
 fn resolve_impact(
     commands: &mut Commands,
-    enemies: &mut Query<(Entity, &Transform, &mut Enemy)>,
+    enemies: &Query<(Entity, &Transform, &Enemy)>,
     impacts: &mut MessageWriter<ProjectileImpact>,
+    requests: &mut MessageWriter<DamageRequest>,
     proj_eid: Entity,
     proj: &mut Projectile,
     pos: Vec3,
@@ -83,7 +103,8 @@ fn resolve_impact(
         position: pos,
         aoe_radius: proj.aoe_radius,
     });
-    // Collect victims first (can't mutate while iterating the same query).
+    // Collect victims first (read-only pass; the damage lands in
+    // resolve_damage later this frame).
     let mut victims: Vec<Entity> = Vec::new();
     if proj.aoe_radius > 0.0 {
         for (ven, vtf, _) in enemies.iter() {
@@ -96,12 +117,16 @@ fn resolve_impact(
         victims.push(target);
     }
     for ven in victims {
-        if let Ok((_, _, mut en)) = enemies.get_mut(ven) {
-            let applied = effective_damage(proj.attack_type, en.physical_armor, proj.damage);
-            en.hp -= applied;
-            commands.entity(ven).insert(HitFlash {
-                timer: HIT_FLASH_SECS,
-                original: None,
+        if let Ok((_, _, en)) = enemies.get(ven) {
+            if en.hp <= 0.0 {
+                continue; // resolve_damage would skip it anyway
+            }
+            requests.write(DamageRequest {
+                victim: ven,
+                amount: proj.damage,
+                attack_type: proj.attack_type,
+                source: proj.source,
+                crit: false,
             });
             if proj.slow_factor > 0.0 {
                 // Shared merge path (SK3 semantics): strongest factor wins.

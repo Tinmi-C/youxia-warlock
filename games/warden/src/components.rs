@@ -157,6 +157,9 @@ pub struct Projectile {
     /// Damage snapshot taken at launch (post-boost, pre-armor).
     pub damage: f32,
     pub attack_type: AttackType,
+    /// Who fired this round — forwarded into the DamageRequest at impact so
+    /// the unified pipeline can attribute every hit (SK7).
+    pub source: crate::systems::damage::DamageSource,
     /// 0 => single-target (hits only the target); >0 => AOE: everything within
     /// this radius of the impact point takes damage (armor per-enemy).
     pub aoe_radius: f32,

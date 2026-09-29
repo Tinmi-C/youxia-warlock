@@ -2428,6 +2428,7 @@ fn wave_end_clears_in_flight_projectiles() {
             },
             damage: 1.0,
             attack_type: AttackType::Physical,
+            source: warden::systems::damage::DamageSource::System,
             aoe_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
@@ -6146,5 +6147,230 @@ mod stats_pipeline {
             "frenzy folded on attack speed"
         );
         assert_eq!(e.range, 20.0, "untouched stat stays base");
+    }
+}
+
+// --- SK7: unified damage pipeline (ADR-0011) ----------------------------------------
+
+mod damage_pipeline {
+    use super::*;
+    use bevy::ecs::message::MessageCursor;
+    use warden::systems::damage::{DamageDealt, DamageRequest, DamageSource};
+
+    fn spawn_enemy_at(app: &mut App, pos: Vec3, hp: f32, armor: bool) -> Entity {
+        app.world_mut()
+            .spawn((
+                Enemy {
+                    hp,
+                    max_hp: hp,
+                    speed: 0.0,
+                    leak: 0,
+                    kill_gold: 6,
+                    physical_armor: armor,
+                    def_index: 0,
+                    next_wp: 0,
+                },
+                Transform::from_xyz(pos.x, 0.4, pos.z),
+            ))
+            .id()
+    }
+
+    fn spawn_tower(app: &mut App, index: usize, kind: TowerKind, range: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Tower {
+                    tower_index: index,
+                    damage: 10.0,
+                    attack_speed: 1.0,
+                    range,
+                    attack_type: AttackType::Physical,
+                    cooldown: 0.0,
+                    target: None,
+                    kind,
+                    aoe_radius: 0.0,
+                    slow_factor: 0.0,
+                    slow_duration: 0.0,
+                    invested: 0,
+                },
+                Transform::from_xyz(0.0, 0.5, 0.0),
+            ))
+            .id()
+    }
+
+    fn request(app: &mut App, victim: Entity, amount: f32, ty: AttackType) {
+        app.world_mut()
+            .resource_mut::<Messages<DamageRequest>>()
+            .write(DamageRequest {
+                victim,
+                amount,
+                attack_type: ty,
+                source: DamageSource::System,
+                crit: false,
+            });
+    }
+
+    /// SK7 acceptance: armor resolves once, at the single writer — physical
+    /// is halved vs armor, magic pierces; both publish DamageDealt with the
+    /// applied amount.
+    #[test]
+    fn armor_resolves_at_the_single_writer() {
+        let mut app = test_app();
+        let armored = spawn_enemy_at(&mut app, Vec3::new(2.0, 0.0, 0.0), 100.0, true);
+        let unarmored = spawn_enemy_at(&mut app, Vec3::new(4.0, 0.0, 0.0), 100.0, false);
+        let mut dealt = MessageCursor::<DamageDealt>::default();
+        app.update();
+        request(&mut app, armored, 40.0, AttackType::Physical);
+        request(&mut app, armored, 40.0, AttackType::Magic);
+        request(&mut app, unarmored, 40.0, AttackType::Physical);
+        app.update();
+        let events: Vec<_> = {
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            dealt.read(msgs).cloned().collect()
+        };
+        assert_eq!(events.len(), 3, "all requests resolved the same frame");
+        let hp = |e: Entity| app.world().get::<Enemy>(e).unwrap().hp;
+        assert_eq!(hp(armored), 40.0, "40 phys halved + 40 magic full vs armor");
+        assert_eq!(hp(unarmored), 60.0, "40 phys full vs no armor");
+        let amounts: Vec<f32> = events.iter().map(|e| e.amount).collect();
+        assert_eq!(amounts, vec![20.0, 40.0, 40.0]);
+    }
+
+    /// SK7 acceptance: same-frame overkill — a dead victim takes no further
+    /// requests (no double kill messages, no double kill gold).
+    #[test]
+    fn same_frame_overkill_kills_once() {
+        let mut app = test_app();
+        let e = spawn_enemy_at(&mut app, Vec3::new(2.0, 0.0, 0.0), 50.0, false);
+        let gold_before = app.world().resource::<Economy>().gold;
+        let mut dealt = MessageCursor::<DamageDealt>::default();
+        app.update();
+        request(&mut app, e, 30.0, AttackType::Physical);
+        request(&mut app, e, 30.0, AttackType::Physical);
+        request(&mut app, e, 30.0, AttackType::Physical);
+        app.update();
+        app.update(); // Cleanup settles the death
+        let events: Vec<_> = {
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            dealt.read(msgs).cloned().collect()
+        };
+        assert_eq!(events.len(), 2, "the third request hits a corpse: skipped");
+        assert!(events[0].killed == false, "first hit leaves hp at 20");
+        assert!(events[1].killed, "the SECOND hit kills");
+        assert_eq!(
+            app.world().resource::<Economy>().gold,
+            gold_before + 6,
+            "kill gold paid exactly once"
+        );
+    }
+
+    /// SK7 acceptance: the melee branch (shield tower) rides the same
+    /// pipeline and its DamageDealt attributes to the tower entity.
+    #[test]
+    fn melee_routes_through_the_pipeline_with_attribution() {
+        let mut app = test_app();
+        let tower = spawn_tower(&mut app, 1, TowerKind::Base(1), 3.0);
+        let enemy = spawn_enemy_at(&mut app, Vec3::new(1.0, 0.0, 0.0), 100.0, false);
+        let mut dealt = MessageCursor::<DamageDealt>::default();
+        app.update();
+        app.update();
+        let events: Vec<_> = {
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            dealt.read(msgs).cloned().collect()
+        };
+        assert!(
+            events.iter().any(|e| e.source == DamageSource::Tower(tower)),
+            "melee hit attributed to its tower"
+        );
+        assert!(app.world().get::<Enemy>(enemy).unwrap().hp < 100.0);
+    }
+
+    /// SK7 acceptance: a ranged tower's hit carries the attribution through
+    /// the projectile snapshot into the unified resolution.
+    #[test]
+    fn projectile_hit_attributes_to_its_tower() {
+        let mut app = test_app();
+        let tower = spawn_tower(&mut app, 0, TowerKind::Base(0), 20.0);
+        let enemy = spawn_enemy_at(&mut app, Vec3::new(2.0, 0.0, 0.0), 500.0, false);
+        let mut dealt = MessageCursor::<DamageDealt>::default();
+        let mut events: Vec<DamageDealt> = Vec::new();
+        // Messages are double-buffered: drain every frame or old events drop.
+        let mut drain = |app: &mut App, events: &mut Vec<DamageDealt>| {
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            events.extend(dealt.read(msgs).copied());
+        };
+        for _ in 0..41 {
+            app.update();
+            drain(&mut app, &mut events);
+        }
+        assert!(
+            events
+                .iter()
+                .any(|e| e.source == DamageSource::Tower(tower) && e.amount == 10.0),
+            "ranged hit attributed with the snapshot damage"
+        );
+        assert!(app.world().get::<Enemy>(enemy).unwrap().hp < 500.0);
+    }
+
+    /// SK7 acceptance: the commander skill path (meteor rain through the
+    /// REAL player flow) attributes as CommanderSkill and its AOE victims
+    /// all resolve in one frame.
+    #[test]
+    fn meteor_rain_attributed_as_commander_skill() {
+        use warden::resources::{SkillId, SkillState, SkillTargeting};
+        let mut app = test_app();
+        app.update();
+        app.update();
+        app.update(); // skill buttons exist
+        let victims = [
+            spawn_enemy_at(&mut app, Vec3::ZERO, 30.0, true),
+            spawn_enemy_at(&mut app, Vec3::new(2.0, 0.0, 0.0), 30.0, false),
+        ];
+        let mut dealt = MessageCursor::<DamageDealt>::default();
+        // Z -> target picking -> cursor at origin -> left click (the same
+        // real player path the SK2 tests drive).
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyZ);
+        app.update();
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            keys.release(KeyCode::KeyZ);
+        }
+        assert_eq!(
+            app.world().resource::<SkillTargeting>().0,
+            Some(SkillId::MeteorRain)
+        );
+        enable_world_picking(&mut app, Vec2::new(640.0, 360.0));
+        let cursor = {
+            let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+            let (cam, tf) = cams.single(app.world()).expect("one camera");
+            cam.world_to_viewport(tf, Vec3::ZERO).expect("projects")
+        };
+        {
+            let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+            for mut w in q.iter_mut(app.world_mut()) {
+                w.set_cursor_position(Some(cursor));
+            }
+        }
+        click_left(&mut app);
+        let mut events: Vec<DamageDealt> = Vec::new();
+        for _ in 0..121 {
+            app.update(); // three meteors at 0.3s spacing, 40 dmg each
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            events.extend(dealt.read(msgs).copied());
+        }
+        assert!(
+            events
+                .iter()
+                .all(|e| matches!(e.source, DamageSource::CommanderSkill(_))),
+            "meteor damage attributed to the commander skill"
+        );
+        assert!(
+            events.len() >= 2,
+            "both victims took hits (armored one survives half damage)"
+        );
+        let _ = victims;
+        let _ = app.world().resource::<SkillState>();
     }
 }

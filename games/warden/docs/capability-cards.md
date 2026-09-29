@@ -978,7 +978,7 @@
   (source,kind) 刷新不叠 / 限时到期回落 / 光环按源增删 / Boosts+Frenzy 全局折算）；等价性护栏 =
   skills_sk4 全组原断言走真实路径通过（131 behavior 全绿）。
 
-### SK7 · 统一伤害管线：DamageRequest 单写入者（skills/towers/projectiles/enemies）—— ▶ 待实现（依赖 SK6）
+### SK7 · 统一伤害管线：DamageRequest 单写入者（skills/towers/projectiles/enemies）—— ✅ 已实现（2026-09-29，依赖 SK6）
 - 接口: 新消息 `DamageRequest { victim, amount, attack_type, source: DamageSource, crit }` 与
   `DamageDealt { victim, amount, attack_type, source, crit, killed }`；`DamageSource::{ Tower(Entity),
   CommanderSkill(usize), TowerSkill { tower, skill }, System }`；新系统 `resolve_damage`（Simulate，钉在全部写入点
@@ -989,6 +989,17 @@
 - 验收句: 近战、远程弹、指挥官技能弹三源伤害都经同一结算（同帧多请求全结算无丢失）；物理甲减半仍生效（盾兵
   物理弹半伤、魔法弹全伤）；DamageDealt.killed 归因正确（致死一击才 killed=true）；击杀赏金数额与迁移前一致；
   既有全部 behavior 断言不回归。
+- 实现: 新模块 `systems/damage.rs`（DamageRequest/DamageDealt/DamageSource + `resolve_damage` +
+  `effective_damage` 自 tower.rs 移入并 re-export 保旧调用点）；`Projectile` 新增 `source: DamageSource`
+  字段（发射时快照，命中转发进请求——归因缝；3 处构造点：tower_fire/流星/1 处测试）。写入点迁移：近战即时命中与
+  `resolve_impact` 皆改写请求（resolve_impact 只剩 收集受害者+发 ProjectileImpact+挂减速，enemies 查询降为
+  只读）；`resolve_damage` 注册进 ProjectilesPlugin Simulate 链尾 `fly_projectiles → resolve_damage`
+  `.after(tower_fire)`——同帧写同帧结（帧语义=知识库统一伤害管线笔记）。语义取舍：resolve_damage 对已死
+  受害者跳过（防同帧 AOE 双击杀、双赏金消息；迁移前允许尸体积伤但无行为差异）；击杀日志 `[dmg] killed by
+  {source}` 替代旧近战逐击日志。`damage_pipeline::*` 5 断言（护甲单点结算+金额 / 同帧过量击杀仅一次
+  +赏金仅一次 / 近战走管线+归因 / 远程弹快照归因 / 流星指挥官技能归因+AOE 全结）。
+  **踩坑**：跨多帧读消息必须逐帧 drain——Messages 双缓冲只保留最近帧，循环外统一 read 会丢事件（与
+  len() 坑同源，SK5/SK7 两处测试均按此修）。
 
 ### SK8 · 指挥官技能迁移上框架（skills/ui）—— ▶ 待实现（依赖 SK5；建议在 SK9 前用已知行为验证通用性）
 - 接口: Startup 生成持久指挥官单例实体挂 `SkillCaster`（流星火雨/冰霜新星/战意狂暴三 Active）；Z/X/C 热键与

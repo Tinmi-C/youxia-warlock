@@ -16,8 +16,8 @@ use crate::components::{
 };
 // ART12 ranger defender wiring shares the enemy rig machinery.
 use crate::components::{RangerBody, RangerCombat, RangerRig};
-use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 use crate::resources::{TowerDef, PROJECTILE_SPEED};
+use crate::systems::damage::{DamageRequest, DamageSource};
 
 /// The bundled 3D arrow tower (ArtVault 岩库 locked v1 via art-sync, ADR-0009;
 /// `art-assets.json` is the source of truth). Rodin image-to-3D, 23332 tris,
@@ -460,14 +460,9 @@ pub fn fused_tower_color(kind: FusionKind) -> Color {
 }
 
 /// Resolve one-axis armor: physical is halved vs armored enemies; magic and
-/// mixed (穿甲) bypass it.
-pub fn effective_damage(attack_type: AttackType, physical_armor: bool, base: f32) -> f32 {
-    if physical_armor && attack_type == AttackType::Physical {
-        base * 0.5
-    } else {
-        base
-    }
-}
+/// mixed (穿甲) bypass it. Moved to `systems::damage` with the unified
+/// pipeline (SK7); re-exported here for existing callers/tests.
+pub use crate::systems::damage::effective_damage;
 
 /// The melee exception of the hybrid model (§5.1): the base shield tower.
 fn is_melee(tower: &Tower) -> bool {
@@ -480,10 +475,13 @@ pub fn tower_fire(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut fired: MessageWriter<TowerFired>,
+    // SK7: every hit leaves as a DamageRequest; resolve_damage (running
+    // after fly_projectiles) is the only system that touches Enemy.hp.
+    mut requests: MessageWriter<DamageRequest>,
     // EffectiveStats (SK6) carries the folded numbers: base fields × Boosts
     // × Frenzy × StatMods. This system no longer reads Boosts/WarFrenzy.
     mut towers: Query<(Entity, &mut Tower, &Transform, Option<&Children>, &EffectiveStats)>,
-    mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
+    enemies: Query<(Entity, &Transform, &Enemy)>,
     mounts: Query<(&Transform, &AimTracker), With<BallistaMount>>,
 ) {
     // `tower_eid` feeds the ART8 fire-moment message.
@@ -531,25 +529,28 @@ pub fn tower_fire(
         }
 
         if is_melee(&tower) {
-            // Melee (shield tower): instant hit — damage + slow on the target
-            // only (TO6 rework: the slow rides the hit, §5 original wording).
-            // The slow goes through the shared merge path (SK3 semantics).
-            if let Ok((_, _, mut en)) = enemies.get_mut(target) {
-                let applied = effective_damage(tower.attack_type, en.physical_armor, base_dmg);
-                en.hp -= applied;
-                commands.entity(target).insert(HitFlash {
-                    timer: HIT_FLASH_SECS,
-                    original: None,
-                });
-                if tower.slow_factor > 0.0 {
-                    apply_slow(
-                        &mut commands,
-                        target,
-                        tower.slow_factor,
-                        tower.slow_duration,
-                    );
+            // Melee (shield tower): instant hit — the damage request rides
+            // the unified pipeline (SK7; armor/flash/kill credit resolve in
+            // resolve_damage like every other hit), the slow goes through
+            // the shared merge path (SK3 semantics).
+            if let Ok((_, _, en)) = enemies.get(target) {
+                if en.hp > 0.0 {
+                    requests.write(DamageRequest {
+                        victim: target,
+                        amount: base_dmg,
+                        attack_type: tower.attack_type,
+                        source: DamageSource::Tower(tower_eid),
+                        crit: false,
+                    });
+                    if tower.slow_factor > 0.0 {
+                        apply_slow(
+                            &mut commands,
+                            target,
+                            tower.slow_factor,
+                            tower.slow_duration,
+                        );
+                    }
                 }
-                info!("[tower] melee hit dmg={applied:.1} enemy_hp={:.0}", en.hp);
             }
         } else {
             // Ranged: launch a homing projectile (§5.1) — damage and type are
@@ -576,6 +577,7 @@ pub fn tower_fire(
                     origin: ProjectileOrigin::Homing { target },
                     damage: base_dmg,
                     attack_type: tower.attack_type,
+                    source: DamageSource::Tower(tower_eid),
                     aoe_radius: tower.aoe_radius,
                     slow_factor: tower.slow_factor,
                     slow_duration: tower.slow_duration,
