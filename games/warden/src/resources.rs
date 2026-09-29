@@ -504,12 +504,17 @@ pub enum ChoiceKind {
     GetTower { tower_type: usize },
 }
 
-/// Which base-stat a `StatBoost` option boosts (AC4 polish).
+/// Which combat stat a modifier/choice touches. Damage/AttackSpeed/Range
+/// existed for the AC4 stat-boost choices; SK6 (ADR-0011) extends the shared
+/// vocabulary with crit stats for the `StatMods` pipeline. AC4 itself never
+/// offers crit (see input::apply_choice / l10n::choice_label arms).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatKind {
     Damage,
     AttackSpeed,
     Range,
+    CritChance,
+    CritMultiplier,
 }
 
 #[derive(Clone)]

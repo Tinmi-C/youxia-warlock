@@ -266,6 +266,8 @@ pub fn choice_label(
             StatKind::Damage => format!("{} {}", name(*tower_type), pick2("伤害 +20%", "damage +20%", lang)),
             StatKind::AttackSpeed => format!("{} {}", name(*tower_type), pick2("攻速 +20%", "atk speed +20%", lang)),
             StatKind::Range => format!("{} {}", name(*tower_type), pick2("射程 +15%", "range +15%", lang)),
+            // SK6 grew the vocabulary; AC4 never offers these.
+            StatKind::CritChance | StatKind::CritMultiplier => String::new(),
         },
         ChoiceKind::GoldBoost => pick2("击杀金币 +20%", "Kill gold +20%", lang).to_string(),
         ChoiceKind::GetTower { tower_type } => {

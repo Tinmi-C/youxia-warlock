@@ -958,7 +958,7 @@
   **踩坑**：消息断言用 `Messages::len()` 会在双缓冲翻转后归零——改用 `MessageCursor::default()` 增量读取
   （`bevy::ecs::message::MessageCursor`，不在 prelude）；与知识库 messages 坑笔记互证。
 
-### SK6 · 属性修改管线：StatMods → EffectiveStats（skills/towers）—— ▶ 待实现（依赖 SK5）
+### SK6 · 属性修改管线：StatMods → EffectiveStats（skills/towers）—— ✅ 已实现（2026-09-29，依赖 SK5）
 - 接口: 新组件 `StatMods(Vec<StatMod>)` 与 `EffectiveStats { damage, attack_speed, range, crit_chance,
   crit_multiplier }`；`StatMod { source, kind: Damage|AttackSpeed|Range|CritChance|CritMultiplier, add, mult,
   remaining: Option<f32> }`（source 标记身份，支持按来源增删与限时到期）；新系统 `aggregate_stats`（Simulate，
@@ -968,6 +968,15 @@
 - 验收句: add+mult 叠加顺序正确（(10+3)×1.2=15.6）；同一 source 重复写入=刷新而非叠条目；限时条目到期后聚合值
   回落；光环语义（按 source 入场加/离场删）生效；迁移后无 Boosts/无 StatMods 时 EffectiveStats 与旧内联读数逐帧一致
   （回归对照既有 skills_sk4 攻速断言）。
+- 实现: 新模块 `systems/stats.rs`（`aggregate_stats` / `tick_stat_mods` / `set_stat_mod` / `clear_stat_mod` /
+  `fold`）；组件 `StatMods`/`StatMod`/`ModSource{Skill,Aura,Other}`/`EffectiveStats` 入 components.rs。
+  **复用而非新造**：AC4 的 `StatKind` 扩展 CritChance/CritMultiplier 变体（共享词汇表；AC4 不提供暴击选项，
+  input.rs/l10n.rs 补空分支）。注册进 TowersPlugin Simulate 链头：`tick_stat_mods → aggregate_stats →
+  (原 tower 链不变)`；`tower_fire` 删 Boosts/WarFrenzy 内联读，全部改读 EffectiveStats（damage/range/攻速冷却
+  1/estats.attack_speed）。取舍：选择环/调试射程环仍读 Tower.range 基础值——在某个被动真正加射程前不切换
+  （SK9 弓箭手组无射程被动，无说谎场景；届时随卡切换）。`stats_pipeline::*` 5 断言（加乘顺序+默认暴击 /
+  (source,kind) 刷新不叠 / 限时到期回落 / 光环按源增删 / Boosts+Frenzy 全局折算）；等价性护栏 =
+  skills_sk4 全组原断言走真实路径通过（131 behavior 全绿）。
 
 ### SK7 · 统一伤害管线：DamageRequest 单写入者（skills/towers/projectiles/enemies）—— ▶ 待实现（依赖 SK6）
 - 接口: 新消息 `DamageRequest { victim, amount, attack_type, source: DamageSource, crit }` 与

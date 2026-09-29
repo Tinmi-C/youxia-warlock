@@ -22,6 +22,10 @@ impl Plugin for TowersPlugin {
             .add_systems(
                 Update,
                 (
+                    // SK6: stat pipeline first — timed mods expire, then the
+                    // aggregate lands before any consumer reads it.
+                    systems::stats::tick_stat_mods,
+                    systems::stats::aggregate_stats,
                     // ART7: mirror the rule target into the mount, THEN turn
                     // the mount, THEN fire (the muzzle reads this frame's
                     // facing). Presentation leads, rhythm stays with fire.

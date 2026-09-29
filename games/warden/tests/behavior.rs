@@ -5945,3 +5945,206 @@ mod skills_core {
         );
     }
 }
+
+// --- SK6: stat modification pipeline (ADR-0011) ------------------------------------
+
+mod stats_pipeline {
+    use super::*;
+    use warden::components::{EffectiveStats, ModSource, StatMod, StatMods};
+    use warden::resources::{StatKind, WarFrenzy, FRENZY_SPEED_MULT};
+    use warden::systems::stats::{clear_stat_mod, set_stat_mod, BASE_CRIT_MULTIPLIER};
+
+    /// An archer-shaped base tower with an empty StatMods bag.
+    fn spawn_tower(app: &mut App) -> Entity {
+        app.world_mut()
+            .spawn((
+                Tower {
+                    tower_index: 0,
+                    damage: 10.0,
+                    attack_speed: 1.0,
+                    range: 20.0,
+                    attack_type: AttackType::Physical,
+                    cooldown: 0.0,
+                    target: None,
+                    kind: TowerKind::Base(0),
+                    aoe_radius: 0.0,
+                    slow_factor: 0.0,
+                    slow_duration: 0.0,
+                    invested: 0,
+                },
+                StatMods::default(),
+                Transform::from_xyz(0.0, 0.5, 0.0),
+            ))
+            .id()
+    }
+
+    fn estats(app: &App, e: Entity) -> EffectiveStats {
+        *app.world().get::<EffectiveStats>(e).expect("aggregated")
+    }
+
+    fn push_mod(app: &mut App, e: Entity, m: StatMod) {
+        let mut mods = app.world_mut().get_mut::<StatMods>(e).unwrap();
+        set_stat_mod(&mut mods, m);
+    }
+
+    /// SK6 acceptance: add folds before mult — (10 + 3) × 1.2 = 15.6 — and
+    /// an untouched tower aggregates to its base stats with default crit.
+    #[test]
+    fn aggregation_folds_add_then_mult_with_default_crit() {
+        let mut app = test_app();
+        let t = spawn_tower(&mut app);
+        let t2 = spawn_tower(&mut app); // untouched twin
+        push_mod(
+            &mut app,
+            t,
+            StatMod {
+                source: ModSource::Skill { caster: t, def: 0 },
+                kind: StatKind::Damage,
+                add: 3.0,
+                mult: 1.0,
+                remaining: None,
+            },
+        );
+        push_mod(
+            &mut app,
+            t,
+            StatMod {
+                source: ModSource::Other("test"),
+                kind: StatKind::Damage,
+                add: 0.0,
+                mult: 1.2,
+                remaining: None,
+            },
+        );
+        app.update();
+        let e = estats(&app, t);
+        assert!((e.damage - 15.6).abs() < 1e-4, "got {}", e.damage);
+        let base = estats(&app, t2);
+        assert_eq!(base.damage, 10.0);
+        assert_eq!(base.attack_speed, 1.0);
+        assert_eq!(base.range, 20.0);
+        assert_eq!(base.crit_chance, 0.0, "no crit without a mod");
+        assert_eq!(base.crit_multiplier, BASE_CRIT_MULTIPLIER);
+    }
+
+    /// SK6 acceptance: one (source, kind) identity refreshes instead of
+    /// stacking — the aura/buff re-assert contract.
+    #[test]
+    fn same_source_refreshes_instead_of_stacking() {
+        let mut app = test_app();
+        let t = spawn_tower(&mut app);
+        let source = ModSource::Skill { caster: t, def: 2 };
+        push_mod(
+            &mut app,
+            t,
+            StatMod {
+                source,
+                kind: StatKind::Damage,
+                add: 5.0,
+                mult: 1.0,
+                remaining: None,
+            },
+        );
+        push_mod(
+            &mut app,
+            t,
+            StatMod {
+                source,
+                kind: StatKind::Damage,
+                add: 7.0,
+                mult: 1.0,
+                remaining: None,
+            },
+        );
+        app.update();
+        assert_eq!(
+            app.world().get::<StatMods>(t).unwrap().0.len(),
+            1,
+            "one entry per (source, kind)"
+        );
+        assert!((estats(&app, t).damage - 17.0).abs() < 1e-4);
+    }
+
+    /// SK6 acceptance: a timed entry ticks down, drops at zero, and the
+    /// aggregate falls back with it.
+    #[test]
+    fn timed_mod_expires_and_aggregate_falls_back() {
+        let mut app = test_app();
+        let t = spawn_tower(&mut app);
+        push_mod(
+            &mut app,
+            t,
+            StatMod {
+                source: ModSource::Skill { caster: t, def: 1 },
+                kind: StatKind::Damage,
+                add: 8.0,
+                mult: 1.0,
+                remaining: Some(0.5),
+            },
+        );
+        app.update();
+        assert!((estats(&app, t).damage - 18.0).abs() < 1e-4, "boost active");
+        for _ in 0..60 {
+            app.update(); // 1s — well past the 0.5s duration
+        }
+        assert!(
+            app.world().get::<StatMods>(t).unwrap().0.is_empty(),
+            "expired entry dropped"
+        );
+        assert_eq!(estats(&app, t).damage, 10.0, "aggregate fell back");
+    }
+
+    /// SK6 acceptance: aura semantics — apply by source on another entity,
+    /// remove on leave, aggregate follows both.
+    #[test]
+    fn aura_apply_and_remove_by_source() {
+        let mut app = test_app();
+        let owner = spawn_tower(&mut app);
+        let ally = spawn_tower(&mut app);
+        let aura = ModSource::Aura {
+            caster: owner,
+            def: 3,
+        };
+        push_mod(
+            &mut app,
+            ally,
+            StatMod {
+                source: aura,
+                kind: StatKind::AttackSpeed,
+                add: 0.0,
+                mult: 1.25,
+                remaining: None,
+            },
+        );
+        app.update();
+        assert!((estats(&app, ally).attack_speed - 1.25).abs() < 1e-4);
+        {
+            let mut mods = app.world_mut().get_mut::<StatMods>(ally).unwrap();
+            clear_stat_mod(&mut mods, aura, StatKind::AttackSpeed);
+        }
+        app.update();
+        assert_eq!(estats(&app, ally).attack_speed, 1.0, "aura removed");
+    }
+
+    /// SK6 acceptance: the global multipliers land in the same fold — AC4
+    /// Boosts per tower_index and the SK4 frenzy on attack speed (the old
+    /// inline tower_fire math, now aggregated).
+    #[test]
+    fn aggregate_folds_global_boosts_and_frenzy() {
+        let mut app = test_app();
+        let t = spawn_tower(&mut app);
+        {
+            let mut boosts = app.world_mut().resource_mut::<Boosts>();
+            boosts.damage_mult[0] = 1.2;
+        }
+        app.world_mut().resource_mut::<WarFrenzy>().remaining = 1.0;
+        app.update();
+        let e = estats(&app, t);
+        assert!((e.damage - 12.0).abs() < 1e-4, "Boosts folded");
+        assert!(
+            (e.attack_speed - FRENZY_SPEED_MULT).abs() < 1e-4,
+            "frenzy folded on attack speed"
+        );
+        assert_eq!(e.range, 20.0, "untouched stat stays base");
+    }
+}

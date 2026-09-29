@@ -24,5 +24,7 @@ pub mod showroom;
 #[cfg(debug_assertions)]
 pub mod range;
 pub mod skills;
+// Stat modification pipeline (SK6): StatMods -> EffectiveStats aggregation.
+pub mod stats;
 pub mod tower;
 pub mod wave;

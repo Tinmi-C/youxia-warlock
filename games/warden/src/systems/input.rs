@@ -61,6 +61,9 @@ pub fn apply_choice(
             StatKind::Damage => boosts.damage_mult[*tower_type] *= 1.2,
             StatKind::AttackSpeed => boosts.attack_speed_mult[*tower_type] *= 1.2,
             StatKind::Range => boosts.range_mult[*tower_type] *= 1.15,
+            // Shared vocabulary grew crit stats with SK6; AC4 never offers
+            // them (Boosts cannot express crit) — nothing to apply.
+            StatKind::CritChance | StatKind::CritMultiplier => {}
         },
         ChoiceKind::GoldBoost => {
             boosts.kill_mult *= 1.2;

@@ -296,3 +296,52 @@ pub struct SkillSlot {
 pub struct SkillCaster {
     pub slots: Vec<SkillSlot>,
 }
+
+// --- Stat modification pipeline (phase 2, ADR-0011; card SK6) ----------------------
+
+/// Who contributes a stat modifier — the removable identity auras and timed
+/// buffs add/remove by. Entity+skill pairs cover self passives, applied
+/// buffs and auras from other entities; `Other` is a named escape hatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModSource {
+    /// A skill owned by or applied to the entity itself (passive, timed buff).
+    Skill { caster: Entity, def: usize },
+    /// A skill aura projected by another entity.
+    Aura { caster: Entity, def: usize },
+    /// Anything else that needs a removable identity (e.g. a meta upgrade).
+    Other(&'static str),
+}
+
+/// One stat modifier (SK6). Add-then-multiply: the aggregator computes
+/// `(base + Σ add) × Π mult` per stat. `remaining` = Some for timed buffs
+/// (ticked down, entry dropped at zero), None for permanent entries
+/// (passives; auras, which the aura system removes on leave instead).
+#[derive(Debug, Clone)]
+pub struct StatMod {
+    pub source: ModSource,
+    pub kind: crate::resources::StatKind,
+    pub add: f32,
+    pub mult: f32,
+    pub remaining: Option<f32>,
+}
+
+/// All stat modifiers on an entity. Managed through
+/// `systems::stats::set_stat_mod` / `clear_stat_mod` so one source's write
+/// refreshes rather than stacks.
+#[derive(Component, Debug, Default)]
+pub struct StatMods(pub Vec<StatMod>);
+
+/// The aggregated stats an entity fights with (SK6): base Tower values
+/// folded with its `StatMods` and the global Boosts/Frenzy multipliers.
+/// Written every frame by `systems::stats::aggregate_stats` BEFORE any
+/// consumer; `tower_fire` reads only this (the WC3 green-number layer).
+#[derive(Component, Debug, Clone, Copy)]
+pub struct EffectiveStats {
+    pub damage: f32,
+    pub attack_speed: f32,
+    pub range: f32,
+    /// 0..=1 chance that an attack rolls a critical hit (SK9 rolls it).
+    pub crit_chance: f32,
+    /// Multiplier applied on a crit (base 2.0).
+    pub crit_multiplier: f32,
+}

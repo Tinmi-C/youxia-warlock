@@ -11,13 +11,13 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimTracker, AttackType, BallistaMount, Enemy, FireRecoil, FusionKind, Projectile,
-    ProjectileOrigin, Slow, Tower, TowerKind,
+    AimTracker, AttackType, BallistaMount, EffectiveStats, Enemy, FireRecoil, FusionKind,
+    Projectile, ProjectileOrigin, Slow, Tower, TowerKind,
 };
 // ART12 ranger defender wiring shares the enemy rig machinery.
 use crate::components::{RangerBody, RangerCombat, RangerRig};
 use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
-use crate::resources::{Boosts, TowerDef, PROJECTILE_SPEED};
+use crate::resources::{TowerDef, PROJECTILE_SPEED};
 
 /// The bundled 3D arrow tower (ArtVault 岩库 locked v1 via art-sync, ADR-0009;
 /// `art-assets.json` is the source of truth). Rodin image-to-3D, 23332 tris,
@@ -476,38 +476,24 @@ fn is_melee(tower: &Tower) -> bool {
 
 pub fn tower_fire(
     time: Res<Time>,
-    boost: Res<Boosts>,
-    frenzy: Res<crate::resources::WarFrenzy>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut fired: MessageWriter<TowerFired>,
-    mut towers: Query<(Entity, &mut Tower, &Transform, Option<&Children>)>,
+    // EffectiveStats (SK6) carries the folded numbers: base fields × Boosts
+    // × Frenzy × StatMods. This system no longer reads Boosts/WarFrenzy.
+    mut towers: Query<(Entity, &mut Tower, &Transform, Option<&Children>, &EffectiveStats)>,
     mut enemies: Query<(Entity, &Transform, &mut Enemy)>,
     mounts: Query<(&Transform, &AimTracker), With<BallistaMount>>,
 ) {
-    // SK4: a global timed multiplier — while the frenzy lasts, EVERY tower's
-    // fire cooldown is divided by it (towers placed mid-frenzy included).
-    let frenzy_mult = if frenzy.remaining > 0.0 {
-        crate::resources::FRENZY_SPEED_MULT
-    } else {
-        1.0
-    };
     // `tower_eid` feeds the ART8 fire-moment message.
-    for (tower_eid, mut tower, ttf, children) in &mut towers {
+    for (tower_eid, mut tower, ttf, children, estats) in &mut towers {
         tower.cooldown -= time.delta_secs();
 
         let marksman = tower.kind == TowerKind::Fused(FusionKind::Marksman);
 
-        // AC4 stat boosts (polish): a tower reads the multiplier of its
-        // `tower_index` — for a base tower that is its own type; for a fused
-        // tower it is the first ingredient's type, so fused towers also benefit.
-        let idx = tower.tower_index;
-        let dmg_mult = boost.damage_mult.get(idx).copied().unwrap_or(1.0);
-        let speed_mult = boost.attack_speed_mult.get(idx).copied().unwrap_or(1.0);
-        let range_mult = boost.range_mult.get(idx).copied().unwrap_or(1.0);
-        let base_dmg = tower.damage * dmg_mult;
-        let effective_range = tower.range * range_mult;
+        let base_dmg = estats.damage;
+        let effective_range = estats.range;
 
         // Pick target: nearest, or highest-HP for the Marksman.
         let mut best: Option<(Entity, f32, f32)> = None; // (eid, dist, hp)
@@ -613,7 +599,8 @@ pub fn tower_fire(
         // ranged alike); presentation (recoil, later ART10) self-selects.
         fired.write(TowerFired { tower: tower_eid });
 
-        tower.cooldown = 1.0 / (tower.attack_speed * speed_mult * frenzy_mult);
+        // SK6: attack speed (Boosts × Frenzy × StatMods already folded).
+        tower.cooldown = 1.0 / estats.attack_speed;
     }
 }
 
