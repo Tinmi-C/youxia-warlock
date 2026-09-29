@@ -926,6 +926,87 @@
 
 ---
 
+## 技能系统二期（通用技能框架 + 弓箭手塔试点，2026-09-29 立项）
+
+> 架构依据 **ADR-0011**（按实体挂载的技能框架 + 统一伤害结算）。 Owner 已拍板：技能框架必须通用（魔兽三分法：
+> 被动/主动/自动施法），首个使用者=弓箭手塔（出厂自带 1 被动 + 1 主动 + 1 自动施法，随 invest 升级 1→3 级），
+> 指挥官三技能（SK1–SK4）**一并迁移**上框架作第二个使用者；伤害结算统一到单写入者管线。
+> 框架与效果分离：框架只管生命周期（获得/升级/冷却/目标选择/校验/自动施法/UI），效果=按技能 id 分发的小系统。
+> 实施顺序：**SK5 框架 → SK6 属性 → SK7 伤害 → SK8 指挥官迁移 → SK9 弓箭手技能组 → SK10 指令卡 UI → SK11 数值表**；
+> SK1–SK4 原验收句全部保留作迁移回归护栏。数值一律进 SkillBalance 单源表（SK11 收编一期散落常量；循 ADR-0008 留代码内）。
+
+### SK5 · 框架核心：SkillCaster 生命周期（skills）—— ▶ 待实现
+- 接口: 新组件 `SkillCaster { slots: Vec<SkillSlot> }`（挂任意实体：塔/指挥官/未来角色）；`SkillSlot { def, level,
+  cooldown, autocast }`（def=`SkillDefs` 注册表索引）；新资源 `SkillDefs`（`SkillDef { name, kind: Passive|Active|
+  Autocast, targeting: None|Point|Unit, max_level, badge }`，结构元数据不含数值）；新消息 `CastSkill { caster, slot }`；
+  目标模式资源泛化为 `SkillTargeting { caster, slot }`（沿用指示圈+左键确认+Esc/右键取消范式）。
+- 行为: 冷却 tick 沿一期铁律（虚拟时间、Playing 门控→暂停/调试冻结同冻结、双相位均流动、跨波不重置）；施法校验
+  （实体存活 / CD=0 / kind 非 Passive）；Point 技能经目标模式确认后触发效果，None 瞬发；learn/level_up API（等级
+  封顶 max_level）。框架系统**不感知 owner 类型**（不 query Tower）。
+- 验收句: headless 下挂 SkillCaster 的裸实体（无 Tower）冷却随帧递减、暂停冻结；CD 未好时 CastSkill 被拒且不进
+  目标模式；Point 技能进入目标模式、Esc 取消不进 CD；level_up 越过 max_level 被钳制；Passive 槽位不可施放。
+
+### SK6 · 属性修改管线：StatMods → EffectiveStats（skills/towers）—— ▶ 待实现（依赖 SK5）
+- 接口: 新组件 `StatMods(Vec<StatMod>)` 与 `EffectiveStats { damage, attack_speed, range, crit_chance,
+  crit_multiplier }`；`StatMod { source, kind: Damage|AttackSpeed|Range|CritChance|CritMultiplier, add, mult,
+  remaining: Option<f32> }`（source 标记身份，支持按来源增删与限时到期）；新系统 `aggregate_stats`（Simulate，
+  tower_fire 之前）：基础值（Tower 字段）+ 全局 Boosts + WarFrenzy + 实体 StatMods → 写 EffectiveStats。
+- 行为: 加算先乘算后（`final = (base + Σadd) × Πmult`）；到期条目摘除；`tower_fire` 改为只读 EffectiveStats
+  （删内联 boost/frenzy 查询，行为等价迁移）；暴击默认 0% / ×2.0。
+- 验收句: add+mult 叠加顺序正确（(10+3)×1.2=15.6）；同一 source 重复写入=刷新而非叠条目；限时条目到期后聚合值
+  回落；光环语义（按 source 入场加/离场删）生效；迁移后无 Boosts/无 StatMods 时 EffectiveStats 与旧内联读数逐帧一致
+  （回归对照既有 skills_sk4 攻速断言）。
+
+### SK7 · 统一伤害管线：DamageRequest 单写入者（skills/towers/projectiles/enemies）—— ▶ 待实现（依赖 SK6）
+- 接口: 新消息 `DamageRequest { victim, amount, attack_type, source: DamageSource, crit }` 与
+  `DamageDealt { victim, amount, attack_type, source, crit, killed }`；`DamageSource::{ Tower(Entity),
+  CommanderSkill(usize), TowerSkill { tower, skill }, System }`；新系统 `resolve_damage`（Simulate，钉在全部写入点
+  之后）：护甲结算（`effective_damage` 移入）+ 扣血 + HitFlash + 击杀判定 → 发 DamageDealt。
+- 行为: 近战即时命中与投射物 `resolve_impact`（含流星火雨 Fixed 弹）改为写 DamageRequest；resolve_damage 成为
+  **全游戏唯一写 Enemy.hp 的系统**；减速/状态仍走 ApplySlow 不进伤害管线；resolve_death/赏金路径不动；
+  DamageDealt 供 FX / 归因 / BAL 读数消费。
+- 验收句: 近战、远程弹、指挥官技能弹三源伤害都经同一结算（同帧多请求全结算无丢失）；物理甲减半仍生效（盾兵
+  物理弹半伤、魔法弹全伤）；DamageDealt.killed 归因正确（致死一击才 killed=true）；击杀赏金数额与迁移前一致；
+  既有全部 behavior 断言不回归。
+
+### SK8 · 指挥官技能迁移上框架（skills/ui）—— ▶ 待实现（依赖 SK5；建议在 SK9 前用已知行为验证通用性）
+- 接口: Startup 生成持久指挥官单例实体挂 `SkillCaster`（流星火雨/冰霜新星/战意狂暴三 Active）；Z/X/C 热键与
+  控制区按钮改读该实体槽位；删除全局 `SkillState` 与 `SKILL_DEFS` 旧表（数值进 SkillBalance 由 SK11 收编，过渡期
+  常量暂留）。
+- 行为: 三技能效果系统改由 CastSkill 分发路径驱动（MeteorVolley 调度、ApplySlow 新星、攻速增幅——狂暴迁移为
+  聚合管线读取的全局态或 StatMods 广播，取改动小者并在卡上注明取舍）；冷却/目标选择/热键/按钮交互语义与一期一致。
+- 验收句: **SK1–SK4 全部原验收句保留并通过**（behavior 里 skills_sk1/sk2/sk3/sk4 组改走新驱动路径、断言不变）；
+  指挥官实体上的 SkillCaster 冷却与全局资源制时代逐帧等价；热键/按钮/指示圈手感人工回归（⚠️）。
+
+### SK9 · 弓箭手塔技能组：鹰眼/多重射击/火焰箭（skills/towers）—— ▶ 待实现（依赖 SK5/SK6/SK7）
+- 接口: `SkillDefs` 注册三技能；建塔时 `spawn_base_tower` 附 SkillCaster（lv1）；invest 升级处同步 level_up 并刷新
+  被动 StatMod 条目；效果系统按 id 分发。数值（CD/加成/箭数/时限）全部进 SkillBalance 起始值。
+- 行为: **鹰眼**（Passive）暴击率 +10/15/20%、暴击倍率 ×2.0/2.25/2.5——tower_fire 从 EffectiveStats 掷暴击，
+  快照 crit 标记与伤害进 Projectile → DamageRequest；**多重射击**（Active·None）CD 好后施放，朝射程内至多
+  3/4/5 个目标各射一箭（复用 Projectile+Homing）；**火焰箭**（Autocast）CD 20s、时限 8s 普攻附加 +3/5/8 火焰伤害
+  （限时 StatMod），autocast 开启时 CD 好且有目标自动重施。
+- 验收句: 暴击期望伤害锚点（固定种子长序列均值落在 ±5% 理论带）；多重射击生成箭数=等级对应目标数且目标互不重复；
+  火焰箭持续期内伤害加成可见、到期回落、autocast 自动重施间隔≈CD；invest 升级后三技能等级+1 且被动数值刷新。
+
+### SK10 · 指令卡技能槽 UI（ui/command）—— ▶ 待实现（依赖 SK9）
+- 接口: 选中塔时指令卡预留的两个置灰槽激活为技能格（徽章、等级点、CD 剩余秒数、tooltip 双语）；点击=施法
+  （Point 技能复用指示圈流程）；右键=切换自动施放（魔兽式）；热键上下文限定（仅选中该塔时生效），按 §16.9 热键域
+  分离分配（候选 D/F，避开 QWER/ASDF/ZXC/Space/P/L），选定后写回 requirements §16。
+- 行为: 未选中/选中非技能单位时热键失效；冷却中点击无效果且显示剩余秒数；autocast 槽右键切换后有可视状态标记；
+  语言切换重建后自愈（沿控制区同款范式）。
+- 验收句: headless 断言选中态热键启停、按钮 CD 文本、autocast 切换翻转；视觉与点击走查人工验收（⚠️）。
+
+### SK11 · SkillBalance 单源表 + BAL 技能贡献读数（skills/balance）—— ▶ 待实现（依赖 SK7）
+- 接口: `resources.rs` 新 `SkillBalance`（按 技能×等级 键控，收编 SKILL_COOLDOWNS/NOVA_*/METEOR_*/FRENZY_* 与
+  SK9 全部数值）；散落 const 删除、读取方全改走表；balance.rs 全程读数按 DamageSource 分组输出伤害占比
+  （塔普攻/指挥官技能/塔技能三列）。
+- 行为: 技能数值单源（循 skill-design-workflow v3 循环 B 约定：AI 调数值只动 SkillBalance）；BAL 读数复核
+  「指挥官技能 ≤ 全场输出 20%」既有锚点，新立「塔技能伤害占比」锚点（目标区间按 BAL 方法论定，写 requirements §14）。
+- 验收句: 仓库内不再有散落的技能数值 const（grep 可验）；BAL 全程读数能输出三列占比；弓箭手塔出场局中塔技能列
+  与塔普攻列均非零。
+
+---
+
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. phase=.. gold=.. lives=.. wave=.. entities=..`（`src/plugins/debug.rs`）。

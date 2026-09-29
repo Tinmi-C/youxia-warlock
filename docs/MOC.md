@@ -1,7 +1,7 @@
 ---
 title: 索引地图 MOC
 type: moc
-updated: 2026-09-20
+updated: 2026-09-29
 ---
 
 # 🗺️ 索引地图（Map of Content）
@@ -23,6 +23,7 @@ updated: 2026-09-20
 - [[decisions/0008-numeric-data-in-code-not-external|ADR-0008 数值数据暂留代码内，不外部化]]（accepted：定义表/Balance/波次公式/锚点带留源码；「数据驱动」= 数据与逻辑分离而非外部化入库；定迁移门槛，条件合适再迁外部/数据库）
 - [[decisions/0009-art-vault-to-game-asset-flow|ADR-0009 岩库美术资产进入游戏仓库]]（accepted：清单锁定 + `tools/art-sync` 桥，人/AI 同门不手拷；GLB 暂直提交 git；`_library/` 落地后落点切 raw+intake）
 - [[decisions/0010-showroom-generic-asset-viewer|ADR-0010 展示场通用化——engine/showroom-viewer]]（accepted：中性影棚资产查看器机制全量上收引擎 crate；游戏只注册目录；crate 自带 asset-viewer bin 扫任意 GLB 目录零接入；engine 首例，双消费方判据成立）
+- [[decisions/0011-generic-per-entity-skill-framework|ADR-0011 技能系统通用化——按实体挂载技能框架 + 统一伤害结算]]（accepted：SkillCaster 挂任意实体；被动/主动/自动施法三分法；StatMods→EffectiveStats 属性聚合；DamageRequest 单写入者结算；效果=按 id 分发小系统不用脚本；SkillBalance 单源数值表）
 
 ## 参考
 
@@ -33,6 +34,8 @@ updated: 2026-09-20
 - [[AGENTS|维护规范 AGENTS.md]]
 
 ## 近期更新
+
+- [[decisions/0011-generic-per-entity-skill-framework|ADR-0011 技能系统通用化]]（新增，accepted：按实体挂载的技能框架——SkillCaster/三分法/属性聚合管线/统一伤害结算；技能二期 SK5–SK11 的架构基座）
 
 - [[topics/engine/automated-game-testing-and-ai|游戏自动化测试与 AI 参与开发——全景调研]]（新增，draft：测试分层+引擎基建；AI playtest 三级演化（脚本→DRL→LLM agent，TITAN：bug 检出 82% vs 人类 18%）；Meta TestGen-LLM 三道闸（75% 编译/57% 通过/25% 涨覆盖）；与本团队流程对标——已有 headless 回归/红绿验证/BAL 读数，缺视觉快照（bevy_geppetto）与 E2E agent）
 - [[topics/engine/table-driven-anim-state-design|表驱动动画状态机设计方案]]（新增，draft：动画 20+ 时的状态机形态——状态拓扑进表数据，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；ADR-0007 支撑材料）
