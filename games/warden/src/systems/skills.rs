@@ -18,30 +18,34 @@ use bevy::prelude::*;
 use bevy::window::Window;
 
 use crate::resources::{
-    BuildMode, DebugPanelCapture, FRENZY_DURATION, FRENZY_SPEED_MULT, Lang, SkillId, SkillState,
-    SkillTargeting, PROJECTILE_SPEED, SKILL_COOLDOWNS,
+    BuildMode, DebugPanelCapture, FRENZY_DURATION, FRENZY_SPEED_MULT, Lang, SkillBalance,
+    SkillDefs, SkillId, SkillKind, SkillState, SkillTargeting, SkillTargetMode, SkillAiming,
+    PROJECTILE_SPEED, SKILL_COOLDOWNS,
 };
 use crate::states::GameState;
-use crate::components::{AttackType, Enemy, Projectile, ProjectileOrigin};
+use crate::components::{AttackType, Enemy, Projectile, ProjectileOrigin, SkillCaster, SkillSlot};
 use crate::systems::command::{cursor_over_blocking_ui, BlocksWorldInput, ControlZoneRoot};
 use crate::systems::hud::UiFont;
 use crate::systems::l10n;
 
-/// How a skill is aimed (§17.3).
+/// How a phase-1 commander skill is aimed (§17.3). Superseded by the
+/// generic `SkillTargetMode` as of SK5; stays until SK8 migrates the
+/// commander path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkillAiming {
+pub enum CommanderSkillAiming {
     /// Pick a ground point (indicator ring + left-click confirm).
     Point,
     /// No targeting — fires on the keypress.
     Instant,
 }
 
-/// One skill's framework data. `implemented` flips on per skill as SK2-4
-/// land; an unimplemented skill shows greyed and can never cast (SK1 ships
-/// the framework with none implemented yet).
-pub struct SkillDef {
+/// One phase-1 commander skill's framework data (superseded by the generic
+/// `resources::SkillDef` registry as of SK5; this stays until SK8 migrates
+/// the commander path onto the framework). `implemented` flips on per skill
+/// as SK2-4 land; an unimplemented skill shows greyed and can never cast.
+pub struct CommanderSkillDef {
     pub id: SkillId,
-    pub aiming: SkillAiming,
+    pub aiming: CommanderSkillAiming,
     pub implemented: bool,
     pub hotkey: KeyCode,
     pub badge: char,
@@ -51,26 +55,26 @@ pub struct SkillDef {
 
 /// The three skills in button order (Z/X/C, §17.3). Numbers live in
 /// `resources::SKILL_COOLDOWNS` and the l10n tooltip.
-pub const SKILL_DEFS: [SkillDef; 3] = [
-    SkillDef {
+pub const COMMANDER_SKILL_DEFS: [CommanderSkillDef; 3] = [
+    CommanderSkillDef {
         id: SkillId::MeteorRain,
-        aiming: SkillAiming::Point,
+        aiming: CommanderSkillAiming::Point,
         implemented: true, // SK2
         hotkey: KeyCode::KeyZ,
         badge: 'Z',
         indicator_radius: 3.0,
     },
-    SkillDef {
+    CommanderSkillDef {
         id: SkillId::FrostNova,
-        aiming: SkillAiming::Point,
+        aiming: CommanderSkillAiming::Point,
         implemented: true, // SK3
         hotkey: KeyCode::KeyX,
         badge: 'X',
         indicator_radius: 5.0,
     },
-    SkillDef {
+    CommanderSkillDef {
         id: SkillId::WarFrenzy,
-        aiming: SkillAiming::Instant,
+        aiming: CommanderSkillAiming::Instant,
         implemented: true, // SK4
         hotkey: KeyCode::KeyC,
         badge: 'C',
@@ -78,9 +82,12 @@ pub const SKILL_DEFS: [SkillDef; 3] = [
     },
 ];
 
-/// Framework definition of a skill id.
-pub fn skill_def(id: SkillId) -> &'static SkillDef {
-    SKILL_DEFS.iter().find(|d| d.id == id).expect("skill def")
+/// Framework definition of a phase-1 commander skill id.
+pub fn commander_skill_def(id: SkillId) -> &'static CommanderSkillDef {
+    COMMANDER_SKILL_DEFS
+        .iter()
+        .find(|d| d.id == id)
+        .expect("commander skill def")
 }
 
 /// Dispatch one CONFIRMED cast to its effect (the cooldown is started by the
@@ -266,7 +273,7 @@ pub fn skill_hotkeys(
     if panel.keyboard {
         return;
     }
-    for def in SKILL_DEFS.iter() {
+    for def in COMMANDER_SKILL_DEFS.iter() {
         if !keys.just_pressed(def.hotkey) {
             continue;
         }
@@ -285,6 +292,7 @@ pub fn handle_skill_buttons(
     mut q: Query<(&Interaction, &SkillButton), Changed<Interaction>>,
     enemies: Query<(Entity, &Transform), Without<SkillIndicatorRing>>,
     mut targeting: ResMut<SkillTargeting>,
+    mut aiming: ResMut<crate::resources::SkillAiming>,
     mut build: ResMut<BuildMode>,
     mut skills: ResMut<SkillState>,
     mut frenzy: ResMut<crate::resources::WarFrenzy>,
@@ -298,17 +306,18 @@ pub fn handle_skill_buttons(
             continue;
         }
         let skill = btn.skill;
-        let def = skill_def(skill);
+        let def = commander_skill_def(skill);
         if !def.implemented || !skills.ready(skill) {
             continue;
         }
         match def.aiming {
-            SkillAiming::Point => {
+            CommanderSkillAiming::Point => {
                 build.armed = false; // a cast replaces a pending build arm
+                aiming.0 = None; // transitional cross-clear, dies with SK8
                 targeting.0 = Some(skill);
                 info!("[sk] {:?} target picking", skill);
             }
-            SkillAiming::Instant => {
+            CommanderSkillAiming::Instant => {
                 cast_skill(&mut commands, &enemies, &mut frenzy, skill, Vec3::ZERO);
                 skills.start_cooldown(skill);
                 info!("[sk] {:?} instant cast, cd {:.0}s", skill, SKILL_COOLDOWNS[skill.index()]);
@@ -385,7 +394,7 @@ pub fn update_skill_targeting(
             commands.entity(ring).despawn();
         }
         if let Some(skill) = want {
-            let def = skill_def(skill);
+            let def = commander_skill_def(skill);
             let ring = commands
                 .spawn((
                     SkillIndicatorRing,
@@ -472,7 +481,7 @@ pub fn refresh_skill_buttons(
                     ..default()
                 }))
                 .with_children(|row| {
-                    for def in SKILL_DEFS.iter() {
+                    for def in COMMANDER_SKILL_DEFS.iter() {
                         row.spawn((
                             Button,
                             SkillButton { skill: def.id },
@@ -522,7 +531,7 @@ pub fn refresh_skill_buttons(
     }
     // Per-frame: cooldown seconds / enabled look.
     for (eid, btn, children) in buttons.iter() {
-        let def = skill_def(btn.skill);
+        let def = commander_skill_def(btn.skill);
         let remaining = skills.remaining(btn.skill);
         let enabled = def.implemented && remaining <= 0.0;
         if let Ok(mut bg) = backgrounds.get_mut(eid) {
@@ -542,7 +551,7 @@ pub fn refresh_skill_buttons(
         } else {
             (
                 l10n::skill_name(btn.skill, *lang).to_string(),
-                Color::WHITE,
+                Color::srgb(1.0, 1.0, 1.0),
             )
         };
         for child in children {
@@ -553,6 +562,252 @@ pub fn refresh_skill_buttons(
                 if tint.0 != color {
                     tint.0 = color;
                 }
+            }
+        }
+    }
+}
+
+// --- Generic skill framework (phase 2, ADR-0011; card SK5) ------------------------
+//
+// Owner-agnostic lifecycle for per-entity skills: validation, cooldown,
+// point aiming, learning/leveling. Everything here reads `SkillCaster` and
+// the `SkillDefs`/`SkillBalance` tables — never a specific owner type.
+// Concrete skill EFFECTS are separate systems that read `SkillCast` and
+// match on the def id; the framework never knows what a skill does.
+
+/// A request to cast slot `slot` of entity `caster`. Writers: UI buttons and
+/// hotkeys (SK8/SK10), owner-specific autocast triggers (SK9), tests.
+#[derive(Message, Debug)]
+pub struct CastSkill {
+    pub caster: Entity,
+    pub slot: usize,
+}
+
+/// A cast that passed validation AND aiming — the dispatch seam every skill
+/// effect system consumes (ADR-0011: effects are id-dispatched small
+/// systems). The cooldown is already running by the time this is read;
+/// `point` is Some only for Point-target skills.
+#[derive(Message, Debug)]
+pub struct SkillCast {
+    pub caster: Entity,
+    pub def: usize,
+    pub level: u8,
+    pub point: Option<Vec3>,
+}
+
+/// Learn (or re-learn) a skill on a caster at `level` (SK5 API — content
+/// cards SK8/SK9 and tests call it). Pure data, no side effects: starts
+/// ready, autocast toggle OFF. Re-learning keeps the current cooldown.
+pub fn learn_skill(caster: &mut SkillCaster, def: usize, level: u8) {
+    if let Some(slot) = caster.slots.iter_mut().find(|s| s.def == def) {
+        slot.level = level;
+    } else {
+        caster.slots.push(SkillSlot {
+            def,
+            level,
+            cooldown: 0.0,
+            autocast: false,
+        });
+    }
+}
+
+/// Raise a slot one level, clamped at the def's `max_level` (SK5 API — SK9
+/// wires this to tower invest). Returns the (possibly unchanged) level.
+pub fn level_up(defs: &SkillDefs, caster: &mut SkillCaster, slot: usize) -> u8 {
+    let max = defs.get(caster.slots[slot].def).max_level.max(1);
+    let slot = &mut caster.slots[slot];
+    slot.level = (slot.level + 1).min(max);
+    slot.level
+}
+
+/// Validate `CastSkill` requests (SK5). A request passes when the caster
+/// still carries its `SkillCaster`, the slot index is in range, the skill
+/// is not Passive, and its cooldown is ready. A passing request with no
+/// aiming confirms immediately (`SkillCast` + cooldown starts); a Point
+/// skill enters `SkillAiming` instead — the cooldown only starts when the
+/// aim confirms, so a cancelled pick never pays (the SK1 law). `Unit`
+/// targets confirm immediately until unit picking exists.
+pub fn handle_cast_requests(
+    mut requests: MessageReader<CastSkill>,
+    mut casters: Query<&mut SkillCaster>,
+    mut confirmed: MessageWriter<SkillCast>,
+    mut aiming: ResMut<SkillAiming>,
+    mut legacy_targeting: ResMut<SkillTargeting>, // transitional until SK8
+    mut build: ResMut<BuildMode>,
+    defs: Res<SkillDefs>,
+    balance: Res<SkillBalance>,
+) {
+    for req in requests.read() {
+        let Ok(mut caster) = casters.get_mut(req.caster) else {
+            continue; // despawned between request and validation
+        };
+        let Some(slot) = caster.slots.get(req.slot) else {
+            continue;
+        };
+        let (def_id, level, cooldown) = (slot.def, slot.level, slot.cooldown);
+        let def = defs.get(def_id);
+        if cooldown > 0.0 || def.kind == SkillKind::Passive {
+            continue;
+        }
+        // A cast owns the next click: disarm any pending build and the
+        // phase-1 targeting (transitional cross-clear, dies with SK8).
+        build.armed = false;
+        legacy_targeting.0 = None;
+        match def.target {
+            SkillTargetMode::Point => {
+                aiming.0 = Some((req.caster, req.slot));
+                info!("[sk] {} entering point aiming", def.name);
+            }
+            SkillTargetMode::None | SkillTargetMode::Unit => {
+                let cd = balance.cooldown(def_id, level);
+                caster.slots[req.slot].cooldown = cd;
+                confirmed.write(SkillCast {
+                    caster: req.caster,
+                    def: def_id,
+                    level,
+                    point: None,
+                });
+                info!("[sk] {} cast (lv {level}), cd {cd:.0}s", def.name);
+            }
+        }
+    }
+}
+
+/// Point-aim picking for the generic framework (SK5): while `SkillAiming`
+/// is set, the indicator ring (radius = the def's effect radius) follows
+/// the cursor's ground point; a left click away from the UI confirms the
+/// cast there (`SkillCast` + cooldown starts, aiming clears). Esc /
+/// right-click cancel via `command::cancel_modes` — a cancel never pays.
+/// Runs before `select_object` (the confirming click must not also
+/// re-select) and before `handle_cast_requests` (the click that started
+/// the cast cannot confirm itself one frame early) — same ordering
+/// contract as the phase-1 `update_skill_targeting`.
+#[allow(clippy::too_many_arguments)]
+pub fn update_aim_picking(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+    blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
+    panel: Res<DebugPanelCapture>,
+    state: Res<State<GameState>>,
+    defs: Res<SkillDefs>,
+    balance: Res<SkillBalance>,
+    mut aiming: ResMut<SkillAiming>,
+    mut casters: Query<&mut SkillCaster>,
+    mut confirmed: MessageWriter<SkillCast>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    // Without<Enemy> keeps the ring Transform write disjoint from enemy
+    // reads elsewhere in the frame (B0001; a ring is never an enemy).
+    mut rings: Query<
+        (Entity, &mut Transform, &mut Visibility),
+        (With<SkillIndicatorRing>, Without<Enemy>),
+    >,
+    mut cache: Local<Option<(usize, Entity)>>, // (aimed def, ring entity)
+) {
+    // Resolve the aimed slot; None while not aiming, paused, or the caster
+    // (or its slot) vanished mid-aim.
+    let aimed = if *state.get() == GameState::Playing {
+        aiming
+            .0
+            .filter(|(caster, slot)| {
+                casters
+                    .get(*caster)
+                    .is_ok_and(|c| c.slots.get(*slot).is_some())
+            })
+            .map(|(caster, slot)| {
+                let c = casters.get(caster).expect("checked above");
+                let s = c.slots.get(slot).expect("checked above");
+                (caster, slot, s.def, s.level)
+            })
+    } else {
+        None
+    };
+    // Ring lifecycle: one ring while aiming, none otherwise; respawn when
+    // the aimed def (radius) changes.
+    let aimed_def = aimed.map(|(_, _, def, _)| def);
+    if cache.map_or(true, |(d, _)| Some(d) != aimed_def) {
+        if let Some((_, ring)) = *cache {
+            commands.entity(ring).despawn();
+        }
+        if let Some(def) = aimed_def {
+            let d = defs.get(def);
+            let ring = commands
+                .spawn((
+                    SkillIndicatorRing,
+                    Mesh3d(meshes.add(Circle::new(d.indicator_radius))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(0.95, 0.85, 0.3, 0.4),
+                        unlit: true,
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Visibility::Hidden,
+                    Transform::from_translation(Vec3::ZERO)
+                        .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+                ))
+                .id();
+            *cache = Some((def, ring));
+        } else {
+            *cache = None;
+        }
+    }
+    let Some((caster_e, slot_idx, def_id, level)) = aimed else {
+        // A pick whose caster despawned is dropped (nothing left to charge);
+        // a paused game keeps the pick — only the ring hides (phase-1 shape).
+        if *state.get() == GameState::Playing && aiming.0.is_some() {
+            aiming.0 = None;
+        }
+        return;
+    };
+    // Follow the cursor's ground point.
+    let ground = cursor_ground_point(&windows, &camera);
+    if let Some((_, ring)) = *cache {
+        if let Ok((_, mut tf, mut vis)) = rings.get_mut(ring) {
+            match ground {
+                Some(p) => {
+                    tf.translation = Vec3::new(p.x, 0.09, p.z);
+                    *vis = Visibility::Visible;
+                }
+                None => *vis = Visibility::Hidden,
+            }
+        }
+    }
+    // Left click (away from the UI) confirms the cast at the ground point.
+    if buttons.just_pressed(MouseButton::Left) && !cursor_over_blocking_ui(&blocking, &panel) {
+        if let Some(point) = ground {
+            let cd = balance.cooldown(def_id, level);
+            if let Ok(mut caster) = casters.get_mut(caster_e) {
+                if let Some(slot) = caster.slots.get_mut(slot_idx) {
+                    slot.cooldown = cd;
+                }
+            }
+            confirmed.write(SkillCast {
+                caster: caster_e,
+                def: def_id,
+                level,
+                point: Some(point),
+            });
+            aiming.0 = None;
+            info!(
+                "[sk] {} cast at ({:.1}, {:.1}), cd {cd:.0}s",
+                defs.get(def_id).name,
+                point.x,
+                point.z
+            );
+        }
+    }
+}
+
+/// Tick every caster slot's cooldown down with virtual game time (SK5 —
+/// the SK1 cooldown law, per entity: flows in both wave phases, never
+/// resets across waves, frozen on pause via the Playing gate).
+pub fn tick_caster_cooldowns(time: Res<Time>, mut casters: Query<&mut SkillCaster>) {
+    for mut caster in &mut casters {
+        for slot in caster.slots.iter_mut() {
+            if slot.cooldown > 0.0 {
+                slot.cooldown = (slot.cooldown - time.delta_secs()).max(0.0);
             }
         }
     }

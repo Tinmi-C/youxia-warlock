@@ -651,3 +651,82 @@ impl Default for WarFrenzy {
 /// SK4 starting values (§17.2; tune via §14).
 pub const FRENZY_SPEED_MULT: f32 = 1.5;
 pub const FRENZY_DURATION: f32 = 3.0;
+
+// --- Skill framework (phase 2, ADR-0011; cards SK5+) ------------------------------
+
+/// How a skill is used — the WC3 taxonomy (ADR-0011).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillKind {
+    /// Always on once learned; contributes stat modifiers, never casts.
+    Passive,
+    /// Cast on demand (button/hotkey), purely cooldown-gated (§17.1).
+    Active,
+    /// An Active that may also fire on its own when the owner's domain
+    /// logic says so — e.g. the tower autocast system writes `CastSkill`
+    /// when the tower has a target (SK9). The framework treats it exactly
+    /// like Active; the auto-trigger lives with the owner.
+    Autocast,
+}
+
+/// What the caster must aim before the cast resolves (ADR-0011). `Unit` is
+/// reserved for future unit-targeted skills; no def routes through it yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillTargetMode {
+    /// Fires as soon as the cast request validates — no aiming.
+    None,
+    /// A ground point: indicator ring + left-click confirm, Esc/right-click
+    /// cancel (the SK1 point-skill interaction shape).
+    Point,
+    /// A specific entity target (reserved).
+    Unit,
+}
+
+/// Framework metadata for one skill (ADR-0011). Structure only — every
+/// NUMBER lives in [`SkillBalance`] (ADR-0008: data in code, single source).
+/// `name` is the stable code id used for lookups and log lines.
+pub struct SkillDef {
+    pub name: &'static str,
+    pub kind: SkillKind,
+    pub target: SkillTargetMode,
+    pub max_level: u8,
+    pub badge: char,
+    /// Indicator ring radius for Point skills (the skill's effect radius).
+    pub indicator_radius: f32,
+}
+
+/// Registry of every skill definition, indexed by the `def` field of
+/// [`crate::components::SkillSlot`] — the TowerDefs pattern generalized to
+/// skills. Production rows land with their content cards (SK8 commander,
+/// SK9 archer); tests may push their own rows.
+#[derive(Resource, Default)]
+pub struct SkillDefs(pub Vec<SkillDef>);
+
+impl SkillDefs {
+    pub fn get(&self, def: usize) -> &SkillDef {
+        self.0.get(def).expect("skill def index in range")
+    }
+}
+
+/// Single-source skill numbers (ADR-0011; SK11 gathers the remaining
+/// scattered skill consts into it). Rows parallel `SkillDefs`; each holds
+/// per-level values (index level-1; levels beyond the array clamp to the
+/// last entry — a max_level-1 skill simply has a one-element slice).
+#[derive(Resource, Default)]
+pub struct SkillBalance {
+    /// Full cast cooldown per (def, level).
+    pub cooldowns: Vec<Vec<f32>>,
+}
+
+impl SkillBalance {
+    pub fn cooldown(&self, def: usize, level: u8) -> f32 {
+        let per_level = self.cooldowns.get(def).expect("skill balance row");
+        per_level[(level.saturating_sub(1) as usize).min(per_level.len() - 1)]
+    }
+}
+
+/// Point-target picking active for a caster's slot (SK5 generic targeting).
+/// The phase-1 `SkillTargeting` stays for the commander path until SK8
+/// migrates it onto the framework; entering one clears the other so the
+/// world click always has a single owner.
+#[derive(Resource, Debug, Default)]
+pub struct SkillAiming(pub Option<(Entity, usize)>);

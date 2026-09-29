@@ -270,3 +270,29 @@ pub struct WiredAnim {
     pub graph: Handle<AnimationGraph>,
     pub node: AnimationNodeIndex,
 }
+
+// --- Skill framework (phase 2, ADR-0011; card SK5) --------------------------------
+
+/// One owned skill instance (ADR-0011). `def` indexes the `SkillDefs`
+/// registry; every NUMBER comes from `SkillBalance` by (def, level).
+#[derive(Debug, Clone)]
+pub struct SkillSlot {
+    pub def: usize,
+    /// 1..=def.max_level (clamped by `systems::skills::level_up`).
+    pub level: u8,
+    /// Seconds until the slot can cast again (<= 0 = ready). Ticks with
+    /// virtual game time under the SK1 cooldown law: flows in both wave
+    /// phases, never resets across waves, frozen on pause.
+    pub cooldown: f32,
+    /// Autocast toggle; only meaningful on a `SkillKind::Autocast` slot.
+    pub autocast: bool,
+}
+
+/// An entity that owns skills (ADR-0011): a tower, the commander singleton,
+/// any future character. Framework systems only ever read this component —
+/// they never query a specific owner type (that is what makes the framework
+/// generic; owner-specific trigger logic lives in the owner's own systems).
+#[derive(Component, Debug)]
+pub struct SkillCaster {
+    pub slots: Vec<SkillSlot>,
+}

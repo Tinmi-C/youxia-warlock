@@ -5647,3 +5647,301 @@ mod range_tests {
         assert_eq!(towers.iter(app.world()).count(), 1, "attacker respawned");
     }
 }
+
+// --- SK5: generic skill framework (ADR-0011) --------------------------------------
+
+mod skills_core {
+    use super::*;
+    use bevy::ecs::message::MessageCursor;
+    use warden::components::{SkillCaster, SkillSlot};
+    use warden::resources::{
+        SkillAiming, SkillBalance, SkillDef, SkillDefs, SkillKind, SkillTargetMode,
+    };
+    use warden::systems::skills::{learn_skill, level_up, CastSkill, SkillCast};
+
+    /// Test defs: a None-target active (slot 0), a Point-target active
+    /// (slot 1) and a passive (slot 2) — the shapes the framework must tell
+    /// apart. Production rows land with SK8/SK9; the framework is content-free.
+    fn register_test_defs(app: &mut App) {
+        {
+            let mut defs = app.world_mut().resource_mut::<SkillDefs>();
+            defs.0 = vec![
+                SkillDef {
+                    name: "burst",
+                    kind: SkillKind::Active,
+                    target: SkillTargetMode::None,
+                    max_level: 3,
+                    badge: 'B',
+                    indicator_radius: 0.0,
+                },
+                SkillDef {
+                    name: "aimed",
+                    kind: SkillKind::Active,
+                    target: SkillTargetMode::Point,
+                    max_level: 1,
+                    badge: 'A',
+                    indicator_radius: 4.0,
+                },
+                SkillDef {
+                    name: "instinct",
+                    kind: SkillKind::Passive,
+                    target: SkillTargetMode::None,
+                    max_level: 3,
+                    badge: 'P',
+                    indicator_radius: 0.0,
+                },
+            ];
+        }
+        app.world_mut()
+            .resource_mut::<SkillBalance>()
+            .cooldowns = vec![vec![10.0, 12.0, 14.0], vec![20.0], vec![0.0, 0.0, 0.0]];
+    }
+
+    /// A bare caster entity — no Tower, no other component: the framework
+    /// must not care who owns the skills.
+    fn spawn_caster(app: &mut App) -> Entity {
+        let mut caster = SkillCaster { slots: vec![] };
+        learn_skill(&mut caster, 0, 1);
+        learn_skill(&mut caster, 1, 1);
+        learn_skill(&mut caster, 2, 1);
+        app.world_mut().spawn(caster).id()
+    }
+
+    fn request_cast(app: &mut App, caster: Entity, slot: usize) {
+        app.world_mut()
+            .resource_mut::<Messages<CastSkill>>()
+            .write(CastSkill { caster, slot });
+    }
+
+    /// Messages are double-buffered: `len()` flips with the buffer, so count
+    /// via a cursor delta instead (the KB pitfall note on message asserts).
+    fn new_casts(app: &mut App, cursor: &mut MessageCursor<SkillCast>) -> usize {
+        let messages = app.world().resource::<Messages<SkillCast>>();
+        cursor.read(messages).count()
+    }
+
+    /// SK5 acceptance: a confirmed None-target cast starts the slot cooldown
+    /// (from SkillBalance by def+level), and it ticks down with virtual time
+    /// exactly like the phase-1 law — freezing on pause, resuming after.
+    #[test]
+    fn slot_cooldown_ticks_with_time_and_freezes_on_pause() {
+        let mut app = test_app();
+        register_test_defs(&mut app);
+        let caster = spawn_caster(&mut app);
+        app.update();
+        let mut casts = MessageCursor::<SkillCast>::default();
+        request_cast(&mut app, caster, 0);
+        app.update(); // the request validates and confirms in this frame
+        assert_eq!(new_casts(&mut app, &mut casts), 1, "one confirmed cast");
+        let started = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        assert!(
+            (started - 10.0 + 1.0 / 60.0).abs() < 1e-3,
+            "cooldown starts at the SkillBalance value ({started})"
+        );
+        for _ in 0..60 {
+            app.update(); // 1s of game time
+        }
+        let after_1s = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        assert!(
+            (after_1s - 9.0).abs() < 0.05,
+            "1s later the CD must be ~9s (got {after_1s})"
+        );
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Paused);
+        app.update(); // applies the transition
+        let frozen = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        for _ in 0..120 {
+            app.update();
+        }
+        let after_pause = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        assert!(
+            (after_pause - frozen).abs() < 1e-6,
+            "paused game must freeze the cooldown (got {after_pause})"
+        );
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        app.update();
+        app.update();
+        let resumed = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        assert!(resumed < after_pause, "resuming ticks the cooldown again");
+    }
+
+    /// SK5 acceptance: a slot on cooldown rejects cast requests (no new
+    /// SkillCast, no cooldown restart) and never enters aiming.
+    #[test]
+    fn cooldown_gate_rejects_cast_requests() {
+        let mut app = test_app();
+        register_test_defs(&mut app);
+        let caster = spawn_caster(&mut app);
+        app.update();
+        let mut casts = MessageCursor::<SkillCast>::default();
+        request_cast(&mut app, caster, 0);
+        app.update();
+        assert_eq!(new_casts(&mut app, &mut casts), 1);
+        let cd = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        for _ in 0..30 {
+            app.update(); // let some time pass so a restart would be visible
+        }
+        let before = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        assert!(before < cd, "time passed");
+        request_cast(&mut app, caster, 0);
+        app.update();
+        app.update();
+        assert_eq!(
+            new_casts(&mut app, &mut casts),
+            0,
+            "no second cast while cooling down"
+        );
+        let after = app.world().get::<SkillCaster>(caster).unwrap().slots[0].cooldown;
+        assert!(
+            after <= before,
+            "a rejected request must not restart the cooldown ({before} -> {after})"
+        );
+        assert_eq!(
+            app.world().resource::<SkillAiming>().0,
+            None,
+            "no aiming from a rejected request"
+        );
+    }
+
+    /// SK5 acceptance: a Point-target skill enters aiming without paying;
+    /// Esc cancels through the unified cancel and still pays nothing.
+    #[test]
+    fn point_skill_aims_and_esc_cancels_without_paying() {
+        let mut app = test_app();
+        register_test_defs(&mut app);
+        let caster = spawn_caster(&mut app);
+        app.update();
+        let mut casts = MessageCursor::<SkillCast>::default();
+        request_cast(&mut app, caster, 1);
+        app.update();
+        assert_eq!(
+            app.world().resource::<SkillAiming>().0,
+            Some((caster, 1)),
+            "a Point skill enters aiming"
+        );
+        assert!(
+            app.world().get::<SkillCaster>(caster).unwrap().slots[1].cooldown <= 0.0,
+            "aiming does not start the cooldown"
+        );
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            keys.release(KeyCode::Escape);
+        }
+        assert_eq!(app.world().resource::<SkillAiming>().0, None, "Esc cancels");
+        assert!(
+            app.world().get::<SkillCaster>(caster).unwrap().slots[1].cooldown <= 0.0,
+            "a cancelled pick never pays"
+        );
+        assert_eq!(new_casts(&mut app, &mut casts), 0, "no cast happened");
+    }
+
+    /// SK5 acceptance: the real player path — cursor over a world point,
+    /// left click — confirms the aim, emits SkillCast with that point and
+    /// starts the cooldown.
+    #[test]
+    fn point_skill_confirms_at_cursor_ground_point() {
+        let mut app = test_app();
+        register_test_defs(&mut app);
+        let caster = spawn_caster(&mut app);
+        app.update();
+        app.update();
+        let mut casts = MessageCursor::<SkillCast>::default();
+        request_cast(&mut app, caster, 1);
+        app.update();
+        assert!(app.world().resource::<SkillAiming>().0.is_some());
+        // Cursor over the world origin, then confirm with a left click
+        // (same headless window emulation as the phase-1 meteor tests).
+        enable_world_picking(&mut app, Vec2::new(640.0, 360.0));
+        let point = Vec3::new(0.0, 0.0, 0.0);
+        let cursor = {
+            let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+            let (cam, tf) = cams.single(app.world()).expect("one camera");
+            cam.world_to_viewport(tf, point).expect("point projects")
+        };
+        {
+            let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+            for mut w in q.iter_mut(app.world_mut()) {
+                w.set_cursor_position(Some(cursor));
+            }
+        }
+        click_left(&mut app);
+        app.update();
+        assert_eq!(app.world().resource::<SkillAiming>().0, None, "confirm clears aiming");
+        assert_eq!(new_casts(&mut app, &mut casts), 1, "the cast confirmed");
+        let cd = app.world().get::<SkillCaster>(caster).unwrap().slots[1].cooldown;
+        assert!(cd > 19.9, "confirm starts the cooldown (got {cd})");
+    }
+
+    /// SK5 acceptance: Passive slots never cast; requests for despawned
+    /// casters or out-of-range slots are dropped silently.
+    #[test]
+    fn passive_slots_and_stale_requests_never_cast() {
+        let mut app = test_app();
+        register_test_defs(&mut app);
+        let caster = spawn_caster(&mut app);
+        app.update();
+        let mut casts = MessageCursor::<SkillCast>::default();
+        request_cast(&mut app, caster, 2); // passive
+        request_cast(&mut app, Entity::PLACEHOLDER, 0); // despawned caster
+        request_cast(&mut app, caster, 9); // out-of-range slot
+        app.update();
+        app.update();
+        assert_eq!(new_casts(&mut app, &mut casts), 0, "nothing validated");
+        assert!(
+            app.world().get::<SkillCaster>(caster).unwrap().slots[2].cooldown <= 0.0,
+            "a passive slot never enters cooldown"
+        );
+    }
+
+    /// SK5 acceptance: level_up raises one level at a time and clamps at the
+    /// def's max_level; re-learning an owned skill refreshes only the level.
+    #[test]
+    fn level_up_clamps_at_max_level() {
+        let defs = SkillDefs(vec![SkillDef {
+            name: "x",
+            kind: SkillKind::Active,
+            target: SkillTargetMode::None,
+            max_level: 3,
+            badge: 'X',
+            indicator_radius: 0.0,
+        }]);
+        let mut caster = SkillCaster { slots: vec![] };
+        learn_skill(&mut caster, 0, 1);
+        assert_eq!(level_up(&defs, &mut caster, 0), 2);
+        assert_eq!(level_up(&defs, &mut caster, 0), 3);
+        assert_eq!(level_up(&defs, &mut caster, 0), 3, "clamped at max_level");
+        // Re-learn keeps one slot and only refreshes the level.
+        learn_skill(&mut caster, 0, 1);
+        assert_eq!(caster.slots.len(), 1);
+        assert_eq!(caster.slots[0].level, 1);
+    }
+
+    /// SK5: a caster that despawns mid-aim drops the pick (nothing left to
+    /// charge) — the aiming resource self-heals instead of sticking.
+    #[test]
+    fn despawned_caster_drops_the_aim() {
+        let mut app = test_app();
+        register_test_defs(&mut app);
+        let caster = spawn_caster(&mut app);
+        app.update();
+        request_cast(&mut app, caster, 1);
+        app.update();
+        assert!(app.world().resource::<SkillAiming>().0.is_some());
+        app.world_mut().despawn(caster);
+        app.update();
+        app.update(); // Input sees the missing caster within two frames
+        assert_eq!(
+            app.world().resource::<SkillAiming>().0,
+            None,
+            "aiming self-heals when the caster is gone"
+        );
+    }
+}

@@ -935,7 +935,7 @@
 > 实施顺序：**SK5 框架 → SK6 属性 → SK7 伤害 → SK8 指挥官迁移 → SK9 弓箭手技能组 → SK10 指令卡 UI → SK11 数值表**；
 > SK1–SK4 原验收句全部保留作迁移回归护栏。数值一律进 SkillBalance 单源表（SK11 收编一期散落常量；循 ADR-0008 留代码内）。
 
-### SK5 · 框架核心：SkillCaster 生命周期（skills）—— ▶ 待实现
+### SK5 · 框架核心：SkillCaster 生命周期（skills）—— ✅ 已实现（2026-09-29）
 - 接口: 新组件 `SkillCaster { slots: Vec<SkillSlot> }`（挂任意实体：塔/指挥官/未来角色）；`SkillSlot { def, level,
   cooldown, autocast }`（def=`SkillDefs` 注册表索引）；新资源 `SkillDefs`（`SkillDef { name, kind: Passive|Active|
   Autocast, targeting: None|Point|Unit, max_level, badge }`，结构元数据不含数值）；新消息 `CastSkill { caster, slot }`；
@@ -945,6 +945,18 @@
   封顶 max_level）。框架系统**不感知 owner 类型**（不 query Tower）。
 - 验收句: headless 下挂 SkillCaster 的裸实体（无 Tower）冷却随帧递减、暂停冻结；CD 未好时 CastSkill 被拒且不进
   目标模式；Point 技能进入目标模式、Esc 取消不进 CD；level_up 越过 max_level 被钳制；Passive 槽位不可施放。
+- 实现: `components.rs` SkillCaster/SkillSlot；`resources.rs` SkillKind/SkillTargetMode/SkillDef/SkillDefs 注册表 +
+  SkillBalance 单源表骨架（本期只有 cooldowns: Vec<Vec<f32>>，SK11 收编全部散落数值）+ SkillAiming 资源；
+  `systems/skills.rs` 新增 CastSkill（请求消息）/SkillCast（确认消息=效果分发缝）、`handle_cast_requests`（Input，
+  校验+Point 进瞄准+None 即确认并起 CD）、`update_aim_picking`（泛化指示圈/确认/取消，沿用一期排序契约：
+  before select_object + before 按钮/请求处理器）、`tick_caster_cooldowns`（Simulate）、`learn_skill`/`level_up`
+  纯数据 API。**改名**：一期 `SkillDef/SKILL_DEFS/skill_def` → `CommanderSkillDef/COMMANDER_SKILL_DEFS/
+  commander_skill_def`、一期瞄准枚举 `SkillAiming` → `CommanderSkillAiming`（为新框架让名，SK8 删旧路径）；
+  过渡互斥：新请求清旧 SkillTargeting、旧按钮清新 SkillAiming、cancel_modes/select_object 同步认两者（SK8 全删）。
+  `skills_core::*` 7 断言（冷却 tick+暂停冻结 / CD 门拒+不重启 / Point 进瞄准+Esc 免费取消+0 cast / 真实点击路径
+  确认+起 CD / Passive+死实体+越界槽全拒 / level_up 封顶+re-learn 幂等 / 施法者消失瞄准自愈）。
+  **踩坑**：消息断言用 `Messages::len()` 会在双缓冲翻转后归零——改用 `MessageCursor::default()` 增量读取
+  （`bevy::ecs::message::MessageCursor`，不在 prelude）；与知识库 messages 坑笔记互证。
 
 ### SK6 · 属性修改管线：StatMods → EffectiveStats（skills/towers）—— ▶ 待实现（依赖 SK5）
 - 接口: 新组件 `StatMods(Vec<StatMod>)` 与 `EffectiveStats { damage, attack_speed, range, crit_chance,
