@@ -165,29 +165,49 @@ pub fn skill_name(kind: crate::resources::SkillId, lang: Lang) -> &'static str {
     )
 }
 
-/// Tooltip body: effect numbers + cooldown (§17.2 starting values).
-pub fn skill_tooltip(lang: Lang, kind: crate::resources::SkillId, cd_secs: f32) -> String {
+/// Tooltip body: effect numbers + cooldown — every number from the
+/// SkillBalance single source (SK11).
+pub fn skill_tooltip(
+    lang: Lang,
+    kind: crate::resources::SkillId,
+    balance: &crate::resources::SkillBalance,
+) -> String {
     use crate::resources::SkillId;
+    use crate::systems::skills::{SKILL_FROST_NOVA, SKILL_METEOR_RAIN, SKILL_WAR_FRENZY};
+    let def = kind.index();
+    let cd = balance.cooldown(def, 1);
     let effect = match kind {
-        SkillId::MeteorRain => pick2(
-            "3 发流星依次落下，每发对半径 3 内造成 40 魔法伤害（穿物理护甲）",
-            "3 meteors fall in sequence, each deals 40 magic damage in radius 3 (ignores armor)",
-            lang,
-        ),
-        SkillId::FrostNova => pick2(
-            "点半径 5 内敌人减速 50%，持续 2 秒（与塔减速同存取更强者）",
-            "Slows enemies within radius 5 by 50% for 2s (strongest slow wins)",
-            lang,
-        ),
-        SkillId::WarFrenzy => pick2(
-            "3 秒内全场塔攻速 +50%（含持续中新建的塔）",
-            "All towers gain +50% attack speed for 3s (towers built mid-frenzy too)",
-            lang,
-        ),
+        SkillId::MeteorRain => {
+            let (count, dmg, radius) = (
+                balance.meteor_count(SKILL_METEOR_RAIN, 1),
+                balance.meteor_damage(SKILL_METEOR_RAIN, 1),
+                balance.radius(SKILL_METEOR_RAIN, 1),
+            );
+            match lang {
+                Lang::Zh => format!("{count} 发流星依次落下，每发对半径 {radius:.0} 内造成 {dmg:.0} 魔法伤害（穿物理护甲）"),
+                Lang::En => format!("{count} meteors fall in sequence, each dealing {dmg:.0} magic damage in radius {radius:.0} (ignores armor)"),
+            }
+        }
+        SkillId::FrostNova => {
+            let radius = balance.radius(SKILL_FROST_NOVA, 1);
+            let factor = balance.nova_slow_factor;
+            let duration = balance.nova_slow_duration;
+            match lang {
+                Lang::Zh => format!("点半径 {radius:.0} 内敌人减速 {:.0}%，持续 {duration:.0} 秒（与塔减速同存取更强者）", (1.0 - factor) * 100.0),
+                Lang::En => format!("Slows enemies within radius {radius:.0} by {:.0}% for {duration:.0}s (strongest slow wins)", (1.0 - factor) * 100.0),
+            }
+        }
+        SkillId::WarFrenzy => {
+            let (mult, duration) = (balance.frenzy_speed_mult, balance.frenzy_duration);
+            match lang {
+                Lang::Zh => format!("{duration:.0} 秒内全场塔攻速 +{:.0}%（含持续中新建的塔）", (mult - 1.0) * 100.0),
+                Lang::En => format!("All towers gain +{:.0}% attack speed for {duration:.0}s (towers built mid-frenzy too)", (mult - 1.0) * 100.0),
+            }
+        }
     };
     match lang {
-        Lang::Zh => format!("{effect}\n冷却 {cd_secs:.0} 秒 · 免费施放"),
-        Lang::En => format!("{effect}\nCooldown {cd_secs:.0}s · free to cast"),
+        Lang::Zh => format!("{effect}\n冷却 {cd:.0} 秒 · 免费施放"),
+        Lang::En => format!("{effect}\nCooldown {cd:.0}s · free to cast"),
     }
 }
 

@@ -41,7 +41,6 @@ pub fn archer_skill_defs() -> [SkillDef; 3] {
             max_level: 3,
             badge: 'E',
             hotkey: None, // SK10 assigns the context hotkeys
-            indicator_radius: 0.0,
         },
         SkillDef {
             name: "multishot",
@@ -50,7 +49,6 @@ pub fn archer_skill_defs() -> [SkillDef; 3] {
             max_level: 3,
             badge: 'M',
             hotkey: None,
-            indicator_radius: 0.0,
         },
         SkillDef {
             name: "fire_arrows",
@@ -59,7 +57,6 @@ pub fn archer_skill_defs() -> [SkillDef; 3] {
             max_level: 3,
             badge: 'F',
             hotkey: None,
-            indicator_radius: 0.0,
         },
     ]
 }

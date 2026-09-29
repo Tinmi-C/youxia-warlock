@@ -1594,6 +1594,7 @@ pub fn refresh_tooltip(
     casters: Query<&SkillCaster>,
     defs: Res<TowerDefs>,
     skill_defs: Res<crate::resources::SkillDefs>,
+    balance: Res<SkillBalance>,
     panels: Query<Entity, With<TooltipText>>,
     mut cache: Local<Option<(TooltipSource, Lang)>>,
 ) {
@@ -1626,7 +1627,7 @@ pub fn refresh_tooltip(
                     "{}: {}\n{}",
                     l10n::TT_HOTKEY.pick(*lang),
                     def.badge,
-                    l10n::skill_tooltip(*lang, id, crate::resources::SKILL_COOLDOWNS[id.index()])
+                    l10n::skill_tooltip(*lang, id, &balance)
                 ))
             }
             _ => None,

@@ -595,23 +595,16 @@ impl SkillId {
     }
 }
 
-/// Cooldown seconds per skill (§17.2 starting values; tune via §14). CD is
-/// real-time continuous: it ticks with virtual game time in BOTH phases,
-/// never resets across waves, and starts READY (0 remaining).
-/// Since SK8 the runtime source is `SkillBalance` (built from these rows);
-/// SK11 folds these constants into the table and deletes them.
-pub const SKILL_COOLDOWNS: [f32; 3] = [45.0, 40.0, 60.0];
-
 /// Point-target picking active for a caster's slot (SK5 generic targeting —
 /// the only targeting state since SK8 retired the phase-1 resource).
 #[derive(Resource, Debug, Default)]
 pub struct SkillAiming(pub Option<(Entity, usize)>);
 
 /// SK4 war frenzy: while `remaining > 0`, every tower's fire cooldown is
-/// `1 / (attack_speed × Boosts × FRENZY_SPEED_MULT)`. A GLOBAL timed state —
+/// `1 / (attack_speed × Boosts × frenzy_speed_mult)`. A GLOBAL timed state —
 /// not a per-tower snapshot — so towers placed mid-frenzy benefit too
 /// (requirements §17.2); fused towers read it like everyone (their Boosts
-/// already come from `tower_index`).
+/// already come from `tower_index`). The numbers live in `SkillBalance`.
 #[derive(Resource, Debug)]
 pub struct WarFrenzy {
     pub remaining: f32,
@@ -622,10 +615,6 @@ impl Default for WarFrenzy {
         Self { remaining: 0.0 }
     }
 }
-
-/// SK4 starting values (§17.2; tune via §14).
-pub const FRENZY_SPEED_MULT: f32 = 1.5;
-pub const FRENZY_DURATION: f32 = 3.0;
 
 // --- Skill framework (phase 2, ADR-0011; cards SK5+) ------------------------------
 
@@ -668,8 +657,6 @@ pub struct SkillDef {
     /// Global hotkey, if any (the commander's Z/X/C). Tower-skill hotkeys
     /// arrive with SK10 as selection-scoped keys.
     pub hotkey: Option<KeyCode>,
-    /// Indicator ring radius for Point skills (the skill's effect radius).
-    pub indicator_radius: f32,
 }
 
 /// Registry of every skill definition, indexed by the `def` field of
@@ -685,15 +672,18 @@ impl SkillDefs {
     }
 }
 
-/// Single-source skill numbers (ADR-0011; SK11 gathers the remaining
-/// scattered skill consts into it). Rows parallel `SkillDefs`; each holds
+/// Single-source skill numbers (ADR-0011; SK11 gathered every scattered
+/// skill constant into it — tune here and nowhere else, loop B of the
+/// skill-design workflow). Per-skill rows parallel `SkillDefs`; each holds
 /// per-level values (index level-1; levels beyond the array clamp to the
-/// last entry — a max_level-1 skill simply has a one-element slice).
-/// Missing rows/cells read as 0.0 (commander rows have no crit entries).
+/// last entry). Missing rows/cells read as 0.0 (commander rows have no
+/// crit entries).
 #[derive(Resource, Default)]
 pub struct SkillBalance {
     /// Full cast cooldown per (def, level).
     pub cooldowns: Vec<Vec<f32>>,
+    /// Point-skill effect radius (also the aiming indicator's radius).
+    pub radius: Vec<Vec<f32>>,
     /// 鹰眼: crit chance bonus (0..1).
     pub crit_chance: Vec<Vec<f32>>,
     /// 鹰眼: additive crit-multiplier bonus (base multiplier is 2.0).
@@ -704,6 +694,20 @@ pub struct SkillBalance {
     pub fire_arrow_bonus: Vec<Vec<f32>>,
     /// 火焰箭: buff duration in seconds.
     pub fire_arrow_duration: Vec<Vec<f32>>,
+    /// 流星火雨: meteors per cast.
+    pub meteor_count: Vec<Vec<f32>>,
+    /// 流星火雨: seconds between drops.
+    pub meteor_interval: Vec<Vec<f32>>,
+    /// 流星火雨: damage per meteor.
+    pub meteor_damage: Vec<Vec<f32>>,
+    /// 冰霜新星: slow factor (the shared merge path takes the strongest).
+    pub nova_slow_factor: f32,
+    /// 冰霜新星: slow duration in seconds.
+    pub nova_slow_duration: f32,
+    /// 战意狂暴: global attack-speed multiplier while active.
+    pub frenzy_speed_mult: f32,
+    /// 战意狂暴: duration in seconds.
+    pub frenzy_duration: f32,
     /// SK10 paid kit upgrade: cost by the kit's CURRENT (min) level.
     pub upgrade_costs: Vec<f32>,
 }
@@ -745,6 +749,22 @@ impl SkillBalance {
 
     pub fn fire_arrow_duration(&self, def: usize, level: u8) -> f32 {
         Self::level_value(&self.fire_arrow_duration, def, level)
+    }
+
+    pub fn radius(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.radius, def, level)
+    }
+
+    pub fn meteor_count(&self, def: usize, level: u8) -> u32 {
+        Self::level_value(&self.meteor_count, def, level) as u32
+    }
+
+    pub fn meteor_interval(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.meteor_interval, def, level)
+    }
+
+    pub fn meteor_damage(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.meteor_damage, def, level)
     }
 
     /// SK10: cost to raise a kit at `min_level` one level (clamped to the

@@ -1880,6 +1880,50 @@ fn set_commander_cooldown(app: &mut App, slot: usize, cd: f32) {
         .cooldown = cd;
 }
 
+/// SkillBalance reads (SK11: the single source — tests never hardcode
+/// skill numbers).
+fn cd_secs(app: &App, def: usize) -> f32 {
+    app.world()
+        .resource::<warden::resources::SkillBalance>()
+        .cooldown(def, 1)
+}
+
+fn nova_radius(app: &App) -> f32 {
+    app.world()
+        .resource::<warden::resources::SkillBalance>()
+        .radius(1, 1)
+}
+
+fn nova_factor(app: &App) -> f32 {
+    app.world()
+        .resource::<warden::resources::SkillBalance>()
+        .nova_slow_factor
+}
+
+fn nova_duration(app: &App) -> f32 {
+    app.world()
+        .resource::<warden::resources::SkillBalance>()
+        .nova_slow_duration
+}
+
+fn frenzy_mult(app: &App) -> f32 {
+    app.world()
+        .resource::<warden::resources::SkillBalance>()
+        .frenzy_speed_mult
+}
+
+fn frenzy_dur(app: &App) -> f32 {
+    app.world()
+        .resource::<warden::resources::SkillBalance>()
+        .frenzy_duration
+}
+
+fn meteor_n(app: &App) -> usize {
+    app.world()
+        .resource::<warden::resources::SkillBalance>()
+        .meteor_count(0, 1) as usize
+}
+
 /// Regression (UI11 entry step): pressing the Fuse button with the cursor on
 /// the bar must enter fusion picking — the same physical click must not also
 /// blank-cancel the selection behind the bar.
@@ -3515,7 +3559,7 @@ mod debug_db3 {
 
 mod skills_sk1 {
     use super::*;
-    use warden::resources::{SkillAiming, SKILL_COOLDOWNS};
+    use warden::resources::SkillAiming;
     use warden::systems::skills::{SkillButton, SkillsRow};
 
     fn count_skill_buttons(app: &mut App) -> usize {
@@ -3548,8 +3592,9 @@ mod skills_sk1 {
     fn skill_cooldown_ticks_with_time_and_freezes_on_pause() {
         let mut app = test_app();
         app.update();
-        set_commander_cooldown(&mut app, 0, SKILL_COOLDOWNS[0]);
-        assert_eq!(commander_cooldowns(&mut app)[0], SKILL_COOLDOWNS[0]);
+        let full = cd_secs(&app, 0);
+        set_commander_cooldown(&mut app, 0, full);
+        assert_eq!(commander_cooldowns(&mut app)[0], full);
         for _ in 0..60 {
             app.update(); // 1s of game time
         }
@@ -3586,7 +3631,8 @@ mod skills_sk1 {
     fn skill_cooldown_survives_wave_transition() {
         let mut app = test_app();
         app.update();
-        set_commander_cooldown(&mut app, 1, SKILL_COOLDOWNS[1]);
+        let full = cd_secs(&app, 1);
+        set_commander_cooldown(&mut app, 1, full);
         {
             let mut ws = app.world_mut().resource_mut::<WaveState>();
             ws.current = 0;
@@ -3601,7 +3647,7 @@ mod skills_sk1 {
         );
         let cd = commander_cooldowns(&mut app)[1];
         assert!(
-            (cd - SKILL_COOLDOWNS[1]).abs() < 0.05,
+            (cd - cd_secs(&app, 1)).abs() < 0.05,
             "wave change must keep the CD running (got {cd})"
         );
     }
@@ -3615,7 +3661,8 @@ mod skills_sk1 {
         app.update();
         app.update();
         for slot in 0..3 {
-            set_commander_cooldown(&mut app, slot, SKILL_COOLDOWNS[slot]);
+            let full = cd_secs(&app, slot);
+            set_commander_cooldown(&mut app, slot, full);
         }
         let before = commander_cooldowns(&mut app);
         for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC] {
@@ -3651,7 +3698,8 @@ mod skills_sk1 {
         let mut app = super::debug_cheats::debug_app();
         app.update();
         for slot in 0..3 {
-            set_commander_cooldown(&mut app, slot, SKILL_COOLDOWNS[slot]);
+            let full = cd_secs(&app, slot);
+            set_commander_cooldown(&mut app, slot, full);
         }
         app.world_mut()
             .resource_mut::<warden::systems::debug::DebugQueue>()
@@ -3675,8 +3723,8 @@ mod skills_sk1 {
 mod skills_sk2 {
     use super::*;
     use warden::components::{Projectile, ProjectileOrigin};
-    use warden::resources::{SkillAiming, SKILL_COOLDOWNS};
-    use warden::systems::skills::{MeteorVolley, METEOR_COUNT};
+    use warden::resources::SkillAiming;
+    use warden::systems::skills::MeteorVolley;
 
     /// A stationary live enemy (speed 0 keeps it exactly in place for
     /// radius/timing assertions).
@@ -3781,7 +3829,7 @@ mod skills_sk2 {
         }
         let cd = commander_cooldowns(&mut app)[0];
         assert!(
-            (SKILL_COOLDOWNS[0] - cd) < 0.1 && cd > SKILL_COOLDOWNS[0] - 0.1,
+            (cd_secs(&app, 0) - cd) < 0.1 && cd > cd_secs(&app, 0) - 0.1,
             "cooldown starts at 45s on confirm (got {cd})"
         );
         // 0.8s in: shots drop at 0/0.3/0.6 and fly ~1s -> all three airborne.
@@ -3790,7 +3838,7 @@ mod skills_sk2 {
         }
         assert_eq!(
             projectiles_alive(&mut app),
-            METEOR_COUNT as usize,
+            meteor_n(&app),
             "three meteors dropped and are in flight"
         );
         // All impacts land by ~1.6s; everything in radius dies (+6 gold each).
@@ -3881,8 +3929,7 @@ mod skills_sk2 {
 mod skills_sk3 {
     use super::*;
     use warden::components::Slow;
-    use warden::resources::{SkillAiming, SKILL_COOLDOWNS};
-    use warden::systems::skills::{NOVA_RADIUS, NOVA_SLOW_DURATION, NOVA_SLOW_FACTOR};
+    use warden::resources::SkillAiming;
     use warden::systems::tower::apply_slow;
 
     /// A live enemy with a real walking speed (slows are observable through
@@ -3972,15 +4019,15 @@ mod skills_sk3 {
         // The cooldown started.
         let cd = commander_cooldowns(&mut app)[1];
         assert!(
-            cd <= SKILL_COOLDOWNS[1] && cd > SKILL_COOLDOWNS[1] - 0.1,
+            cd <= cd_secs(&app, 1) && cd > cd_secs(&app, 1) - 0.1,
             "nova cooldown starts at 40s (got {cd})"
         );
         // Slow component: exactly the nova values on both insiders.
         for &e in &inside {
             let slow = app.world().get::<Slow>(e).expect("slowed");
             assert!(
-                (slow.factor - NOVA_SLOW_FACTOR).abs() < 1e-4
-                    && (slow.timer - NOVA_SLOW_DURATION).abs() < 0.1,
+                (slow.factor - nova_factor(&app)).abs() < 1e-4
+                    && (slow.timer - nova_duration(&app)).abs() < 0.1,
                 "Slow {{0.5, 2s}} applied (got {:?})",
                 (slow.factor, slow.timer)
             );
@@ -4078,8 +4125,8 @@ mod skills_sk3 {
             (slow.timer - 1.0).abs() < 1e-4,
             "the timer refreshes to the new application's duration"
         );
-        // Radius guard: exactly NOVA_RADIUS (XZ) is inside.
-        let _ = NOVA_RADIUS;
+        // Radius guard lives in the balance row (radius def 1).
+        let _ = nova_radius(&app);
     }
 }
 
@@ -4087,9 +4134,7 @@ mod skills_sk3 {
 
 mod skills_sk4 {
     use super::*;
-    use warden::resources::{
-        FRENZY_DURATION, FRENZY_SPEED_MULT, WarFrenzy, SKILL_COOLDOWNS,
-    };
+    use warden::resources::WarFrenzy;
 
     /// A tanky enemy standing in range of the given tower position.
     fn spawn_dummy(app: &mut App, pos: Vec3) -> Entity {
@@ -4184,16 +4229,16 @@ mod skills_sk4 {
 
         cast_frenzy(&mut app);
         assert!(
-            app.world().resource::<WarFrenzy>().remaining > FRENZY_DURATION - 0.1,
+            app.world().resource::<WarFrenzy>().remaining > frenzy_dur(&app) - 0.1,
             "the frenzy is running"
         );
         let cd = commander_cooldowns(&mut app)[2];
         assert!(
-            cd <= SKILL_COOLDOWNS[2] && cd > SKILL_COOLDOWNS[2] - 0.1,
+            cd <= cd_secs(&app, 2) && cd > cd_secs(&app, 2) - 0.1,
             "the cast starts the 60s cooldown (got {cd})"
         );
         let frenzied = fire_and_read_cooldown(&mut app, tower);
-        let want = 1.0 / (1.0 * FRENZY_SPEED_MULT);
+        let want = 1.0 / (1.0 * frenzy_mult(&app));
         assert!(
             (frenzied - want).abs() < 1e-3,
             "frenzy cooldown 1/(1.0x1.5)={want:.3} (got {frenzied:.3})"
@@ -5690,7 +5735,6 @@ mod skills_core {
                     max_level: 3,
                     badge: 'B',
                     hotkey: None,
-                    indicator_radius: 0.0,
                 },
                 SkillDef {
                     name: "aimed",
@@ -5699,7 +5743,6 @@ mod skills_core {
                     max_level: 1,
                     badge: 'A',
                     hotkey: None,
-                    indicator_radius: 4.0,
                 },
                 SkillDef {
                     name: "instinct",
@@ -5708,7 +5751,6 @@ mod skills_core {
                     max_level: 3,
                     badge: 'P',
                     hotkey: None,
-                    indicator_radius: 0.0,
                 },
             ];
         }
@@ -5932,7 +5974,6 @@ mod skills_core {
             max_level: 3,
             badge: 'X',
             hotkey: None,
-            indicator_radius: 0.0,
         }]);
         let mut caster = SkillCaster { slots: vec![] };
         learn_skill(&mut caster, 0, 1);
@@ -5972,7 +6013,7 @@ mod skills_core {
 mod stats_pipeline {
     use super::*;
     use warden::components::{EffectiveStats, ModSource, StatMod, StatMods};
-    use warden::resources::{StatKind, WarFrenzy, FRENZY_SPEED_MULT};
+    use warden::resources::{StatKind, WarFrenzy};
     use warden::systems::stats::{clear_stat_mod, set_stat_mod, BASE_CRIT_MULTIPLIER};
 
     /// An archer-shaped base tower with an empty StatMods bag.
@@ -6163,7 +6204,7 @@ mod stats_pipeline {
         let e = estats(&app, t);
         assert!((e.damage - 12.0).abs() < 1e-4, "Boosts folded");
         assert!(
-            (e.attack_speed - FRENZY_SPEED_MULT).abs() < 1e-4,
+            (e.attack_speed - frenzy_mult(&app)).abs() < 1e-4,
             "frenzy folded on attack speed"
         );
         assert_eq!(e.range, 20.0, "untouched stat stays base");

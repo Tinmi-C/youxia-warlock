@@ -19,9 +19,8 @@ use bevy::prelude::*;
 use bevy::window::Window;
 
 use crate::resources::{
-    BuildMode, DebugPanelCapture, FRENZY_DURATION, FRENZY_SPEED_MULT, Lang, SkillBalance,
-    SkillDef, SkillDefs, SkillId, SkillKind, SkillTargetMode, SkillAiming, WarFrenzy,
-    PROJECTILE_SPEED, SKILL_COOLDOWNS,
+    BuildMode, DebugPanelCapture, Lang, SkillBalance, SkillDef, SkillDefs, SkillId, SkillKind,
+    SkillTargetMode, SkillAiming, WarFrenzy, PROJECTILE_SPEED,
 };
 use crate::states::GameState;
 use crate::components::{
@@ -49,7 +48,6 @@ pub fn production_skill_defs() -> SkillDefs {
             max_level: 1,
             badge: 'Z',
             hotkey: Some(KeyCode::KeyZ),
-            indicator_radius: METEOR_RADIUS,
         },
         SkillDef {
             name: "frost_nova",
@@ -58,7 +56,6 @@ pub fn production_skill_defs() -> SkillDefs {
             max_level: 1,
             badge: 'X',
             hotkey: Some(KeyCode::KeyX),
-            indicator_radius: NOVA_RADIUS,
         },
         SkillDef {
             name: "war_frenzy",
@@ -67,26 +64,34 @@ pub fn production_skill_defs() -> SkillDefs {
             max_level: 1,
             badge: 'C',
             hotkey: Some(KeyCode::KeyC),
-            indicator_radius: 0.0,
         },
     ];
     defs.extend(crate::systems::archer_skills::archer_skill_defs());
     SkillDefs(defs)
 }
 
-/// The production `SkillBalance` rows, parallel to the registry (SK8/9).
-/// The phase-1 cooldown constants move here wholesale with SK11; the SK9
-/// archer starting values (§14 tuning rows) live here and nowhere else.
+/// The production `SkillBalance` rows, parallel to the registry (SK8/9/11).
+/// THE single source of every skill number in the game (SK11 gathered the
+/// last scattered constants here; tune via §14, never inline).
 pub fn production_skill_balance() -> SkillBalance {
     SkillBalance {
         cooldowns: vec![
-            vec![SKILL_COOLDOWNS[0]],
-            vec![SKILL_COOLDOWNS[1]],
-            vec![SKILL_COOLDOWNS[2]],
+            vec![45.0], // meteor rain
+            vec![40.0], // frost nova
+            vec![60.0], // war frenzy
             // The archer kit: a passive never casts; multishot 25s; fire 20s.
             vec![0.0],
             vec![25.0, 25.0, 25.0],
             vec![20.0, 20.0, 20.0],
+        ],
+        // Point-skill effect radii (also the aiming ring's).
+        radius: vec![
+            vec![3.0], // meteor blast
+            vec![5.0], // nova
+            vec![],
+            vec![],
+            vec![],
+            vec![],
         ],
         // 鹰眼 crit rows (registry ids 0-2 are the commander: empty).
         crit_chance: vec![vec![], vec![], vec![], vec![0.10, 0.15, 0.20]],
@@ -96,6 +101,16 @@ pub fn production_skill_balance() -> SkillBalance {
         // 火焰箭: flat damage bonus for its duration.
         fire_arrow_bonus: vec![vec![], vec![], vec![], vec![], vec![], vec![3.0, 5.0, 8.0]],
         fire_arrow_duration: vec![vec![], vec![], vec![], vec![], vec![], vec![8.0, 8.0, 8.0]],
+        // 流星火雨: 3 drops, 0.3s apart, 40 magic each, from 10 units up.
+        meteor_count: vec![vec![3.0], vec![], vec![], vec![], vec![], vec![]],
+        meteor_interval: vec![vec![0.3], vec![], vec![], vec![], vec![], vec![]],
+        meteor_damage: vec![vec![40.0], vec![], vec![], vec![], vec![], vec![]],
+        // 冰霜新星: slow to 50% for 2s.
+        nova_slow_factor: 0.5,
+        nova_slow_duration: 2.0,
+        // 战意狂暴: all towers +50% attack speed for 3s.
+        frenzy_speed_mult: 1.5,
+        frenzy_duration: 3.0,
         // SK10 paid kit upgrade: 30g for 1→2, 60g for 2→3.
         upgrade_costs: vec![30.0, 60.0],
     }
@@ -121,17 +136,10 @@ pub fn tick_war_frenzy(time: Res<Time>, mut frenzy: ResMut<WarFrenzy>) {
     }
 }
 
-// --- SK3: frost nova ---------------------------------------------------------------
-
-/// SK3 starting values (§17.2; tune via §14): slow to 50% for 2s in radius 5.
-pub const NOVA_RADIUS: f32 = 5.0;
-pub const NOVA_SLOW_FACTOR: f32 = 0.5;
-pub const NOVA_SLOW_DURATION: f32 = 2.0;
-
 // --- SK2: meteor rain ------------------------------------------------------------
 
-/// One confirmed meteor-rain cast: a rule-layer scheduler entity dropping the
-/// remaining meteors at `point`, spaced by METEOR_INTERVAL.
+/// One confirmed meteor-rain cast: a rule-layer scheduler entity dropping
+/// the remaining meteors at `point`, spaced by the balance table's interval.
 #[derive(Component)]
 pub struct MeteorVolley {
     pub point: Vec3,
@@ -139,27 +147,26 @@ pub struct MeteorVolley {
     pub timer: f32,
 }
 
-/// SK2 starting values (§17.2; tune via §14).
-pub const METEOR_COUNT: u32 = 3;
-pub const METEOR_INTERVAL: f32 = 0.3;
-pub const METEOR_DAMAGE: f32 = 40.0;
-pub const METEOR_RADIUS: f32 = 3.0;
-/// Meteors spawn this far above the point and fall at PROJECTILE_SPEED
-/// (10 u/s -> ~1s of visible flight before impact).
+/// Presentation-only (循环 C, the future FxStyle table): meteors spawn this
+/// far above the point and fall at PROJECTILE_SPEED — visible flight time,
+/// not a balance number.
 pub const METEOR_FALL_HEIGHT: f32 = 10.0;
 
-/// Release the pending meteor drops (SK2): every METEOR_INTERVAL one rule-layer
-/// projectile launches from above the point, flying straight down to it — the
-/// fixed-point origin seam of `Projectile` (§17.2 发起方=技能). Each impact
-/// resolves 40 MAGIC damage to everything within METEOR_RADIUS (armor per
-/// victim: magic pierces physical armor, §6).
+/// Release the pending meteor drops (SK2): every interval (SkillBalance)
+/// one rule-layer projectile launches from above the point, flying straight
+/// down to it — the fixed-point origin seam of `Projectile` (§17.2
+/// 发起方=技能). Each impact resolves the table's MAGIC damage in its radius
+/// (armor per victim: magic pierces physical armor, §6).
 pub fn release_meteor_shots(
     time: Res<Time>,
+    balance: Res<SkillBalance>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut volleys: Query<(Entity, &mut MeteorVolley)>,
 ) {
+    let def = SKILL_METEOR_RAIN;
+    let total = balance.meteor_count(def, 1);
     for (eid, mut volley) in &mut volleys {
         if volley.shots_left == 0 {
             commands.entity(eid).despawn();
@@ -175,13 +182,13 @@ pub fn release_meteor_shots(
                 origin: ProjectileOrigin::Fixed {
                     point: volley.point,
                 },
-                damage: METEOR_DAMAGE,
+                damage: balance.meteor_damage(def, 1),
                 attack_type: AttackType::Magic,
                 source: crate::systems::damage::DamageSource::CommanderSkill(
                     SkillId::MeteorRain.index(),
                 ),
                 crit: false,
-                aoe_radius: METEOR_RADIUS,
+                aoe_radius: balance.radius(def, 1),
                 slow_factor: 0.0,
                 slow_duration: 0.0,
                 speed: PROJECTILE_SPEED,
@@ -196,11 +203,10 @@ pub fn release_meteor_shots(
             Transform::from_translation(start),
         ));
         volley.shots_left -= 1;
-        volley.timer = METEOR_INTERVAL;
+        volley.timer = balance.meteor_interval(def, 1);
         info!(
-            "[sk] meteor {} of {} away -> ({:.1}, {:.1})",
-            METEOR_COUNT - volley.shots_left,
-            METEOR_COUNT,
+            "[sk] meteor {} of {total} away -> ({:.1}, {:.1})",
+            total - volley.shots_left,
             volley.point.x,
             volley.point.z
         );
@@ -547,6 +553,7 @@ pub fn handle_cast_requests(
 /// not ours (SK9's archer effects system owns those).
 pub fn commander_skill_effects(
     mut casts: MessageReader<SkillCast>,
+    balance: Res<SkillBalance>,
     mut commands: Commands,
     // Without<SkillIndicatorRing> keeps this read disjoint from the aiming
     // ring's Transform writes (B0001; an enemy never carries the marker).
@@ -556,28 +563,29 @@ pub fn commander_skill_effects(
     for cast in casts.read() {
         match cast.def {
             SKILL_METEOR_RAIN => {
-                // SK2: schedule the three-drop volley at the confirmed point.
+                // SK2: schedule the volley at the confirmed point.
                 let point = cast.point.unwrap_or_default();
                 commands.spawn(MeteorVolley {
                     point,
-                    shots_left: METEOR_COUNT,
+                    shots_left: balance.meteor_count(SKILL_METEOR_RAIN, cast.level),
                     timer: 0.0,
                 });
             }
             SKILL_FROST_NOVA => {
-                // SK3: everything within NOVA_RADIUS (XZ distance — ground
-                // effects) takes the nova slow via the shared merge path.
+                // SK3: everything within the nova radius (XZ distance —
+                // ground effects) takes the slow via the shared merge path.
                 let point = cast.point.unwrap_or_default();
+                let radius = balance.radius(SKILL_FROST_NOVA, cast.level);
                 let mut hits = 0u32;
                 for (eid, tf) in enemies.iter() {
                     let dx = tf.translation.x - point.x;
                     let dz = tf.translation.z - point.z;
-                    if dx * dx + dz * dz <= NOVA_RADIUS * NOVA_RADIUS {
+                    if dx * dx + dz * dz <= radius * radius {
                         crate::systems::tower::apply_slow(
                             &mut commands,
                             eid,
-                            NOVA_SLOW_FACTOR,
-                            NOVA_SLOW_DURATION,
+                            balance.nova_slow_factor,
+                            balance.nova_slow_duration,
                         );
                         hits += 1;
                     }
@@ -590,9 +598,10 @@ pub fn commander_skill_effects(
             SKILL_WAR_FRENZY => {
                 // SK4: global timed attack-speed burst; the SK6 aggregator
                 // folds it into every tower's EffectiveStats at fire time.
-                frenzy.remaining = FRENZY_DURATION;
+                frenzy.remaining = balance.frenzy_duration;
                 info!(
-                    "[sk] war frenzy: all towers x{FRENZY_SPEED_MULT} for {FRENZY_DURATION}s"
+                    "[sk] war frenzy: all towers x{:.1} for {:.0}s",
+                    balance.frenzy_speed_mult, balance.frenzy_duration
                 );
             }
             _ => {} // not a commander skill
@@ -658,11 +667,12 @@ pub fn update_aim_picking(
             commands.entity(ring).despawn();
         }
         if let Some(def) = aimed_def {
-            let d = defs.get(def);
+            // The ring shows the skill's effect radius — SkillBalance is the
+            // single source (point skills are level-1 today).
             let ring = commands
                 .spawn((
                     SkillIndicatorRing,
-                    Mesh3d(meshes.add(Circle::new(d.indicator_radius))),
+                    Mesh3d(meshes.add(Circle::new(balance.radius(def, 1)))),
                     MeshMaterial3d(materials.add(StandardMaterial {
                         base_color: Color::srgba(0.95, 0.85, 0.3, 0.4),
                         unlit: true,

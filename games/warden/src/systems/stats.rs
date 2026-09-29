@@ -10,7 +10,7 @@
 use bevy::prelude::*;
 
 use crate::components::{EffectiveStats, ModSource, StatMod, StatMods, Tower};
-use crate::resources::{Boosts, StatKind, WarFrenzy, FRENZY_SPEED_MULT};
+use crate::resources::{Boosts, SkillBalance, StatKind, WarFrenzy};
 
 /// No skill grants crit below this — every tower rolls with these unless a
 /// StatMod raises them (SK9 鹰眼).
@@ -75,12 +75,13 @@ pub fn tick_stat_mods(time: Res<Time>, mut mods: Query<&mut StatMods>) {
 pub fn aggregate_stats(
     boost: Res<Boosts>,
     frenzy: Res<WarFrenzy>,
+    balance: Res<SkillBalance>,
     mut commands: Commands,
     // No Transform/conflict with fire: read Tower, write EffectiveStats.
     mut towers: Query<(Entity, &Tower, Option<&StatMods>, Option<&mut EffectiveStats>)>,
 ) {
     let frenzy_mult = if frenzy.remaining > 0.0 {
-        FRENZY_SPEED_MULT
+        balance.frenzy_speed_mult
     } else {
         1.0
     };
