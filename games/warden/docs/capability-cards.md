@@ -1048,13 +1048,25 @@
   3 箭 3 互异目标+射程外与第 4 近不受击 / 火焰箭 +3→8s 到期→CD 后自动重施 / autocast 关闭零施放 / level_up
   刷新被动数值）。149 全绿。
 
-### SK10 · 指令卡技能槽 UI（ui/command）—— ▶ 待实现（依赖 SK9）
+### SK10 · 指令卡技能槽 UI（ui/command）—— ✅ 已实现（2026-09-29，依赖 SK9）
 - 接口: 选中塔时指令卡预留的两个置灰槽激活为技能格（徽章、等级点、CD 剩余秒数、tooltip 双语）；点击=施法
   （Point 技能复用指示圈流程）；右键=切换自动施放（魔兽式）；热键上下文限定（仅选中该塔时生效），按 §16.9 热键域
   分离分配（候选 D/F，避开 QWER/ASDF/ZXC/Space/P/L），选定后写回 requirements §16。
 - 行为: 未选中/选中非技能单位时热键失效；冷却中点击无效果且显示剩余秒数；autocast 槽右键切换后有可视状态标记；
   语言切换重建后自愈（沿控制区同款范式）。
 - 验收句: headless 断言选中态热键启停、按钮 CD 文本、autocast 切换翻转；视觉与点击走查人工验收（⚠️）。
+- 实现: `CommandAction::{TowerSkill(slot), SkillUpgrade}` 两新动作 + 指令卡选中态改造：带 SkillCaster 的塔把预留格
+  换成「升级技能(E=30/60金) + 多重射击(R) + 火焰箭(A) + 鹰眼 LvN 只读芯片」；无技能塔维持原预留置灰。**热键取舍**：
+  不另开 D/F 新键域，复用既有网格键上下文语义（同 Q=卖出范式，WC3 指令卡形状）——E/R/A/S 仅选中技能塔时生效，
+  requirements §16 已补记。`tower_skill_button` 构建器带 RelativeCursorPosition（真机 ui_focus 维护悬停）+
+  TowerSkillText 标记；`refresh_tower_skill_buttons`（Observe）逐帧刷 CD 秒数/等级/autocast「»」标记（卡片重建
+  只跟 selection/经济键，CD 不触发重建）；`toggle_tower_autocast` 右键切换（cancel_modes 同卡改为**UI 上的右键
+  不取消**——真机根矩形涵盖所有按钮，headless 由测试置标志模拟）。付费升级走 SkillBalance.upgrade_costs
+  （30/60），全套 level_up（鹰眼数值经幂等同步自动刷新），金币变化触发卡片重建刷新升级钮可用态。tooltip 扩
+  TowerSkill/SkillUpgrade 分支（l10n 新增 tower_skill_name/tooltip/SKILL_UPGRADE 双语）。**踩坑**：系统参数
+  元组上限 16——handle_command_buttons 已达顶，Res 四件套捆成 `CardParams` SystemParam（derive 对 mut Query
+  有生命周期坑，可变查询留独立参数）。`skills_ui::*` 4 断言（选中出技能钮 / 按钮施法+CD 文本+升级扣费全升 /
+  右键切 autocast 且不取消选中 / 无选中时 E 键无效）。153 全绿。视觉走查 ⚠️人工待跑。
 
 ### SK11 · SkillBalance 单源表 + BAL 技能贡献读数（skills/balance）—— ▶ 待实现（依赖 SK7）
 - 接口: `resources.rs` 新 `SkillBalance`（按 技能×等级 键控，收编 SKILL_COOLDOWNS/NOVA_*/METEOR_*/FRENZY_* 与

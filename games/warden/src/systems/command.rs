@@ -11,19 +11,20 @@
 //! The old right-top info panel retires here (absorbed by the info zone);
 //! the legacy bottom shop bar retires with UI10.
 
+use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::window::Window;
 
-use crate::components::{Tower, TowerKind, TowerSlot};
+use crate::components::{SkillCaster, Tower, TowerKind, TowerSlot};
 use crate::resources::{
-    BuildMode, Economy, FusionDefs, Hand, Lang, Selection, ShopOffers, SELL_REFUND_RATIO,
-    TowerDefs, WavePhase, WaveState,
+    BuildMode, Economy, FusionDefs, Hand, Lang, Selection, ShopOffers, SkillBalance, SkillDefs,
+    SkillKind, SELL_REFUND_RATIO, TowerDefs, WavePhase, WaveState,
 };
 use crate::states::GameState;
 use crate::systems::hud::UiFont;
 use crate::systems::l10n;
-use crate::systems::skills::SkillButton;
+use crate::systems::skills::{CastSkill, SkillButton};
 
 /// Marker on the whole bottom bar root (hidden on GameOver/Win, UI9).
 #[derive(Component)]
@@ -87,6 +88,12 @@ pub enum CommandAction {
     FuseCancel,
     /// Reserved grid slot (upgrades/skills later, §16.2) — always disabled.
     Reserved,
+    /// SK10: cast slot `usize` of the SELECTED tower's SkillCaster (context
+    /// grid keys E/R/A — the same physical grid as Build, different state,
+    /// the WC3 command-card shape).
+    TowerSkill(usize),
+    /// SK10: pay to raise the selected tower's whole skill kit one level.
+    SkillUpgrade,
 }
 
 /// One command-card button: its action, the enabled flag (combat greying)
@@ -128,6 +135,163 @@ pub struct PreviewRing;
 /// selection is `FusionTarget` (UI11, §16.6).
 #[derive(Component)]
 pub struct PairHighlight;
+
+/// Marker on the tower-skill buttons' main label (SK10): live-refreshed
+/// with cooldown seconds / level / the autocast marker without rebuilding
+/// the card.
+#[derive(Component)]
+pub struct TowerSkillText;
+
+/// One SK10 tower-skill button: like `command_button` but carrying a
+/// `RelativeCursorPosition` (hover feeds the right-click autocast toggle;
+/// bevy's ui_focus maintains the flag in the real app) and a mark on the
+/// label child for the per-frame refresh. Always spawned enabled — the
+/// framework's cast validation is the gate; the refresh system greys the
+/// look while cooling down.
+fn tower_skill_button(
+    parent: &mut ChildSpawnerCommands,
+    font: &UiFont,
+    slot: usize,
+    label: String,
+    grid: u8,
+) {
+    parent
+        .spawn((
+            Button,
+            CommandButton {
+                action: CommandAction::TowerSkill(slot),
+                enabled: true,
+                grid,
+            },
+            Interaction::None,
+            bevy::ui::RelativeCursorPosition::default(),
+            Node {
+                width: Val::Px(104.0),
+                height: Val::Px(42.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.2, 0.3, 0.4)),
+        ))
+        .with_children(|p| {
+            p.spawn((
+                TowerSkillText,
+                Text::new(label),
+                TextFont {
+                    font: font.0.clone(),
+                    font_size: FontSize::Px(11.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+            p.spawn((
+                Text::new(grid_badge(grid).to_string()),
+                TextFont {
+                    font: font.0.clone(),
+                    font_size: FontSize::Px(9.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(1.0),
+                    right: Val::Px(3.0),
+                    ..default()
+                },
+            ));
+        });
+}
+
+/// SK10: keep the tower-skill buttons live — cooldown seconds replace the
+/// name while cooling, the autocast toggle appends its marker, and the
+/// colors follow (the card itself only rebuilds on selection/economy
+/// changes, so the CD would otherwise be stale).
+pub fn refresh_tower_skill_buttons(
+    selection: Res<Selection>,
+    casters: Query<&SkillCaster>,
+    defs: Res<SkillDefs>,
+    lang: Res<Lang>,
+    buttons: Query<(Entity, &CommandButton, &Children)>,
+    mut texts: Query<(&mut Text, &mut TextColor), With<TowerSkillText>>,
+    mut backgrounds: Query<&mut BackgroundColor, With<CommandButton>>,
+) {
+    let Selection::Tower(tower) = *selection else {
+        return;
+    };
+    let Ok(caster) = casters.get(tower) else {
+        return;
+    };
+    for (eid, btn, children) in buttons.iter() {
+        let CommandAction::TowerSkill(slot_idx) = btn.action else {
+            continue;
+        };
+        let Some(slot) = caster.slots.get(slot_idx) else {
+            continue;
+        };
+        let def = defs.get(slot.def);
+        let ready = slot.cooldown <= 0.0;
+        if let Ok(mut bg) = backgrounds.get_mut(eid) {
+            bg.0 = if ready {
+                Color::srgb(0.2, 0.3, 0.4)
+            } else {
+                Color::srgb(0.16, 0.16, 0.18)
+            };
+        }
+        let (label, color) = if !ready {
+            (format!("{:.0}", slot.cooldown), Color::srgb(0.75, 0.75, 0.78))
+        } else {
+            // "»" marks a running autocast toggle (WC3-style indicator).
+            let auto = if slot.autocast { " »" } else { "" };
+            (
+                format!("{} Lv{}{}", l10n::tower_skill_name(slot.def, *lang), slot.level, auto),
+                Color::WHITE,
+            )
+        };
+        let _ = def;
+        for child in children {
+            if let Ok((mut text, mut tint)) = texts.get_mut(*child) {
+                if text.0 != label {
+                    text.0 = label.clone();
+                }
+                if tint.0 != color {
+                    tint.0 = color;
+                }
+            }
+        }
+    }
+}
+
+/// SK10: right-click on a tower-skill button toggles that slot's autocast
+/// (the WC3 gesture). `cancel_modes` skips this click (it is over the UI).
+pub fn toggle_tower_autocast(
+    mouse: Res<ButtonInput<MouseButton>>,
+    selection: Res<Selection>,
+    skill_buttons: Query<(&CommandButton, &bevy::ui::RelativeCursorPosition)>,
+    mut casters: Query<&mut SkillCaster>,
+) {
+    if !mouse.just_pressed(MouseButton::Right) {
+        return;
+    }
+    let Some((btn, _)) = skill_buttons
+        .iter()
+        .find(|(_, rcp)| rcp.cursor_over())
+    else {
+        return;
+    };
+    let CommandAction::TowerSkill(slot_idx) = btn.action else {
+        return;
+    };
+    let Selection::Tower(tower) = *selection else {
+        return;
+    };
+    if let Ok(mut caster) = casters.get_mut(tower) {
+        if let Some(slot) = caster.slots.get_mut(slot_idx) {
+            slot.autocast = !slot.autocast;
+            info!("[sk] autocast toggled {}", slot.autocast);
+        }
+    }
+}
 
 /// Spawn the persistent three-zone bottom bar (§16.1). Zone contents are
 /// filled/refreshed by the per-frame systems below.
@@ -412,7 +576,9 @@ pub fn refresh_command_card(
     economy: Res<Economy>,
     defs: Res<TowerDefs>,
     fusion_defs: Res<FusionDefs>,
-    towers: Query<(Entity, &Tower)>,
+    skill_defs: Res<SkillDefs>,
+    balance: Res<SkillBalance>,
+    towers: Query<(Entity, &Tower, Option<&SkillCaster>)>,
     bars: Query<Entity, With<CommandBarRoot>>,
     cards: Query<Entity, With<CommandCardRoot>>,
     mut cache: Local<Option<CardKey>>,
@@ -475,10 +641,15 @@ pub fn refresh_command_card(
             );
         }
         Selection::Tower(e) => {
-            let fused = towers
+            let (fused, caster_slots) = towers
                 .get(e)
-                .map(|(_, t)| matches!(t.kind, TowerKind::Fused(_)))
-                .unwrap_or(false);
+                .map(|(_, t, c)| {
+                    (
+                        matches!(t.kind, TowerKind::Fused(_)),
+                        c.map(|cc| cc.slots.clone()),
+                    )
+                })
+                .unwrap_or((false, None));
             let can_act = !combat;
             command_button(
                 card,
@@ -491,8 +662,8 @@ pub fn refresh_command_card(
             if !fused {
                 // Fused towers cannot fuse again (§16.6 / UI11). The Fuse
                 // command greys out while no *other* tower pairs with it.
-                let pairable = match towers.get(e).ok().map(|(_, t)| t.kind) {
-                    Some(TowerKind::Base(ka)) => towers.iter().any(|(eid2, t)| {
+                let pairable = match towers.get(e).ok().map(|(_, t, _)| t.kind) {
+                    Some(TowerKind::Base(ka)) => towers.iter().any(|(eid2, t, _)| {
                         eid2 != e
                             && matches!(t.kind, TowerKind::Base(kb) if recipe_matches(&fusion_defs, ka, kb).is_some())
                     }),
@@ -507,15 +678,61 @@ pub fn refresh_command_card(
                     1,
                 );
             }
-            for grid in 2..4u8 {
+            if let Some(slots) = caster_slots {
+                // SK10: the reserved pair activates for a skilled tower —
+                // E = paid kit upgrade, R/A.. = the castable skills (context
+                // grid, WC3 command-card shape), then passives display-only.
+                // Cooldown seconds and the autocast marker are live-refreshed
+                // by `refresh_tower_skill_buttons` (no card rebuild per frame).
+                let min_level = slots.iter().map(|s| s.level).min().unwrap_or(1);
+                let cost = balance.skill_upgrade_cost(min_level);
+                let maxed = slots
+                    .iter()
+                    .all(|s| s.level >= skill_defs.get(s.def).max_level);
+                let upgradable = !maxed && economy.gold >= cost as u32;
                 command_button(
                     card,
                     &font,
-                    CommandAction::Reserved,
-                    l10n::RESERVED.pick(*lang).to_string(),
-                    false,
-                    grid,
+                    CommandAction::SkillUpgrade,
+                    format!("{} {}", l10n::SKILL_UPGRADE.pick(*lang), if maxed { String::new() } else { cost.to_string() }),
+                    upgradable,
+                    2,
                 );
+                let mut grid = 3u8;
+                for (slot_idx, slot) in slots.iter().enumerate() {
+                    let def = skill_defs.get(slot.def);
+                    if def.kind == SkillKind::Passive {
+                        // Display-only level chip (WC3 shows passives too).
+                        command_button(
+                            card,
+                            &font,
+                            CommandAction::Reserved,
+                            format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
+                            false,
+                            grid,
+                        );
+                    } else {
+                        tower_skill_button(
+                            card,
+                            &font,
+                            slot_idx,
+                            format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
+                            grid,
+                        );
+                    }
+                    grid += 1;
+                }
+            } else {
+                for grid in 2..4u8 {
+                    command_button(
+                        card,
+                        &font,
+                        CommandAction::Reserved,
+                        l10n::RESERVED.pick(*lang).to_string(),
+                        false,
+                        grid,
+                    );
+                }
             }
         }
         Selection::None | Selection::EmptySlot(_) => {
@@ -781,15 +998,22 @@ pub fn apply_pending_fusion(
 
 /// Unified cancel (§16.3): right click or Esc clears the armed build, the
 /// fusion picking, the point-skill aiming (a cancelled cast never pays its
-/// cooldown, SK1/SK5) and the selection itself. Not state-gated (harmless).
+/// cooldown, SK1/SK5) and the selection itself. A right click landing on
+/// the UI does NOT cancel (SK10: that gesture toggles skill autocast);
+/// Esc always cancels. Not state-gated (harmless).
 pub fn cancel_modes(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
+    panel: Res<crate::resources::DebugPanelCapture>,
     mut build: ResMut<BuildMode>,
     mut selection: ResMut<Selection>,
     mut skill_aiming: ResMut<crate::resources::SkillAiming>,
 ) {
-    if mouse.just_pressed(MouseButton::Right) || keys.just_pressed(KeyCode::Escape) {
+    let over_ui = cursor_over_blocking_ui(&blocking, &panel);
+    if keys.just_pressed(KeyCode::Escape)
+        || (mouse.just_pressed(MouseButton::Right) && !over_ui)
+    {
         build.armed = false;
         *selection = Selection::None;
         if skill_aiming.0.take().is_some() {
@@ -884,6 +1108,17 @@ pub fn refresh_bar_visibility(
 /// AC2 shop purchase, TO7 sell and the fusion step-in (§16.6). Greyed buttons
 /// (enabled=false) never act.
 #[allow(clippy::too_many_arguments)]
+/// SK10 card params bundled (SystemParam tuples cap at 16 elements and the
+/// command-card handler was already at the ceiling; the mutable caster
+/// query stays a direct param — the derive dislikes mut queries).
+#[derive(SystemParam)]
+pub struct CardParams<'w> {
+    pub towers: Res<'w, TowerDefs>,
+    pub skills: Res<'w, SkillDefs>,
+    pub balance: Res<'w, SkillBalance>,
+    pub cast_requests: MessageWriter<'w, CastSkill>,
+}
+
 pub fn handle_command_buttons(
     mut commands: Commands,
     server: Option<Res<AssetServer>>,
@@ -891,7 +1126,8 @@ pub fn handle_command_buttons(
     mut selection: ResMut<Selection>,
     mut selected: ResMut<crate::resources::SelectedTower>,
     mut build: ResMut<BuildMode>,
-    defs: Res<TowerDefs>,
+    mut card: CardParams,
+    mut casters: Query<&mut SkillCaster>,
     mut hand: ResMut<Hand>,
     mut economy: ResMut<Economy>,
     wave: Res<WaveState>,
@@ -911,7 +1147,7 @@ pub fn handle_command_buttons(
                 if !intermission {
                     continue;
                 }
-                let Some(def) = defs.list.get(i) else { continue };
+                let Some(def) = card.towers.list.get(i) else { continue };
                 if !hand.owned_towers.contains(&i) || economy.gold < def.cost {
                     continue;
                 }
@@ -952,7 +1188,7 @@ pub fn handle_command_buttons(
                 if !intermission || hand.owned_towers.contains(&i) {
                     continue;
                 }
-                let Some(def) = defs.list.get(i) else { continue };
+                let Some(def) = card.towers.list.get(i) else { continue };
                 if economy.gold < def.cost {
                     continue;
                 }
@@ -990,6 +1226,36 @@ pub fn handle_command_buttons(
             }
             CommandAction::FuseCancel => {
                 *selection = Selection::None;
+            }
+            CommandAction::TowerSkill(slot_idx) => {
+                // SK10: the click queues the cast; the framework validates
+                // (cooldown gate etc.) in handle_cast_requests. Skills are
+                // combat tools — no intermission gate (§17.1 shape).
+                let Selection::Tower(e) = *selection else { continue };
+                card.cast_requests.write(CastSkill {
+                    caster: e,
+                    slot: slot_idx,
+                });
+            }
+            CommandAction::SkillUpgrade => {
+                // SK10: pay once, raise the whole kit one level (per-slot
+                // clamp at max_level; the eagle passive refreshes via the
+                // idempotent sync system).
+                let Selection::Tower(e) = *selection else { continue };
+                let Ok(mut caster) = casters.get_mut(e) else { continue };
+                let min_level = caster.slots.iter().map(|s| s.level).min().unwrap_or(1);
+                let cost = card.balance.skill_upgrade_cost(min_level);
+                if economy.gold < cost {
+                    continue;
+                }
+                economy.gold -= cost;
+                let mut count = 0u8;
+                for i in 0..caster.slots.len() {
+                    let before = caster.slots[i].level;
+                    let _ = crate::systems::skills::level_up(&card.skills, &mut caster, i);
+                    count += (caster.slots[i].level > before) as u8;
+                }
+                info!("[sk] kit upgraded (+{count} skills), cost {cost}, gold={}", economy.gold);
             }
             CommandAction::Reserved => {}
         }
@@ -1325,6 +1591,7 @@ pub fn refresh_tooltip(
     skill_buttons: Query<(&Interaction, &SkillButton)>,
     selection: Res<Selection>,
     towers: Query<&Tower>,
+    casters: Query<&SkillCaster>,
     defs: Res<TowerDefs>,
     skill_defs: Res<crate::resources::SkillDefs>,
     panels: Query<Entity, With<TooltipText>>,
@@ -1420,6 +1687,30 @@ pub fn refresh_tooltip(
         CommandAction::Reserved => (
             l10n::RESERVED.pick(*lang).to_string(),
             l10n::TT_RESERVED.pick(*lang).to_string(),
+        ),
+        CommandAction::TowerSkill(slot_idx) => {
+            // SK10: the selected tower's caster supplies def and level.
+            let body = match *selection {
+                Selection::Tower(e) => casters.get(e).ok().and_then(|c| c.slots.get(slot_idx)).map(
+                    |s| l10n::tower_skill_tooltip(s.def, s.level, *lang),
+                ),
+                _ => None,
+            }
+            .unwrap_or_default();
+            let name = match *selection {
+                Selection::Tower(e) => casters
+                    .get(e)
+                    .ok()
+                    .and_then(|c| c.slots.get(slot_idx))
+                    .map(|s| l10n::tower_skill_name(s.def, *lang).to_string()),
+                _ => None,
+            }
+            .unwrap_or_default();
+            (name, body)
+        }
+        CommandAction::SkillUpgrade => (
+            l10n::SKILL_UPGRADE.pick(*lang).to_string(),
+            l10n::TT_SKILL_UPGRADE.pick(*lang).to_string(),
         ),
     };
     let mut text = title;

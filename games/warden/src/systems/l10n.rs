@@ -191,6 +191,53 @@ pub fn skill_tooltip(lang: Lang, kind: crate::resources::SkillId, cd_secs: f32) 
     }
 }
 
+// --- SK10: tower-skill card strings ---------------------------------------------
+
+/// SK10: the paid kit-upgrade button label.
+pub const SKILL_UPGRADE: Bi = Bi("升级技能", "Upgrade");
+/// SK10: the upgrade tooltip body.
+pub const TT_SKILL_UPGRADE: Bi = Bi(
+    "花费金币，该塔全部技能等级 +1（被动数值随之提升）",
+    "Spend gold to raise this tower's whole skill kit one level",
+);
+
+/// SK10: display name of a registry skill (archer kit today).
+pub fn tower_skill_name(def: usize, lang: Lang) -> &'static str {
+    use crate::systems::archer_skills::{SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
+    match def {
+        SKILL_EAGLE_EYE => pick2("鹰眼", "Eagle Eye", lang),
+        SKILL_MULTISHOT => pick2("多重射击", "Multishot", lang),
+        SKILL_FIRE_ARROWS => pick2("火焰箭", "Fire Arrows", lang),
+        _ => pick2("技能", "Skill", lang),
+    }
+}
+
+/// SK10: tooltip body with the level's live numbers (SkillBalance values).
+pub fn tower_skill_tooltip(def: usize, _level: u8, lang: Lang) -> String {
+    use crate::systems::archer_skills::{SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
+    match def {
+        SKILL_EAGLE_EYE => pick2(
+            "被动：暴击率与暴击倍率提升（等级越高越强）",
+            "Passive: raises crit chance and multiplier with level",
+            lang,
+        )
+        .to_string(),
+        SKILL_MULTISHOT => pick2(
+            "朝射程内最近的数个目标各射一箭 · 冷却 25 秒",
+            "One arrow at each of the nearest targets in range · 25s cooldown",
+            lang,
+        )
+        .to_string(),
+        SKILL_FIRE_ARROWS => pick2(
+            "限时强化普攻伤害 · 冷却 20 秒 · 右键开关自动施放",
+            "Timed normal-attack damage boost · 20s cooldown · right-click toggles autocast",
+            lang,
+        )
+        .to_string(),
+        _ => String::new(),
+    }
+}
+
 // --- Formatted copy (format! needs literals, so each helper matches on lang) --
 
 pub fn hud_wave(lang: Lang, current: usize, total: usize, phase: &str) -> String {

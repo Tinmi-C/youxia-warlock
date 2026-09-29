@@ -43,6 +43,9 @@ impl Plugin for UiPlugin {
                     systems::command::refresh_selection_ring,
                     systems::command::refresh_fusion_candidates,
                     systems::command::refresh_tooltip,
+                    // SK10: tower-skill buttons stay live (cooldown seconds,
+                    // autocast marker) without card rebuilds.
+                    systems::command::refresh_tower_skill_buttons,
                     systems::command::hover_build_preview,
                     systems::command::refresh_start_wave_button,
                     systems::command::refresh_bar_visibility,
@@ -55,6 +58,9 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     systems::command::cancel_modes,
+                    // SK10: right-click on a tower-skill button toggles its
+                    // autocast (cancel_modes skips UI-right-clicks for this).
+                    systems::command::toggle_tower_autocast,
                     systems::l10n::toggle_lang,
                     systems::pointer::handle_lang_button,
                     systems::command::handle_pause_button,

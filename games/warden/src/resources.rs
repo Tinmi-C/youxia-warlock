@@ -704,6 +704,8 @@ pub struct SkillBalance {
     pub fire_arrow_bonus: Vec<Vec<f32>>,
     /// 火焰箭: buff duration in seconds.
     pub fire_arrow_duration: Vec<Vec<f32>>,
+    /// SK10 paid kit upgrade: cost by the kit's CURRENT (min) level.
+    pub upgrade_costs: Vec<f32>,
 }
 
 impl SkillBalance {
@@ -743,5 +745,15 @@ impl SkillBalance {
 
     pub fn fire_arrow_duration(&self, def: usize, level: u8) -> f32 {
         Self::level_value(&self.fire_arrow_duration, def, level)
+    }
+
+    /// SK10: cost to raise a kit at `min_level` one level (clamped to the
+    /// last row — a maxed kit is gated by the caller, not the price).
+    pub fn skill_upgrade_cost(&self, min_level: u8) -> u32 {
+        self.upgrade_costs
+            .get(min_level.saturating_sub(1) as usize)
+            .or_else(|| self.upgrade_costs.last())
+            .copied()
+            .unwrap_or(0.0) as u32
     }
 }

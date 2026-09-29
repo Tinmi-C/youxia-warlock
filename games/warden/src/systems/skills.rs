@@ -96,6 +96,8 @@ pub fn production_skill_balance() -> SkillBalance {
         // 火焰箭: flat damage bonus for its duration.
         fire_arrow_bonus: vec![vec![], vec![], vec![], vec![], vec![], vec![3.0, 5.0, 8.0]],
         fire_arrow_duration: vec![vec![], vec![], vec![], vec![], vec![], vec![8.0, 8.0, 8.0]],
+        // SK10 paid kit upgrade: 30g for 1→2, 60g for 2→3.
+        upgrade_costs: vec![30.0, 60.0],
     }
 }
 

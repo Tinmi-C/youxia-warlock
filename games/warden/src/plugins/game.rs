@@ -48,7 +48,11 @@ impl Plugin for GamePlugin {
             (
                 systems::input::choose_choice.in_set(GameSet::Input),
                 systems::input::start_next_wave.in_set(GameSet::Input),
-                systems::command::handle_command_buttons.in_set(GameSet::Input),
+                systems::command::handle_command_buttons
+                    .in_set(GameSet::Input)
+                    // SK10: its TowerSkill dispatch queues CastSkill — keep
+                    // it ahead of the framework's validator (same frame).
+                    .before(systems::skills::handle_cast_requests),
                 systems::command::command_grid_hotkeys
                     .in_set(GameSet::Input)
                     .before(systems::command::handle_command_buttons),

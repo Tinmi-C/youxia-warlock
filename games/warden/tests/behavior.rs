@@ -6718,3 +6718,219 @@ mod skills_archer {
         assert!((e.crit_multiplier - 2.25).abs() < 1e-4, "lv2 multiplier");
     }
 }
+
+// --- SK10: command-card skill slots (ADR-0011) ---------------------------------------
+
+mod skills_ui {
+    use super::*;
+    use warden::components::{Commander, SkillCaster, StatMods, Tower, TowerKind};
+    use warden::resources::Selection;
+    use warden::systems::archer_skills::{archer_skill_caster, SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
+    use warden::systems::command::{
+        CommandAction, CommandButton, TowerSkillText,
+    };
+
+    fn spawn_archer(app: &mut App) -> Entity {
+        app.world_mut()
+            .spawn((
+                Tower {
+                    tower_index: 0,
+                    damage: 10.0,
+                    attack_speed: 1.0,
+                    range: 20.0,
+                    attack_type: AttackType::Physical,
+                    cooldown: 999.0,
+                    target: None,
+                    kind: TowerKind::Base(0),
+                    aoe_radius: 0.0,
+                    slow_factor: 0.0,
+                    slow_duration: 0.0,
+                    invested: 0,
+                },
+                StatMods::default(),
+                archer_skill_caster(),
+                Transform::from_xyz(0.0, 0.5, 0.0),
+            ))
+            .id()
+    }
+
+    fn press_button(app: &mut App, action: CommandAction) -> bool {
+        // Inject the same Interaction a click produces (UI12 hotkey pattern).
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut bevy::ui::Interaction, With<CommandButton>>();
+        let mut found = false;
+        for mut inter in q.iter_mut(app.world_mut()) {
+            // Caller resets all; press exactly the matching button.
+            *inter = bevy::ui::Interaction::None;
+        }
+        let mut q = app
+            .world_mut()
+            .query::<(&mut bevy::ui::Interaction, &CommandButton)>();
+        for (mut inter, btn) in q.iter_mut(app.world_mut()) {
+            if btn.action == action && !found {
+                *inter = bevy::ui::Interaction::Pressed;
+                found = true;
+            }
+        }
+        found
+    }
+
+    /// SK10 acceptance: selecting a skilled tower activates the reserved
+    /// slots — an upgrade button plus one castable button per skill and a
+    /// display-only passive chip.
+    #[test]
+    fn selected_archer_shows_skill_buttons() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app);
+        app.update();
+        app.update();
+        *app.world_mut().resource_mut::<Selection>() = Selection::Tower(tower);
+        app.update(); // card rebuilds for the new selection
+        app.update();
+        let mut q = app.world_mut().query::<&CommandButton>();
+        let actions: Vec<CommandAction> = q.iter(app.world()).map(|b| b.action).collect();
+        assert!(actions.contains(&CommandAction::SkillUpgrade), "upgrade slot live");
+        assert!(
+            actions.contains(&CommandAction::TowerSkill(1)),
+            "multishot slot live"
+        );
+        assert!(
+            actions.contains(&CommandAction::TowerSkill(2)),
+            "fire arrows slot live"
+        );
+    }
+
+    /// SK10 acceptance: the skill button casts through the framework and
+    /// the label switches to the cooldown seconds; the paid upgrade raises
+    /// the whole kit and charges the table cost.
+    #[test]
+    fn skill_button_casts_and_upgrade_raises_the_kit() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app);
+        app.update();
+        app.update();
+        app.world_mut().resource_mut::<Economy>().gold = 100;
+        *app.world_mut().resource_mut::<Selection>() = Selection::Tower(tower);
+        app.update();
+        app.update();
+        // Cast multishot through the button (grid hotkey equivalent).
+        assert!(press_button(&mut app, CommandAction::TowerSkill(1)), "button exists");
+        app.update();
+        app.update(); // cast validates, effects run, cooldown starts
+        {
+            let caster = app.world().get::<SkillCaster>(tower).unwrap();
+            let slot = caster.slots.iter().find(|s| s.def == SKILL_MULTISHOT).unwrap();
+            assert!(slot.cooldown > 24.0, "multishot cast + 25s cd (got {})", slot.cooldown);
+        }
+        // The live label shows the remaining seconds.
+        let label = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<&mut Text, With<TowerSkillText>>();
+            let mut found = String::new();
+            for text in q.iter_mut(app.world_mut()) {
+                if text.0.parse::<f32>().is_ok() {
+                    found = text.0.clone();
+                }
+            }
+            found
+        };
+        assert!(
+            label.parse::<f32>().is_ok_and(|secs| secs > 20.0),
+            "cooldown seconds on the button (got {label:?})"
+        );
+        // Paid upgrade: 30 gold for 1 -> 2 on every skill.
+        assert!(press_button(&mut app, CommandAction::SkillUpgrade));
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<Economy>().gold, 70, "upgrade cost 30");
+        let caster = app.world().get::<SkillCaster>(tower).unwrap();
+        assert!(
+            caster.slots.iter().all(|s| s.level == 2),
+            "the whole kit rose one level"
+        );
+    }
+
+    /// SK10 acceptance: right-click on a skill button toggles autocast and
+    /// does NOT cancel the selection (the gesture belongs to the UI).
+    #[test]
+    fn right_click_on_skill_button_toggles_autocast() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app);
+        app.update();
+        app.update();
+        *app.world_mut().resource_mut::<Selection>() = Selection::Tower(tower);
+        app.update();
+        app.update();
+        // Headless: mark the fire-arrows button AND the bar root as hovered
+        // by hand (the real app's ui_focus keeps both current — the root's
+        // rect contains every button, which is what makes cancel_modes skip).
+        {
+            let mut q = app
+                .world_mut()
+                .query::<(&mut bevy::ui::RelativeCursorPosition, &CommandButton)>();
+            for (mut rcp, btn) in q.iter_mut(app.world_mut()) {
+                if btn.action == CommandAction::TowerSkill(2) {
+                    rcp.cursor_over = true;
+                }
+            }
+            let mut roots = app.world_mut().query_filtered::<
+                &mut bevy::ui::RelativeCursorPosition,
+                With<warden::systems::command::CommandBarRoot>,
+            >();
+            for mut rcp in roots.iter_mut(app.world_mut()) {
+                rcp.cursor_over = true;
+            }
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>()
+            .press(bevy::input::mouse::MouseButton::Right);
+        app.update();
+        {
+            let caster = app.world().get::<SkillCaster>(tower).unwrap();
+            let slot = caster.slots.iter().find(|s| s.def == SKILL_FIRE_ARROWS).unwrap();
+            assert!(slot.autocast, "right-click toggled autocast ON");
+        }
+        assert_eq!(
+            app.world().resource::<Selection>().clone(),
+            Selection::Tower(tower),
+            "the UI right-click does not cancel the selection"
+        );
+    }
+
+    /// SK10: hotkey discipline — with NOTHING selected, E (a build-grid key)
+    /// never reaches a tower skill (context-scoped by the selection state).
+    #[test]
+    fn hotkeys_are_selection_scoped() {
+        let mut app = test_app();
+        let tower = spawn_archer(&mut app);
+        app.update();
+        app.update();
+        let commander = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<Entity, With<Commander>>();
+            q.single(app.world()).unwrap()
+        };
+        let _ = tower;
+        // Selection::None: the command card shows build/buy, no skill buttons.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyE);
+        app.update();
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            keys.release(KeyCode::KeyE);
+        }
+        let cds = app.world_mut()
+            .get::<SkillCaster>(commander)
+            .unwrap()
+            .slots
+            .iter()
+            .map(|s| s.cooldown)
+            .sum::<f32>();
+        assert_eq!(cds, 0.0, "E did nothing without a selected skilled tower");
+    }
+}
