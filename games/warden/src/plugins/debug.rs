@@ -22,6 +22,15 @@ use crate::states::GameState;
 
 pub struct DebugPlugin;
 
+/// Dash animation-probe memory: last tick's per-player elapsed times, and
+/// the first bone's rotation snapshot (stage 5: is the pose actually being
+/// written?).
+#[derive(Resource, Default)]
+pub struct AnimProbe(
+    pub std::collections::HashMap<Entity, Vec<f32>>,
+    pub std::collections::HashMap<Entity, [i32; 4]>,
+);
+
 impl Plugin for DebugPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(debug_assertions)]
@@ -49,6 +58,43 @@ fn build_debug(app: &mut App) {
         .init_resource::<dbg::DebugScenarioQueue>()
         .init_resource::<db3::DebugTime>()
         .init_resource::<db3::DebugOverlays>()
+        // T-pose hunt: full animation-component lifecycle. Whoever replaces
+        // players/graphs (the fusion repro: two placed archers die ~2min in,
+        // players swapped for fresh graphless ones) lands here with entity
+        // ids and timestamps.
+        .add_observer(
+            |trigger: On<Add, AnimationPlayer>,
+             names: Query<&Name>,
+             parents: Query<&ChildOf>| {
+                let mut chain = Vec::new();
+                let mut cur = trigger.entity;
+                for _ in 0..5 {
+                    if let Ok(n) = names.get(cur) {
+                        chain.push(n.to_string());
+                    }
+                    match parents.get(cur) {
+                        Ok(p) => cur = p.0,
+                        Err(_) => break,
+                    }
+                }
+                info!("[anim-life] +player {:?} {:?}", trigger.entity, chain);
+            },
+        )
+        .add_observer(
+            |trigger: On<Remove, AnimationPlayer>| {
+                info!("[anim-life] -player {:?}", trigger.entity);
+            },
+        )
+        .add_observer(
+            |trigger: On<Add, AnimationGraphHandle>| {
+                info!("[anim-life] +graph {:?}", trigger.entity);
+            },
+        )
+        .add_observer(
+            |trigger: On<Remove, AnimationGraphHandle>| {
+                info!("[anim-life] -graph {:?}", trigger.entity);
+            },
+        )
         .add_plugins(bevy_egui::EguiPlugin::default())
         // SM1 (ADR-0010): the generic studio viewer — keys/present/sweep/
         // orbit/egui list all live in the engine crate; Warden's adapter
@@ -159,6 +205,160 @@ fn log_dashboard(world: &mut World, mut log: Local<FpsLog>) {
         info!(
             "[dash] world-root {e:?} load={state_str} in_store={in_store} children={children}"
         );
+    }
+    // Animation probe (ART12 T-pose hunt): for every AnimationPlayer in the
+    // world report whether it holds a graph and whether any animation's
+    // elapsed time advances between consecutive dash ticks. frozen-elapsed
+    // with a graph attached = the advance/apply chain is broken, not wiring.
+    {
+        let mut players: bevy::ecs::query::QueryState<(
+            Entity,
+            &AnimationPlayer,
+            Option<&AnimationGraphHandle>,
+        )> = world.query();
+        let mut probe = world.remove_resource::<AnimProbe>().unwrap_or_default();
+        // Snapshot first — the linkage audit below needs `world` mutably again.
+        let snapshot: Vec<(Entity, Vec<(AnimationNodeIndex, f32)>, Option<AnimationGraphHandle>)> =
+            players
+                .iter(world)
+                .map(|(e, player, graph)| {
+                    let playing: Vec<(AnimationNodeIndex, f32)> = player
+                        .playing_animations()
+                        .map(|(idx, a)| (*idx, a.elapsed()))
+                        .collect();
+                    (e, playing, graph.cloned())
+                })
+                .collect();
+        // Linkage audit (T-pose hunt stage 2): how many bones carry
+        // AnimationTargetId, and do their AnimatedBy links point at each
+        // player? Zero links = curves can never apply.
+        let mut target_count: bevy::ecs::query::QueryState<
+            Entity,
+            With<bevy::animation::AnimationTargetId>,
+        > = world.query_filtered::<Entity, With<bevy::animation::AnimationTargetId>>();
+        let total_targets = target_count.iter(world).count();
+        let mut links: bevy::ecs::query::QueryState<(Entity, &bevy::animation::AnimatedBy)> =
+            world.query();
+        let mut linked = std::collections::HashMap::new();
+        for (_, l) in links.iter(world) {
+            *linked.entry(l.0).or_insert(0usize) += 1;
+        }
+        // Bone-side target ids (stage 4): what ids do the bones CARRY?
+        let mut bone_ids: bevy::ecs::query::QueryState<(
+            Entity,
+            &bevy::animation::AnimationTargetId,
+            &bevy::animation::AnimatedBy,
+        )> = world.query();
+        let mut bone_id_set: std::collections::HashSet<(u64, u64)> = std::collections::HashSet::new();
+        for (_, t, _) in bone_ids.iter(world) {
+            bone_id_set.insert(t.0.as_u64_pair());
+        }
+        info!(
+            "[dash] anim bones={} distinct_ids={}",
+            bone_id_set.len(),
+            bone_id_set.len(),
+        );
+        // Stage 5: do actual LIMB bones get written? (The query's "first"
+        // bone is the near-static rig root — sample by name instead.)
+        {
+            let mut bones_tf: bevy::ecs::query::QueryState<(
+                Entity,
+                &Name,
+                &Transform,
+            )> = world.query();
+            let wanted = ["hips", "lowerarm.l", "lowerarm.r", "upperarm.l"];
+            for (e, name, tf) in bones_tf.iter(world) {
+                let n = name.as_str().to_lowercase();
+                if !wanted.contains(&n.as_str()) {
+                    continue;
+                }
+                let key = [
+                    (tf.rotation.x * 1000.0) as i32,
+                    (tf.rotation.y * 1000.0) as i32,
+                    (tf.rotation.z * 1000.0) as i32,
+                    (tf.rotation.w * 1000.0) as i32,
+                ];
+                let changed = probe.1.insert(e, key).map(|old| old != key).unwrap_or(false);
+                info!(
+                    "[dash] bone {e:?} name={n} rot_y={:.4} changed={changed}",
+                    tf.rotation.y,
+                );
+            }
+        }
+        for (e, playing, graph_handle) in snapshot {
+            let elapsed: Vec<f32> = playing.iter().map(|(_, t)| *t).collect();
+            // Name chain up from the player (who does this player belong to?).
+            let mut chain: Vec<String> = Vec::new();
+            let mut cur = e;
+            for _ in 0..6 {
+                match world.get::<Name>(cur) {
+                    Some(n) => chain.push(n.as_str().to_string()),
+                    None => chain.push(format!("?{}", cur.index())),
+                }
+                match world.get::<ChildOf>(cur) {
+                    Some(p) => cur = p.0,
+                    None => break,
+                }
+            }
+            chain.reverse();
+            let prev = probe.0.insert(e, elapsed.clone());
+            let advancing = match prev {
+                Some(p) if p.len() == elapsed.len() && !elapsed.is_empty() => {
+                    p.iter().zip(&elapsed).any(|(a, b)| b > a)
+                }
+                _ => false,
+            };
+            let has_graph = graph_handle.is_some();
+            let my_links = linked.get(&e).copied().unwrap_or(0);
+            // Stage 3 (uuid collision audit): sample the playing clip's curve
+            // target ids — if they miss the bones' AnimationTargetIds, the
+            // player spins forever on a rig that never hears it (T-pose).
+            let graphs_store = world.get_resource::<Assets<AnimationGraph>>();
+            let clips_store = world.get_resource::<Assets<AnimationClip>>();
+            let mut curve_ids: Vec<bevy::animation::AnimationTargetId> = Vec::new();
+            let mut clip_info = String::new();
+            let mut threaded_info = String::from("no-graph");
+            if let (Some(graphs_store), Some(clips_store), Some(gh), Some((node_idx, _))) =
+                (graphs_store, clips_store, graph_handle.as_ref(), playing.first())
+            {
+                if let Some(_tg) =
+                    world.get_resource::<bevy::animation::graph::ThreadedAnimationGraphs>()
+                {
+                    // Field is pub(crate); presence-only probe (the trace
+                    // log tells the rest).
+                    threaded_info = "resource-present".to_string();
+                }
+                if let Some(g) = graphs_store.get(gh) {
+                    if let Some(node) = g.get(*node_idx) {
+                        if let AnimationNodeType::Clip(clip_handle) = &node.node_type {
+                            let clip_handle = clip_handle.clone();
+                            if let Some(c) = clips_store.get(&clip_handle) {
+                                let total = c.curves().len();
+                                let hits = c
+                                    .curves()
+                                    .keys()
+                                    .filter(|k| bone_id_set.contains(&k.0.as_u64_pair()))
+                                    .count();
+                                clip_info =
+                                    format!("curves={total} hitting_bones={hits}");
+                                for k in c.curves().keys().take(3) {
+                                    curve_ids.push(*k);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            info!(
+                "[dash] anim {e:?} chain={chain:?} graph={has_graph} playing={} elapsed={elapsed:?} advancing={advancing} targets_in_world={total_targets} linked_to_me={my_links} {threaded_info} clip[{clip_info}] curve_sample={:?}",
+                elapsed.len(),
+                curve_ids
+                    .iter()
+                    .map(|c| c.0.as_u64_pair())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        world.insert_resource(probe);
     }
     // Level 2+: recursive subtree dump under each root (depth-capped) —
     // B0004-pattern hunting: one broken Visibility or a zero-scale Transform

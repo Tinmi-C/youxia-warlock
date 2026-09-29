@@ -278,7 +278,10 @@ pub fn attach_tower_appearance(
                 // Feet on the ground (world 0); the uniform scale shares the
                 // Transform that `ranger_face_targets` yaws.
                 p.spawn((
-                    RangerRig { gltf },
+                    RangerRig {
+                        gltf,
+                        wired: None,
+                    },
                     crate::components::RangerBody,
                     bevy::world_serialization::WorldAssetRoot(scene),
                     Transform::from_xyz(0.0, RANGER_MOUNT_Y, 0.0)
@@ -299,21 +302,33 @@ pub fn attach_tower_appearance(
     ));
 }
 
-/// ART12: once the ranger's Gltf asset is in, wire the rig — drive the
-/// LOADER's player (ART11 lesson), build an idle+attack two-clip graph,
-/// hang the bow on the `handslot.r` bone, and arm `RangerCombat`.
+/// ART12: wire the ranger rig — and keep it wired. Bevy re-instantiates the
+/// whole scene on a WorldAsset `Modified` event (e.g. a second archer
+/// re-loading the same GLB), which swaps in a FRESH loader player; a
+/// consume-once marker would leave the rebuilt rig permanently T-posed. So
+/// this system health-checks every frame: if our recorded player died with
+/// the old scene, it re-attaches the (app-owned, still-valid) graph,
+/// re-creates `RangerCombat`, and re-hangs the bow.
+#[allow(clippy::type_complexity)]
 pub fn wire_ranger(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     clips: Res<Assets<AnimationClip>>,
-    pending: Query<(Entity, &RangerRig, &ChildOf)>,
+    mut pending: Query<(Entity, &mut RangerRig, &ChildOf)>,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
+    combat: Query<(), With<RangerCombat>>,
     names: Query<&Name>,
     server: Option<Res<AssetServer>>,
 ) {
-    for (wrapper, rig, parent) in &pending {
+    for (wrapper, mut rig, parent) in &mut pending {
+        // Healthy: recorded player alive and still combat-armed.
+        if let Some(w) = &rig.wired {
+            if combat.get(w.player).is_ok() {
+                continue;
+            }
+        }
         let Some(gltf) = gltfs.get(&rig.gltf) else {
             continue; // still loading — retry next frame
         };
@@ -358,15 +373,22 @@ pub fn wire_ranger(
         else {
             continue;
         };
-        let (mut graph, idle_node) = AnimationGraph::from_clip(idle_clip);
-        let attack_node = graph.add_clip(attack_clip, 1.0, graph.root);
-        let handle = graphs.add(graph);
+        // Reuse the graph across rebuilds (app-owned, survives the scene).
+        let wired = rig.wired.take();
+        let (handle, idle_node, attack_node) = match wired {
+            Some(w) => (w.graph, w.idle, w.attack),
+            None => {
+                let (mut graph, idle_node) = AnimationGraph::from_clip(idle_clip);
+                let attack_node = graph.add_clip(attack_clip, 1.0, graph.root);
+                (graphs.add(graph), idle_node, attack_node)
+            }
+        };
         let Ok(mut player) = players.get_mut(player_e) else {
             continue;
         };
         player.play(idle_node).repeat();
         commands.entity(player_e).insert((
-            AnimationGraphHandle(handle),
+            AnimationGraphHandle(handle.clone()),
             RangerCombat {
                 tower: parent.0,
                 idle: idle_node,
@@ -375,23 +397,35 @@ pub fn wire_ranger(
                 recover: 0.0,
             },
         ));
-        // Bow on the dedicated weapon bone (children of animated bones
-        // follow the hand; the wrapper's 0.8 scale applies through it).
+        rig.wired = Some(crate::components::RangerWired {
+            player: player_e,
+            graph: handle,
+            idle: idle_node,
+            attack: attack_node,
+            attack_secs,
+        });
+        // Bow on the dedicated weapon bone (idempotent: a fresh handslot is
+        // bare — the rebuild lost the old bow — so attach only when it has
+        // no children yet).
         if let Some(server) = server.as_deref() {
-            let bow = server.load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(BOW_MODEL));
             match find_named(wrapper, BOW_SLOT_NODE, &children, &names) {
                 Some(slot) => {
-                    commands.entity(slot).with_children(|p| {
-                        p.spawn((
-                            bevy::world_serialization::WorldAssetRoot(bow),
-                            Transform::IDENTITY,
-                        ));
-                    });
+                    let bare = children.get(slot).is_err();
+                    if bare {
+                        let bow = server.load(
+                            bevy::gltf::GltfAssetLabel::Scene(0).from_asset(BOW_MODEL),
+                        );
+                        commands.entity(slot).with_children(|p| {
+                            p.spawn((
+                                bevy::world_serialization::WorldAssetRoot(bow),
+                                Transform::IDENTITY,
+                            ));
+                        });
+                    }
                 }
                 None => info!("[art12] handslot.r not found — bow skipped"),
             }
         }
-        commands.entity(wrapper).remove::<RangerRig>();
         info!("[art12] ranger wired: idle={idle_name} attack={attack_name}");
     }
 }

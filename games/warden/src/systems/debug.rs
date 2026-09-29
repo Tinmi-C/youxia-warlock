@@ -434,11 +434,14 @@ pub enum Scenario {
     Showroom,
     /// The shooting range: one real attacker vs stationary dummies (SM3R).
     Range,
+    /// Two archers + wave 1 auto-started (ART12 repro: does interaction-time
+    /// spawning strip animation graphs?).
+    WaveFight,
 }
 
 impl Scenario {
     /// All scenarios with their CLI/panel names, in display order.
-    pub const ALL: [(Scenario, &'static str); 8] = [
+    pub const ALL: [(Scenario, &'static str); 9] = [
         (Scenario::Fusion, "fusion"),
         (Scenario::Projectile, "projectile"),
         (Scenario::Fx, "fx"),
@@ -447,6 +450,7 @@ impl Scenario {
         (Scenario::FullBoard, "full-board"),
         (Scenario::Showroom, "showroom"),
         (Scenario::Range, "range"),
+        (Scenario::WaveFight, "wave-fight"),
     ];
 
     pub fn name(self) -> &'static str {
@@ -625,6 +629,28 @@ fn apply_scenario(world: &mut World, scenario: Scenario) {
         // maintenance system on the requested reset).
         Scenario::Range => {
             crate::systems::range::enter_range(world);
+        }
+        // ART12 repro: two archers placed like a real opening, then wave 1
+        // auto-starts a frame later — the exact "placed + started" chain a
+        // player performs, minus the physical clicks.
+        Scenario::WaveFight => {
+            let slots: Vec<(Entity, Vec3)> = free_slots_in_order(world)
+                .into_iter()
+                .take(2)
+                .collect();
+            place_towers(world, 0, &slots);
+            let mut wave = world.resource_mut::<WaveState>();
+            wave.phase = crate::resources::WavePhase::Combat;
+            wave.current = 0;
+            wave.spawn_queue = std::collections::VecDeque::from_iter(
+                crate::resources::WaveSchedule::schedule()
+                    .waves[0]
+                    .entries
+                    .iter()
+                    .flat_map(|e| std::iter::repeat(e.enemy_index).take(e.count as usize)),
+            );
+            wave.spawn_timer = 0.0;
+            wave.active = 0;
         }
     }
     info!("[debug] scenario '{}' loaded", scenario.name());

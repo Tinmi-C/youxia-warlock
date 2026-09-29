@@ -208,14 +208,23 @@ pub struct MapProp;
 #[derive(Component)]
 pub struct MapStructure;
 
-/// ART12: deferred rig wiring on the ranger defender scene (archer tower
-/// look). `wire_ranger` consumes it once the Gltf lands: drives the LOADER's
-/// player (same lesson as ART11's T-pose), builds an idle+attack graph,
-/// attaches the bow to the `handslot.r` bone, and swaps this marker for
-/// `RangerCombat` on the player entity.
+/// ART12: deferred + SELF-HEALING rig wiring on the ranger defender (same
+/// scene-rebuild hazard as `EnemyAnim` — see its docs). `wire_ranger` keeps
+/// this marker forever, re-attaching graph/combat/bow whenever bevy
+/// re-instantiates the scene.
 #[derive(Component)]
 pub struct RangerRig {
     pub gltf: Handle<bevy::gltf::Gltf>,
+    pub wired: Option<RangerWired>,
+}
+
+/// What `wire_ranger` attached, for health checks and re-wires.
+pub struct RangerWired {
+    pub player: Entity,
+    pub graph: Handle<AnimationGraph>,
+    pub idle: AnimationNodeIndex,
+    pub attack: AnimationNodeIndex,
+    pub attack_secs: f32,
 }
 
 /// ART12 marker on the ranger scene wrapper (the entity whose yaw is turned
@@ -240,8 +249,24 @@ pub struct RangerCombat {
 /// animations are available, attaches an AnimationPlayer on the same entity,
 /// and plays the archetype's locomotion clip (Walking for most, Running for
 /// fast enemies) on loop.
+/// ART11: deferred + SELF-HEALING walk-animation wiring. Bevy 0.19's
+/// WorldAsset spawner re-instantiates EVERY instance of a scene asset on an
+/// `AssetEvent::Modified` (hot-reload design) — e.g. when a second tower
+/// re-loads the same GLB. The rebuilt scene carries a FRESH loader
+/// AnimationPlayer nobody wires, so a consume-once marker goes permanently
+/// T-pose. The marker therefore STAYS on the wrapper and re-wires whenever
+/// its recorded player dies.
 #[derive(Component)]
 pub struct EnemyAnim {
     pub gltf: Handle<bevy::gltf::Gltf>,
     pub run: bool,
+    pub wired: Option<WiredAnim>,
+}
+
+/// What `start_enemy_walk` attached, for health checks and re-wires.
+#[derive(Clone)]
+pub struct WiredAnim {
+    pub player: Entity,
+    pub graph: Handle<AnimationGraph>,
+    pub node: AnimationNodeIndex,
 }

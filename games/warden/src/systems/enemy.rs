@@ -147,7 +147,11 @@ pub fn spawn_enemy_at(
             let run = ENEMY_RUNS.get(index).copied().unwrap_or(false);
             commands.entity(eid).with_children(|p| {
                 p.spawn((
-                    EnemyAnim { gltf, run },
+                    EnemyAnim {
+                        gltf,
+                        run,
+                        wired: None,
+                    },
                     bevy::world_serialization::WorldAssetRoot(scene),
                     Transform::from_scale(Vec3::splat(scale)),
                 ));
@@ -191,11 +195,19 @@ pub fn start_enemy_walk(
     mut commands: Commands,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
-    pending: Query<(Entity, &EnemyAnim)>,
+    mut pending: Query<(Entity, &mut EnemyAnim)>,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
+    graphed: Query<(), (With<AnimationPlayer>, With<AnimationGraphHandle>)>,
 ) {
-    for (wrapper, anim) in &pending {
+    for (wrapper, mut anim) in &mut pending {
+        // Healthy: the recorded player still exists and still carries our
+        // graph. (Scene rebuilds despawn the old player — then we re-wire.)
+        if let Some(w) = &anim.wired {
+            if graphed.get(w.player).is_ok() {
+                continue;
+            }
+        }
         let Some(gltf) = gltfs.get(&anim.gltf) else {
             continue; // still loading — retry next frame
         };
@@ -205,32 +217,48 @@ pub fn start_enemy_walk(
             .iter()
             .find(|(name, _)| name.to_lowercase().contains(want))
         else {
-            // No locomotion clip: keep the bind pose, stop retrying.
+            // No locomotion clip: keep the bind pose, stop checking.
             info!("[art11] no locomotion clip for {}", want);
             commands.entity(wrapper).remove::<EnemyAnim>();
             continue;
         };
         // The scene instantiates a frame or more after the assets land, so
         // the loader's player may not exist yet — keep the marker and retry.
-        let Some(player_entity) = find_player(wrapper, &children, &players) else {
+        let Some(player_e) = find_player(wrapper, &children, &players) else {
             continue;
         };
-        let (graph, node) = AnimationGraph::from_clip(clip.clone());
-        let handle = graphs.add(graph);
-        let Ok(mut player) = players.get_mut(player_entity) else {
+        // Reuse the graph asset across rebuilds (app-owned, survives scenes).
+        let (handle, node) = match &anim.wired {
+            Some(w) => (w.graph.clone(), w.node),
+            None => {
+                let (graph, node) = AnimationGraph::from_clip(clip.clone());
+                (graphs.add(graph), node)
+            }
+        };
+        let Ok(mut player) = players.get_mut(player_e) else {
             continue;
         };
         player.play(node).repeat();
         commands
-            .entity(player_entity)
-            .insert(AnimationGraphHandle(handle));
-        commands.entity(wrapper).remove::<EnemyAnim>();
-        info!("[art11] walk wired: {clip_name}");
+            .entity(player_e)
+            .insert(AnimationGraphHandle(handle.clone()));
+        let rewired = anim.wired.is_some();
+        anim.wired = Some(crate::components::WiredAnim {
+            player: player_e,
+            graph: handle,
+            node,
+        });
+        if rewired {
+            info!("[art11] walk RE-wired after scene rebuild: {clip_name}");
+        } else {
+            info!("[art11] walk wired: {clip_name}");
+        }
     }
 }
 
 /// Depth-first search for the scene's own `AnimationPlayer` below `root`.
-fn find_player(
+/// Shared with the ART12 ranger wiring (same loader-player rule).
+pub fn find_player(
     root: Entity,
     children: &Query<&Children>,
     players: &Query<&mut AnimationPlayer>,
