@@ -271,10 +271,20 @@ assets/{models,textures,audio,fonts,ui}/
   ADR-0009 回流岩库）、ART10 弦箭分件动画（完整射击循环）。分件规范入知识库
   `docs/topics/graphics/model-part-animation-prep-spec.md`（本次手术即规范首次实施）；升格判据：第 2 个模型手术成功 →
   脚本泛化 + 用户级 skill。编号说明：ART3-6 为地形线，ART7+ 为弩线，按立项时间。
+- **技能系统二期全量落地（2026-09-29，ADR-0011 + SK5–SK11，一卡一提交）**：通用按实体技能框架
+  （`SkillCaster`/`SkillDefs` 注册表/`SkillBalance` 单源数值表；被动/主动/自动施法三分法；`SkillCast` 确认消息=
+  效果分发缝）+ 属性聚合管线（`StatMods`→`EffectiveStats`，tower_fire 只读聚合）+ 统一伤害管线
+  （`DamageRequest` 消息进、`resolve_damage` 全游戏唯一扣血者、`DamageDealt` 带来源归因出）。指挥官三技能
+  已迁上框架（SK1–SK4 验收句全保留）；弓箭手塔出厂带 鹰眼(被动暴击)/多重射击(主动)/火焰箭(自动施法) 三技能
+  （SK9），指令卡 E=付费升级(30/60金) R/A=技能槽、火焰箭右键开关自动施放（SK10）；散落技能数值 const 全部
+  收编进 SkillBalance（SK11），BAL 全程读数新增 塔普攻/塔技能/指挥官技能 三列伤害占比（首跑 3.6% 塔技能）。
+  测试 153 全绿（skills_core 7 / stats_pipeline 5 / damage_pipeline 5 / skills_archer 6 / skills_ui 4 为新钉）。
+  踩坑记录见 capability-cards.md 各卡（消息双缓冲断言、SystemParam 16 上限、derive 与 mut Query）。
 - **下一步**：**双美术线并行 + 真人试玩**——①地形线：ART4 基地/入口 → ART5 点缀 → ART6 黄昏光照（ART3 已落地待负责人试玩验收）；
   ②弩射击线：ART9 分件手术 v3 → ART10 弦箭动画（ART7 瞄准+炮口出弹、ART8 后坐已落地）；③**真人试玩盯 §15 信号**
-  （技能两新信号对照 ≤20% 输出锚点）；balance 数值仍按负责人意见暂缓。④验收通道线：SM1 已落地（待真人视觉
-  验收）→ SM2 动画触发+自由观察 → SM3 实弹区（技能/特效动态验收）→ SM4 截图基线。
+  （技能两新信号对照 ≤20% 输出锚点 + §17.6 塔技能 ≤10%）；balance 数值仍按负责人意见暂缓。④验收通道线：SM1 已落地（待真人视觉
+  验收）→ SM2 动画触发+自由观察 → SM3 实弹区（技能/特效动态验收）→ SM4 截图基线。⑤技能线后续：SK8 的
+  热键/按钮/指示圈人工回归 + SK10 视觉走查（⚠️ 项）；融合塔招牌主动（原二期范围）按 ADR-0011 框架直接立卡实现。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
