@@ -63,6 +63,7 @@ fn test_app() -> App {
         // does not provide.
         .init_resource::<Assets<bevy::gltf::Gltf>>()
         .init_resource::<Assets<AnimationGraph>>()
+        .init_resource::<Assets<AnimationClip>>()
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
             1.0 / 60.0,
         )));
