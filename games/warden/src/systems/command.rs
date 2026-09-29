@@ -666,7 +666,6 @@ pub fn select_object(
     blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
     panel: Res<crate::resources::DebugPanelCapture>,
     build: Res<BuildMode>,
-    targeting: Res<crate::resources::SkillTargeting>,
     aiming: Res<crate::resources::SkillAiming>,
     state: Res<State<GameState>>,
     mut selection: ResMut<Selection>,
@@ -674,7 +673,6 @@ pub fn select_object(
     slots: Query<(Entity, &TowerSlot, &Transform)>,
 ) {
     if build.armed
-        || targeting.0.is_some()
         || aiming.0.is_some()
         || !buttons.just_pressed(MouseButton::Left)
         || *state.get() != GameState::Playing
@@ -782,23 +780,18 @@ pub fn apply_pending_fusion(
 }
 
 /// Unified cancel (§16.3): right click or Esc clears the armed build, the
-/// fusion picking, the point-skill target picking (SK1 — a cancelled cast
-/// never pays its cooldown), the SK5 framework aiming (same law) and the
-/// selection itself. Not state-gated (harmless).
+/// fusion picking, the point-skill aiming (a cancelled cast never pays its
+/// cooldown, SK1/SK5) and the selection itself. Not state-gated (harmless).
 pub fn cancel_modes(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut build: ResMut<BuildMode>,
     mut selection: ResMut<Selection>,
-    mut skill_targeting: ResMut<crate::resources::SkillTargeting>,
     mut skill_aiming: ResMut<crate::resources::SkillAiming>,
 ) {
     if mouse.just_pressed(MouseButton::Right) || keys.just_pressed(KeyCode::Escape) {
         build.armed = false;
         *selection = Selection::None;
-        if skill_targeting.0.take().is_some() {
-            info!("[sk] target picking cancelled (no cooldown)");
-        }
         if skill_aiming.0.take().is_some() {
             info!("[sk] point aiming cancelled (no cooldown)");
         }
@@ -1333,6 +1326,7 @@ pub fn refresh_tooltip(
     selection: Res<Selection>,
     towers: Query<&Tower>,
     defs: Res<TowerDefs>,
+    skill_defs: Res<crate::resources::SkillDefs>,
     panels: Query<Entity, With<TooltipText>>,
     mut cache: Local<Option<(TooltipSource, Lang)>>,
 ) {
@@ -1359,7 +1353,8 @@ pub fn refresh_tooltip(
     let skill_line = |source: TooltipSource| -> Option<String> {
         match source {
             TooltipSource::Skill(id) => {
-                let def = crate::systems::skills::commander_skill_def(id);
+                // Registry row for the badge (SkillId::index == def id).
+                let def = skill_defs.get(id.index());
                 Some(format!(
                     "{}: {}\n{}",
                     l10n::TT_HOTKEY.pick(*lang),

@@ -1,12 +1,12 @@
-//! SkillsPlugin: commander skills, phase 1 (SK1 framework + SK2/3/4 effects;
-//! requirements §17) + the generic per-entity skill framework (phase 2,
-//! ADR-0011 / card SK5). Cooldowns tick in Simulate (Playing only → frozen
-//! on pause); casting/target-picking runs in Input; buttons refresh in
-//! Observe.
+//! SkillsPlugin: the generic per-entity skill framework (ADR-0011, SK5) +
+//! the commander skills on it (SK1-SK4 behaviour, migrated by SK8). The
+//! commander singleton spawns at Startup; hotkeys/buttons write CastSkill
+//! in Input; effects dispatch and cooldowns tick in Simulate; buttons
+//! refresh in Observe.
 
 use bevy::prelude::*;
 
-use crate::resources::{SkillAiming, SkillBalance, SkillDefs, SkillState, SkillTargeting, WarFrenzy};
+use crate::resources::{SkillAiming, WarFrenzy};
 use crate::sets::GameSet;
 use crate::states::GameState;
 use crate::systems;
@@ -15,50 +15,42 @@ pub struct SkillsPlugin;
 
 impl Plugin for SkillsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SkillState>()
-            .init_resource::<SkillTargeting>()
+        app.insert_resource(systems::skills::production_skill_defs())
+            .insert_resource(systems::skills::production_skill_balance())
             .init_resource::<WarFrenzy>()
-            // Generic framework (SK5, ADR-0011).
-            .init_resource::<SkillDefs>()
-            .init_resource::<SkillBalance>()
             .init_resource::<SkillAiming>()
             .add_message::<systems::skills::CastSkill>()
             .add_message::<systems::skills::SkillCast>()
+            // SK8: the persistent commander owns the three skills.
+            .add_systems(Startup, systems::skills::spawn_commander)
             .add_systems(
                 Update,
                 (
-                    // Target picking owns the world click while active: it
+                    // Point aiming owns the world click while active: it
                     // runs before select_object (no re-select behind the
-                    // cast) and before the button handler (the click that
-                    // pressed a skill button cannot confirm itself).
-                    systems::skills::update_skill_targeting
-                        .in_set(GameSet::Input)
-                        .before(systems::command::select_object)
-                        .before(systems::skills::handle_skill_buttons),
-                    // Same ordering contract for the SK5 framework path.
-                    systems::skills::update_aim_picking
-                        .in_set(GameSet::Input)
-                        .before(systems::command::select_object)
-                        .before(systems::skills::handle_cast_requests),
-                    // Z/X/C inject the same Interaction a click produces.
-                    systems::skills::skill_hotkeys
-                        .in_set(GameSet::Input)
-                        .before(systems::skills::handle_skill_buttons),
-                    systems::skills::handle_skill_buttons.in_set(GameSet::Input),
-                    // SK5: validate cast requests (message-driven; writers
-                    // are the UI/autocast systems of SK8-SK10 and tests).
-                    systems::skills::handle_cast_requests.in_set(GameSet::Input),
+                    // cast) and before the cast handlers (the click that
+                    // pressed a skill button cannot confirm itself). Then
+                    // hotkeys and buttons queue CastSkill requests, and the
+                    // validator resolves them — all in the same frame.
+                    systems::skills::update_aim_picking,
+                    systems::skills::skill_hotkeys,
+                    systems::skills::handle_skill_buttons,
+                    systems::skills::handle_cast_requests,
                 )
+                    .chain()
+                    .in_set(GameSet::Input)
+                    .before(systems::command::select_object)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
                 Update,
                 (
-                    systems::skills::tick_skill_cooldowns,
-                    // SK2: volley shots release in Simulate right after the
-                    // cooldown tick (cast lands in Input the same frame, so
-                    // the first meteor drops immediately on the cast frame).
-                    systems::skills::release_meteor_shots.after(systems::skills::tick_skill_cooldowns),
+                    // Confirmed casts dispatch to their effects; the meteor
+                    // volley releases right after, so the first shot drops
+                    // on the cast frame (phase-1 timing).
+                    systems::skills::commander_skill_effects,
+                    systems::skills::release_meteor_shots
+                        .after(systems::skills::commander_skill_effects),
                     // SK4: frenzy countdown.
                     systems::skills::tick_war_frenzy,
                     // SK5: per-entity slot cooldowns, same law.

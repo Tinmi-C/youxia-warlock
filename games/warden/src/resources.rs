@@ -567,8 +567,11 @@ impl Default for WaveChoice {
 
 // --- Skills (phase 1, requirements §17 / cards SK1-SK4) -------------------------
 
-/// The three commander skills (requirements §17.2). Index into the parallel
-/// arrays below (`SKILL_COOLDOWNS`, `systems::skills::SKILL_DEFS`).
+/// The three commander skills (requirements §17.2). Since SK8 the runtime
+/// home is the `SkillDefs` registry (the commander rows) and the SkillCaster
+/// on the commander entity; the enum stays as the l10n/tooltip key.
+/// INVARIANT: `SkillId::index()` == its registry def id (the commander rows
+/// are `systems::skills::{SKILL_METEOR_RAIN, SKILL_FROST_NOVA, SKILL_WAR_FRENZY}`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SkillId {
     /// 流星火雨: 3 AOE blasts at a picked point (SK2).
@@ -595,47 +598,14 @@ impl SkillId {
 /// Cooldown seconds per skill (§17.2 starting values; tune via §14). CD is
 /// real-time continuous: it ticks with virtual game time in BOTH phases,
 /// never resets across waves, and starts READY (0 remaining).
+/// Since SK8 the runtime source is `SkillBalance` (built from these rows);
+/// SK11 folds these constants into the table and deletes them.
 pub const SKILL_COOLDOWNS: [f32; 3] = [45.0, 40.0, 60.0];
 
-/// Live cooldown state for the three skills (SK1). `cooldowns[i] <= 0` = ready.
-#[derive(Resource)]
-pub struct SkillState {
-    pub cooldowns: [f32; 3],
-}
-
-impl Default for SkillState {
-    fn default() -> Self {
-        // Opening state: everything ready (§17.1 开局即就绪).
-        Self { cooldowns: [0.0; 3] }
-    }
-}
-
-impl SkillState {
-    pub fn remaining(&self, id: SkillId) -> f32 {
-        self.cooldowns[id.index()].max(0.0)
-    }
-
-    pub fn ready(&self, id: SkillId) -> bool {
-        self.remaining(id) <= 0.0
-    }
-
-    /// Start the skill's full cooldown (called on a confirmed cast).
-    pub fn start_cooldown(&mut self, id: SkillId) {
-        self.cooldowns[id.index()] = SKILL_COOLDOWNS[id.index()];
-    }
-
-    /// Debug cheat (DB1 panel "reset skill CDs"): everything ready again.
-    pub fn reset_all(&mut self) {
-        self.cooldowns = [0.0; 3];
-    }
-}
-
-/// Point-target skill picking is active (SK1, §17.3 — same interaction shape
-/// as fusion target picking): the named skill awaits a ground-point confirm.
-/// Esc / right-click cancels (command::cancel_modes); left-click confirms
-/// (systems::skills::update_skill_targeting). Cancel never starts a cooldown.
+/// Point-target picking active for a caster's slot (SK5 generic targeting —
+/// the only targeting state since SK8 retired the phase-1 resource).
 #[derive(Resource, Debug, Default)]
-pub struct SkillTargeting(pub Option<SkillId>);
+pub struct SkillAiming(pub Option<(Entity, usize)>);
 
 /// SK4 war frenzy: while `remaining > 0`, every tower's fire cooldown is
 /// `1 / (attack_speed × Boosts × FRENZY_SPEED_MULT)`. A GLOBAL timed state —
@@ -695,6 +665,9 @@ pub struct SkillDef {
     pub target: SkillTargetMode,
     pub max_level: u8,
     pub badge: char,
+    /// Global hotkey, if any (the commander's Z/X/C). Tower-skill hotkeys
+    /// arrive with SK10 as selection-scoped keys.
+    pub hotkey: Option<KeyCode>,
     /// Indicator ring radius for Point skills (the skill's effect radius).
     pub indicator_radius: f32,
 }
@@ -728,10 +701,3 @@ impl SkillBalance {
         per_level[(level.saturating_sub(1) as usize).min(per_level.len() - 1)]
     }
 }
-
-/// Point-target picking active for a caster's slot (SK5 generic targeting).
-/// The phase-1 `SkillTargeting` stays for the commander path until SK8
-/// migrates it onto the framework; entering one clears the other so the
-/// world click always has a single owner.
-#[derive(Resource, Debug, Default)]
-pub struct SkillAiming(pub Option<(Entity, usize)>);

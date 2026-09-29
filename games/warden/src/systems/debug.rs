@@ -176,8 +176,6 @@ pub struct CheatsBoard<'w, 's> {
     /// DB3 time control + overlay state (observation tools — see the actions).
     pub time: ResMut<'w, crate::systems::debug_time::DebugTime>,
     pub overlays: ResMut<'w, crate::systems::debug_time::DebugOverlays>,
-    /// Skill cooldowns (SK1 "reset skill CDs" cheat).
-    pub skills: ResMut<'w, crate::resources::SkillState>,
     /// Enemies + in-flight projectiles (cleared on wave jumps / restart).
     pub mobs: Query<'w, 's, Entity, Or<(With<Enemy>, With<Projectile>)>>,
     /// Placed towers (cleared only on restart).
@@ -191,7 +189,13 @@ pub struct CheatsBoard<'w, 's> {
 /// the first CHEAT (DB3 observation actions — time control / overlays — are
 /// exempt: they change no outcome): no meta payout, no save write for a
 /// marked run.
-pub fn debug_cheat_executor(mut core: CheatsCore, mut board: CheatsBoard) {
+pub fn debug_cheat_executor(
+    mut core: CheatsCore,
+    mut board: CheatsBoard,
+    // SK8: skill cooldowns live on the commander entity's SkillCaster now
+    // (kept out of CheatsBoard — the SystemParam derive rejects mut queries).
+    mut commanders: Query<&mut crate::components::SkillCaster, With<crate::components::Commander>>,
+) {
     if core.queue.0.is_empty() {
         return;
     }
@@ -303,7 +307,11 @@ pub fn debug_cheat_executor(mut core: CheatsCore, mut board: CheatsBoard) {
                 board.overlays.show_enemy_stats = !board.overlays.show_enemy_stats;
             }
             DebugAction::SkillResetCd => {
-                board.skills.reset_all();
+                for mut caster in &mut commanders {
+                    for slot in caster.slots.iter_mut() {
+                        slot.cooldown = 0.0;
+                    }
+                }
                 info!("[debug] skill cooldowns reset");
             }
         }

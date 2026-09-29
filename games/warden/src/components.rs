@@ -300,6 +300,13 @@ pub struct SkillCaster {
     pub slots: Vec<SkillSlot>,
 }
 
+/// The persistent commander singleton (SK8): owns the three global skills
+/// (meteor rain / frost nova / war frenzy) via its `SkillCaster`. Spawned
+/// once at Startup; its cooldowns live for the whole app run, like the
+/// phase-1 global SkillState did.
+#[derive(Component, Debug)]
+pub struct Commander;
+
 // --- Stat modification pipeline (phase 2, ADR-0011; card SK6) ----------------------
 
 /// Who contributes a stat modifier — the removable identity auras and timed

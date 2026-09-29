@@ -1001,7 +1001,7 @@
   **踩坑**：跨多帧读消息必须逐帧 drain——Messages 双缓冲只保留最近帧，循环外统一 read 会丢事件（与
   len() 坑同源，SK5/SK7 两处测试均按此修）。
 
-### SK8 · 指挥官技能迁移上框架（skills/ui）—— ▶ 待实现（依赖 SK5；建议在 SK9 前用已知行为验证通用性）
+### SK8 · 指挥官技能迁移上框架（skills/ui）—— ✅ 已实现（2026-09-29，依赖 SK5）
 - 接口: Startup 生成持久指挥官单例实体挂 `SkillCaster`（流星火雨/冰霜新星/战意狂暴三 Active）；Z/X/C 热键与
   控制区按钮改读该实体槽位；删除全局 `SkillState` 与 `SKILL_DEFS` 旧表（数值进 SkillBalance 由 SK11 收编，过渡期
   常量暂留）。
@@ -1009,6 +1009,19 @@
   聚合管线读取的全局态或 StatMods 广播，取改动小者并在卡上注明取舍）；冷却/目标选择/热键/按钮交互语义与一期一致。
 - 验收句: **SK1–SK4 全部原验收句保留并通过**（behavior 里 skills_sk1/sk2/sk3/sk4 组改走新驱动路径、断言不变）；
   指挥官实体上的 SkillCaster 冷却与全局资源制时代逐帧等价；热键/按钮/指示圈手感人工回归（⚠️）。
+- 实现: `systems/skills.rs` 重写为一期行为 × 新框架：注册表三行（meteor_rain/frost_nova/war_frenzy，SkillDef 增
+  `hotkey: Option<KeyCode>` 字段）+ `production_skill_defs()/production_skill_balance()`（冷却行暂由 SKILL_COOLDOWNS
+  构造，SK11 收编删常量）；`Commander` 标记组件 + Startup `spawn_commander`（持久单例——冷却跨波/跨重开不重置，
+  继承一期 SkillState 语义）。交互层：热键 Z/X/C 与控制区按钮**统一写 CastSkill 消息**（取代旧 Interaction 注入
+  舞蹈），`update_aim_picking`（SK5）接管点地目标选择；效果分发 `commander_skill_effects`（读 SkillCast 按 def id
+  match：MeteorVolley / ApplySlow 新星 / WarFrenzy 资源——狂暴**保留全局资源**形态，SK6 聚合器已把它折进
+  EffectiveStats，改动最小）。删除：`SkillState`/`SkillTargeting` 资源、`CommanderSkillDef/COMMANDER_SKILL_DEFS/
+  commander_skill_def`/`CommanderSkillAiming`、`cast_skill`/`tick_skill_cooldowns`/`update_skill_targeting`
+  旧系统、`handle_cast_requests` 的过渡互斥清理。DB1 作弊 SkillResetCd 改清指挥官槽位 CD（SystemParam derive
+  不收 mut Query——指挥官查询作为执行器独立参数）。tooltip 徽章改读 SkillDefs 注册表（SkillId::index==注册表 id
+  不变式，写进 resources.rs 文档）。**验收护栏兑现**：skills_sk1/sk2/sk3/sk4 四组验收句全部保留原断言，仅驱动路径
+  换成指挥官实体访问器（commander_cooldowns/set_commander_cooldown 入 behavior.rs 文件级助手）；
+  damage_pipeline 流星归因测试同步走新路径。136 behavior 全绿。热键/按钮/指示圈手感 ⚠️人工回归待跑。
 
 ### SK9 · 弓箭手塔技能组：鹰眼/多重射击/火焰箭（skills/towers）—— ▶ 待实现（依赖 SK5/SK6/SK7）
 - 接口: `SkillDefs` 注册三技能；建塔时 `spawn_base_tower` 附 SkillCaster（lv1）；invest 升级处同步 level_up 并刷新

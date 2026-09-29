@@ -1848,6 +1848,38 @@ fn release_all_inputs(app: &mut App) {
     }
 }
 
+/// The commander singleton entity (SK8: it owns the three global skills —
+/// the drive-path replacement for the retired SkillState resource).
+fn commander_entity(app: &mut App) -> Entity {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<Entity, With<warden::components::Commander>>();
+    q.single(app.world()).expect("commander spawned")
+}
+
+/// Commander slot cooldowns, in slot order.
+fn commander_cooldowns(app: &mut App) -> Vec<f32> {
+    let e = commander_entity(app);
+    app.world()
+        .get::<warden::components::SkillCaster>(e)
+        .expect("commander caster")
+        .slots
+        .iter()
+        .map(|s| s.cooldown)
+        .collect()
+}
+
+/// Force a commander slot cooldown (test harness equivalent of the old
+/// `SkillState::start_cooldown`).
+fn set_commander_cooldown(app: &mut App, slot: usize, cd: f32) {
+    let e = commander_entity(app);
+    app.world_mut()
+        .get_mut::<warden::components::SkillCaster>(e)
+        .expect("commander caster")
+        .slots[slot]
+        .cooldown = cd;
+}
+
 /// Regression (UI11 entry step): pressing the Fuse button with the cursor on
 /// the bar must enter fusion picking — the same physical click must not also
 /// blank-cancel the selection behind the bar.
@@ -3482,7 +3514,7 @@ mod debug_db3 {
 
 mod skills_sk1 {
     use super::*;
-    use warden::resources::{SkillId, SkillState, SkillTargeting, SKILL_COOLDOWNS};
+    use warden::resources::{SkillAiming, SKILL_COOLDOWNS};
     use warden::systems::skills::{SkillButton, SkillsRow};
 
     fn count_skill_buttons(app: &mut App) -> usize {
@@ -3491,16 +3523,18 @@ mod skills_sk1 {
     }
 
     /// SK1 acceptance: the run opens with every skill READY (cooldown 0) and
-    /// the control zone carries exactly three skill buttons (greyed until
-    /// their skill card lands).
+    /// the control zone carries exactly three skill buttons.
     #[test]
     fn skills_start_ready_with_three_control_zone_buttons() {
         let mut app = test_app();
         app.update();
         app.update();
         app.update(); // control zone builds on frame 1; the row self-heals
-        let skills = app.world().resource::<SkillState>();
-        assert_eq!(skills.cooldowns, [0.0; 3], "opening state: all ready");
+        assert_eq!(
+            commander_cooldowns(&mut app),
+            vec![0.0; 3],
+            "opening state: all ready"
+        );
         assert_eq!(count_skill_buttons(&mut app), 3, "three skill buttons");
         let mut rows = app.world_mut().query_filtered::<(), With<SkillsRow>>();
         assert_eq!(rows.iter(app.world()).count(), 1, "one skill row");
@@ -3513,17 +3547,12 @@ mod skills_sk1 {
     fn skill_cooldown_ticks_with_time_and_freezes_on_pause() {
         let mut app = test_app();
         app.update();
-        app.world_mut()
-            .resource_mut::<SkillState>()
-            .start_cooldown(SkillId::MeteorRain);
-        assert_eq!(
-            app.world().resource::<SkillState>().cooldowns[0],
-            SKILL_COOLDOWNS[0]
-        );
+        set_commander_cooldown(&mut app, 0, SKILL_COOLDOWNS[0]);
+        assert_eq!(commander_cooldowns(&mut app)[0], SKILL_COOLDOWNS[0]);
         for _ in 0..60 {
             app.update(); // 1s of game time
         }
-        let after_1s = app.world().resource::<SkillState>().cooldowns[0];
+        let after_1s = commander_cooldowns(&mut app)[0];
         assert!(
             (after_1s - 44.0).abs() < 0.01,
             "1s later the CD must be 44s (got {after_1s})"
@@ -3536,7 +3565,7 @@ mod skills_sk1 {
         for _ in 0..120 {
             app.update();
         }
-        let after_pause = app.world().resource::<SkillState>().cooldowns[0];
+        let after_pause = commander_cooldowns(&mut app)[0];
         assert!(
             (after_pause - after_1s).abs() < 1e-6,
             "paused game must freeze the cooldown (got {after_pause})"
@@ -3546,7 +3575,7 @@ mod skills_sk1 {
             .set(GameState::Playing);
         app.update();
         app.update(); // 1/60s of play time ticks it again
-        let resumed = app.world().resource::<SkillState>().cooldowns[0];
+        let resumed = commander_cooldowns(&mut app)[0];
         assert!(resumed < after_pause, "resuming ticks the cooldown again");
     }
 
@@ -3556,9 +3585,7 @@ mod skills_sk1 {
     fn skill_cooldown_survives_wave_transition() {
         let mut app = test_app();
         app.update();
-        app.world_mut()
-            .resource_mut::<SkillState>()
-            .start_cooldown(SkillId::FrostNova);
+        set_commander_cooldown(&mut app, 1, SKILL_COOLDOWNS[1]);
         {
             let mut ws = app.world_mut().resource_mut::<WaveState>();
             ws.current = 0;
@@ -3571,7 +3598,7 @@ mod skills_sk1 {
             app.world().resource::<WaveState>().phase,
             WavePhase::Intermission
         );
-        let cd = app.world().resource::<SkillState>().cooldowns[1];
+        let cd = commander_cooldowns(&mut app)[1];
         assert!(
             (cd - SKILL_COOLDOWNS[1]).abs() < 0.05,
             "wave change must keep the CD running (got {cd})"
@@ -3580,21 +3607,16 @@ mod skills_sk1 {
 
     /// SK1: a skill on cooldown stays inert — pressing Z/X/C does nothing
     /// (no target picking, no instant cast, the cooldown keeps running).
-    /// (All three skills went live with SK2-4; the "unimplemented" gate is
-    /// exercised the same way through this cooldown gate.)
     #[test]
     fn skill_hotkeys_do_nothing_while_on_cooldown() {
         let mut app = test_app();
         app.update();
         app.update();
         app.update();
-        {
-            let mut skills = app.world_mut().resource_mut::<SkillState>();
-            skills.start_cooldown(SkillId::MeteorRain);
-            skills.start_cooldown(SkillId::FrostNova);
-            skills.start_cooldown(SkillId::WarFrenzy);
+        for slot in 0..3 {
+            set_commander_cooldown(&mut app, slot, SKILL_COOLDOWNS[slot]);
         }
-        let before = app.world().resource::<SkillState>().cooldowns;
+        let before = commander_cooldowns(&mut app);
         for key in [KeyCode::KeyZ, KeyCode::KeyX, KeyCode::KeyC] {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
@@ -3607,23 +3629,16 @@ mod skills_sk1 {
             }
         }
         assert_eq!(
-            app.world().resource::<SkillTargeting>().0,
+            app.world().resource::<SkillAiming>().0,
             None,
             "no target picking while cooling down"
         );
-        let after = app.world().resource::<SkillState>().cooldowns;
+        let after = commander_cooldowns(&mut app);
         for i in 0..3 {
             assert!(
                 after[i] <= before[i],
                 "no cooldown restart from a blocked press ({i}: {before:?} -> {after:?})"
             );
-        }
-        // Reset the injected Interactions so nothing lingers.
-        let mut q = app
-            .world_mut()
-            .query_filtered::<&mut bevy::ui::Interaction, With<SkillButton>>();
-        for mut inter in q.iter_mut(app.world_mut()) {
-            *inter = bevy::ui::Interaction::None;
         }
     }
 
@@ -3634,11 +3649,8 @@ mod skills_sk1 {
         use warden::systems::debug::DebugAction;
         let mut app = super::debug_cheats::debug_app();
         app.update();
-        {
-            let mut skills = app.world_mut().resource_mut::<SkillState>();
-            skills.start_cooldown(SkillId::MeteorRain);
-            skills.start_cooldown(SkillId::FrostNova);
-            skills.start_cooldown(SkillId::WarFrenzy);
+        for slot in 0..3 {
+            set_commander_cooldown(&mut app, slot, SKILL_COOLDOWNS[slot]);
         }
         app.world_mut()
             .resource_mut::<warden::systems::debug::DebugQueue>()
@@ -3646,8 +3658,8 @@ mod skills_sk1 {
             .push(DebugAction::SkillResetCd);
         app.update();
         assert_eq!(
-            app.world().resource::<SkillState>().cooldowns,
-            [0.0; 3],
+            commander_cooldowns(&mut app),
+            vec![0.0; 3],
             "the cheat resets every cooldown"
         );
         assert!(
@@ -3662,7 +3674,7 @@ mod skills_sk1 {
 mod skills_sk2 {
     use super::*;
     use warden::components::{Projectile, ProjectileOrigin};
-    use warden::resources::{SkillId, SkillState, SkillTargeting, SKILL_COOLDOWNS};
+    use warden::resources::{SkillAiming, SKILL_COOLDOWNS};
     use warden::systems::skills::{MeteorVolley, METEOR_COUNT};
 
     /// A stationary live enemy (speed 0 keeps it exactly in place for
@@ -3709,6 +3721,7 @@ mod skills_sk2 {
     /// Cast meteor rain at a world point through the REAL player path: Z
     /// hotkey -> target picking -> cursor over the point -> left-click.
     fn cast_meteor_at(app: &mut App, point: Vec3) {
+        let commander = commander_entity(app);
         // Z enters target picking (button must exist from earlier updates).
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -3716,8 +3729,8 @@ mod skills_sk2 {
         app.update();
         reset_skill_interactions(app);
         assert_eq!(
-            app.world().resource::<SkillTargeting>().0,
-            Some(SkillId::MeteorRain),
+            app.world().resource::<SkillAiming>().0,
+            Some((commander, 0)),
             "Z enters meteor target picking"
         );
         // Cursor exactly over the point, then confirm with a left click.
@@ -3737,7 +3750,7 @@ mod skills_sk2 {
         app.update();
         reset_skill_interactions(app);
         assert_eq!(
-            app.world().resource::<SkillTargeting>().0,
+            app.world().resource::<SkillAiming>().0,
             None,
             "the confirm click clears target picking"
         );
@@ -3765,7 +3778,7 @@ mod skills_sk2 {
                 .query_filtered::<(), With<MeteorVolley>>();
             assert_eq!(q.iter(app.world()).count(), 1, "one volley scheduled");
         }
-        let cd = app.world().resource::<SkillState>().cooldowns[0];
+        let cd = commander_cooldowns(&mut app)[0];
         assert!(
             (SKILL_COOLDOWNS[0] - cd) < 0.1 && cd > SKILL_COOLDOWNS[0] - 0.1,
             "cooldown starts at 45s on confirm (got {cd})"
@@ -3833,9 +3846,10 @@ mod skills_sk2 {
             .press(KeyCode::KeyZ);
         app.update();
         reset_skill_interactions(&mut app);
+        let commander = commander_entity(&mut app);
         assert_eq!(
-            app.world().resource::<SkillTargeting>().0,
-            Some(SkillId::MeteorRain)
+            app.world().resource::<SkillAiming>().0,
+            Some((commander, 0))
         );
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -3843,12 +3857,12 @@ mod skills_sk2 {
         app.update();
         reset_skill_interactions(&mut app);
         assert_eq!(
-            app.world().resource::<SkillTargeting>().0,
+            app.world().resource::<SkillAiming>().0,
             None,
             "Esc cancels the target pick"
         );
         assert_eq!(
-            app.world().resource::<SkillState>().cooldowns[0],
+            commander_cooldowns(&mut app)[0],
             0.0,
             "a cancelled pick never starts the cooldown"
         );
@@ -3866,7 +3880,7 @@ mod skills_sk2 {
 mod skills_sk3 {
     use super::*;
     use warden::components::Slow;
-    use warden::resources::{SkillId, SkillState, SkillTargeting, SKILL_COOLDOWNS};
+    use warden::resources::{SkillAiming, SKILL_COOLDOWNS};
     use warden::systems::skills::{NOVA_RADIUS, NOVA_SLOW_DURATION, NOVA_SLOW_FACTOR};
     use warden::systems::tower::apply_slow;
 
@@ -3909,14 +3923,15 @@ mod skills_sk3 {
     /// Cast frost nova at a world point through the REAL player path (X
     /// hotkey -> click confirm), like the SK2 helper.
     fn cast_nova_at(app: &mut App, point: Vec3) {
+        let commander = commander_entity(app);
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyX);
         app.update();
         reset_skill_interactions(app);
         assert_eq!(
-            app.world().resource::<SkillTargeting>().0,
-            Some(SkillId::FrostNova),
+            app.world().resource::<SkillAiming>().0,
+            Some((commander, 1)),
             "X enters nova target picking"
         );
         enable_world_picking(app, Vec2::new(640.0, 360.0));
@@ -3954,7 +3969,7 @@ mod skills_sk3 {
 
         cast_nova_at(&mut app, point);
         // The cooldown started.
-        let cd = app.world().resource::<SkillState>().cooldowns[1];
+        let cd = commander_cooldowns(&mut app)[1];
         assert!(
             cd <= SKILL_COOLDOWNS[1] && cd > SKILL_COOLDOWNS[1] - 0.1,
             "nova cooldown starts at 40s (got {cd})"
@@ -4072,7 +4087,7 @@ mod skills_sk3 {
 mod skills_sk4 {
     use super::*;
     use warden::resources::{
-        FRENZY_DURATION, FRENZY_SPEED_MULT, SkillState, WarFrenzy, SKILL_COOLDOWNS,
+        FRENZY_DURATION, FRENZY_SPEED_MULT, WarFrenzy, SKILL_COOLDOWNS,
     };
 
     /// A tanky enemy standing in range of the given tower position.
@@ -4171,7 +4186,7 @@ mod skills_sk4 {
             app.world().resource::<WarFrenzy>().remaining > FRENZY_DURATION - 0.1,
             "the frenzy is running"
         );
-        let cd = app.world().resource::<SkillState>().cooldowns[2];
+        let cd = commander_cooldowns(&mut app)[2];
         assert!(
             cd <= SKILL_COOLDOWNS[2] && cd > SKILL_COOLDOWNS[2] - 0.1,
             "the cast starts the 60s cooldown (got {cd})"
@@ -4222,7 +4237,7 @@ mod skills_sk4 {
     }
 
     /// SK4: the instant cast needs no target picking — C fires immediately
-    /// and clears on its own (no SkillTargeting state was entered).
+    /// and clears on its own (no SkillAiming state was entered).
     #[test]
     fn frenzy_casts_instantly_without_target_picking() {
         let mut app = test_app();
@@ -4235,7 +4250,7 @@ mod skills_sk4 {
             "C casts instantly"
         );
         assert_eq!(
-            app.world().resource::<warden::resources::SkillTargeting>().0,
+            app.world().resource::<warden::resources::SkillAiming>().0,
             None,
             "no target picking for an instant skill"
         );
@@ -5654,7 +5669,7 @@ mod range_tests {
 mod skills_core {
     use super::*;
     use bevy::ecs::message::MessageCursor;
-    use warden::components::{SkillCaster, SkillSlot};
+    use warden::components::SkillCaster;
     use warden::resources::{
         SkillAiming, SkillBalance, SkillDef, SkillDefs, SkillKind, SkillTargetMode,
     };
@@ -5673,6 +5688,7 @@ mod skills_core {
                     target: SkillTargetMode::None,
                     max_level: 3,
                     badge: 'B',
+                    hotkey: None,
                     indicator_radius: 0.0,
                 },
                 SkillDef {
@@ -5681,6 +5697,7 @@ mod skills_core {
                     target: SkillTargetMode::Point,
                     max_level: 1,
                     badge: 'A',
+                    hotkey: None,
                     indicator_radius: 4.0,
                 },
                 SkillDef {
@@ -5689,6 +5706,7 @@ mod skills_core {
                     target: SkillTargetMode::None,
                     max_level: 3,
                     badge: 'P',
+                    hotkey: None,
                     indicator_radius: 0.0,
                 },
             ];
@@ -5912,6 +5930,7 @@ mod skills_core {
             target: SkillTargetMode::None,
             max_level: 3,
             badge: 'X',
+            hotkey: None,
             indicator_radius: 0.0,
         }]);
         let mut caster = SkillCaster { slots: vec![] };
@@ -6316,7 +6335,7 @@ mod damage_pipeline {
     /// all resolve in one frame.
     #[test]
     fn meteor_rain_attributed_as_commander_skill() {
-        use warden::resources::{SkillId, SkillState, SkillTargeting};
+        use warden::resources::SkillAiming;
         let mut app = test_app();
         app.update();
         app.update();
@@ -6337,9 +6356,10 @@ mod damage_pipeline {
             keys.clear();
             keys.release(KeyCode::KeyZ);
         }
+        let commander = commander_entity(&mut app);
         assert_eq!(
-            app.world().resource::<SkillTargeting>().0,
-            Some(SkillId::MeteorRain)
+            app.world().resource::<SkillAiming>().0,
+            Some((commander, 0))
         );
         enable_world_picking(&mut app, Vec2::new(640.0, 360.0));
         let cursor = {
@@ -6371,6 +6391,5 @@ mod damage_pipeline {
             "both victims took hits (armored one survives half damage)"
         );
         let _ = victims;
-        let _ = app.world().resource::<SkillState>();
     }
 }
