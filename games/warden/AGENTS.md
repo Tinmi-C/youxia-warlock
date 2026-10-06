@@ -290,11 +290,17 @@ assets/{models,textures,audio,fonts,ui}/
   SK10 全套（框架通用性实证）；数值进 SkillBalance 新列；requirements §17.7 新表。`skills_fusion::*` 7 断言
   + 视觉段 sk_fusion.png 双通道过验。测试 **160 全绿**（behavior 153+7 / balance 2 / art 5）。
   SystemParam 16 上限二次撞上（ShotDiagnostics 束，immutable Query 双生命周期可入束）。
-- **下一步**：**双美术线并行 + 真人试玩**——①地形线：ART4 基地/入口 → ART5 点缀 → ART6 黄昏光照（ART3 已落地待负责人试玩验收）；
-  ②弩射击线：ART9 分件手术 v3 → ART10 弦箭动画（ART7 瞄准+炮口出弹、ART8 后坐已落地）；③**真人试玩盯 §15 信号**
+- **SM4 截图基线与对比流程收口（2026-10-06，验收通道线全绿）**：DB2 新场景 `showroom-baseline`
+  （`--scenario showroom-baseline`）一键巡拍 catalog 全展品——每件规范机位（默认 orbit、关转盘）+ 90 帧
+  settle + 引擎内截图，基线图**入库** `docs/img/showroom/`（首跑 14 件：8 塔+6 敌）；美术/特效改动后重跑，
+  git diff 即人工对比（自动像素 diff 留作升格判据）。踩坑两枚：同名展品互相覆盖（盾兵塔/盾兵敌人同名 shield
+  →路径加序号）、末张截图随 AppExit 丢失（Screenshot observer 异步落盘→退出前缓冲 60 帧）。至此 SM1-SM8
+  验收通道线全部落地。
+- **下一步**：**双美术线并行 + 真人试玩**——①地形线：ART4 基地/入口 → ART5 点缀 → ART6 黄昏光照（ART3 已落地待负责人试玩验收；
+  全游戏重定调 D1-D3 待拍板，**美术方向属负责人决策不动**）；②弩射击线：ART9 分件手术 v3 → ART10 弦箭动画
+  （ART7 瞄准+炮口出弹、ART8 后坐已落地；ART12 已换 Ranger 人物）；③**真人试玩盯 §15 信号**
   （技能两新信号对照 ≤20% 输出锚点 + §17.6 塔技能 ≤10%，SK12 签名计入塔技能列）；balance 数值仍按负责人意见暂缓。
-  ④验收通道线：SM1 已落地（待真人视觉验收）→ SM2 动画触发+自由观察 → SM3 实弹区（技能/特效动态验收）→ SM4 截图基线。
-  ⑤技能线后续：随机获取与 Meta 强化、被动/光环（框架后续使用者，见 requirements §39 调整后的暂缓清单）。
+  ④技能线后续：随机获取与 Meta 强化、被动/光环（框架后续使用者，见 requirements §39 调整后的暂缓清单）。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
