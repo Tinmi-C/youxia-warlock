@@ -920,9 +920,20 @@
   留 tools/ 线后续卡。
 - 断言: 同台恰 2 件、A/B 铭牌齐、select 后回单件且 compare 清空。
 
-### SM4 · 截图基线与对比流程（debug·工具链）—— 📝 待立卡（依赖 SM1，建议 SM2 后）
+### SM4 · 截图基线与对比流程（debug·工具链）—— ✅ 已实现（2026-10-06，依赖 SM1）
 - 范围: 每展区固定机位 + 固定 seed，复用置前 + 窗口直截流程脚本化；基线图存 `docs/img/showroom/`；任何美术/
   特效改动后重截同机位对比（先人工对比；headless 渲染自动对比留作升格判据触发后再做，不过度设计）。
+- 接口: DB2 新场景 `showroom-baseline`（`--scenario showroom-baseline`）——进场即展平 catalog 全展品，
+  每件重置规范机位（orbit 默认 45°/32°/6.5、关转盘）→ 等 90 帧 settle（异步 GLB）→ 引擎内截图
+  `docs/img/showroom/sm_<c><ii>_<name>.png` → 下一件；遍历完缓冲 60 帧再 AppExit 自退。
+- 验收句: ①一条命令产出全展品基线图（自动枚举，新 def 零维护）；②同机位可重截（两次跑同展品 diff 仅动画帧）；
+  ③基线图入库 `docs/img/showroom/` 供人工对比；④巡拍日志逐件打印路径。
+- 实现: warden `systems/showroom.rs` 加 `ShowroomBaseline{idx,settle,done}` 资源 + `enter_showroom_baseline`
+  （enter_showroom 后插入资源+建目录）+ `showroom_baseline_sweep` 系统（全 viewer 资源 Option 化——场景首帧
+  加载时序内自然 no-op；展平 (category,item,name) 序号消歧——盾兵塔/盾兵敌人英文名同为 shield 曾互相覆盖；
+  Screenshot observer 异步落盘，末张后须缓冲帧再 AppExit 否则丢图）；DB2 场景枚举+执行器+Update 注册。
+  首跑 14 展品（8 塔+6 敌）全落盘；抽检 sm_000_archer（Ranger 模型持弓/贴地/无渲染异常）过视觉。
+  **对比流程**：美术/特效改动后重跑同命令，git diff 即基线对比（图入库，PR 里天然可见变化）。
 
 ---
 

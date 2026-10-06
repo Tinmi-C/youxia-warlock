@@ -56,6 +56,122 @@ pub fn enter_showroom(world: &mut World) {
     enter_studio(world, catalog, font);
 }
 
+// --- SM4: baseline capture sweep ------------------------------------------------------
+
+/// SM4 baseline sweep state (DB2 `Scenario::ShowroomBaseline`): walks every
+/// flattened catalog entry, resets the canonical camera pose, waits out the
+/// async load, captures one shot per exhibit. `settle` counts down frames
+/// between a selection and its capture (GLB loads take ~1s).
+#[derive(Resource)]
+pub struct ShowroomBaseline {
+    idx: usize,
+    settle: u32,
+    /// Frames left after the last capture before exiting — the screenshot
+    /// encodes/writes asynchronously and dies with the app otherwise.
+    done: u32,
+}
+
+/// Frames to let the staged exhibit settle (async scene load + one present)
+/// before the capture. Generous: a wrong frame costs a whole re-run.
+const BASELINE_SETTLE_FRAMES: u32 = 90;
+
+/// Post-sweep flush before AppExit (last shot's async disk write).
+const BASELINE_DONE_FRAMES: u32 = 60;
+
+/// Enter the studio in baseline mode: the normal showroom, then the sweep
+/// resource rides along (the sweep system drives and exits).
+pub fn enter_showroom_baseline(world: &mut World) {
+    enter_showroom(world);
+    // save_to_disk does not create directories; the baseline set is part of
+    // the repo (manual-diff material), so make sure the target exists.
+    std::fs::create_dir_all("docs/img/showroom").ok();
+    world.insert_resource(ShowroomBaseline {
+        idx: 0,
+        settle: 0,
+        done: BASELINE_DONE_FRAMES,
+    });
+}
+
+/// The SM4 sweep: canonical pose (default orbit, turntable off) per exhibit,
+/// one engine-side screenshot each into `docs/img/showroom/`, AppExit when
+/// the whole catalog is captured. The egui panel and the nameplate stay in
+/// frame on purpose — a baseline carries its own labels. Every viewer
+/// resource is optional: the system no-ops outside the studio (and during
+/// the frame the scenario is still loading).
+pub fn showroom_baseline_sweep(
+    mut state: Option<ResMut<ShowroomBaseline>>,
+    catalog: Option<Res<ShowroomCatalog>>,
+    viewer: Option<ResMut<ShowroomState>>,
+    orbit: Option<ResMut<showroom_viewer::ShowroomOrbit>>,
+    turntable: Option<ResMut<showroom_viewer::ShowroomTurntable>>,
+    mut commands: Commands,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let (Some(mut state), Some(catalog), Some(mut viewer), Some(mut orbit), Some(mut turntable)) =
+        (state, catalog, viewer, orbit, turntable)
+    else {
+        return;
+    };
+    // The flattened catalog cursor: (category, item, name) in browse order.
+    let flat: Vec<(usize, usize, String)> = catalog
+        .categories
+        .iter()
+        .enumerate()
+        .flat_map(|(ci, c)| {
+            c.items
+                .iter()
+                .enumerate()
+                .map(move |(ii, it)| (ci, ii, it.name.clone()))
+        })
+        .collect();
+    if state.idx >= flat.len() {
+        // Flush window: the last screenshot still writes to disk.
+        if state.done == 0 {
+            info!("[sm] baseline sweep done ({} exhibits), exiting", flat.len());
+            exit.write(AppExit::Success);
+        } else {
+            state.done -= 1;
+        }
+        return;
+    }
+    if state.settle == 0 {
+        // Advance to the next exhibit.
+        let Some((ci, ii, _)) = flat.get(state.idx).cloned() else {
+            return; // unreachable given the bound check above
+        };
+        viewer.select(ci, ii);
+        *orbit = showroom_viewer::ShowroomOrbit::default(); // canonical pose
+        turntable.on = false;
+        state.settle = BASELINE_SETTLE_FRAMES;
+        return;
+    }
+    state.settle -= 1;
+    if state.settle > 0 {
+        return;
+    }
+    // Capture frame: sanitize the exhibit name into a file path. The
+    // category+item indexes disambiguate same-named entries (the shield
+    // TOWER and the shield ENEMY are both "shield" in English).
+    if let Some((ci, ii, name)) = flat.get(state.idx).cloned() {
+        let file = name
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        let path = format!("docs/img/showroom/sm_{ci}{ii:02}_{file}.png");
+        commands
+            .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+            .observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
+        info!("[sm] baseline shot ({}/{}) -> {path}", state.idx + 1, flat.len());
+    }
+    state.idx += 1;
+}
+
 /// The Warden catalog: towers (base + fused) then enemies, live-read from
 /// the definition tables — new defs join the list with zero changes here.
 /// Parsed art-assets.json (ADR-0009): game-dest path -> (id, name, version).

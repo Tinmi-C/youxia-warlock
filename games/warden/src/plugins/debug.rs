@@ -120,6 +120,8 @@ fn build_debug(app: &mut App) {
             Update,
             (log_dashboard, screenshot_on_f12, dbg::skill_card_shots, dbg::debug_panel_toggle),
         )
+        // SM4: the showroom baseline sweep (no-ops outside baseline mode).
+        .add_systems(Update, crate::systems::showroom::showroom_baseline_sweep)
         // The single cheat drain point runs in Input so the same frame's
         // wave/combat systems observe the settled cheat state; scenario loads
         // (DB2) run right after it (restart + scenario in one frame stays
