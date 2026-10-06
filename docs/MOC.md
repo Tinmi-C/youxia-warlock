@@ -1,7 +1,7 @@
 ---
 title: 索引地图 MOC
 type: moc
-updated: 2026-09-29
+updated: 2026-10-06
 ---
 
 # 🗺️ 索引地图（Map of Content）
@@ -35,6 +35,9 @@ updated: 2026-09-29
 
 ## 近期更新
 
+- [[topics/engine/bevy-headless-visual-acceptance-loop|游戏内 UI 的自建视觉验收闭环]]（新增，howto done：帧脚本场景 + 引擎内截图 + 视觉模型/引擎日志双通道裁决；两坑——视觉模型读不准小字徽章、无人值守窗口光标被 winit 冲掉；warden skill-card 场景首例，SK8/SK10 ⚠️ 项清账）
+- [[topics/engine/bevy-messages-double-buffer-drain-pitfall|Bevy Messages 双缓冲跨帧 drain 坑]]（新增，pitfall：跨帧断言必须逐帧 drain；len() 翻转归零不能当累计器）
+- [[topics/engine/bevy-system-param-limits-pitfall|Bevy 系统参数两堵墙]]（新增，pitfall：元组 16 上限 + SystemParam derive 不收 mut Query；Res 捆束、可变查询独立参数）
 - [[decisions/0011-generic-per-entity-skill-framework|ADR-0011 技能系统通用化]]（新增，accepted：按实体挂载的技能框架——SkillCaster/三分法/属性聚合管线/统一伤害结算；技能二期 SK5–SK11 的架构基座）
 
 - [[topics/engine/automated-game-testing-and-ai|游戏自动化测试与 AI 参与开发——全景调研]]（新增，draft：测试分层+引擎基建；AI playtest 三级演化（脚本→DRL→LLM agent，TITAN：bug 检出 82% vs 人类 18%）；Meta TestGen-LLM 三道闸（75% 编译/57% 通过/25% 涨覆盖）；与本团队流程对标——已有 headless 回归/红绿验证/BAL 读数，缺视觉快照（bevy_geppetto）与 E2E agent）

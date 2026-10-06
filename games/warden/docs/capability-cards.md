@@ -1008,7 +1008,8 @@
 - 行为: 三技能效果系统改由 CastSkill 分发路径驱动（MeteorVolley 调度、ApplySlow 新星、攻速增幅——狂暴迁移为
   聚合管线读取的全局态或 StatMods 广播，取改动小者并在卡上注明取舍）；冷却/目标选择/热键/按钮交互语义与一期一致。
 - 验收句: **SK1–SK4 全部原验收句保留并通过**（behavior 里 skills_sk1/sk2/sk3/sk4 组改走新驱动路径、断言不变）；
-  指挥官实体上的 SkillCaster 冷却与全局资源制时代逐帧等价；热键/按钮/指示圈手感人工回归（⚠️）。
+  指挥官实体上的 SkillCaster 冷却与全局资源制时代逐帧等价；热键/按钮/指示圈手感人工回归（✅ 2026-10-06
+  skill-card 场景自动截图 + 视觉模型过验：指示圈金色半透明贴路径、HUD 瞄准提示行正常）。
 - 实现: `systems/skills.rs` 重写为一期行为 × 新框架：注册表三行（meteor_rain/frost_nova/war_frenzy，SkillDef 增
   `hotkey: Option<KeyCode>` 字段）+ `production_skill_defs()/production_skill_balance()`（冷却行暂由 SKILL_COOLDOWNS
   构造，SK11 收编删常量）；`Commander` 标记组件 + Startup `spawn_commander`（持久单例——冷却跨波/跨重开不重置，
@@ -1021,7 +1022,7 @@
   不收 mut Query——指挥官查询作为执行器独立参数）。tooltip 徽章改读 SkillDefs 注册表（SkillId::index==注册表 id
   不变式，写进 resources.rs 文档）。**验收护栏兑现**：skills_sk1/sk2/sk3/sk4 四组验收句全部保留原断言，仅驱动路径
   换成指挥官实体访问器（commander_cooldowns/set_commander_cooldown 入 behavior.rs 文件级助手）；
-  damage_pipeline 流星归因测试同步走新路径。136 behavior 全绿。热键/按钮/指示圈手感 ⚠️人工回归待跑。
+  damage_pipeline 流星归因测试同步走新路径。136 behavior 全绿。热键/按钮/指示圈手感已过 skill-card 视觉闭环（见 SK10 注记）。
 
 ### SK9 · 弓箭手塔技能组：鹰眼/多重射击/火焰箭（skills/towers）—— ✅ 已实现（2026-09-29，依赖 SK5/SK6/SK7）
 - 接口: `SkillDefs` 注册三技能；建塔时 `spawn_base_tower` 附 SkillCaster（lv1）；invest 升级处同步 level_up 并刷新
@@ -1054,7 +1055,8 @@
   分离分配（候选 D/F，避开 QWER/ASDF/ZXC/Space/P/L），选定后写回 requirements §16。
 - 行为: 未选中/选中非技能单位时热键失效；冷却中点击无效果且显示剩余秒数；autocast 槽右键切换后有可视状态标记；
   语言切换重建后自愈（沿控制区同款范式）。
-- 验收句: headless 断言选中态热键启停、按钮 CD 文本、autocast 切换翻转；视觉与点击走查人工验收（⚠️）。
+- 验收句: headless 断言选中态热键启停、按钮 CD 文本、autocast 切换翻转；视觉与点击走查人工验收
+  （✅ 2026-10-06 DB2 `skill-card` 场景：帧脚本驱动 升级/施法/autocast/瞄准 四态各截一图 + 视觉模型过验）。
 - 实现: `CommandAction::{TowerSkill(slot), SkillUpgrade}` 两新动作 + 指令卡选中态改造：带 SkillCaster 的塔把预留格
   换成「升级技能(E=30/60金) + 多重射击(R) + 火焰箭(A) + 鹰眼 LvN 只读芯片」；无技能塔维持原预留置灰。**热键取舍**：
   不另开 D/F 新键域，复用既有网格键上下文语义（同 Q=卖出范式，WC3 指令卡形状）——E/R/A/S 仅选中技能塔时生效，
@@ -1066,7 +1068,13 @@
   TowerSkill/SkillUpgrade 分支（l10n 新增 tower_skill_name/tooltip/SKILL_UPGRADE 双语）。**踩坑**：系统参数
   元组上限 16——handle_command_buttons 已达顶，Res 四件套捆成 `CardParams` SystemParam（derive 对 mut Query
   有生命周期坑，可变查询留独立参数）。`skills_ui::*` 4 断言（选中出技能钮 / 按钮施法+CD 文本+升级扣费全升 /
-  右键切 autocast 且不取消选中 / 无选中时 E 键无效）。153 全绿。视觉走查 ⚠️人工待跑。
+  右键切 autocast 且不取消选中 / 无选中时 E 键无效）。153 全绿。**视觉闭环（2026-10-06）**：DB2 新场景 `skill-card`
+  （CLI `--scenario skill-card`）帧脚本走 升级钮/多重射击CD/火焰箭autocast/新星瞄准 四态各截一图（`sk_*.png`，gitignore
+  不入库），视觉模型 + 帧内诊断日志双通道过验。首验抓到两真问题已修：①被动鹰眼占 R 键位（slots 顺序直排）——改**可施放
+  先占格（R/A）、被动芯片垫后（S）**，技能钮宽 104→96；②瞄准态 HUD 行过长与角标条挤压——瞄准提示**替换**下一波预览。
+  另：无人值守跑真窗口时 OS 鼠标在窗外，`set_cursor_position` 一次写入会被 winit 事件冲掉——场景伴生 PreUpdate
+  `skill_card_cursor_pin` 在瞄准窗口逐帧钉住光标，指示圈才进截图；**视觉模型对 9px 角标字母连续误读 3 轮**（与引擎
+  日志相反），shot 诊断日志（f=88 打卡片钮网格、f=318 打瞄准/圈/HUD 文本）才是裁决依据——视觉通道必须配引擎侧真相互补。
 
 ### SK11 · SkillBalance 单源表 + BAL 技能贡献读数（skills/balance）—— ✅ 已实现（2026-09-29，依赖 SK7）
 - 接口: `resources.rs` 新 `SkillBalance`（按 技能×等级 键控，收编 SKILL_COOLDOWNS/NOVA_*/METEOR_*/FRENZY_* 与

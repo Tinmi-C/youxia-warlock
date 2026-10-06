@@ -18,6 +18,7 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/unified-damage-pipeline\|统一伤害结算管线——让 Hp 成为全场唯一写入者]] | howto | draft | 伤害走 DamageRequest 消息；apply_damage 唯一结算；GameSet::Resolve；加新技能发请求即可不碰 Hp |
 | [[topics/engine/table-driven-anim-state-design\|表驱动动画状态机设计方案]] | reference | draft | 动画 20+ 时的状态机形态：状态拓扑进表数据，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；ADR-0007 支撑材料 |
 | [[topics/engine/automated-game-testing-and-ai\|游戏自动化测试与 AI 参与开发——全景调研]] | reference | draft | 测试分层+引擎基建（UTF/Automation/Bevy 生态）；AI 三级演化（脚本→DRL→LLM agent，TITAN 数据）；TestGen-LLM 三道闸；与团队流程对标表（缺视觉快照/E2E agent） |
+| [[topics/engine/bevy-headless-visual-acceptance-loop\|游戏内 UI 的自建视觉验收闭环——帧脚本场景 + 截图 + 双通道裁决]] | howto | done | DB2 场景帧脚本驱动 UI 状态→引擎内截图→视觉模型+引擎侧诊断日志双通道过验；视觉模型对小字徽章不可靠（连续误读 3 轮）、无人值守跑真窗口光标会被 winit 冲掉需 PreUpdate 钉住 |
 
 ## 相关决策
 
@@ -39,3 +40,5 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[topics/engine/shared-anchor-component-order-pitfall|观察系统共用锚点组件——后读者恒见零位移]]（high，待团队 review）：「上一帧状态」锚点被两个系统读写，先写者偷走时间差；锚点定唯一 owner-writer、其余只读，执行顺序跟所有权走；附带「断言方向要区别于默认值」的恒真测试教训。
 - [[topics/engine/bevy-macos-background-cpu-burn-pitfall|Bevy macOS 后台 CPU 爆炸（vsync 失效 + 每帧 Text 重排）]]（high）：后台/遮挡窗口 CPU>100% 三因叠加——每帧无条件重写 Text 强制 CJK 重排 + icu_provider 刷警告（实测 1200 条/秒）、winit reactive 限帧在 macOS 不生效、`Window::focused` 默认 true 不可信；正解=写前比较 + 日志过滤 + 睡眠式帧限制（焦点自维护、启动假设未聚焦），实测 110%→19%。
 - [[topics/engine/bevy-scene-rebuild-kills-anim-wiring-pitfall|Bevy 0.19 场景 Modified 重建全实例——一次性动画接线全灭（T-Pose）]]（high）：再次加载同一 GLB 触发 WorldAsset Modified → bevy 拆掉重建该资产全部实例 → 新播放器无人接线 → 场上角色全 T-pose；正解=接线标记常驻+每帧体检+图资产复用的自愈式接线；方法论=生命周期观察器抓死亡瞬间、探针目标要选对（根骨不动肢骨动）。
+- [[topics/engine/bevy-messages-double-buffer-drain-pitfall|Bevy Messages 双缓冲只留最近一帧——跨帧断言必须逐帧 drain]]（medium，待团队 review）：跨帧统一 read 拿 0 事件、`len()` 翻转后归零不能当累计器；正解=帧循环内 `MessageCursor` 逐帧 drain 累加（沉淀为测试文件级助手）。
+- [[topics/engine/bevy-system-param-limits-pitfall|Bevy 系统参数两堵墙——元组 16 上限与 SystemParam derive 不收 mut Query]]（medium，待团队 review）：19 参系统排序 API 消失（报错点≠病根）、derive 束含 mut Query 报 'static；正解=Res/MessageWriter 捆 SystemParam 束、可变查询留独立参数；参数超 ~12 先问系统是否管太多。
