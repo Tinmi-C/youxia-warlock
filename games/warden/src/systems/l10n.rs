@@ -140,7 +140,6 @@ pub const FUSED_TOWER_FALLBACK: Bi = Bi("融合塔", "Fused tower");
 
 // --- Skills (SK1, requirements §17) --------------------------------------------
 
-pub const SKILL_WIP: Bi = Bi("未实装", "Not implemented");
 /// Targeting hint while a point skill awaits its ground confirm (§17.3).
 pub const SKILL_TARGET_HINT: Bi = Bi(
     "选择目标点 · 左键确认 · Esc/右键取消",
@@ -173,7 +172,7 @@ pub fn skill_tooltip(
     balance: &crate::resources::SkillBalance,
 ) -> String {
     use crate::resources::SkillId;
-    use crate::systems::skills::{SKILL_FROST_NOVA, SKILL_METEOR_RAIN, SKILL_WAR_FRENZY};
+    use crate::systems::skills::{SKILL_FROST_NOVA, SKILL_METEOR_RAIN};
     let def = kind.index();
     let cd = balance.cooldown(def, 1);
     let effect = match kind {

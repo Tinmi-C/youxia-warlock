@@ -14,16 +14,19 @@ use bevy::ecs::change_detection::Mut;
 use bevy::ecs::system::SystemParam;
 use bevy::ecs::world::CommandQueue;
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 
-use crate::components::{Enemy, Projectile, Tower, TowerSlot};
+use crate::components::{Commander, Enemy, Projectile, SkillCaster, Tower, TowerSlot};
 use crate::resources::{
     BaseHp, Boosts, BuildMode, DebugRun, Economy, EnemyDefs, Hand, MetaState, PathInfo, RunRng,
-    Selection, ShopOffers, TowerDefs, WaveChoice, WavePhase, WaveSchedule, WaveState,
+    Selection, ShopOffers, SkillAiming, TowerDefs, WaveChoice, WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
 use crate::systems::acquisition::{deal_opening_hand_into, refresh_shop_offers};
+use crate::systems::archer_skills::{SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
 use crate::systems::enemy::{spawn_enemy, spawn_enemy_at, path_units_per_point};
 use crate::systems::pointer::HoverGhost;
+use crate::systems::skills::CastSkill;
 use crate::systems::tower::spawn_base_tower;
 
 /// One debug cheat intent. Panel button / CLI / test all speak this.
@@ -445,11 +448,14 @@ pub enum Scenario {
     /// Two archers + wave 1 auto-started (ART12 repro: does interaction-time
     /// spawning strip animation graphs?).
     WaveFight,
+    /// One SELECTED archer with its skill kit — the SK8/SK10 visual
+    /// acceptance script captures the skill UI states to sk_*.png.
+    SkillCard,
 }
 
 impl Scenario {
     /// All scenarios with their CLI/panel names, in display order.
-    pub const ALL: [(Scenario, &'static str); 9] = [
+    pub const ALL: [(Scenario, &'static str); 10] = [
         (Scenario::Fusion, "fusion"),
         (Scenario::Projectile, "projectile"),
         (Scenario::Fx, "fx"),
@@ -459,6 +465,7 @@ impl Scenario {
         (Scenario::Showroom, "showroom"),
         (Scenario::Range, "range"),
         (Scenario::WaveFight, "wave-fight"),
+        (Scenario::SkillCard, "skill-card"),
     ];
 
     pub fn name(self) -> &'static str {
@@ -660,8 +667,166 @@ fn apply_scenario(world: &mut World, scenario: Scenario) {
             wave.spawn_timer = 0.0;
             wave.active = 0;
         }
+        Scenario::SkillCard => {
+            // A comfortable budget so the upgrade button renders affordable.
+            world.resource_mut::<Economy>().gold = 200;
+            let slots: Vec<(Entity, Vec3)> = free_slots_in_order(world)
+                .into_iter()
+                .take(1)
+                .collect();
+            place_towers(world, 0, &slots); // real gateway -> kit attached
+            let archer = {
+                let mut q = world.query_filtered::<Entity, With<Tower>>();
+                q.iter(world).next().expect("scenario archer placed")
+            };
+            *world.resource_mut::<Selection>() = Selection::Tower(archer);
+            world.insert_resource(SkillShotState::default());
+        }
     }
     info!("[debug] scenario '{}' loaded", scenario.name());
+}
+
+/// SK8/SK10 visual acceptance (DB2 scenario `skill-card`): a frame-count
+/// script that walks the skill UI states and captures each as sk_*.png —
+/// the self-built visual verification loop (UI work ships its own eyes).
+#[derive(Resource, Default)]
+pub struct SkillShotState {
+    pub frames: u32,
+}
+
+#[cfg(debug_assertions)]
+#[allow(clippy::too_many_arguments)]
+pub fn skill_card_shots(
+    mut state: Option<ResMut<SkillShotState>>,
+    mut commands: Commands,
+    selection: Res<Selection>,
+    commanders: Query<Entity, With<Commander>>,
+    mut casters: Query<&mut SkillCaster>,
+    mut requests: MessageWriter<CastSkill>,
+    mut windows: Query<&mut Window>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+    mut exit: MessageWriter<AppExit>,
+    // Shot diagnostics — engine-side ground truth for the visual loop (the
+    // vision pass reads pixels; this logs what the systems actually hold).
+    command_buttons: Query<&crate::systems::command::CommandButton>,
+    rings: Query<&Visibility, With<crate::systems::skills::SkillIndicatorRing>>,
+    hud_text: Query<&Text, With<crate::systems::hud::HudText>>,
+    aiming: Res<SkillAiming>,
+) {
+    let Some(mut state) = state else {
+        return;
+    };
+    state.frames += 1;
+    let f = state.frames;
+    let shot = |commands: &mut Commands, path: &'static str| {
+        commands
+            .spawn(Screenshot::primary_window())
+            .observe(save_to_disk(path));
+        info!("[dash] skill shot -> {path}");
+    };
+    // Selected tower's caster helpers.
+    let selected_caster = |casters: &mut Query<&mut SkillCaster>,
+                           requests: &mut MessageWriter<CastSkill>,
+                           def: usize|
+     -> Option<()> {
+        let Selection::Tower(tower) = *selection else {
+            return None;
+        };
+        let mut caster = casters.get_mut(tower).ok()?;
+        let slot = caster.slots.iter().position(|s| s.def == def)?;
+        requests.write(CastSkill {
+            caster: tower,
+            slot,
+        });
+        Some(())
+    };
+    match f {
+        88 => {
+            let mut cards: Vec<String> = command_buttons
+                .iter()
+                .map(|b| format!("{:?}@{}({})", b.action, b.grid, crate::systems::command::grid_badge(b.grid)))
+                .collect();
+            cards.sort();
+            info!("[dash] card at f=88: {}", cards.join(" "));
+        }
+        90 => shot(&mut commands, "sk_card.png"), // E/R/A slots + eagle chip
+        130 => {
+            // The right-click gesture's effect: autocast ON shows "»".
+            if let Selection::Tower(tower) = *selection {
+                if let Ok(mut caster) = casters.get_mut(tower) {
+                    for slot in caster.slots.iter_mut() {
+                        if slot.def == SKILL_FIRE_ARROWS {
+                            slot.autocast = true;
+                        }
+                    }
+                }
+            }
+        }
+        170 => shot(&mut commands, "sk_autocast.png"),
+        210 => {
+            let _ = selected_caster(&mut casters, &mut requests, SKILL_MULTISHOT);
+        }
+        240 => shot(&mut commands, "sk_cooldown.png"), // R shows seconds
+        280 => {
+            // Enter nova aiming + park the cursor over the path so the
+            // indicator ring renders at a visible ground point.
+            if let Ok(cmd) = commanders.single() {
+                if let Ok(caster) = casters.get(cmd) {
+                    let slot = caster.slots.iter().position(|s| s.def == 1); // nova
+                    if let Some(slot) = slot {
+                        requests.write(CastSkill { caster: cmd, slot });
+                    }
+                }
+            }
+            if let (Ok((cam, cam_tf)), Ok(mut window)) =
+                (camera.single(), windows.single_mut())
+            {
+                if let Ok(pt) = cam.world_to_viewport(cam_tf, Vec3::new(0.0, 0.0, 0.0)) {
+                    window.set_cursor_position(Some(pt));
+                }
+            }
+        }
+        318 => {
+            info!(
+                "[dash] aim-check at f=318: aiming={:?} cursor={:?} ring={:?} hud={:?}",
+                aiming.0.map(|(e, s)| (e.index(), s)),
+                windows.single().ok().and_then(|w| w.cursor_position()),
+                rings.single().ok().map(|v| matches!(*v, Visibility::Visible)),
+                hud_text.single().ok().map(|t| t.0.clone()),
+            );
+        }
+        320 => shot(&mut commands, "sk_aiming.png"), // ring + HUD hint
+        400 => {
+            info!("[dash] skill-card script done, exiting");
+            exit.write(AppExit::Success);
+        }
+        _ => {}
+    }
+}
+
+/// Companion to `skill_card_shots`: during the aiming window the script
+/// parks the cursor over the path, but winit re-reports the OS mouse (which
+/// sits outside the window in an unattended run) every frame and clobbers
+/// `Window::cursor_position` back to None — so the aim ring hides. Re-pin
+/// the field in PreUpdate, after the event batch and before the Update
+/// aiming systems read it, so `sk_aiming.png` captures the ring on screen.
+#[cfg(debug_assertions)]
+pub fn skill_card_cursor_pin(
+    state: Option<Res<SkillShotState>>,
+    mut windows: Query<&mut Window>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+) {
+    let Some(state) = state else {
+        return;
+    };
+    if !(281..=339).contains(&state.frames) {
+        return;
+    }
+    if let (Ok((cam, cam_tf)), Ok(mut window)) = (camera.single(), windows.single_mut()) {
+        if let Ok(pt) = cam.world_to_viewport(cam_tf, Vec3::new(0.0, 0.0, 0.0)) {
+            window.set_cursor_position(Some(pt));
+        }
+    }
 }
 
 /// Wipe the board and interaction state (the common scenario prelude).

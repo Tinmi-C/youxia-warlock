@@ -166,7 +166,7 @@ fn tower_skill_button(
             Interaction::None,
             bevy::ui::RelativeCursorPosition::default(),
             Node {
-                width: Val::Px(104.0),
+                width: Val::Px(96.0),
                 height: Val::Px(42.0),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
@@ -210,7 +210,6 @@ fn tower_skill_button(
 pub fn refresh_tower_skill_buttons(
     selection: Res<Selection>,
     casters: Query<&SkillCaster>,
-    defs: Res<SkillDefs>,
     lang: Res<Lang>,
     buttons: Query<(Entity, &CommandButton, &Children)>,
     mut texts: Query<(&mut Text, &mut TextColor), With<TowerSkillText>>,
@@ -229,7 +228,6 @@ pub fn refresh_tower_skill_buttons(
         let Some(slot) = caster.slots.get(slot_idx) else {
             continue;
         };
-        let def = defs.get(slot.def);
         let ready = slot.cooldown <= 0.0;
         if let Ok(mut bg) = backgrounds.get_mut(eid) {
             bg.0 = if ready {
@@ -248,7 +246,6 @@ pub fn refresh_tower_skill_buttons(
                 Color::WHITE,
             )
         };
-        let _ = def;
         for child in children {
             if let Ok((mut text, mut tint)) = texts.get_mut(*child) {
                 if text.0 != label {
@@ -680,10 +677,10 @@ pub fn refresh_command_card(
             }
             if let Some(slots) = caster_slots {
                 // SK10: the reserved pair activates for a skilled tower —
-                // E = paid kit upgrade, R/A.. = the castable skills (context
-                // grid, WC3 command-card shape), then passives display-only.
-                // Cooldown seconds and the autocast marker are live-refreshed
-                // by `refresh_tower_skill_buttons` (no card rebuild per frame).
+                // E = paid kit upgrade, then the CASTABLE skills (R/A..),
+                // passives last as display-only chips. Cooldown seconds and
+                // the autocast marker are live-refreshed by
+                // `refresh_tower_skill_buttons` (no card rebuild per frame).
                 let min_level = slots.iter().map(|s| s.level).min().unwrap_or(1);
                 let cost = balance.skill_upgrade_cost(min_level);
                 let maxed = slots
@@ -702,24 +699,31 @@ pub fn refresh_command_card(
                 for (slot_idx, slot) in slots.iter().enumerate() {
                     let def = skill_defs.get(slot.def);
                     if def.kind == SkillKind::Passive {
-                        // Display-only level chip (WC3 shows passives too).
-                        command_button(
-                            card,
-                            &font,
-                            CommandAction::Reserved,
-                            format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
-                            false,
-                            grid,
-                        );
-                    } else {
-                        tower_skill_button(
-                            card,
-                            &font,
-                            slot_idx,
-                            format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
-                            grid,
-                        );
+                        continue; // chips after the castables (grid below)
                     }
+                    tower_skill_button(
+                        card,
+                        &font,
+                        slot_idx,
+                        format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
+                        grid,
+                    );
+                    grid += 1;
+                }
+                for slot in slots.iter() {
+                    let def = skill_defs.get(slot.def);
+                    if def.kind != SkillKind::Passive {
+                        continue;
+                    }
+                    // Display-only level chip (WC3 shows passives too).
+                    command_button(
+                        card,
+                        &font,
+                        CommandAction::Reserved,
+                        format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
+                        false,
+                        grid,
+                    );
                     grid += 1;
                 }
             } else {

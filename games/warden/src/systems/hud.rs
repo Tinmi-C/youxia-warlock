@@ -95,6 +95,7 @@ pub fn update_hud(
     schedule: Res<WaveSchedule>,
     enemy_defs: Res<EnemyDefs>,
     state: Res<State<GameState>>,
+    aiming: Res<crate::resources::SkillAiming>,
     lang: Res<Lang>,
     mut help: Query<&mut Text, (With<HelpText>, Without<HudText>)>,
 ) {
@@ -154,9 +155,17 @@ pub fn update_hud(
             .join("  ");
         text.push_str(&format!("  | {}{opts}", l10n::CHOICE.pick(lang)));
     }
+    // SK5/SK8: while a point skill awaits its ground confirm, the status
+    // line carries the targeting hint (§17.3). Targeting REPLACES the wave
+    // preview rather than appending — the line otherwise grows long enough
+    // to collide with the corner overlays.
+    let targeting = aiming.0.is_some();
+    if targeting {
+        text.push_str(&format!("  | {}", l10n::SKILL_TARGET_HINT.pick(lang)));
+    }
     // UI8: during the build window, preview the next wave's composition and
     // reward so the slow-phase decisions are informed (requirements §3/§10).
-    if *state.get() == GameState::Playing && wave.phase == WavePhase::Intermission {
+    if !targeting && *state.get() == GameState::Playing && wave.phase == WavePhase::Intermission {
         if let Some(next) = schedule.waves.get(wave.current as usize) {
             let composition = next
                 .entries

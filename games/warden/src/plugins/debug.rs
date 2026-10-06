@@ -115,7 +115,11 @@ fn build_debug(app: &mut App) {
             bevy_egui::EguiPrimaryContextPass,
             (debug_panel_ui, rng::range_panel_ui),
         )
-        .add_systems(Update, (log_dashboard, screenshot_on_f12, dbg::debug_panel_toggle))
+        .add_systems(PreUpdate, dbg::skill_card_cursor_pin)
+        .add_systems(
+            Update,
+            (log_dashboard, screenshot_on_f12, dbg::skill_card_shots, dbg::debug_panel_toggle),
+        )
         // The single cheat drain point runs in Input so the same frame's
         // wave/combat systems observe the settled cheat state; scenario loads
         // (DB2) run right after it (restart + scenario in one frame stays
