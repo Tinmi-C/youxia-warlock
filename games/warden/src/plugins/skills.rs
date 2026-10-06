@@ -55,6 +55,8 @@ impl Plugin for SkillsPlugin {
                     // autocast trigger (needs this frame's tower target).
                     systems::archer_skills::archer_skill_effects,
                     systems::archer_skills::archer_autocast_fire_arrows,
+                    // SK12: the fusion signatures' effects.
+                    systems::fusion_skills::fusion_skill_effects,
                     // SK4: frenzy countdown.
                     systems::skills::tick_war_frenzy,
                     // SK5: per-entity slot cooldowns, same law.

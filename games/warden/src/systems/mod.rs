@@ -29,6 +29,8 @@ pub mod range;
 pub mod skills;
 // Archer tower skill kit (SK9) — first tower-owned consumer of the framework.
 pub mod archer_skills;
+// Fusion tower signature actives (SK12) — the framework's third owner.
+pub mod fusion_skills;
 // Stat modification pipeline (SK6): StatMods -> EffectiveStats aggregation.
 pub mod stats;
 pub mod tower;

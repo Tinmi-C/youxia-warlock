@@ -1350,29 +1350,15 @@ pub fn confirm_fusion_target(
     if let Ok((_, mut slot, _)) = slots.get_mut(result_slot.0) {
         slot.occupied = true;
     }
-    let result = commands
-        .spawn((
-            Tower {
-                tower_index: recipe.ingredients[0],
-                damage: recipe.damage,
-                attack_speed: recipe.attack_speed,
-                range: recipe.range,
-                attack_type: recipe.attack_type,
-                cooldown: 0.0,
-                target: None,
-                kind: TowerKind::Fused(recipe.kind),
-                aoe_radius: recipe.aoe_radius,
-                slow_factor: recipe.slow_factor,
-                slow_duration: recipe.slow_duration,
-                invested: cost_ing + fee,
-            },
-            Mesh3d(meshes.add(Cuboid::new(1.2, 1.2, 1.2))),
-            MeshMaterial3d(materials.add(crate::systems::tower::fused_tower_color(
-                recipe.kind,
-            ))),
-            Transform::from_xyz(pos_b.x, 0.6, pos_b.z),
-        ))
-        .id();
+    // SK12: the shared fusion spawn gateway (stats + the signature skill kit).
+    let result = crate::systems::tower::spawn_fused_tower(
+        commands,
+        recipe,
+        pos_b,
+        cost_ing + fee,
+        meshes,
+        materials,
+    );
     *selection = Selection::Tower(result);
     info!("[ui11] fused {} (fee {fee}), result on B slot", recipe.name);
     Some(result)

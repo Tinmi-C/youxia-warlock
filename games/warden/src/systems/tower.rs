@@ -261,6 +261,45 @@ pub fn spawn_base_tower(
     ec.id()
 }
 
+/// SK12: the fusion-result spawn gateway (extracted from ui11's fusion
+/// executor so tests and scenarios spawn fused towers through the same
+/// seam). The result carries the recipe stats plus the fusion signature
+/// skill kit and a StatMods bag — fusing consumes the ingredients' kits, the
+/// signature IS the new mechanism §7.2 promises. `invested` = ingredient
+/// build costs + fusion fee (the caller owns the economy side).
+pub fn spawn_fused_tower(
+    commands: &mut Commands,
+    recipe: &crate::resources::FusionDef,
+    pos: Vec3,
+    invested: u32,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) -> bevy::ecs::entity::Entity {
+    commands
+        .spawn((
+            Tower {
+                tower_index: recipe.ingredients[0],
+                damage: recipe.damage,
+                attack_speed: recipe.attack_speed,
+                range: recipe.range,
+                attack_type: recipe.attack_type,
+                cooldown: 0.0,
+                target: None,
+                kind: TowerKind::Fused(recipe.kind),
+                aoe_radius: recipe.aoe_radius,
+                slow_factor: recipe.slow_factor,
+                slow_duration: recipe.slow_duration,
+                invested,
+            },
+            crate::components::StatMods::default(),
+            crate::systems::fusion_skills::fusion_skill_caster(recipe.kind),
+            Mesh3d(meshes.add(Cuboid::new(1.2, 1.2, 1.2))),
+            MeshMaterial3d(materials.add(fused_tower_color(recipe.kind))),
+            Transform::from_xyz(pos.x, 0.6, pos.z),
+        ))
+        .id()
+}
+
 /// The in-game look of a base tower (SM1 appearance seam): ART12 — the
 /// archer IS the KayKit Ranger character (bow wired to handslot.r, idle loop
 /// + Throw-on-fire, body yaw follows the target); every other tower keeps
@@ -598,6 +637,7 @@ pub fn tower_fire(
                         .get(target)
                         .map(|(_, etf, _)| etf.translation)
                         .unwrap_or(start),
+                    pierced: vec![],
                 },
                 Mesh3d(meshes.add(mesh)),
                 MeshMaterial3d(materials.add(StandardMaterial {

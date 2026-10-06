@@ -162,6 +162,7 @@ pub fn archer_skill_effects(
                             slow_duration: 0.0,
                             speed: PROJECTILE_SPEED,
                             last_target_pos: tpos,
+                            pierced: vec![],
                         },
                         Mesh3d(meshes.add(mesh.clone())),
                         MeshMaterial3d(materials.add(StandardMaterial {

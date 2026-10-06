@@ -5,7 +5,8 @@
 //! everything around the impact point (armor is resolved per victim at hit
 //! time; damage was snapshotted at launch). The slow payload rides the hit
 //! (TO6 rework). The melee shield tower keeps its instant hit (hybrid model,
-//! §5.1).
+//! §5.1). SK12 adds LINEAR rounds: the piercing bolt flies a straight length
+//! and damages every enemy it passes through exactly once.
 
 use bevy::prelude::*;
 
@@ -38,8 +39,49 @@ pub fn fly_projectiles(
     enemies: Query<(Entity, &Transform, &Enemy)>,
 ) {
     for (eid, mut proj, mut tf) in &mut q {
+        // SK12 贯穿箭: fly straight, pierce (damage once each) every enemy
+        // within the contact width, expire when the flight length runs out.
+        if let ProjectileOrigin::Linear { dir, remaining } = proj.origin {
+            let step = (proj.speed * time.delta_secs()).min(remaining);
+            tf.translation += dir * step;
+            let remaining = remaining - step;
+            let mut expired = remaining <= 0.0;
+            let mut hit_any = false;
+            for (ven, vtf, venemy) in enemies.iter() {
+                if venemy.hp <= 0.0 || proj.pierced.contains(&ven) {
+                    continue;
+                }
+                let dx = vtf.translation.x - tf.translation.x;
+                let dz = vtf.translation.z - tf.translation.z;
+                if dx * dx + dz * dz <= proj.aoe_radius * proj.aoe_radius {
+                    proj.pierced.push(ven);
+                    hit_any = true;
+                    requests.write(DamageRequest {
+                        victim: ven,
+                        amount: proj.damage,
+                        attack_type: proj.attack_type,
+                        source: proj.source,
+                        crit: proj.crit,
+                    });
+                }
+            }
+            if hit_any || expired {
+                impacts.write(ProjectileImpact {
+                    position: tf.translation,
+                    aoe_radius: 0.0, // pierce feedback is per-victim, not a blast
+                });
+            }
+            if expired {
+                proj.origin = ProjectileOrigin::Linear { dir, remaining: 0.0 };
+                commands.entity(eid).despawn();
+            } else {
+                proj.origin = ProjectileOrigin::Linear { dir, remaining };
+            }
+            continue;
+        }
         // Steer toward the destination: the homing target's *current*
-        // position (§5.1) or the fixed skill point (SK2).
+        // position (§5.1) or the fixed skill point (SK2). Linear rounds
+        // were handled (and skipped) above.
         let target_pos = match proj.origin {
             ProjectileOrigin::Homing { target } => enemies
                 .get(target)
@@ -47,6 +89,7 @@ pub fn fly_projectiles(
                 .filter(|(_, _, en)| en.hp > 0.0)
                 .map(|(_, etf, _)| etf.translation),
             ProjectileOrigin::Fixed { point } => Some(point),
+            ProjectileOrigin::Linear { .. } => continue,
         };
         let Some(pos) = target_pos else {
             // Homing target gone mid-flight (PR2).

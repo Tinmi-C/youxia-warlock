@@ -2455,6 +2455,9 @@ fn single_target_round_dissipates_when_target_dies() {
             warden::components::ProjectileOrigin::Fixed { .. } => {
                 panic!("a tower round must be homing")
             }
+            warden::components::ProjectileOrigin::Linear { .. } => {
+                panic!("a tower round must be homing")
+            }
         })
         .expect("round in flight");
     app.world_mut().get_mut::<Enemy>(target).unwrap().hp = 0.0; // dies mid-flight
@@ -2511,6 +2514,7 @@ fn wave_end_clears_in_flight_projectiles() {
             slow_duration: 0.0,
             speed: 0.01, // never reaches anything before the wave ends
             last_target_pos: Vec3::new(90.0, 0.4, 90.0),
+            pierced: vec![],
         },
         Transform::from_xyz(50.0, 1.0, 50.0),
     ));
@@ -6757,6 +6761,360 @@ mod skills_archer {
         let e = estats(&app, tower);
         assert!((e.crit_chance - 0.15).abs() < 1e-4, "lv2 chance");
         assert!((e.crit_multiplier - 2.25).abs() < 1e-4, "lv2 multiplier");
+    }
+}
+
+// --- SK12: fusion tower signature actives (ADR-0011) ---------------------------------
+
+mod skills_fusion {
+    use super::*;
+    use bevy::ecs::message::MessageCursor;
+    use warden::components::{EffectiveStats, Enemy, SkillCaster, Slow, StatMods, Tower};
+    use warden::resources::{FusionDefs, Selection, SkillAiming};
+    use warden::systems::damage::{DamageDealt, DamageSource};
+    use warden::systems::fusion_skills::{
+        fusion_signature, SKILL_ARCANE_BLAST, SKILL_CONCUSSION, SKILL_DEADEYE,
+        SKILL_PIERCING_BOLT,
+    };
+    use warden::systems::skills::{learn_skill, CastSkill};
+
+    /// A fused tower via the REAL spawn gateway (stats + signature kit +
+    /// StatMods). `cooldown` starts high so auto-fire never interferes.
+    fn spawn_fused(app: &mut App, kind: FusionKind, pos: Vec3) -> Entity {
+        let recipe = app
+            .world()
+            .resource::<FusionDefs>()
+            .list
+            .iter()
+            .find(|r| r.kind == kind)
+            .expect("fusion recipe")
+            .clone();
+        let mut meshes = std::mem::take(&mut *app.world_mut().resource_mut::<Assets<Mesh>>());
+        let mut materials =
+            std::mem::take(&mut *app.world_mut().resource_mut::<Assets<StandardMaterial>>());
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let tower = {
+            let mut commands = Commands::new(&mut queue, app.world());
+            warden::systems::tower::spawn_fused_tower(
+                &mut commands,
+                &recipe,
+                pos,
+                100,
+                &mut meshes,
+                &mut materials,
+            )
+        };
+        queue.apply(app.world_mut());
+        *app.world_mut().resource_mut::<Assets<Mesh>>() = meshes;
+        *app.world_mut().resource_mut::<Assets<StandardMaterial>>() = materials;
+        // Suppress the normal auto-fire: these tests drive skill casts only.
+        app.world_mut().get_mut::<Tower>(tower).unwrap().cooldown = 999.0;
+        tower
+    }
+
+    fn spawn_dummy(app: &mut App, pos: Vec3, hp: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Enemy {
+                    hp,
+                    max_hp: hp,
+                    speed: 0.0,
+                    leak: 0,
+                    kill_gold: 0,
+                    physical_armor: false,
+                    def_index: 0,
+                    next_wp: 0,
+                },
+                Transform::from_xyz(pos.x, 0.4, pos.z),
+            ))
+            .id()
+    }
+
+    fn slot_of(app: &mut App, tower: Entity, def: usize) -> usize {
+        app.world()
+            .get::<SkillCaster>(tower)
+            .expect("caster")
+            .slots
+            .iter()
+            .position(|s| s.def == def)
+            .expect("signature on caster")
+    }
+
+    /// Drive a POINT skill through the real request->aiming->confirm path:
+    /// request the cast, put the cursor over `point`, click to confirm.
+    fn cast_point_skill(app: &mut App, tower: Entity, def: usize, point: Vec3) {
+        let slot = slot_of(app, tower, def);
+        app.world_mut()
+            .resource_mut::<Messages<CastSkill>>()
+            .write(CastSkill { caster: tower, slot });
+        app.update();
+        assert_eq!(
+            app.world().resource::<SkillAiming>().0,
+            Some((tower, slot)),
+            "point signature enters target picking"
+        );
+        // enable_world_picking first: it also initializes the camera's
+        // computed viewport so world_to_viewport can project.
+        enable_world_picking(app, Vec2::new(640.0, 360.0));
+        let cursor = {
+            let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+            let (cam, tf) = cams.single(app.world()).expect("one camera");
+            cam.world_to_viewport(tf, point).expect("point projects")
+        };
+        {
+            let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+            for mut w in q.iter_mut(app.world_mut()) {
+                w.set_cursor_position(Some(cursor));
+            }
+        }
+        click_left(app);
+        app.update();
+        release_all_inputs(app);
+        assert_eq!(
+            app.world().resource::<SkillAiming>().0,
+            None,
+            "the confirm click clears target picking"
+        );
+    }
+
+    /// A None-target signature cast (instant confirm, no aiming).
+    fn cast_none_skill(app: &mut App, tower: Entity, def: usize) {
+        let slot = slot_of(app, tower, def);
+        app.world_mut()
+            .resource_mut::<Messages<CastSkill>>()
+            .write(CastSkill { caster: tower, slot });
+        app.update();
+    }
+
+    /// Drain DamageDealt for up to `frames` frames, returning (victim ->
+    /// total damage, sources seen). Per-frame drain — the double buffer
+    /// keeps only the latest frame (KB pitfall).
+    fn drain_damage(
+        app: &mut App,
+        frames: usize,
+    ) -> std::collections::HashMap<bevy::ecs::entity::Entity, (f32, Vec<DamageSource>)> {
+        let mut ledger: std::collections::HashMap<
+            bevy::ecs::entity::Entity,
+            (f32, Vec<DamageSource>),
+        > = std::collections::HashMap::new();
+        let mut cursor = MessageCursor::<DamageDealt>::default();
+        for _ in 0..frames {
+            app.update();
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            for msg in cursor.read(msgs) {
+                let e = ledger.entry(msg.victim).or_insert((0.0, vec![]));
+                e.0 += msg.amount;
+                e.1.push(msg.source);
+            }
+        }
+        ledger
+    }
+
+    /// SK12 acceptance ①: every fusion kind ships its signature at lv1 with a
+    /// StatMods bag (融合即换新技能组——the archer kit is gone with the base).
+    #[test]
+    fn fusion_gateway_ships_each_signature() {
+        let mut app = test_app();
+        for (kind, def) in [
+            (FusionKind::Marksman, SKILL_DEADEYE),
+            (FusionKind::Archmage, SKILL_ARCANE_BLAST),
+            (FusionKind::Hybrid, SKILL_PIERCING_BOLT),
+            (FusionKind::Bastion, SKILL_CONCUSSION),
+        ] {
+            let tower = spawn_fused(&mut app, kind, Vec3::ZERO);
+            let caster = app.world().get::<SkillCaster>(tower).expect("kit attached");
+            assert_eq!(fusion_signature(kind), def);
+            assert_eq!(caster.slots.len(), 1, "one signature slot");
+            assert_eq!(caster.slots[0].def, def, "{kind:?} signature");
+            assert_eq!(caster.slots[0].level, 1, "ships at lv1");
+            assert!(app.world().get::<StatMods>(tower).is_some());
+        }
+    }
+
+    /// SK12 acceptance ②: deadeye picks the HIGHEST-HP target in range (not
+    /// the nearest) and snapshots the aggregated damage × the lv multiplier.
+    #[test]
+    fn deadeye_snipes_the_highest_hp_target() {
+        let mut app = test_app();
+        let tower = spawn_fused(&mut app, FusionKind::Marksman, Vec3::ZERO);
+        app.update(); // let the stats aggregator produce EffectiveStats
+        let near_low = spawn_dummy(&mut app, Vec3::new(2.0, 0.0, 0.0), 30.0);
+        let far_high = spawn_dummy(&mut app, Vec3::new(10.0, 0.0, 0.0), 90.0);
+        cast_none_skill(&mut app, tower, SKILL_DEADEYE);
+        // The sniper arrow exists and locks the high-HP target.
+        {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<&warden::components::Projectile, ()>();
+            let mut iter = q.iter(app.world());
+            let proj = iter.next().expect("deadeye arrow launched");
+            assert!(matches!(
+                proj.origin,
+                warden::components::ProjectileOrigin::Homing { target } if target == far_high
+            ));
+            let estats = app.world().get::<EffectiveStats>(tower).unwrap().damage;
+            let mult = app
+                .world()
+                .resource::<warden::resources::SkillBalance>()
+                .deadeye_mult(SKILL_DEADEYE, 1);
+            assert_eq!(proj.damage, estats * mult, "snapshot = aggregated x mult");
+        }
+        // Flight lands through the unified pipeline with TowerSkill credit.
+        let ledger = drain_damage(&mut app, 120);
+        let (dmg, srcs) = ledger.get(&far_high).expect("high-HP victim hit");
+        assert!(*dmg >= 30.0, "sniper damage landed ({dmg})");
+        assert!(srcs.iter().any(|s| matches!(
+            s,
+            DamageSource::TowerSkill { skill: SKILL_DEADEYE, .. }
+        )));
+        assert!(!ledger.contains_key(&near_low), "nearest low-HP untouched");
+    }
+
+    /// SK12 acceptance ③: arcane blast hits every enemy in radius through the
+    /// unified pipeline (TowerSkill attribution), radius-excluded enemies
+    /// stay whole.
+    #[test]
+    fn arcane_blast_blasts_radius_with_pipeline_credit() {
+        let mut app = test_app();
+        let tower = spawn_fused(&mut app, FusionKind::Archmage, Vec3::ZERO);
+        app.update();
+        let inside_a = spawn_dummy(&mut app, Vec3::new(2.0, 0.0, 2.0), 100.0);
+        let inside_b = spawn_dummy(&mut app, Vec3::new(-2.0, 0.0, -2.0), 100.0);
+        let outside = spawn_dummy(&mut app, Vec3::new(8.0, 0.0, 8.0), 100.0);
+        cast_point_skill(&mut app, tower, SKILL_ARCANE_BLAST, Vec3::ZERO);
+        let damage = app
+            .world()
+            .resource::<warden::resources::SkillBalance>()
+            .arcane_damage(SKILL_ARCANE_BLAST, 1);
+        for victim in [inside_a, inside_b] {
+            let hp = app.world().get::<Enemy>(victim).unwrap().hp;
+            assert_eq!(hp, 100.0 - damage, "radius victim blasted");
+        }
+        let hp = app.world().get::<Enemy>(outside).unwrap().hp;
+        assert_eq!(hp, 100.0, "radius-excluded enemy untouched");
+        // Attribution: the DamageDealt sources name this tower's skill.
+        let mut credited = 0;
+        {
+            let msgs = app.world().resource::<Messages<DamageDealt>>();
+            let mut cursor = MessageCursor::<DamageDealt>::default();
+            for msg in cursor.read(msgs) {
+                if matches!(
+                    msg.source,
+                    DamageSource::TowerSkill { tower: t, skill: SKILL_ARCANE_BLAST } if t == tower
+                ) {
+                    credited += 1;
+                }
+            }
+        }
+        assert!(credited >= 2, "both victims carry TowerSkill credit ({credited})");
+    }
+
+    /// SK12 acceptance ④: the piercing bolt hits each collinear enemy
+    /// EXACTLY ONCE and leaves off-line enemies whole.
+    #[test]
+    fn piercing_bolt_hits_each_collinear_enemy_once() {
+        let mut app = test_app();
+        let tower = spawn_fused(&mut app, FusionKind::Hybrid, Vec3::ZERO);
+        app.update();
+        let first = spawn_dummy(&mut app, Vec3::new(3.0, 0.0, 0.0), 200.0);
+        let second = spawn_dummy(&mut app, Vec3::new(6.0, 0.0, 0.0), 200.0);
+        let off_line = spawn_dummy(&mut app, Vec3::new(3.0, 0.0, 5.0), 200.0);
+        cast_point_skill(&mut app, tower, SKILL_PIERCING_BOLT, Vec3::new(10.0, 0.0, 0.0));
+        let ledger = drain_damage(&mut app, 120);
+        let damage = app
+            .world()
+            .resource::<warden::resources::SkillBalance>()
+            .pierce_damage(SKILL_PIERCING_BOLT, 1);
+        for victim in [first, second] {
+            let (dmg, _) = ledger.get(&victim).expect("collinear victim pierced");
+            assert_eq!(*dmg, damage, "pierced exactly once (no double dip)");
+        }
+        assert!(!ledger.contains_key(&off_line), "off-line enemy untouched");
+        let hp = app.world().get::<Enemy>(off_line).unwrap().hp;
+        assert_eq!(hp, 200.0);
+    }
+
+    /// SK12 acceptance ① (UI half): selecting a fused tower lights the
+    /// reserved card pair into 升级(E) + the signature castable (R) — the
+    /// SK10 card is owner-agnostic.
+    #[test]
+    fn selected_fused_tower_shows_signature_button() {
+        let mut app = test_app();
+        let tower = spawn_fused(&mut app, FusionKind::Bastion, Vec3::ZERO);
+        app.update();
+        app.update();
+        *app.world_mut().resource_mut::<Selection>() = Selection::Tower(tower);
+        app.update(); // card rebuilds for the new selection
+        app.update();
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&warden::systems::command::CommandButton, ()>();
+        let actions: Vec<warden::systems::command::CommandAction> =
+            q.iter(app.world()).map(|b| b.action).collect();
+        assert!(
+            actions.contains(&warden::systems::command::CommandAction::SkillUpgrade),
+            "upgrade slot live for fusion kits"
+        );
+        assert!(
+            actions.contains(&warden::systems::command::CommandAction::TowerSkill(0)),
+            "the signature holds the first castable grid"
+        );
+    }
+
+    /// SK12 acceptance ⑤: concussion damages AND slows the same victims in
+    /// the same cast (the hybrid AOE+control identity).
+    #[test]
+    fn concussion_damages_and_slows_radius() {
+        let mut app = test_app();
+        let tower = spawn_fused(&mut app, FusionKind::Bastion, Vec3::ZERO);
+        app.update();
+        let victim = spawn_dummy(&mut app, Vec3::new(1.0, 0.0, 1.0), 100.0);
+        let far = spawn_dummy(&mut app, Vec3::new(8.0, 0.0, 8.0), 100.0);
+        cast_point_skill(&mut app, tower, SKILL_CONCUSSION, Vec3::ZERO);
+        let damage = app
+            .world()
+            .resource::<warden::resources::SkillBalance>()
+            .concussion_damage(SKILL_CONCUSSION, 1);
+        let factor = app
+            .world()
+            .resource::<warden::resources::SkillBalance>()
+            .concussion_slow_factor;
+        let hp = app.world().get::<Enemy>(victim).unwrap().hp;
+        assert_eq!(hp, 100.0 - damage, "victim damaged");
+        let slow = app.world().get::<Slow>(victim).expect("victim slowed");
+        assert_eq!(slow.factor, factor);
+        assert!(app.world().get::<Slow>(far).is_none(), "far enemy not slowed");
+    }
+
+    /// SK12 acceptance ⑥: the shared paid-upgrade path raises the signature —
+    /// lv2 deadeye snapshots the lv2 multiplier (SkillBalance single source).
+    #[test]
+    fn signature_levels_up_and_scales() {
+        let mut app = test_app();
+        let tower = spawn_fused(&mut app, FusionKind::Marksman, Vec3::ZERO);
+        app.update();
+        {
+            let mut caster = app.world_mut().get_mut::<SkillCaster>(tower).unwrap();
+            learn_skill(&mut caster, SKILL_DEADEYE, 2);
+        }
+        let victim = spawn_dummy(&mut app, Vec3::new(4.0, 0.0, 0.0), 500.0);
+        cast_none_skill(&mut app, tower, SKILL_DEADEYE);
+        let balance = app.world().resource::<warden::resources::SkillBalance>().clone();
+        {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<&warden::components::Projectile, ()>();
+            let proj = q.iter(app.world()).next().expect("arrow launched");
+            let estats = app.world().get::<EffectiveStats>(tower).unwrap().damage;
+            assert_eq!(
+                proj.damage,
+                estats * balance.deadeye_mult(SKILL_DEADEYE, 2),
+                "lv2 snapshot uses the lv2 multiplier"
+            );
+        }
+        let ledger = drain_damage(&mut app, 120);
+        assert!(ledger.contains_key(&victim));
+        assert!(ledger[&victim].0 > balance.deadeye_mult(SKILL_DEADEYE, 1) * 10.0);
     }
 }
 

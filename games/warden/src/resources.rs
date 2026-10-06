@@ -678,7 +678,7 @@ impl SkillDefs {
 /// per-level values (index level-1; levels beyond the array clamp to the
 /// last entry). Missing rows/cells read as 0.0 (commander rows have no
 /// crit entries).
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone)]
 pub struct SkillBalance {
     /// Full cast cooldown per (def, level).
     pub cooldowns: Vec<Vec<f32>>,
@@ -708,6 +708,22 @@ pub struct SkillBalance {
     pub frenzy_speed_mult: f32,
     /// 战意狂暴: duration in seconds.
     pub frenzy_duration: f32,
+    /// SK12 狙杀: damage multiplier over the aggregated normal-attack damage.
+    pub deadeye_mult: Vec<Vec<f32>>,
+    /// SK12 奥术爆轰: instant magic damage per enemy in radius.
+    pub arcane_damage: Vec<Vec<f32>>,
+    /// SK12 贯穿箭: damage per pierced enemy.
+    pub pierce_damage: Vec<Vec<f32>>,
+    /// SK12 贯穿箭: bolt flight length in world units.
+    pub pierce_length: Vec<Vec<f32>>,
+    /// SK12 贯穿箭: hit width around the flight path (also the aim ring).
+    pub pierce_width: f32,
+    /// SK12 震荡冲击: instant physical damage per enemy in radius.
+    pub concussion_damage: Vec<Vec<f32>>,
+    /// SK12 震荡冲击: slow factor (shared merge path).
+    pub concussion_slow_factor: f32,
+    /// SK12 震荡冲击: slow duration in seconds.
+    pub concussion_slow_duration: f32,
     /// SK10 paid kit upgrade: cost by the kit's CURRENT (min) level.
     pub upgrade_costs: Vec<f32>,
 }
@@ -775,5 +791,25 @@ impl SkillBalance {
             .or_else(|| self.upgrade_costs.last())
             .copied()
             .unwrap_or(0.0) as u32
+    }
+
+    pub fn deadeye_mult(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.deadeye_mult, def, level)
+    }
+
+    pub fn arcane_damage(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.arcane_damage, def, level)
+    }
+
+    pub fn pierce_damage(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.pierce_damage, def, level)
+    }
+
+    pub fn pierce_length(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.pierce_length, def, level)
+    }
+
+    pub fn concussion_damage(&self, def: usize, level: u8) -> f32 {
+        Self::level_value(&self.concussion_damage, def, level)
     }
 }

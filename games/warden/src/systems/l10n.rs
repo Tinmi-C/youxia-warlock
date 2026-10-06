@@ -220,13 +220,20 @@ pub const TT_SKILL_UPGRADE: Bi = Bi(
     "Spend gold to raise this tower's whole skill kit one level",
 );
 
-/// SK10: display name of a registry skill (archer kit today).
+/// SK10: display name of a registry skill (archer + fusion kits today).
 pub fn tower_skill_name(def: usize, lang: Lang) -> &'static str {
     use crate::systems::archer_skills::{SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
+    use crate::systems::fusion_skills::{
+        SKILL_ARCANE_BLAST, SKILL_CONCUSSION, SKILL_DEADEYE, SKILL_PIERCING_BOLT,
+    };
     match def {
         SKILL_EAGLE_EYE => pick2("鹰眼", "Eagle Eye", lang),
         SKILL_MULTISHOT => pick2("多重射击", "Multishot", lang),
         SKILL_FIRE_ARROWS => pick2("火焰箭", "Fire Arrows", lang),
+        SKILL_DEADEYE => pick2("狙杀", "Deadeye", lang),
+        SKILL_ARCANE_BLAST => pick2("奥术爆轰", "Arcane Blast", lang),
+        SKILL_PIERCING_BOLT => pick2("贯穿箭", "Piercing Bolt", lang),
+        SKILL_CONCUSSION => pick2("震荡冲击", "Concussion", lang),
         _ => pick2("技能", "Skill", lang),
     }
 }
@@ -234,6 +241,9 @@ pub fn tower_skill_name(def: usize, lang: Lang) -> &'static str {
 /// SK10: tooltip body with the level's live numbers (SkillBalance values).
 pub fn tower_skill_tooltip(def: usize, _level: u8, lang: Lang) -> String {
     use crate::systems::archer_skills::{SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
+    use crate::systems::fusion_skills::{
+        SKILL_ARCANE_BLAST, SKILL_CONCUSSION, SKILL_DEADEYE, SKILL_PIERCING_BOLT,
+    };
     match def {
         SKILL_EAGLE_EYE => pick2(
             "被动：暴击率与暴击倍率提升（等级越高越强）",
@@ -250,6 +260,30 @@ pub fn tower_skill_tooltip(def: usize, _level: u8, lang: Lang) -> String {
         SKILL_FIRE_ARROWS => pick2(
             "限时强化普攻伤害 · 冷却 20 秒 · 右键开关自动施放",
             "Timed normal-attack damage boost · 20s cooldown · right-click toggles autocast",
+            lang,
+        )
+        .to_string(),
+        SKILL_DEADEYE => pick2(
+            "立即狙击射程内血量最高的敌人 · 伤害为普攻数倍 · 冷却 30 秒",
+            "Snipes the highest-HP enemy in range for a multiple of attack damage · 30s cooldown",
+            lang,
+        )
+        .to_string(),
+        SKILL_ARCANE_BLAST => pick2(
+            "对目标区域造成魔法伤害 · 冷却 35 秒",
+            "Magic damage in an area · 35s cooldown",
+            lang,
+        )
+        .to_string(),
+        SKILL_PIERCING_BOLT => pick2(
+            "直线穿透箭，命中路径上所有敌人（混合伤害穿护甲） · 冷却 25 秒",
+            "A bolt piercing every enemy along its path (mixed damage) · 25s cooldown",
+            lang,
+        )
+        .to_string(),
+        SKILL_CONCUSSION => pick2(
+            "目标区域伤害并减速 · 冷却 30 秒",
+            "Damage and slow in an area · 30s cooldown",
             lang,
         )
         .to_string(),

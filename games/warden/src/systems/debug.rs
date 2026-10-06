@@ -18,8 +18,9 @@ use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 
 use crate::components::{Commander, Enemy, Projectile, SkillCaster, Tower, TowerSlot};
 use crate::resources::{
-    BaseHp, Boosts, BuildMode, DebugRun, Economy, EnemyDefs, Hand, MetaState, PathInfo, RunRng,
-    Selection, ShopOffers, SkillAiming, TowerDefs, WaveChoice, WavePhase, WaveSchedule, WaveState,
+    BaseHp, Boosts, BuildMode, DebugRun, Economy, EnemyDefs, FusionDefs, Hand, MetaState, PathInfo,
+    RunRng, Selection, ShopOffers, SkillAiming, TowerDefs, WaveChoice, WavePhase, WaveSchedule,
+    WaveState,
 };
 use crate::states::GameState;
 use crate::systems::acquisition::{deal_opening_hand_into, refresh_shop_offers};
@@ -694,12 +695,24 @@ pub struct SkillShotState {
     pub frames: u32,
 }
 
+/// The shot-diagnostic reads bundled (the 16-param system cap — same wall
+/// as SK10's CardParams; immutable queries bundle fine, mutables stay out).
+#[cfg(debug_assertions)]
+#[derive(SystemParam)]
+pub struct ShotDiagnostics<'w, 's> {
+    pub command_buttons: Query<'w, 's, &'static crate::systems::command::CommandButton>,
+    pub rings:
+        Query<'w, 's, &'static Visibility, With<crate::systems::skills::SkillIndicatorRing>>,
+    pub hud_text: Query<'w, 's, &'static Text, With<crate::systems::hud::HudText>>,
+    pub aiming: Res<'w, SkillAiming>,
+}
+
 #[cfg(debug_assertions)]
 #[allow(clippy::too_many_arguments)]
 pub fn skill_card_shots(
     mut state: Option<ResMut<SkillShotState>>,
     mut commands: Commands,
-    selection: Res<Selection>,
+    mut selection: ResMut<Selection>,
     commanders: Query<Entity, With<Commander>>,
     mut casters: Query<&mut SkillCaster>,
     mut requests: MessageWriter<CastSkill>,
@@ -708,10 +721,12 @@ pub fn skill_card_shots(
     mut exit: MessageWriter<AppExit>,
     // Shot diagnostics — engine-side ground truth for the visual loop (the
     // vision pass reads pixels; this logs what the systems actually hold).
-    command_buttons: Query<&crate::systems::command::CommandButton>,
-    rings: Query<&Visibility, With<crate::systems::skills::SkillIndicatorRing>>,
-    hud_text: Query<&Text, With<crate::systems::hud::HudText>>,
-    aiming: Res<SkillAiming>,
+    diag: ShotDiagnostics,
+    // SK12 fusion segment: spawn a bastion through the real gateway.
+    fusion_defs: Res<FusionDefs>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut slots_q: Query<(Entity, &mut TowerSlot, &Transform)>,
 ) {
     let Some(mut state) = state else {
         return;
@@ -742,7 +757,7 @@ pub fn skill_card_shots(
     };
     match f {
         88 => {
-            let mut cards: Vec<String> = command_buttons
+            let mut cards: Vec<String> = diag.command_buttons
                 .iter()
                 .map(|b| format!("{:?}@{}({})", b.action, b.grid, crate::systems::command::grid_badge(b.grid)))
                 .collect();
@@ -789,14 +804,61 @@ pub fn skill_card_shots(
         318 => {
             info!(
                 "[dash] aim-check at f=318: aiming={:?} cursor={:?} ring={:?} hud={:?}",
-                aiming.0.map(|(e, s)| (e.index(), s)),
+                diag.aiming.0.map(|(e, s)| (e.index(), s)),
                 windows.single().ok().and_then(|w| w.cursor_position()),
-                rings.single().ok().map(|v| matches!(*v, Visibility::Visible)),
-                hud_text.single().ok().map(|t| t.0.clone()),
+                diag.rings.single().ok().map(|v| matches!(*v, Visibility::Visible)),
+                diag.hud_text.single().ok().map(|t| t.0.clone()),
             );
         }
         320 => shot(&mut commands, "sk_aiming.png"), // ring + HUD hint
+        // SK12 fusion segment: land a bastion on the next free slot through
+        // the real gateway, select it, enter concussion aiming.
         400 => {
+            let recipe = fusion_defs
+                .list
+                .iter()
+                .find(|r| r.kind == crate::components::FusionKind::Bastion)
+                .expect("bastion recipe")
+                .clone();
+            let free: Option<(Entity, Vec3)> = slots_q
+                .iter()
+                .filter(|(_, slot, _)| !slot.occupied)
+                .map(|(eid, _, tf)| (eid, tf.translation))
+                .next();
+            if let Some((slot_eid, pos)) = free {
+                let bastion = crate::systems::tower::spawn_fused_tower(
+                    &mut commands,
+                    &recipe,
+                    pos,
+                    150,
+                    &mut meshes,
+                    &mut materials,
+                );
+                for (eid, mut slot, _) in slots_q.iter_mut() {
+                    if eid == slot_eid {
+                        slot.occupied = true;
+                    }
+                }
+                *selection = Selection::Tower(bastion);
+                // The kit is single-slot (the signature); the spawn itself is
+                // deferred via Commands, so don't query it this frame.
+                requests.write(CastSkill {
+                    caster: bastion,
+                    slot: 0,
+                });
+                info!("[dash] fusion segment: bastion placed, concussion aiming");
+            }
+        }
+        430 => {
+            let mut cards: Vec<String> = diag.command_buttons
+                .iter()
+                .map(|b| format!("{:?}@{}({})", b.action, b.grid, crate::systems::command::grid_badge(b.grid)))
+                .collect();
+            cards.sort();
+            info!("[dash] card at f=430: {}", cards.join(" "));
+        }
+        450 => shot(&mut commands, "sk_fusion.png"), // signature R + aiming
+        500 => {
             info!("[dash] skill-card script done, exiting");
             exit.write(AppExit::Success);
         }
@@ -819,9 +881,14 @@ pub fn skill_card_cursor_pin(
     let Some(state) = state else {
         return;
     };
-    if !(281..=339).contains(&state.frames) {
+    // Aiming windows: nova (281..=339) and the fusion concussion segment
+    // (401..=459). Outside them the OS mouse is allowed to speak.
+    let aiming_now = (281..=339).contains(&state.frames) || (401..=459).contains(&state.frames);
+    if !aiming_now {
         return;
     }
+    // The cursor re-pin: winit clobbers the scripted cursor with the
+    // (absent, outside-the-window) OS mouse on every event batch.
     if let (Ok((cam, cam_tf)), Ok(mut window)) = (camera.single(), windows.single_mut()) {
         if let Ok(pt) = cam.world_to_viewport(cam_tf, Vec3::new(0.0, 0.0, 0.0)) {
             window.set_cursor_position(Some(pt));

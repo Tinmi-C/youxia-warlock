@@ -67,6 +67,7 @@ pub fn production_skill_defs() -> SkillDefs {
         },
     ];
     defs.extend(crate::systems::archer_skills::archer_skill_defs());
+    defs.extend(crate::systems::fusion_skills::fusion_skill_defs());
     SkillDefs(defs)
 }
 
@@ -83,8 +84,14 @@ pub fn production_skill_balance() -> SkillBalance {
             vec![0.0],
             vec![25.0, 25.0, 25.0],
             vec![20.0, 20.0, 20.0],
+            // The fusion signatures (SK12).
+            vec![30.0, 30.0, 30.0], // deadeye
+            vec![35.0, 35.0, 35.0], // arcane blast
+            vec![25.0, 25.0, 25.0], // piercing bolt
+            vec![30.0, 30.0, 30.0], // concussion
         ],
-        // Point-skill effect radii (also the aiming ring's).
+        // Point-skill effect radii (also the aiming ring's); the piercing
+        // bolt's ring is its contact width (a line skill shows a cursor dot).
         radius: vec![
             vec![3.0], // meteor blast
             vec![5.0], // nova
@@ -92,6 +99,10 @@ pub fn production_skill_balance() -> SkillBalance {
             vec![],
             vec![],
             vec![],
+            vec![],
+            vec![4.0, 4.5, 5.0], // arcane blast
+            vec![1.5, 1.5, 1.5], // piercing bolt width
+            vec![4.0, 4.0, 4.5], // concussion
         ],
         // 鹰眼 crit rows (registry ids 0-2 are the commander: empty).
         crit_chance: vec![vec![], vec![], vec![], vec![0.10, 0.15, 0.20]],
@@ -111,6 +122,18 @@ pub fn production_skill_balance() -> SkillBalance {
         // 战意狂暴: all towers +50% attack speed for 3s.
         frenzy_speed_mult: 1.5,
         frenzy_duration: 3.0,
+        // SK12 狙杀: normal-attack damage ×4/5/6.
+        deadeye_mult: vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![4.0, 5.0, 6.0]],
+        // SK12 奥术爆轰: instant magic damage per victim.
+        arcane_damage: vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![60.0, 90.0, 120.0]],
+        // SK12 贯穿箭: damage per pierced enemy, bolt length; width below.
+        pierce_damage: vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![35.0, 50.0, 65.0]],
+        pierce_length: vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![10.0, 12.0, 14.0]],
+        pierce_width: 1.5,
+        // SK12 震荡冲击: instant physical damage; slow to 60% for 2.5s.
+        concussion_damage: vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![30.0, 45.0, 60.0]],
+        concussion_slow_factor: 0.6,
+        concussion_slow_duration: 2.5,
         // SK10 paid kit upgrade: 30g for 1→2, 60g for 2→3.
         upgrade_costs: vec![30.0, 60.0],
     }
@@ -193,6 +216,7 @@ pub fn release_meteor_shots(
                 slow_duration: 0.0,
                 speed: PROJECTILE_SPEED,
                 last_target_pos: volley.point,
+                pierced: vec![],
             },
             Mesh3d(meshes.add(Sphere::new(0.3))),
             MeshMaterial3d(materials.add(StandardMaterial {

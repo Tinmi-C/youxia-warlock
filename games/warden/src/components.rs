@@ -143,6 +143,10 @@ pub enum ProjectileOrigin {
     Homing { target: Entity },
     /// Fly straight to this world point and resolve there (skill shots).
     Fixed { point: Vec3 },
+    /// SK12 贯穿箭: fly along `dir` for at most `remaining` world units,
+    /// piercing (damaging once each) every enemy within the AOE width of
+    /// the flight path; expires when the length runs out.
+    Linear { dir: Vec3, remaining: f32 },
 }
 
 /// A rule-layer projectile (PR1, requirements §5.1): a homing round locked on
@@ -176,6 +180,10 @@ pub struct Projectile {
     /// Last known target position — the AOE detonation anchor when a homing
     /// target dies mid-flight (PR2); for fixed-point shots, the point itself.
     pub last_target_pos: Vec3,
+    /// SK12 贯穿箭: enemies already hit by this piercing round (each victim
+    /// takes damage exactly once while the bolt flies through). Empty for
+    /// every other origin mode.
+    pub pierced: Vec<Entity>,
 }
 
 /// Healer aura (EN5): periodically restores hp of nearby damaged allies.
