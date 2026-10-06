@@ -1099,6 +1099,45 @@
 
 ---
 
+## 技能系统三期（融合塔招牌主动 ×4，2026-10-06 立项）
+
+> ADR-0011 框架的第三个使用者：四座融合塔各带一个**招牌主动技**（出厂自带 lv1，融合即换新技能组——弓箭手
+> 三件套随实体消失，兑现 §7.2「融合=换定位+腾塔位」的新机制承诺）。指令卡 E 付费升级（30/60 金）沿用 SK10
+> 全套 UI（对任意 SkillCaster 塔通用）；数值全进 SkillBalance 单源表。唯一新机制=贯穿箭的直线飞行模式
+> （`ProjectileOrigin::Linear`，线上敌人各命中一次）；其余效果全部复用既有模式（追踪箭/瞬发范围扫描/范围减速）。
+
+### SK12 · 融合塔招牌主动 ×4（skills/fusion）—— ✅ 已实现（2026-10-06，依赖 SK5-SK11）
+- 接口: `systems/fusion_skills.rs` 新模块——注册表 6-9 行（deadeye/arcane_blast/piercing_bolt/concussion，
+  皆 Active·max_level 3）；`fusion_skill_caster(FusionKind)` 出厂单槽；融合产物实体（execute_fusion 抽出的
+  `spawn_fused_tower` 网关）附 SkillCaster+StatMods；`fusion_skill_effects` 按 def 分发。
+- 行为: 神射手「狙杀」（None）立即对射程内**血量最高**活目标射狙击箭（伤害=当次聚合普攻×倍率，快照）；
+  大法师「奥术爆轰」（Point）落点范围瞬发魔法伤害；魔弓手「贯穿箭」（Point=方向）直线穿透箭，线上敌人
+  **各命中一次**（混合伤害）；壁垒炮「震荡冲击」（Point）范围伤害+减速（走共享减速合并，取更强者）。
+  四技能共享 E 付费升级路径（全套 lv1→3，30/60 金）。
+- 验收句: ①融合产物带对应招牌技 lv1 且指令卡出可施放钮；②狙杀选血量最高者（非最近）；③爆轰对半径内
+  全体经 DamageRequest 结算且归因 TowerSkill；④贯穿箭对共线 2 敌各命中恰一次（无重复扣血）；⑤震荡冲击
+  同帧伤害+减速；⑥付费升级 lv1→2 数值随级变化。视觉走查进 skill-card 场景扩展（融合段）。
+- 实现: 新模块 `systems/fusion_skills.rs`（注册表 6-9 行 deadeye/arcane_blast/piercing_bolt/concussion +
+  `fusion_signature(kind)` 映射 + `fusion_skill_caster` 单槽套件 + `fusion_skill_effects` 按 def 分发，
+  瞬发范围走本地 `blast` 助手=新星扫描+DamageRequest；狙击=聚合普攻×倍率快照进 Homing 箭（`max_by` HP
+  选靶，TowerFired 播 Throw）；贯穿=**新 `ProjectileOrigin::Linear{dir,remaining}` 飞行模式**——fly_projectiles
+  直线推进、宽度内敌人各命中一次（Projectile 新 `pierced: Vec<Entity>` 命中集，4 处构造点补字段）、长度耗尽
+  自灭；震荡=blast+apply_slow 共享减速合并）。挂载：execute_fusion 的生成体抽成 **`tower::spawn_fused_tower`
+  公共网关**（+StatMods+技能套件，测试/场景同缝生成融合塔）；command.rs 原地内联 spawn 删除。数值全进
+  SkillBalance 新列（deadeye_mult/arcane_damage/pierce_damage/pierce_length/pierce_width/
+  concussion_damage/concussion_slow_factor/duration + cooldowns/radius 6-9 行；SkillBalance 补 derive Clone
+  供测试取数）。l10n tower_skill_name/tooltip 扩 4 条双语。指令卡/付费升级/冷却文本全套复用 SK10（对任意
+  SkillCaster 塔零改动——框架通用性的直接验证）。`skills_fusion::*` 7 断言（四签名出厂映射 / 狙杀选最高血量+
+  快照倍率+归因 / 爆轰半径内外+TowerSkill 双受害归因 / 贯穿共线各一次+离线不伤 / 震荡伤害+减速同帧 /
+  lv2 快照倍率随级 / 选中融合塔卡上出升级钮+签名钮）。视觉：skill-card 场景加融合段（f=400 经网关落壁垒炮
+  →选中之→震荡瞄准，f=450 截 sk_fusion.png；引擎日志证卡片 `Sell@0(Q) SkillUpgrade@2(E) TowerSkill(0)@3(R)`
+  + 视觉模型双通道互证：金圈在路径、按钮三枚、选中名「壁垒炮塔」）。**踩坑复用**：系统参数 17 个再撞 16 上限
+  ——诊断四件套捆 `ShotDiagnostics` SystemParam 束（immutable Query 可入束，双生命周期 `<'w,'s>`），
+  与 SK10 CardParams 同款解法二次验证；Commands 延迟生成当帧不可 query（casters.get 新实体 panic→单槽套件
+  直接写 slot 0）。160 全绿（153+2+5）。
+
+---
+
 ## 观察通道约定
 
 - **日志仪表**：`RUST_LOG=info cargo run` → 每 2 秒 `[dash] fps≈.. state=.. phase=.. gold=.. lives=.. wave=.. entities=..`（`src/plugins/debug.rs`）。

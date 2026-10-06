@@ -280,11 +280,21 @@ assets/{models,textures,audio,fonts,ui}/
   收编进 SkillBalance（SK11），BAL 全程读数新增 塔普攻/塔技能/指挥官技能 三列伤害占比（首跑 3.6% 塔技能）。
   测试 153 全绿（skills_core 7 / stats_pipeline 5 / damage_pipeline 5 / skills_archer 6 / skills_ui 4 为新钉）。
   踩坑记录见 capability-cards.md 各卡（消息双缓冲断言、SystemParam 16 上限、derive 与 mut Query）。
+- **SK8/SK10 视觉验收清账 + 技能系统三期 SK12（2026-10-06）**：①SK8/SK10 的 ⚠️ 人工验收项经自建视觉闭环
+  过验——DB2 场景 `skill-card`（`--scenario skill-card` 帧脚本四态截图 + 引擎内 shot 诊断日志双通道裁决，
+  方法论沉淀 KB howto《游戏内 UI 的自建视觉验收闭环》）；首验修三真问题（被动鹰眼让位 R 键、瞄准态 HUD 提示
+  替换波预览、无人值守窗口光标被 winit 冲掉→PreUpdate 钉住）。②**SK12 融合塔招牌主动 ×4**（ADR-0011 框架
+  第三个使用者）：神射手狙杀（血量最高×倍率）/大法师奥术爆轰（点地范围魔法）/魔弓手贯穿箭（**新
+  `ProjectileOrigin::Linear` 直线穿透模式**，线上敌人各命中一次）/壁垒炮震荡冲击（范围伤害+减速）；融合产物
+  经新公共网关 `tower::spawn_fused_tower` 出厂带单槽签名套件，E 付费升级 30/60 与指令卡技能钮**零改动复用**
+  SK10 全套（框架通用性实证）；数值进 SkillBalance 新列；requirements §17.7 新表。`skills_fusion::*` 7 断言
+  + 视觉段 sk_fusion.png 双通道过验。测试 **160 全绿**（behavior 153+7 / balance 2 / art 5）。
+  SystemParam 16 上限二次撞上（ShotDiagnostics 束，immutable Query 双生命周期可入束）。
 - **下一步**：**双美术线并行 + 真人试玩**——①地形线：ART4 基地/入口 → ART5 点缀 → ART6 黄昏光照（ART3 已落地待负责人试玩验收）；
   ②弩射击线：ART9 分件手术 v3 → ART10 弦箭动画（ART7 瞄准+炮口出弹、ART8 后坐已落地）；③**真人试玩盯 §15 信号**
-  （技能两新信号对照 ≤20% 输出锚点 + §17.6 塔技能 ≤10%）；balance 数值仍按负责人意见暂缓。④验收通道线：SM1 已落地（待真人视觉
-  验收）→ SM2 动画触发+自由观察 → SM3 实弹区（技能/特效动态验收）→ SM4 截图基线。⑤技能线后续：SK8 的
-  热键/按钮/指示圈人工回归 + SK10 视觉走查（⚠️ 项）；融合塔招牌主动（原二期范围）按 ADR-0011 框架直接立卡实现。
+  （技能两新信号对照 ≤20% 输出锚点 + §17.6 塔技能 ≤10%，SK12 签名计入塔技能列）；balance 数值仍按负责人意见暂缓。
+  ④验收通道线：SM1 已落地（待真人视觉验收）→ SM2 动画触发+自由观察 → SM3 实弹区（技能/特效动态验收）→ SM4 截图基线。
+  ⑤技能线后续：随机获取与 Meta 强化、被动/光环（框架后续使用者，见 requirements §39 调整后的暂缓清单）。
 - **已知问题**：无阻塞。RunRng 全局种子化随机在 AC1-3；商店栏 UI 按 Hand/ShopOffers/语言变化自动重建；
   macOS 运行时日志会刷 `ICU4X ... No segmentation model for Chinese/Japanese` 警告（只影响中文换行断句算法，不影响字形渲染，当前 HUD 均单行，无实际影响）。
 - **协作提醒**：acquisition / meta 已各自成域插件；后续卡在各领域插件**追加**组件/系统即可，别堆进 `game.rs`，
