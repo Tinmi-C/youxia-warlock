@@ -97,6 +97,7 @@ pub fn fusion_skill_effects(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut requests: MessageWriter<DamageRequest>,
+    mut impacts: MessageWriter<crate::systems::projectiles::ProjectileImpact>,
     mut fired: MessageWriter<TowerFired>,
     towers: Query<(&Tower, &Transform, &EffectiveStats)>,
     // Without<Projectile> keeps this enemies read disjoint from the flight
@@ -159,6 +160,7 @@ pub fn fusion_skill_effects(
                 let damage = balance.arcane_damage(SKILL_ARCANE_BLAST, cast.level);
                 blast(
                     &mut requests,
+                    &mut impacts,
                     &enemies,
                     point,
                     radius,
@@ -224,6 +226,7 @@ pub fn fusion_skill_effects(
                 let damage = balance.concussion_damage(SKILL_CONCUSSION, cast.level);
                 let mut victims = blast(
                     &mut requests,
+                    &mut impacts,
                     &enemies,
                     point,
                     radius,
@@ -253,8 +256,11 @@ pub fn fusion_skill_effects(
 /// The shared instant-radius pattern (nova's scan + the unified damage
 /// pipeline): queue a DamageRequest per living victim, return them so
 /// callers can layer status effects (concussion's slow) on the same set.
+/// Also emits one `ProjectileImpact` so the FX2 blast ring plays — instant
+/// skills ride the same feedback seam as projectile detonations.
 fn blast(
     requests: &mut MessageWriter<DamageRequest>,
+    impacts: &mut MessageWriter<crate::systems::projectiles::ProjectileImpact>,
     enemies: &Query<(Entity, &Transform, &Enemy), Without<Projectile>>,
     point: Vec3,
     radius: f32,
@@ -277,6 +283,12 @@ fn blast(
             });
             victims.push(ven);
         }
+    }
+    if !victims.is_empty() {
+        impacts.write(crate::systems::projectiles::ProjectileImpact {
+            position: point,
+            aoe_radius: radius,
+        });
     }
     victims
 }

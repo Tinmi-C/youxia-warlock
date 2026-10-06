@@ -13,11 +13,12 @@
 
 use std::time::Duration;
 
+use bevy::camera::{RenderTargetInfo, Viewport};
 use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::prelude::*;
 use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
 
-use warden::components::{SkillCaster, StatMods, Tower, TowerKind, TowerSlot};
+use warden::components::{Commander, Enemy, SkillCaster, StatMods, Tower, TowerKind, TowerSlot};
 use warden::plugins::{
     fx::FxPlugin,
     acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
@@ -25,14 +26,16 @@ use warden::plugins::{
     skills::SkillsPlugin, towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
 };
 use warden::resources::{
-    BaseHp, Economy, MetaSavePath, RunRng, TowerDefs, WaveChoice, WavePhase, WaveState,
+    BaseHp, Economy, FusionDefs, MetaSavePath, RunRng, SkillAiming, TowerDefs, WaveChoice,
+    WavePhase, WaveState,
 };
 use warden::states::GameState;
 use warden::systems::archer_skills::{
     archer_skill_caster, SKILL_FIRE_ARROWS, SKILL_MULTISHOT,
 };
 use warden::systems::damage::{DamageDealt, DamageSource};
-use warden::systems::skills::CastSkill;
+use warden::systems::fusion_skills::SKILL_DEADEYE;
+use warden::systems::skills::{CastSkill, SKILL_FROST_NOVA, SKILL_METEOR_RAIN, SKILL_WAR_FRENZY};
 
 fn test_app() -> App {
     let mut app = App::new();
@@ -191,26 +194,189 @@ fn arm_archer_skills(app: &mut App) {
     }
 }
 
-/// SK11: one multishot cast per ready archer (called mid-wave, once targets
-/// exist — a cast on an empty board would waste the cooldown).
-fn cast_multishot(app: &mut App) {
+/// BAL2: every ready NO-targeting skill on the board fires — multishot and
+/// deadeye on towers, war frenzy on the commander. (Point skills need the
+/// aiming confirm dance; see `cast_commander_meteor` for that.)
+fn cast_ready_none_skills(app: &mut App) {
     let mut requests: Vec<CastSkill> = Vec::new();
     {
         let mut q = app.world_mut().query::<(bevy::ecs::entity::Entity, &SkillCaster)>();
         for (e, caster) in q.iter(app.world()) {
-            if let Some(slot) = caster.slots.iter().position(|s| s.def == SKILL_MULTISHOT) {
-                if caster.slots[slot].cooldown <= 0.0 {
+            for (slot, s) in caster.slots.iter().enumerate() {
+                let none_targeted = matches!(s.def, SKILL_MULTISHOT | SKILL_DEADEYE | SKILL_WAR_FRENZY);
+                if none_targeted && s.cooldown <= 0.0 {
                     requests.push(CastSkill { caster: e, slot });
                 }
             }
         }
     }
-    let mut msgs = app
-        .world_mut()
-        .resource_mut::<Messages<CastSkill>>();
+    let mut msgs = app.world_mut().resource_mut::<Messages<CastSkill>>();
     for req in requests {
         msgs.write(req);
     }
+}
+
+/// BAL2: fuse the first pair of base archers into a marksman (the real
+/// gateway, so the signature kit + StatMods ride along). Called at
+/// intermissions once the builder has produced a pair. `occupied` stays
+/// put — the freed slot is behind the builder's cursor (harness simplification).
+fn fuse_archers(app: &mut App) -> bool {
+    let mut ids: Vec<bevy::ecs::entity::Entity> = Vec::new();
+    let mut pos_b = None;
+    {
+        let mut q = app
+            .world_mut()
+            .query::<(bevy::ecs::entity::Entity, &Tower, &Transform)>();
+        for (e, t, tf) in q.iter(app.world_mut()) {
+            if t.kind == TowerKind::Base(0) && ids.len() < 2 {
+                ids.push(e);
+                if ids.len() == 2 {
+                    pos_b = Some(tf.translation);
+                }
+            }
+        }
+    }
+    if ids.len() < 2 {
+        return false;
+    }
+    let recipe = app
+        .world()
+        .resource::<FusionDefs>()
+        .list
+        .iter()
+        .find(|r| r.kind == warden::components::FusionKind::Marksman)
+        .expect("marksman recipe")
+        .clone();
+    let defs = app.world().resource::<TowerDefs>().list.clone();
+    let cost_ing = defs[recipe.ingredients[0]].cost + defs[recipe.ingredients[1]].cost;
+    let fee = (cost_ing as f32 * recipe.fee_ratio).round() as u32;
+    let gold = app.world().resource::<Economy>().gold;
+    if gold < fee {
+        return false;
+    }
+    *app.world_mut().resource_mut::<Economy>() = Economy { gold: gold - fee };
+    for e in ids {
+        app.world_mut().despawn(e);
+    }
+    let mut meshes = std::mem::take(&mut *app.world_mut().resource_mut::<Assets<Mesh>>());
+    let mut materials =
+        std::mem::take(&mut *app.world_mut().resource_mut::<Assets<StandardMaterial>>());
+    let mut queue = bevy::ecs::world::CommandQueue::default();
+    let _fused = {
+        let mut commands = Commands::new(&mut queue, app.world());
+        warden::systems::tower::spawn_fused_tower(
+            &mut commands,
+            &recipe,
+            pos_b.unwrap_or(Vec3::ZERO),
+            cost_ing + fee,
+            &mut meshes,
+            &mut materials,
+        )
+    };
+    queue.apply(app.world_mut());
+    *app.world_mut().resource_mut::<Assets<Mesh>>() = meshes;
+    *app.world_mut().resource_mut::<Assets<StandardMaterial>>() = materials;
+    true
+}
+
+/// BAL2 headless picking bootstrap (the behavior.rs harness pattern): a
+/// window with a cursor + a camera whose viewport can project.
+fn enable_picking(app: &mut App, cursor: Vec2) {
+    let w = app.world_mut().spawn(Window::default()).id();
+    app.world_mut()
+        .get_mut::<Window>(w)
+        .expect("window")
+        .set_cursor_position(Some(cursor));
+    let size = UVec2::new(1280, 720);
+    let mut cams = app.world_mut().query::<(
+        &mut Camera,
+        &Projection,
+        &Transform,
+        &mut GlobalTransform,
+    )>();
+    for (mut cam, proj, tf, mut gt) in cams.iter_mut(app.world_mut()) {
+        cam.viewport = Some(Viewport {
+            physical_size: size,
+            ..default()
+        });
+        cam.computed.target_info = Some(RenderTargetInfo {
+            physical_size: size,
+            scale_factor: 1.0,
+        });
+        let mut p = proj.clone();
+        p.update(1280.0, 720.0);
+        cam.computed.clip_from_view = p.get_clip_from_view();
+        *gt = GlobalTransform::from(*tf);
+    }
+}
+
+/// BAL2: cast meteor rain at the enemy pack's centroid through the real
+/// request -> aiming -> cursor-confirm path (drives the commander column).
+fn cast_commander_meteor(app: &mut App) {
+    // Centroid of the living enemies (skip the cast on an empty board).
+    let (count, sum) = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Transform, bevy::ecs::query::With<Enemy>>();
+        q.iter(app.world()).fold((0u32, Vec3::ZERO), |(n, s), tf| {
+            (n + 1, s + tf.translation)
+        })
+    };
+    if count == 0 {
+        return;
+    }
+    let point = sum / count as f32;
+    let commander = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(bevy::ecs::entity::Entity, &SkillCaster), bevy::ecs::query::With<Commander>>();
+        let mut found = None;
+        for (e, c) in q.iter(app.world()) {
+            found = Some((e, c.clone()));
+            break;
+        }
+        found
+    };
+    let Some((cmd, caster)) = commander else { return };
+    let Some(slot) = caster
+        .slots
+        .iter()
+        .position(|s| s.def == SKILL_METEOR_RAIN && s.cooldown <= 0.0)
+    else {
+        return;
+    };
+    app.world_mut()
+        .resource_mut::<Messages<CastSkill>>()
+        .write(CastSkill { caster: cmd, slot });
+    app.update();
+    if app.world().resource::<SkillAiming>().0.is_none() {
+        return; // validation refused (dead/paused) — drop it
+    }
+    enable_picking(app, Vec2::new(640.0, 360.0));
+    let cursor = {
+        let mut cams = app.world_mut().query::<(&Camera, &GlobalTransform)>();
+        let (cam, tf) = cams.single(app.world()).expect("one camera");
+        match cam.world_to_viewport(tf, point) {
+            Ok(pt) => pt,
+            Err(_) => return,
+        }
+    };
+    {
+        let mut q = app.world_mut().query_filtered::<&mut Window, ()>();
+        for mut w in q.iter_mut(app.world_mut()) {
+            w.set_cursor_position(Some(cursor));
+        }
+    }
+    app.world_mut()
+        .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>()
+        .press(bevy::input::mouse::MouseButton::Left);
+    app.update();
+    app.world_mut()
+        .resource_mut::<ButtonInput<bevy::input::mouse::MouseButton>>()
+        .clear();
+    app.world_mut()
+        .resource_mut::<SkillAiming>()
+        .0 = None; // safety: never leak aiming into later waves
 }
 
 /// Run `remaining` waves (each: choose -> invest -> start -> resolve) from the
@@ -230,6 +396,11 @@ fn run_waves(
         }
         auto_choose(app);
         invest_build(app, occupied);
+        // BAL2: fuse archer pairs during the early waves (marksman + deadeye
+        // join the tower-skill column).
+        if app.world().resource::<WaveState>().current < 3 {
+            fuse_archers(app);
+        }
         arm_archer_skills(app);
 
         let start = app.world().resource::<Time>().elapsed_secs();
@@ -244,9 +415,12 @@ fn run_waves(
         let mut resolved = false;
         let mut casts = MessageCursor::<DamageDealt>::default();
         while updates < cap {
-            // ~3s into the wave: the pack is on the board — fire multishot.
+            // ~3s into the wave: the pack is on the board — fire every
+            // ready no-targeting skill (multishot/deadeye/frenzy) and drop
+            // a meteor on the pack's centroid (commander column).
             if updates == 180 {
-                cast_multishot(app);
+                cast_ready_none_skills(app);
+                cast_commander_meteor(app);
             }
             app.update();
             updates += 1;
@@ -361,7 +535,22 @@ fn full_run_difficulty_curve() {
     assert!(ledger.tower > 0.0, "tower normal attacks must deal damage");
     assert!(
         ledger.tower_skill > 0.0,
-        "tower skills must contribute damage (fire arrows autocast + multishot)"
+        "tower skills must contribute damage (fire arrows autocast + multishot/deadeye)"
+    );
+    // BAL2: the commander column drives too (meteor on the pack centroid),
+    // so the ≤20% anchor review (§17.6) has all three columns live.
+    assert!(
+        ledger.commander > 0.0,
+        "commander skills must contribute damage (meteor cast per wave)"
+    );
+    // Anchor REVIEW (report-only; range pinning stays with the design
+    // owner per the 2026-09-06 decision to hold numeric convergence).
+    let cmd_pct = pct(ledger.commander);
+    let skill_pct = pct(ledger.tower_skill);
+    println!(
+        "anchor review: commander {cmd_pct:.1}% vs <=20% ({}) | tower skills {skill_pct:.1}% vs <=10% ({})",
+        if cmd_pct <= 20.0 { "within" } else { "OVER" },
+        if skill_pct <= 10.0 { "within" } else { "OVER" },
     );
     // Harness sanity only: at least one wave must have been consumed and a
     // sample produced. Difficulty is the *report*, not an assertion here — the

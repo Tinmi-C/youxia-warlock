@@ -205,9 +205,9 @@ pub struct RangeTower(pub Entity);
 #[allow(clippy::too_many_arguments)]
 pub fn range_maintain(
     mut commands: Commands,
-    mut state: Option<ResMut<RangeState>>,
-    mut tower: Option<ResMut<RangeTower>>,
-    mut ledger: Option<ResMut<RangeLedger>>,
+    state: Option<ResMut<RangeState>>,
+    tower: Option<ResMut<RangeTower>>,
+    ledger: Option<ResMut<RangeLedger>>,
     towers: Query<Entity, With<Tower>>,
     dummies: Query<(Entity, &Transform), With<RangeDummy>>,
     tower_defs: Res<TowerDefs>,
@@ -305,7 +305,7 @@ fn spawn_dummy(
 /// damage from the real pipeline; no combat logic is duplicated here.
 pub fn range_ledger(
     time: Res<Time>,
-    mut ledger: Option<ResMut<RangeLedger>>,
+    ledger: Option<ResMut<RangeLedger>>,
     dummies: Query<(Entity, &Enemy), With<RangeDummy>>,
 ) {
     let Some(mut ledger) = ledger else {
@@ -339,7 +339,7 @@ pub fn range_ledger(
 /// and the live ledger.
 pub fn range_panel_ui(
     mut contexts: bevy_egui::EguiContexts,
-    mut state: Option<ResMut<RangeState>>,
+    state: Option<ResMut<RangeState>>,
     ledger: Option<Res<RangeLedger>>,
     tower_defs: Res<TowerDefs>,
     enemy_defs: Res<EnemyDefs>,

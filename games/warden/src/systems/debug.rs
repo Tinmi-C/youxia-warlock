@@ -717,7 +717,7 @@ pub struct ShotDiagnostics<'w, 's> {
 #[cfg(debug_assertions)]
 #[allow(clippy::too_many_arguments)]
 pub fn skill_card_shots(
-    mut state: Option<ResMut<SkillShotState>>,
+    state: Option<ResMut<SkillShotState>>,
     mut commands: Commands,
     mut selection: ResMut<Selection>,
     commanders: Query<Entity, With<Commander>>,
@@ -754,7 +754,7 @@ pub fn skill_card_shots(
         let Selection::Tower(tower) = *selection else {
             return None;
         };
-        let mut caster = casters.get_mut(tower).ok()?;
+        let caster = casters.get_mut(tower).ok()?;
         let slot = caster.slots.iter().position(|s| s.def == def)?;
         requests.write(CastSkill {
             caster: tower,

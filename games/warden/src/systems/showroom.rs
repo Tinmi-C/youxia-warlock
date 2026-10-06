@@ -99,7 +99,7 @@ pub fn enter_showroom_baseline(world: &mut World) {
 /// resource is optional: the system no-ops outside the studio (and during
 /// the frame the scenario is still loading).
 pub fn showroom_baseline_sweep(
-    mut state: Option<ResMut<ShowroomBaseline>>,
+    state: Option<ResMut<ShowroomBaseline>>,
     catalog: Option<Res<ShowroomCatalog>>,
     viewer: Option<ResMut<ShowroomState>>,
     orbit: Option<ResMut<showroom_viewer::ShowroomOrbit>>,

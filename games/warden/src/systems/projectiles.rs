@@ -16,7 +16,7 @@ use crate::systems::damage::DamageRequest;
 
 /// Observability seam for the FX cards (FX2 spawns its impact feedback from
 /// these) and for tests: one event per resolved projectile impact.
-#[derive(Message, Debug)]
+#[derive(Message, Debug, Clone, Copy)]
 pub struct ProjectileImpact {
     pub position: Vec3,
     pub aoe_radius: f32,
@@ -45,7 +45,7 @@ pub fn fly_projectiles(
             let step = (proj.speed * time.delta_secs()).min(remaining);
             tf.translation += dir * step;
             let remaining = remaining - step;
-            let mut expired = remaining <= 0.0;
+            let expired = remaining <= 0.0;
             let mut hit_any = false;
             for (ven, vtf, venemy) in enemies.iter() {
                 if venemy.hp <= 0.0 || proj.pierced.contains(&ven) {

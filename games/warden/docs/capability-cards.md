@@ -934,6 +934,9 @@
   Screenshot observer 异步落盘，末张后须缓冲帧再 AppExit 否则丢图）；DB2 场景枚举+执行器+Update 注册。
   首跑 14 展品（8 塔+6 敌）全落盘；抽检 sm_000_archer（Ranger 模型持弓/贴地/无渲染异常）过视觉。
   **对比流程**：美术/特效改动后重跑同命令，git diff 即基线对比（图入库，PR 里天然可见变化）。
+  **SK12 补遗（2026-10-06）**：瞬发技能接 FX 缝——`blast()` 命中≥1 时发 `ProjectileImpact{position,aoe_radius}`
+  （ProjectileImpact 补 derive Clone,Copy），奥术爆轰/震荡冲击现在复用 FX2 爆炸环有落地视觉，与投射物爆点同一
+  反馈缝；arcane 测试补 FX 断言（注意：光标投影往返后确认点有浮点误差，位置断言用距离容差非严格相等）。
 
 ---
 
@@ -1107,6 +1110,12 @@
   「damage share: towers | tower skills | commander skills」三列（首跑：塔 96.4% / 塔技能 3.6% / 指挥官 0%——
   该策略不驱动指挥官技能，20% 锚点复核留给 BAL2 锚点卡加驱动策略）；断言两列非零。锚点建议已写 requirements
   §14（塔技能 ≤10% 起步带）。153 全绿。
+  **补遗（2026-10-06，BAL2 驱动策略落地）**：full_run 三列全驱动——前 3 波把首对弓箭手经真网关融合成神射手
+  （deadeye 入塔技能列）、每波 ~3s 全场无目标技能齐放（multishot/deadeye/狂暴）+ 指挥官流星走真实
+  request→aiming→光标确认路径砸敌人质心（balance.rs 增 enable_picking/cast_commander_meteor 助手）；
+  断言三列全非零 + 新增「anchor review」对照行（数值收敛仍按负责人意见暂缓，只报告不硬断）。首跑读数：
+  塔 92.9% / 塔技能 5.2% / 指挥官 1.9%——**两锚点均在带内**（≤10% / ≤20%）；对照实验确认 9 波 GameOver
+  为该自动策略固有难度读数（关闭融合同样 GameOver），驱动不背锅。
 
 ---
 

@@ -7007,6 +7007,23 @@ mod skills_fusion {
             }
         }
         assert!(credited >= 2, "both victims carry TowerSkill credit ({credited})");
+        // The instant blast rides the FX seam: one ProjectileImpact spawns
+        // the FX2 blast ring (visual feedback without a projectile).
+        {
+            let msgs = app
+                .world()
+                .resource::<Messages<warden::systems::projectiles::ProjectileImpact>>();
+            let mut cursor =
+                MessageCursor::<warden::systems::projectiles::ProjectileImpact>::default();
+            let impacts: Vec<_> = cursor.read(msgs).copied().collect();
+            assert!(
+                impacts
+                    .iter()
+                    .any(|i| i.aoe_radius > 0.0 && i.position.distance(Vec3::ZERO) < 0.1),
+                "blast emits an AOE impact for the FX ring (read {} impacts)",
+                impacts.len()
+            );
+        }
     }
 
     /// SK12 acceptance ④: the piercing bolt hits each collinear enemy

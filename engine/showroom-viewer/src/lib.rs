@@ -449,7 +449,7 @@ impl Plugin for ShowroomPlugin {
 /// moves the cursor; `showroom_present` swaps.
 pub fn showroom_keys(
     keys: Res<ButtonInput<KeyCode>>,
-    mut state: Option<ResMut<ShowroomState>>,
+    state: Option<ResMut<ShowroomState>>,
     mut orbit: Option<ResMut<ShowroomOrbit>>,
     mut turntable: Option<ResMut<ShowroomTurntable>>,
     panel_keyboard: Option<Res<PanelKeyboard>>,
@@ -535,7 +535,7 @@ fn matching(catalog: &ShowroomCatalog, q: &str) -> Vec<(usize, usize)> {
 #[allow(clippy::too_many_arguments)]
 pub fn showroom_present(
     mut commands: Commands,
-    mut state: Option<ResMut<ShowroomState>>,
+    state: Option<ResMut<ShowroomState>>,
     mut orbit: Option<ResMut<ShowroomOrbit>>,
     exhibits: Query<Entity, With<ShowroomExhibit>>,
     catalog: Option<Res<ShowroomCatalog>>,
@@ -702,7 +702,7 @@ pub fn showroom_pick(
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
     panel_pointer: Option<Res<PanelPointer>>,
-    mut state: Option<ResMut<ShowroomState>>,
+    state: Option<ResMut<ShowroomState>>,
     gallery_items: Query<(&Transform, &ShowroomGalleryItem), With<ShowroomExhibit>>,
 ) {
     let Some(mut state) = state else {
@@ -920,7 +920,7 @@ pub fn showroom_parts(world: &mut World) {
 
 pub fn showroom_time_control(
     state: Option<Res<ShowroomState>>,
-    mut tm: Option<ResMut<ShowroomTime>>,
+    tm: Option<ResMut<ShowroomTime>>,
     mut virt: ResMut<Time<Virtual>>,
 ) {
     if state.is_none() {
@@ -953,7 +953,7 @@ pub fn showroom_orbit(
     mut panel_pointer: Option<ResMut<PanelPointer>>,
     state: Option<Res<ShowroomState>>,
     turntable: Option<Res<ShowroomTurntable>>,
-    mut orbit: Option<ResMut<ShowroomOrbit>>,
+    orbit: Option<ResMut<ShowroomOrbit>>,
     mut cameras: Query<&mut Transform, With<Camera>>,
 ) {
     if state.is_none() {
@@ -1000,7 +1000,7 @@ pub fn showroom_panel_ui(
     mut contexts: bevy_egui::EguiContexts,
     mut panel_pointer: Option<ResMut<PanelPointer>>,
     mut panel_keyboard: Option<ResMut<PanelKeyboard>>,
-    mut state: Option<ResMut<ShowroomState>>,
+    state: Option<ResMut<ShowroomState>>,
     mut query: Option<ResMut<SearchQuery>>,
     mut time: Option<ResMut<ShowroomTime>>,
     mut turntable: Option<ResMut<ShowroomTurntable>>,
