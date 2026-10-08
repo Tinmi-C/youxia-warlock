@@ -9,20 +9,35 @@
 //! Design docs: docs/topics/engine/warbase-{architecture,implementation-design,test-strategy}.md
 
 pub mod prelude {
+    pub use crate::combat::{
+        cleanup_dead, fire_attacks, move_projectiles, pick_targets, resolve_damage,
+        tick_cooldowns, AttackCooldown, AttackKit, CurrentTarget, DamageDealt, DamageRequest,
+        Dead, Projectile, TargetingPriority, UnitDied,
+    };
+    pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
+    pub use crate::rng::MatchRng;
+    pub use crate::unit::{
+        spawn_unit, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable, AttackDef,
+        AttackType, BaseAttributes, Hp, MaxHp, ProjDef, TargetDomain, UnitDef, UnitId,
+        UnitInstance, UnitRegistry, UnitTrait, XpHolder,
+    };
     pub use crate::WarbasePlugin;
     pub use crate::WarbaseSet;
 }
 
+mod combat;
+mod path;
+mod rng;
+pub mod testing;
+mod unit;
+
 mod buff;
 mod build;
 mod bundle;
-mod combat;
 mod econ;
 mod harness;
-mod path;
 mod rule;
 mod skill;
-mod unit;
 mod wave;
 
 #[cfg(feature = "fx")]
@@ -68,6 +83,28 @@ impl Plugin for WarbasePlugin {
             )
                 .chain(),
         );
+
+        app.add_message::<combat::DamageRequest>()
+            .add_message::<combat::DamageDealt>()
+            .add_message::<combat::UnitDied>()
+            .add_message::<path::LapCompleted>()
+            .add_message::<path::Arrived>()
+            .init_resource::<unit::UnitRegistry>()
+            .init_resource::<unit::AttackArmorTable>()
+            .init_resource::<rng::MatchRng>();
+
+        app.add_systems(Update, combat::tick_cooldowns.in_set(WarbaseSet::Tick));
+        app.add_systems(Update, path::advance_followers.in_set(WarbaseSet::Director));
+        app.add_systems(Update, combat::pick_targets.in_set(WarbaseSet::Intent));
+        app.add_systems(
+            Update,
+            (combat::fire_attacks, combat::move_projectiles)
+                .chain()
+                .in_set(WarbaseSet::Act),
+        );
+        app.add_systems(Update, combat::resolve_damage.in_set(WarbaseSet::Resolve));
+        app.add_systems(Update, combat::cleanup_dead.in_set(WarbaseSet::Cleanup));
+
         #[cfg(feature = "fx")]
         app.add_plugins(fx::FxPlugin);
         #[cfg(feature = "ui")]

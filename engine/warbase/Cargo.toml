@@ -8,6 +8,8 @@ description = "warbase —— 魔兽式战斗 runtime 基底（ADR-0012/0013：�
 # Versions pinned once in the root workspace (ADR-0012).
 bevy = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
 
 [features]
 default = ["ui", "fx"]

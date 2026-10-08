@@ -28,7 +28,9 @@ exclude = [
 bevy = { version = "0.19.1", features = ["default_font", "jpeg"] }
 bevy_egui = "0.42"
 rand = "0.10"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ron = "0.12"
 
 # Profiles hoisted from games/* (member-level profiles are ignored inside a
 # workspace). Iteration friendly: optimize deps once, keep own code fast.
