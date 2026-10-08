@@ -1,0 +1,20 @@
+[package]
+name = "warbase"
+version = "0.1.0"
+edition = "2021"
+description = "warbase —— 魔兽式战斗 runtime 基底（ADR-0012/0013：机制与管线层，内容与数值归地图 bundle）"
+
+[dependencies]
+# Versions pinned once in the root workspace (ADR-0012).
+bevy = { workspace = true }
+rand = { workspace = true }
+
+[features]
+default = ["ui", "fx"]
+# Command-card UI framework. Off => pure-logic base for harness/CI fast runs.
+ui = []
+# Generic battle FX (healthbar / hit flash / death dissolve).
+fx = []
+
+# NOTE: this crate must stay game-agnostic (ADR-0012 anti-corruption rules):
+# no path deps on games/*, no art assets, no concrete numbers.
