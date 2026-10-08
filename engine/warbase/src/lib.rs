@@ -20,6 +20,10 @@ pub mod prelude {
     };
     pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
     pub use crate::rng::MatchRng;
+    pub use crate::rule::{
+        building_open, rules_tick, BuildWindow, LapBuffPolicy, LeakPolicy, LivesLeft, MatchEnded,
+        MatchFlow, MatchRules, StockCount, WinCondition,
+    };
     pub use crate::unit::{
         spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
         AttackDef, AttackType, BaseAttributes, Hp, MaxHp, ProjDef, TargetDomain, UnitDef, UnitId,
@@ -105,6 +109,10 @@ impl Plugin for WarbasePlugin {
             .add_message::<wave::WaveCleared>()
             .add_message::<wave::BossTimedOut>()
             .add_message::<wave::StartWave>()
+            .add_message::<rule::MatchEnded>()
+            .init_resource::<rule::MatchRules>()
+            .init_resource::<rule::MatchFlow>()
+            .init_resource::<rule::StockCount>()
             .init_resource::<unit::UnitRegistry>()
             .init_resource::<unit::AttackArmorTable>()
             .init_resource::<rng::MatchRng>()
@@ -136,7 +144,12 @@ impl Plugin for WarbasePlugin {
                 .in_set(WarbaseSet::Act),
         );
         app.add_systems(Update, combat::resolve_damage.in_set(WarbaseSet::Resolve));
-        app.add_systems(Update, combat::cleanup_dead.in_set(WarbaseSet::Cleanup));
+        app.add_systems(
+            Update,
+            (combat::cleanup_dead, rule::rules_tick)
+                .chain()
+                .in_set(WarbaseSet::Cleanup),
+        );
 
         #[cfg(feature = "fx")]
         app.add_plugins(fx::FxPlugin);
