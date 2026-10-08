@@ -11,7 +11,7 @@ games/<game-name>/
 1. 从 `templates/bevy-game/`（Bevy 0.19 默认模板）复制到 `games/<game-name>/`。
 2. 改 `Cargo.toml` 的 `package.name` / `description`，并把代码里的旧 crate 名 `bevy_game::` 全局替换为新 crate 名（`src/main.rs`、`tests/behavior.rs` 等），否则第一次编译报 `E0433 bevy_game` 找不到。
 3. 按模板里的 `AGENTS.md` 补充项目专属上下文（玩法、目标平台、当前状态），并更新 README。
-4. 按 `docs/capability-cards.md` 能力卡工作流开发：立卡 → 实现 → 验收 → 回归 → **一卡一提交**（Conventional Commits，英文）。
+4. 按**规格-测试-小步提交**流程开发（ADR-0014）：规格进 `docs/GDD.md`（验收标准数字化）→ 先写测试后实现 → `cargo test --workspace` 回归 → **一增量一提交**（Conventional Commits，英文）；进度记 `docs/roadmap.md`。
 
 > ⚠️ 本目录整体是一个 git 仓库（monorepo，2026-08-25 起），子目录不再各自 `git init` / 建远程仓库；
 > 编译产物（target/）不入库、各机器本地生成，跨机器同步用 git push/pull。
@@ -24,12 +24,12 @@ games/<game-name>/
 
 - `src/` — Rust 代码（lib + bin 分离、领域插件化）
 - `assets/` — 游戏素材（本项目专属）
-- `docs/` — 项目内文档（GDD、能力卡）
+- `docs/` — 项目内文档（GDD、roadmap）
 - `tests/` — 行为一致性回归测试（验收闭环的可执行化）
 - `AGENTS.md` — 项目 AI 上下文
 - `Cargo.toml` — 依赖引擎（Bevy 0.19，见 ADR-0004）
 
-> **文档分层约定**：`games/<game>/docs/` 放**本游戏自己的**设计文档（GDD / 能力卡 / 风格圣经 / 该游戏数值平衡表）。
+> **文档分层约定**：`games/<game>/docs/` 放**本游戏自己的**设计文档（GDD / roadmap / 风格圣经 / 该游戏数值平衡表）。
 > **团队共享知识库**在顶层 `docs/`（Obsidian vault）：`topics/`（跨游戏方法论/参考/踩坑）、`decisions/`（ADR，如 ADR-0008 数值数据存代码）。
 > 边界一句话：能在 ≥2 个游戏复用、或属团队方法/架构决策 → 进顶层 `docs/`（vault）；只属于一个游戏 → 进该游戏 `docs/`。
 
@@ -37,7 +37,7 @@ games/<game-name>/
 
 | 项目 | 说明 |
 |------|------|
-| `warden/` | 塔防游戏（Bevy 0.19，能力卡驱动）：灰盒 MVP 全量可玩一局（5 塔来源+融合+Meta+中文面板 UI），153 测试全绿；后续回迁 warbase 基底（WX 卡系，ADR-0012） |
+| `warden/` | 塔防游戏（Bevy 0.19）：灰盒 MVP 全量可玩一局（5 塔来源+融合+Meta+中文面板 UI），153 测试全绿；后续回迁 warbase 基底（WX 增量系，ADR-0012） |
 | `loop-td/` | 循环圈塔防：**第一张 warbase 地图**（验证基底，ADR-0012/0013）——玩法=maps/*.ron bundle + 薄插件；需求草案见 vault `docs/topics/game-design/loop-td-game-proposal.md` |
 | `wave-survival/` | 教学存档（早期主线） |
 | `bevy-spike/` | Bevy 0.19 冒烟验证（ADR-0004 证据） |

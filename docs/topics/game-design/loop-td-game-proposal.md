@@ -137,9 +137,7 @@ related: ["[[topics/engine/warbase-architecture|warbase 架构与演化协议]]"
 | D4 | 联网范围 | v1 零联网，规则不锁死多人 |
 | D5 | 项目命名 | 待定（loop-td / circle-td / 中文名） |
 
-## §9 能力卡草案（BX = 基底卡，进 warbase；其余 = 游戏卡，进 games/<name>）
-
-**基底卡线（warden/loop-td 之外的第三条卡路，验收含基底测试 + 消费方演示）**：
+## §9 增量草案（BX = 基底增量，进 warbase；其余 = 游戏增量，进 games/<name>；流程按 ADR-0014 规格-测试-小步提交，进度记各项目 docs/roadmap.md）
 
 | 卡 | 内容 | 通道 |
 |----|------|------|

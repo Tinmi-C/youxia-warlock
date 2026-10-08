@@ -27,7 +27,7 @@
 
 - 代码组织：lib + bin 分离、领域插件化（`src/plugins/`）、组件=数据 / 系统=逻辑（以模板 `templates/bevy-game/` 为准）。
 - 新机制 = 新组件 + 新系统，老系统零改动。
-- 开发流程：能力卡驱动（立卡 → 实现 → 验收 → 回归 → 一卡一提交），见各项目 `docs/capability-cards.md`。
+- 开发流程：规格-测试-小步提交（规格进设计文档且验收标准数字化 → 先写测试后实现 → `cargo test --workspace` 一击回归 → 一增量一提交；能力卡工作流已退役，见 ADR-0014），进度用各项目 `docs/roadmap.md` 平面表。
 - **外部美术资产经 art-sync 进入**：来自美术资产中台（岩库 ArtVault）的模型/贴图，必须走 `<game>/art-assets.json` 清单锁定版本 + `tools/art-sync/art_sync.py` 同步，不手拷、不直连其存储目录；升级 = 改清单版本号重跑同步，资产文件与清单一并提交。游戏侧再加工的成品 `save_asset` 回流岩库。详见 ADR-0009。
 
 ## 知识库约定（docs/ 是一个 Obsidian vault）

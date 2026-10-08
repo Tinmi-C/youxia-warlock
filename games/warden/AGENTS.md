@@ -1,7 +1,7 @@
 # AGENTS.md — Warden 项目上下文（AI 协作约定）
 
 > 本文件给「在这个游戏项目里工作的 AI」看。全局规则见根目录 `/AGENTS.md`；知识库规范见 `docs/AGENTS.md`。
-> 本项目的核心工作方式：**能力卡驱动 + 验收闭环 + 观察通道**（即团队 ADR-0002 的「AI 装配层」在项目层的落地，详见 `docs/capability-cards.md`）。
+> 本项目的核心工作方式：**规格先行 + 测试验收 + 小步提交 + 观察通道**（ADR-0002「AI 装配层」在项目层的落地）。**流程变更**：能力卡工作流已退役（ADR-0014）——`docs/capability-cards.md` 停更、仅作历史开发日志存档；规格以 `docs/requirements.md` 为准、验收进 `tests/`、进度记 `docs/roadmap.md`（新建）。
 
 ## 项目是什么
 
@@ -30,18 +30,18 @@ src/plugins/*.rs     领域插件（一个领域一个 Plugin：game / map / tow
 src/systems/*.rs     系统（按系统分文件：camera / cursor 等）
 tests/behavior.rs    行为一致性回归测试
 docs/requirements.md   设计层源文件（规则/数值唯一依据，勿改数值结构）
-docs/capability-cards.md  能力卡工作流 + 卡路书（实现拆卡）
+docs/capability-cards.md  （历史存档，停更——ADR-0014；勿在其中新增条目）
 docs/GDD.md               产品总览（定位/循环/范围/验收信号/垂直切片）
 assets/{models,textures,audio,fonts,ui}/
 ```
 
 ## AI 协作工作流（必须遵守）
 
-1. **立卡**：做任何新功能，先写能力卡（`docs/capability-cards.md`）：接口 / 行为 / **验收句**。验收句必须数字化、可执行（例：「以 60fps 与 144fps 各运行 1 秒，移动距离都应等于 speed×1 秒，误差 <1%」）。**验收句写不出来的功能，说明还没理解清楚——先问人，不要开写。**
-2. **AI 实现**：按卡实现，遵循卡上的接口/行为；老系统零改动（新机制 = 新组件 + 新系统）。
-3. **人验收**：人按验收句验收（跑游戏看效果 + `cargo test`）。
-4. **回归钉死**：验收句转成测试加进 `tests/behavior.rs`（「改了 A，B 没坏」的回归断言）。
-5. **一卡一提交**：Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:`），提交信息英文，一个功能一个提交，可回滚。
+1. **规格先行**：行为与**验收标准**先写进 `docs/requirements.md`（规则/数值唯一依据）。验收标准必须数字化、可执行。**写不出来的，说明还没理解清楚——先问人，不要开写。**
+2. **红绿实现**：AI 先写测试（红）再实现（绿）；老系统零改动（新机制 = 新组件 + 新系统）。
+3. **人验收**：跑 `cargo test` + 看效果对照验收标准。
+4. **回归钉死**：验收标准以测试形式留在 `tests/`（「改了 A，B 没坏」的回归断言）。
+5. **一增量一提交**：Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:`），提交信息英文，可回滚。进度记 `docs/roadmap.md`。
 
 ## 硬性规则
 
@@ -51,7 +51,7 @@ assets/{models,textures,audio,fonts,ui}/
 - **观察通道**：行为变化必须可被日志/测试观察——系统里打关键日志（`info!`），验收靠 `cargo test` + 日志仪表，不靠「看起来对了」。
 - **改动可回滚**：不在一行里塞多个无关改动；结构改动先立 ADR（团队 `docs/decisions/`）。
 - **资产约定**：模型/贴图等放 `assets/` 对应子目录（`models/textures/audio/fonts/ui`）；glTF 优先（Bevy 原生）；JPEG 贴图已开特性，无需处理；模型文件用 snake_case 语义名（如 `cannon.glb`）；动画 clip 统一命名 `idle`/`walk`/`attack`/`hit`/`death`；美术原始素材、候选图册放 `_art/`（`raw/gallery` 等，不入运行时）。来自岩库（ArtVault 中台）的资产走 `art-assets.json` + `tools/art-sync/art_sync.py`（清单锁版本，见 ADR-0009），不得手拷。
-- **当前状态 / 下一步**：每次开工前更新本文件的「当前状态」小节（进行中的能力卡、已知问题）。
+- **当前状态 / 下一步**：每次开工前更新本文件的「当前状态」小节（进行中的增量、已知问题）。
 
 ## 跨游戏约定（新游戏开工前看）
 

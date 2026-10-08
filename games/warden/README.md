@@ -1,7 +1,7 @@
 # Warden
 
 > 从 `templates/bevy-game/` 复制而来。Bevy 0.19.1 + AI 协作原生工作流。
-> 项目级 AI 约定见 [AGENTS.md](AGENTS.md)；能力卡工作流见 [docs/capability-cards.md](docs/capability-cards.md)；设计见 [docs/GDD.md](docs/GDD.md)。
+> 项目级 AI 约定见 [AGENTS.md](AGENTS.md)；开发流程（规格-测试-小步提交，ADR-0014）见 AGENTS.md；设计见 [docs/GDD.md](docs/GDD.md)、[docs/requirements.md](docs/requirements.md)。
 
 Warden 是一款 **塔防游戏**：在固定路径旁布置炮塔，阻挡一波波敌军抵达终点。用有限金币造塔、升级、择机卖塔；清完全部波次即通关，防线被突破则 Game Over。
 
@@ -48,7 +48,8 @@ tests/
 assets/
   models/ textures/ audio/ fonts/ ui/   # 资产按类型分目录（模型 snake_case，clip 统一命名）
 docs/
-  capability-cards.md  # 能力卡工作流 + 卡清单（AI 开发的核心约定）
+  capability-cards.md  # （历史存档，停更——ADR-0014）
+  roadmap.md           # 路线图（增量 × 内容 × 状态，现行进度入口）
   GDD.md               # 游戏设计文档（一句话玩法/核心循环/范围/数值表/验收）
 AGENTS.md          # 给 AI 智能体的项目上下文（AI 协作方式）
 ```
@@ -96,7 +97,7 @@ UI 完善三连（2026-09-11）：自带开源中文字体（UI6，摆脱系统�
 | 功能性质 | 例子 | 做法 |
 |---------|------|------|
 | **客观正确**（技术难题，有标准答案） | 物理、碰撞、寻路、粒子、缓动、网络 | **找插件引用，不自己写**（bevy_rapier、bevy_hanabi…） |
-| **主观设计**（玩法手感，无标准答案） | 塔伤害平衡、波次节奏、掉落、经济曲线 | **自己写**，按能力卡沉淀 |
+| **主观设计**（玩法手感，无标准答案） | 塔伤害平衡、波次节奏、掉落、经济曲线 | **自己写**，规格进 requirements、验收进测试 |
 
 **选型三原则**：
 1. 版本对齐 Bevy 0.19（[bevydepy.com](https://bevydepy.com/popular?bevy=0.19) 按版本过滤）
@@ -115,8 +116,10 @@ UI 完善三连（2026-09-11）：自带开源中文字体（UI6，摆脱系统�
 
 ## 工作流（和 AI 一起开发）
 
-1. **立卡**：新功能先写能力卡（`docs/capability-cards.md` 模板）：接口 / 行为 / **验收句（数字化、可执行）**。验收句写不出来的功能 = 还没理解清楚，不开工。
-2. **AI 实现**：AI 按卡实现（新组件/新系统，老系统零改动）。
-3. **人验收**：按验收句验收（看效果 + 跑 `cargo test`）。
-4. **回归钉死**：验收句转成测试加进 `tests/behavior.rs`。
-5. **一卡一提交**：Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:`）。
+> 能力卡工作流已退役（ADR-0014，`docs/capability-cards.md` 停更存档）：规格进 requirements、验收进测试、进度进 roadmap。
+
+1. **规格先行**：行为与验收标准写进 `docs/requirements.md`——数字化、可执行；写不出来 = 没理解清楚，不开工。
+2. **红绿实现**：AI 先写测试（红）再实现（绿）；新组件/新系统，老系统零改动。
+3. **人验收**：看效果 + 跑 `cargo test`。
+4. **回归钉死**：验收标准以测试形式留在 `tests/`。
+5. **一增量一提交**：Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:`）。

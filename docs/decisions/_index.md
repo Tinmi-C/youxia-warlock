@@ -13,7 +13,7 @@
 | ADR | 标题 | 状态 | 日期 |
 |-----|------|------|------|
 | [[decisions/0001-rust-tech-stack\|ADR-0001]] | 自研引擎基础技术栈选型（Rust + winit + wgpu + glam） | proposed | 2026-08-19 |
-| [[decisions/0002-engine-scope-game-driven\|ADR-0002]] | 引擎边界——游戏驱动、不做通用引擎、能力卡为核心资产 | proposed | 2026-08-19 |
+| [[decisions/0002-engine-scope-game-driven\|ADR-0002]] | 引擎边界——游戏驱动、不做通用引擎、能力卡为核心资产（决策 3 已由 ADR-0014 修订：核心资产=设计文档+测试+沉淀代码） | proposed | 2026-08-19 |
 | [[decisions/0003-toy-ecs-to-bevy-ecs\|ADR-0003]] | 从玩具 ECS 迁移到 bevy_ecs 的时机与边界 | accepted | 2026-08-19 |
 | [[decisions/0004-handwritten-renderer-to-bevy\|ADR-0004]] | 渲染底料开源化——手写 wgpu 渲染器迁移到 Bevy 全引擎 | proposed | 2026-08-25 |
 | [[decisions/0005-animation-graph-migration\|ADR-0005]] | 表现层动画状态机迁移 bevy_animation_graph（数据驱动动画图） | superseded（见 ADR-0006） | 2026-09-01 |
@@ -25,3 +25,4 @@
 | [[decisions/0011-generic-per-entity-skill-framework\|ADR-0011]] | 技能系统通用化——按实体挂载的技能框架（被动/主动/自动施法）+ 统一伤害结算 | accepted | 2026-09-29 |
 | [[decisions/0012-warbase-shared-runtime-and-map-architecture\|ADR-0012]] | 魔兽式游戏基底 warbase——共享战斗 runtime crate +「游戏=地图」分层架构（v2：warden 回迁消费方 #0 + 根 workspace + UI/FX feature 门控） | accepted | 2026-10-08 |
 | [[decisions/0013-mapbundle-as-data-file\|ADR-0013]] | MapBundle 数据文件化——「地图」是自包含 RON 数据包（收窄 ADR-0008 适用范围） | accepted | 2026-10-08 |
+| [[decisions/0014-deprecate-capability-card-workflow\|ADR-0014]] | 开发流程简化——能力卡工作流退役，规格-测试-小步提交（进度用各项目 roadmap.md） | accepted | 2026-10-08 |

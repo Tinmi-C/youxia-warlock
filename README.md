@@ -20,11 +20,11 @@
 ## 快速开始
 
 1. 先读 `AGENTS.md` 和 `docs/README.md`。
-2. 新游戏：从 `templates/bevy-game/` 复制到 `games/<game-name>/`，按 `docs/capability-cards.md` 工作流开发。
+2. 新游戏：从 `templates/bevy-game/` 复制到 `games/<game-name>/`，按规格-测试-小步提交流程开发（ADR-0014）。
 
 ## 协作约定（三人）
 
 - 整体 monorepo：一个 git 仓库管理全部（游戏 / 知识库 / 模板 / 工具）。
-- 引擎底座：Bevy 0.19（团队默认，见 `docs/decisions/0004`）；自研 = AI 装配层（能力卡 + 验收闭环，见 `docs/decisions/0002`）。
+- 引擎底座：Bevy 0.19（团队默认，见 `docs/decisions/0004`）；自研 = AI 装配层（设计规格 + 测试验收 + 小步提交，见 `docs/decisions/0002` 与 `docs/decisions/0014`）。
 - 学习笔记、踩坑、架构决策统一沉淀到 `docs/`。
 - 提交信息用英文，遵循 Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:` …）。

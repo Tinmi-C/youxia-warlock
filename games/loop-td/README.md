@@ -1,7 +1,7 @@
 # <游戏名>
 
 > 从 `templates/bevy-game/` 复制而来。Bevy 0.19.1 + AI 协作原生工作流。
-> 项目级 AI 约定见 [AGENTS.md](AGENTS.md)；能力卡工作流见 [docs/capability-cards.md](docs/capability-cards.md)。
+> 项目级 AI 约定见 [AGENTS.md](AGENTS.md)；开发流程（规格-测试-小步提交，ADR-0014）与路线图见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 快速开始
 
@@ -10,7 +10,7 @@ cp -r templates/bevy-game games/<game-name>   # 复制模板
 cd games/<game-name>
 # 1. 改 Cargo.toml 的 package.name / description
 # 2. 全局替换代码里的旧 crate 名 bevy_game 为新 crate 名（main.rs / tests/behavior.rs），否则首编报 E0433
-# 3. git add . && git commit    （monorepo 不用 git init；一卡一提交，见下）
+# 3. git add . && git commit    （monorepo 不用 git init；一增量一提交，见下）
 cargo run                                     # 跑起来看示例场景
 cargo test                                    # 行为一致性回归测试
 RUST_LOG=info cargo run                       # 观察通道：日志仪表
@@ -30,14 +30,14 @@ src/
     debug.rs       # DebugPlugin：观察通道（日志仪表 / F12 截图）
   systems/
     camera.rs      # 相机 + 灯光 + 地面（环境）
-    player.rs      # 玩家 WASD 移动（示例系统，对应 MoveSystem 能力卡）
+    player.rs      # 玩家 WASD 移动（示例系统，验收标准见 tests/behavior.rs）
 tests/
   behavior.rs      # 行为一致性回归测试（验收闭环的可执行化）
 assets/
   models/ textures/ audio/ fonts/ ui/   # 资产按类型分目录（模型 snake_case，clip 统一命名）
 docs/
-  capability-cards.md  # 能力卡工作流 + 卡模板（AI 开发的核心约定）
-  GDD.md               # 游戏设计文档（一句话玩法/核心循环/范围/数值表/验收），填本游戏自己的
+  roadmap.md           # 路线图（增量 × 内容 × 状态，平面表）
+  GDD.md               # 游戏设计文档（一句话玩法/核心循环/范围/数值表/验收）
 AGENTS.md          # 给 AI 智能体的项目上下文（AI 协作方式）
 ```
 
@@ -64,11 +64,13 @@ AGENTS.md          # 给 AI 智能体的项目上下文（AI 协作方式）
 
 ## 工作流（和 AI 一起开发）
 
-1. **立卡**：新功能先写能力卡（`docs/capability-cards.md` 模板）：接口 / 行为 / **验收句（数字化、可执行）**。验收句写不出来的功能 = 还没理解清楚，不开工。
-2. **AI 实现**：AI 按卡实现（新组件/新系统，老系统零改动）。
-3. **人验收**：按验收句验收（看效果 + 跑 `cargo test`）。
-4. **回归钉死**：验收句转成测试加进 `tests/behavior.rs`。
-5. **一卡一提交**：Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:`）。
+> 能力卡工作流已退役（ADR-0014）：规格进 GDD、验收进测试、进度进 roadmap。
+
+1. **规格先行**：行为与验收标准写进 `docs/GDD.md`——数字化、可执行；写不出来 = 没理解清楚，不开工。
+2. **红绿实现**：AI 先写测试（红）再实现（绿）；新组件/新系统，老系统零改动。
+3. **人验收**：看效果 + 跑 `cargo test`。
+4. **回归钉死**：验收标准以测试形式留在 `tests/behavior.rs`。
+5. **一增量一提交**：Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:`）。
 
 ## 插件决策准则（重要：避免重复开发）
 
@@ -77,7 +79,7 @@ AGENTS.md          # 给 AI 智能体的项目上下文（AI 协作方式）
 | 功能性质 | 例子 | 做法 |
 |---------|------|------|
 | **客观正确**（技术难题，有标准答案） | 物理、碰撞、角色控制器、粒子、缓动、网络、寻路 | **找插件引用，不自己写**（bevy_rapier、bevy_hanabi…） |
-| **主观设计**（玩法手感，无标准答案） | 移动手感、波次节奏、战斗数值、掉落表 | **自己写**，按能力卡沉淀 |
+| **主观设计**（玩法手感，无标准答案） | 移动手感、波次节奏、战斗数值、掉落表 | **自己写**，规格进 GDD、验收进测试 |
 
 **移动类功能要拆开看**：物理机制（不穿墙/重力/爬坡）→ 插件；手感规则（速度/跳跃/冲刺）→ 自己调参。
 

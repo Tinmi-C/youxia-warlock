@@ -25,7 +25,8 @@ updated: 2026-10-06
 - [[decisions/0010-showroom-generic-asset-viewer|ADR-0010 展示场通用化——engine/showroom-viewer]]（accepted：中性影棚资产查看器机制全量上收引擎 crate；游戏只注册目录；crate 自带 asset-viewer bin 扫任意 GLB 目录零接入；engine 首例，双消费方判据成立）
 - [[decisions/0011-generic-per-entity-skill-framework|ADR-0011 技能系统通用化——按实体挂载技能框架 + 统一伤害结算]]（accepted：SkillCaster 挂任意实体；被动/主动/自动施法三分法；StatMods→EffectiveStats 属性聚合；DamageRequest 单写入者结算；效果=按 id 分发小系统不用脚本；SkillBalance 单源数值表）
 - [[decisions/0012-warbase-shared-runtime-and-map-architecture|ADR-0012 魔兽式游戏基底 warbase +「游戏=地图」分层架构]]（proposed v2：共享战斗 runtime crate + RON 地图 + warden 回迁消费方 #0 + 根 workspace；三通道演化；待评审）
-- [[decisions/0013-mapbundle-as-data-file|ADR-0013 MapBundle 数据文件化]]（proposed：地图=自包含 RON 数据包、装载即校验、不静默迁移；收窄 ADR-0008 适用范围）
+- [[decisions/0013-mapbundle-as-data-file|ADR-0013 MapBundle 数据文件化]]（accepted：地图=自包含 RON 数据包、装载即校验、不静默迁移；收窄 ADR-0008 适用范围）
+- [[decisions/0014-deprecate-capability-card-workflow|ADR-0014 能力卡工作流退役]]（accepted：规格进设计文档、验收进测试、进度进 roadmap.md 平面表；规格-测试-小步提交接替；ADR-0002 决策 3 相应修订）
 
 ## 参考
 
@@ -37,6 +38,7 @@ updated: 2026-10-06
 
 ## 近期更新
 
+- [[decisions/0014-deprecate-capability-card-workflow|ADR-0014 能力卡工作流退役]]（新增，accepted：youxia 拍板——卡的形式退役，纪律保留为规格-测试-小步提交；各项目以 docs/roadmap.md 平面表追踪进度；模板/根约定同步改写）
 - [[topics/engine/warbase-implementation-design|warbase 技术实现设计 v0.2]]（修订，draft：按「效果优先」反转三处妥协——根 workspace、warden 回迁成对卡（BX+WX 含参数化+warden.ron）、bundle RON 装载层 P0.5 先行；12 模块类型含建造窗口/双模式/fx/挂钩注册表）
 - [[topics/engine/warbase-test-strategy|warbase 测试策略 v0.2]]（修订，draft：~70 用例新增 W 系（warden-on-base 断言不变+读数不漂移）与 bundle 拒载组；`cargo test --workspace` 一击门禁；测试卡与 P0→P3 全阶段对齐）
 - [[decisions/0013-mapbundle-as-data-file|ADR-0013 MapBundle 数据文件化]]（新增，proposed：地图=自包含 RON 数据包、装载即校验、不静默迁移；收窄 ADR-0008 适用范围）
