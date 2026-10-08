@@ -45,7 +45,7 @@ mod unit;
 
 mod buff;
 mod build;
-mod bundle;
+pub mod bundle;
 mod econ;
 mod harness;
 mod rule;
