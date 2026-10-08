@@ -14,12 +14,20 @@ pub mod prelude {
         tick_cooldowns, AttackCooldown, AttackKit, CurrentTarget, DamageDealt, DamageRequest,
         Dead, Projectile, TargetingPriority, UnitDied,
     };
+    pub use crate::econ::{
+        apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,
+        PopPurchases, Resources,
+    };
     pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
     pub use crate::rng::MatchRng;
     pub use crate::unit::{
-        spawn_unit, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable, AttackDef,
-        AttackType, BaseAttributes, Hp, MaxHp, ProjDef, TargetDomain, UnitDef, UnitId,
+        spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
+        AttackDef, AttackType, BaseAttributes, Hp, MaxHp, ProjDef, TargetDomain, UnitDef, UnitId,
         UnitInstance, UnitRegistry, UnitTrait, XpHolder,
+    };
+    pub use crate::wave::{
+        run_director, Advance, BossTimedOut, DirectorPhase, Paths, SpawnSpec, StartWave,
+        WaveCleared, WaveDirector, WaveEntry, WavePreview, WaveStarted, WaveTable, WaveTag,
     };
     pub use crate::WarbasePlugin;
     pub use crate::WarbaseSet;
@@ -89,12 +97,37 @@ impl Plugin for WarbasePlugin {
             .add_message::<combat::UnitDied>()
             .add_message::<path::LapCompleted>()
             .add_message::<path::Arrived>()
+            .add_message::<econ::EconCommand>()
+            .add_message::<econ::EconChanged>()
+            .add_message::<econ::EconRejected>()
+            .add_message::<wave::WavePreview>()
+            .add_message::<wave::WaveStarted>()
+            .add_message::<wave::WaveCleared>()
+            .add_message::<wave::BossTimedOut>()
+            .add_message::<wave::StartWave>()
             .init_resource::<unit::UnitRegistry>()
             .init_resource::<unit::AttackArmorTable>()
-            .init_resource::<rng::MatchRng>();
+            .init_resource::<rng::MatchRng>()
+            .init_resource::<econ::Resources>()
+            .init_resource::<econ::Population>()
+            .init_resource::<econ::PopPurchases>()
+            .init_resource::<econ::EconRules>()
+            .init_resource::<wave::WaveTable>()
+            .init_resource::<wave::Paths>()
+            .init_resource::<wave::WaveDirector>();
 
-        app.add_systems(Update, combat::tick_cooldowns.in_set(WarbaseSet::Tick));
-        app.add_systems(Update, path::advance_followers.in_set(WarbaseSet::Director));
+        app.add_systems(
+            Update,
+            (combat::tick_cooldowns, econ::apply_econ)
+                .chain()
+                .in_set(WarbaseSet::Tick),
+        );
+        app.add_systems(
+            Update,
+            (wave::run_director, path::advance_followers)
+                .chain()
+                .in_set(WarbaseSet::Director),
+        );
         app.add_systems(Update, combat::pick_targets.in_set(WarbaseSet::Intent));
         app.add_systems(
             Update,

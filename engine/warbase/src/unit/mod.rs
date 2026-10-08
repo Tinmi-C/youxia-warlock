@@ -213,3 +213,38 @@ pub fn spawn_unit(
     }
     Some(e.id())
 }
+
+/// Commands-based variant of [`spawn_unit`] for use inside systems (the
+/// wave director). Keep the component set in sync with the World version.
+pub fn spawn_unit_deferred(
+    commands: &mut Commands,
+    registry: &UnitRegistry,
+    id: &str,
+    pos: Vec3,
+    side: Allegiance,
+) -> Option<Entity> {
+    let def = registry.get(id)?.clone();
+    let mut ec = commands.spawn((
+        UnitInstance { def: def.id.clone(), level: 1 },
+        Hp(def.attrs.hp),
+        MaxHp(def.attrs.hp),
+        Armor(def.armor_type),
+        side,
+        Transform::from_translation(pos),
+    ));
+    if def.traits.contains(&UnitTrait::Air) {
+        ec.insert(AirUnit);
+    }
+    if def.attrs.move_speed > 0.0 {
+        ec.insert(crate::path::MoveSpeed(def.attrs.move_speed));
+    }
+    if let Some(atk) = def.attack {
+        ec.insert(crate::combat::AttackKit {
+            def: atk,
+            priority: crate::combat::TargetingPriority::First,
+        })
+        .insert(crate::combat::AttackCooldown(0.0))
+        .insert(crate::combat::CurrentTarget::default());
+    }
+    Some(ec.id())
+}
