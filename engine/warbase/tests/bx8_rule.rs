@@ -14,6 +14,8 @@ fn grunt_registry() -> UnitRegistry {
             attrs: BaseAttributes { hp: 100.0, move_speed: 1.0, body_radius: 0.3 },
             attack: None,
             armor_type: ArmorType::Light,
+            cost_gold: 0,
+            cost_wood: 0,
             bounty_gold: 0,
             bounty_wood: 0,
             grant_xp: 0,
@@ -25,7 +27,7 @@ fn grunt_registry() -> UnitRegistry {
 
 fn spawn_attacker(app: &mut App) -> Entity {
     let reg = grunt_registry();
-    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker).unwrap();
+    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
     app.world_mut()
         .entity_mut(e)
         .insert(PathFollower { path: Entity::PLACEHOLDER, progress: 0.0, laps: 0, finished: false });

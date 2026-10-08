@@ -25,6 +25,13 @@ pub struct SpawnSpec {
     pub path: usize,
     #[serde(default)]
     pub delay: f32,
+    /// Per-wave hp multiplier (wave-strength curve ships in the map file).
+    #[serde(default = "one")]
+    pub hp_scale: f32,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -221,6 +228,7 @@ pub fn run_director(
                             &spec.unit,
                             Vec3::new(start.x, 0.0, start.y),
                             Allegiance::Attacker,
+                            spec.hp_scale,
                         ) {
                             commands.entity(u)
                                 .insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false })

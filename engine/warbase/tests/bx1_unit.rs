@@ -45,6 +45,8 @@ fn grunt_registry() -> UnitRegistry {
             attrs: BaseAttributes { hp: 120.0, move_speed: 2.0, body_radius: 0.4 },
             attack: None,
             armor_type: ArmorType::Heavy,
+            cost_gold: 0,
+            cost_wood: 0,
             bounty_gold: 5,
             bounty_wood: 1,
             grant_xp: 3,
@@ -59,7 +61,7 @@ fn grunt_registry() -> UnitRegistry {
 fn spawn_unit_builds_components_from_def() {
     let mut app = test_app();
     let reg = grunt_registry();
-    let Some(e) = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(1.0, 0.0, 2.0), Allegiance::Attacker) else {
+    let Some(e) = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(1.0, 0.0, 2.0), Allegiance::Attacker, 1.0) else {
         panic!("known def must spawn");
     };
     let w = app.world();
@@ -79,12 +81,12 @@ fn air_trait_spawns_air_marker() {
     let mut app = test_app();
     let mut reg = grunt_registry();
     reg.defs.get_mut("grunt").unwrap().traits = vec![UnitTrait::Air];
-    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker).unwrap();
+    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
     assert!(app.world().get::<AirUnit>(e).is_some());
 }
 
 #[test]
 fn spawn_unknown_def_returns_none() {
     let mut app = test_app();
-    assert!(spawn_unit(&mut app.world_mut(), &UnitRegistry::default(), "nope", Vec3::ZERO, Allegiance::Attacker).is_none());
+    assert!(spawn_unit(&mut app.world_mut(), &UnitRegistry::default(), "nope", Vec3::ZERO, Allegiance::Attacker, 1.0).is_none());
 }

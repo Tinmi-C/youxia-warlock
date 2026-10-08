@@ -11,6 +11,8 @@ fn def(id: &str, hp: f32, armor: ArmorType) -> UnitDef {
         attrs: BaseAttributes { hp, move_speed: 0.0, body_radius: 0.3 },
         attack: None,
         armor_type: armor,
+        cost_gold: 0,
+        cost_wood: 0,
         bounty_gold: 7,
         bounty_wood: 0,
         grant_xp: 2,
@@ -27,7 +29,7 @@ fn registry(defs: Vec<UnitDef>) -> UnitRegistry {
 fn damage_request_reduces_hp() {
     let mut app = test_app();
     let reg = registry(vec![def("grunt", 100.0, ArmorType::Medium)]);
-    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker).unwrap();
+    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
     let source = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
@@ -44,7 +46,7 @@ fn armor_multiplier_applies() {
     table.mult[AttackType::Magic as usize][ArmorType::Heavy as usize] = 0.5;
     app.insert_resource(table);
     let reg = registry(vec![def("ogre", 100.0, ArmorType::Heavy)]);
-    let e = spawn_unit(&mut app.world_mut(), &reg, "ogre", Vec3::ZERO, Allegiance::Attacker).unwrap();
+    let e = spawn_unit(&mut app.world_mut(), &reg, "ogre", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
     let source = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
@@ -60,7 +62,7 @@ fn kill_chain_emits_died_and_despawns() {
     let mut app = test_app();
     let reg = registry(vec![def("grunt", 10.0, ArmorType::Light)]);
     app.insert_resource(UnitRegistry { defs: reg.defs.clone() });
-    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker).unwrap();
+    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
     let source = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
@@ -92,8 +94,8 @@ fn targeting_first_and_last_rank_by_path_progress() {
     let mut app = test_app();
     let reg = registry(vec![def("grunt", 100.0, ArmorType::Light)]);
     let mut world = app.world_mut();
-    let front = spawn_unit(&mut world, &reg, "grunt", Vec3::ZERO, Allegiance::Attacker).unwrap();
-    let back = spawn_unit(&mut world, &reg, "grunt", Vec3::ZERO, Allegiance::Attacker).unwrap();
+    let front = spawn_unit(&mut world, &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
+    let back = spawn_unit(&mut world, &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
     world.entity_mut(front).insert(PathFollower { path: Entity::PLACEHOLDER, progress: 8.0, laps: 1, finished: false });
     world.entity_mut(back).insert(PathFollower { path: Entity::PLACEHOLDER, progress: 2.0, laps: 0, finished: false });
 
@@ -103,7 +105,7 @@ fn targeting_first_and_last_rank_by_path_progress() {
         attack_type: AttackType::Normal, targets: TargetDomain::Both, projectile: None,
     });
     let reg2 = registry(vec![tower_def.clone()]);
-    let mut tower = spawn_unit(&mut app.world_mut(), &reg2, "tower", Vec3::ZERO, Allegiance::Defender).unwrap();
+    let mut tower = spawn_unit(&mut app.world_mut(), &reg2, "tower", Vec3::ZERO, Allegiance::Defender, 1.0).unwrap();
     app.update();
     assert_eq!(app.world().get::<CurrentTarget>(tower).unwrap().0, Some(front));
 
@@ -120,7 +122,7 @@ fn ground_only_attack_skips_air_units() {
     let mut air = def("bat", 50.0, ArmorType::Light);
     air.traits = vec![UnitTrait::Air];
     let reg = registry(vec![air]);
-    let bat = spawn_unit(&mut app.world_mut(), &reg, "bat", Vec3::ZERO, Allegiance::Attacker).unwrap();
+    let bat = spawn_unit(&mut app.world_mut(), &reg, "bat", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
 
     let mut tower_def = def("tower", 100.0, ArmorType::Fortified);
     tower_def.attack = Some(AttackDef {
@@ -128,7 +130,7 @@ fn ground_only_attack_skips_air_units() {
         attack_type: AttackType::Piercing, targets: TargetDomain::Ground, projectile: None,
     });
     let reg2 = registry(vec![tower_def]);
-    let tower = spawn_unit(&mut app.world_mut(), &reg2, "tower", Vec3::ZERO, Allegiance::Defender).unwrap();
+    let tower = spawn_unit(&mut app.world_mut(), &reg2, "tower", Vec3::ZERO, Allegiance::Defender, 1.0).unwrap();
     app.update();
     assert_eq!(app.world().get::<CurrentTarget>(tower).unwrap().0, None, "air unit must be skipped");
 
@@ -151,8 +153,8 @@ fn projectile_hits_and_fizzles_on_lost_target() {
         projectile: Some(ProjDef { speed: 60.0 }),
     });
     let reg = registry(vec![grunt, tower_def]);
-    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(5.0, 0.0, 0.0), Allegiance::Attacker).unwrap();
-    let tower = spawn_unit(&mut app.world_mut(), &reg, "tower", Vec3::ZERO, Allegiance::Defender).unwrap();
+    let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(5.0, 0.0, 0.0), Allegiance::Attacker, 1.0).unwrap();
+    let tower = spawn_unit(&mut app.world_mut(), &reg, "tower", Vec3::ZERO, Allegiance::Defender, 1.0).unwrap();
 
     // Projectile speed 60 => 1 unit per frame; distance 5 => impact on frame 5.
     for _ in 0..7 {
@@ -162,7 +164,7 @@ fn projectile_hits_and_fizzles_on_lost_target() {
     assert!((hp - 75.0).abs() < 1e-3, "hp {hp}");
 
     // Fizzle: fire again at a fresh victim, then despawn it mid-flight.
-    let victim = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(5.0, 0.0, 0.0), Allegiance::Attacker).unwrap();
+    let victim = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(5.0, 0.0, 0.0), Allegiance::Attacker, 1.0).unwrap();
     app.world_mut().entity_mut(tower).get_mut::<AttackCooldown>().unwrap().0 = 0.0; // bypass interval for the test
     app.update(); // Intent picks victim, Act fires a fresh projectile
     app.world_mut().entity_mut(victim).despawn();

@@ -1,94 +1,254 @@
-//! Behavior consistency regression tests: pin down "changed A, B did not break".
-//! Pattern: build a headless app (no renderer/window), drive it manually, assert.
-//! Acceptance sentences from capability cards live here as executable tests.
+//! G-LP behavior regression (thin-game acceptance): everything here drives
+//! the game through warbase mechanisms + the thin loop-td composition layer
+//! (maps/*.ron, try_place/try_sell, build_grid_from). No pipeline code
+//! exists in this crate — that's the point under test.
 
-use std::time::Duration;
+use bevy::prelude::*;
+use loop_td::systems::gameplay::{build_grid_from, try_place, try_sell};
+use warbase::bundle::{assemble, load_bundle, validate, MapBundle};
+use warbase::prelude::*;
+use warbase::testing::{count_over_frames, test_app};
 
-use bevy::{
-    prelude::*,
-    state::app::StatesPlugin,
-    time::TimeUpdateStrategy,
-};
+const LOOP_MAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/loop.ron");
+const MAZE_MAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/maze-smoke.ron");
 
-use loop_td::{components::Player, plugins::game::GamePlugin, states::GameState};
-
-/// Headless app: MinimalPlugins (no renderer/window) + game logic + fixed timestep.
-fn test_app() -> App {
-    let mut app = App::new();
-    app.add_plugins((MinimalPlugins, StatesPlugin)) // init_state needs StateTransition schedule
-        .init_state::<GameState>()
-        .add_plugins(GamePlugin)
-        // Headless: no winit / asset plugins, so create the resources the
-        // systems under test need (input, mesh/material asset stores).
-        .init_resource::<ButtonInput<KeyCode>>()
-        .init_resource::<Assets<Mesh>>()
-        .init_resource::<Assets<StandardMaterial>>()
-        // Fixed timestep makes tests reproducible (1/60 s per update).
-        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
-            1.0 / 60.0,
-        )));
+/// Headless armed app from a bundle: base + assemble + game grid.
+fn armed(bundle: &MapBundle) -> App {
+    let mut app = test_app();
+    assemble(&mut app.world_mut(), bundle);
+    let grid = build_grid_from(bundle);
+    app.insert_resource(grid);
     app
 }
 
-fn player_distance(app: &mut App) -> f32 {
-    let mut q = app.world_mut().query::<(&Player, &Transform)>();
-    let (_, tf) = q.single(app.world()).expect("one player exists");
-    tf.translation.distance(Vec3::new(0.0, 0.5, 0.0)) // spawn point
+/// A tiny authored bundle for targeted scenarios (cap/win/boss/armor).
+fn scenario_bundle(
+    leak: LeakPolicy,
+    win_waves: u32,
+    boss_timeout: Option<f32>,
+) -> MapBundle {
+    let unit = |id: &str, hp: f32, armor: ArmorType, dmg: f32| UnitDef {
+        id: id.into(),
+        attrs: BaseAttributes { hp, move_speed: 1.0, body_radius: 0.3 },
+        attack: if dmg > 0.0 {
+            Some(AttackDef {
+                damage: dmg, interval: 0.3, range: 12.0, attack_type: AttackType::Magic,
+                targets: TargetDomain::Both, projectile: Some(ProjDef { speed: 60.0 }),
+            })
+        } else { None },
+        armor_type: armor,
+        cost_gold: 50, cost_wood: 0,
+        bounty_gold: 0, bounty_wood: 0, grant_xp: 0,
+        traits: vec![],
+    };
+    let mut units = std::collections::HashMap::new();
+    units.insert("grunt".into(), unit("grunt", 40.0, ArmorType::Heavy, 0.0));
+    units.insert("tower".into(), unit("tower", 80.0, ArmorType::Fortified, 20.0));
+    MapBundle {
+        identity: warbase::bundle::MapIdentity { id: "scenario".into(), version: 1 },
+        world: warbase::bundle::WorldDef {
+            paths: vec![PathDef::closed_loop(vec![[-6.0, -4.0], [6.0, -4.0], [6.0, 4.0], [-6.0, 4.0]])],
+            build: warbase::bundle::BuildDomainDef::FreeGrid { cell: 1.0, cols: 16, rows: 12 },
+            blocked: vec![],
+        },
+        units,
+        waves: WaveTable {
+            waves: vec![WaveEntry {
+                spawns: vec![SpawnSpec { unit: "grunt".into(), count: 2, interval: 0.2, path: 0, delay: 0.0, hp_scale: 1.0 }],
+                boss_timeout,
+                preview: "scenario".into(),
+            }],
+            advance: Advance::Auto { intermission: 0.5 },
+            early_call_bonus: None,
+        },
+        rules: MatchRules {
+            leak,
+            build_window: BuildWindow::Always,
+            lap_buff: None,
+            win: WinCondition::SurviveWaves { waves: win_waves },
+            sell_refund_pct: 0.7,
+        },
+        econ_start: EconStart { gold: 200, wood: 0, pop_cap: 8 },
+        econ_rules: EconRules::default(),
+        attack_armor: AttackArmorTable::default(),
+    }
 }
 
-/// Capability card PlayerMove — acceptance: distance == speed × elapsed time
-/// (frame-rate independent; asserted against the *actually* elapsed time, not an
-/// assumed frame count, so first-frame clock quirks can't break it).
+/// G-LP-00a: the shipped map file loads, validates and runs wave 1.
 #[test]
-fn straight_move_distance_equals_speed_times_time() {
-    let mut app = test_app();
+fn shipped_loop_map_loads_and_runs() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).expect("maps/loop.ron loads");
+    validate(&bundle).expect("maps/loop.ron validates");
+    assert_eq!(bundle.waves.waves.len(), 30);
+    assert_eq!(bundle.identity.id, "loop");
+
+    let mut app = armed(&bundle);
+    // Fast-forward the first intermission (12 s => 720 frames) via early call.
+    app.update();
     app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::KeyW);
-    for _ in 0..60 {
-        app.update();
+        .resource_mut::<bevy::ecs::message::Messages<StartWave>>()
+        .write(StartWave);
+    let started = count_over_frames::<WaveStarted>(&mut app, 5);
+    assert_eq!(started, 1);
+    let tagged = app.world_mut().query::<&WaveTag>().iter(app.world()).count();
+    assert!(tagged >= 1, "grunts on the loop from the file's wave table");
+}
+
+/// G-LP-01: placing a tower spends gold, occupies the cell, and the tower
+/// fights through the base pipeline (DamageDealt observed).
+#[test]
+fn placing_a_tower_spends_and_fires() {
+    let bundle = scenario_bundle(LeakPolicy::Stockpile { cap: 10 }, 1, None);
+    let mut app = armed(&bundle);
+
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .expect("free cell");
+    let tower = try_place(&mut app.world_mut(), "tower", spot).expect("place ok");
+    assert_eq!(app.world().resource::<Resources>().gold, 150, "200 - 50");
+    assert_eq!(app.world().resource::<Population>().used, 1);
+    assert!(app.world().get::<loop_td::systems::gameplay::Buildable>(tower).is_some());
+
+    // Fast-forward to wave + combat: grunts spawn at (-6,-4), speed 1.
+    let dealt = count_over_frames::<DamageDealt>(&mut app, 400); // ~6.6 s
+    assert!(dealt >= 2, "tower fought through the base pipeline ({dealt} hits)");
+}
+
+/// G-LP-02/03: leaked units stay on the loop, laps accumulate, and hitting
+/// the stockpile cap loses the match with a readable reason.
+#[test]
+fn stockpile_pressure_loses_with_reason() {
+    let mut bundle = scenario_bundle(LeakPolicy::Stockpile { cap: 2 }, 9, None);
+    // Two grunts, no towers: they circle forever.
+    bundle.units.get_mut("tower").unwrap().attack = None;
+    let mut app = armed(&bundle);
+    for _ in 0..400 {
+        app.update(); // wave spawns, nobody dies, stock hits cap 2
     }
-    let elapsed = app.world().resource::<Time>().elapsed_secs();
-    let dist = player_distance(&mut app);
-    let expected = 5.0 * elapsed; // Player.speed × actually elapsed seconds
-    assert!(
-        (dist - expected).abs() < 0.05,
-        "expected ≈{expected:.3} units in {elapsed:.3}s, got {dist}"
+    assert_eq!(
+        *app.world().resource::<MatchFlow>(),
+        MatchFlow::Lost("stockpile full (2/2)".into())
     );
 }
 
-/// Capability card PlayerMove — acceptance: diagonal speed is NOT speed * sqrt(2).
+/// G-LP-04: killing everything on the final wave wins.
 #[test]
-fn diagonal_move_is_not_faster() {
-    let mut app = test_app();
-    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-    keys.press(KeyCode::KeyW);
-    keys.press(KeyCode::KeyD);
-    drop(keys);
-    for _ in 0..60 {
-        app.update();
-    }
-    let dist = player_distance(&mut app);
-    let expected = 5.0;
-    assert!(
-        (dist - expected).abs() < 0.1,
-        "diagonal got {dist}, should be ≈{expected} (normalized), not {expected}*sqrt(2)"
-    );
+fn clearing_all_waves_wins() {
+    let bundle = scenario_bundle(LeakPolicy::Stockpile { cap: 50 }, 1, None);
+    let mut app = armed(&bundle);
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .unwrap();
+    try_place(&mut app.world_mut(), "tower", spot).unwrap();
+    let won = count_over_frames::<MatchEnded>(&mut app, 900); // ~15 s
+    assert!(won >= 1, "match ended");
+    assert_eq!(*app.world().resource::<MatchFlow>(), MatchFlow::Won("survived all waves".into()));
 }
 
-/// Capability card GameState — acceptance: paused state freezes movement.
+/// G-LP-05: an unkilled boss wave times out and loses.
 #[test]
-fn paused_state_stops_movement() {
-    let mut app = test_app();
-    app.world_mut()
-        .resource_mut::<NextState<GameState>>()
-        .set(GameState::Paused);
-    app.world_mut()
-        .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::KeyW);
-    for _ in 0..60 {
+fn boss_timeout_loses() {
+    let mut bundle = scenario_bundle(LeakPolicy::Stockpile { cap: 99 }, 9, Some(0.5));
+    bundle.units.get_mut("tower").unwrap().attack = None;
+    let mut app = armed(&bundle);
+    let timeouts = count_over_frames::<BossTimedOut>(&mut app, 120);
+    assert_eq!(timeouts, 1);
+    assert_eq!(*app.world().resource::<MatchFlow>(), MatchFlow::Lost("boss timeout".into()));
+}
+
+/// G-LP-11: the shipped attack x armor matrix rides the pipeline
+/// (Magic vs Heavy = 0.5 in maps/loop.ron).
+#[test]
+fn shipped_armor_matrix_applies() {
+    let loop_map = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let m = loop_map.attack_armor.multiplier(AttackType::Magic, ArmorType::Heavy);
+    assert!((m - 0.5).abs() < 1e-6, "matrix value {m}");
+
+    let mut bundle = scenario_bundle(LeakPolicy::Stockpile { cap: 50 }, 9, None);
+    // tower Magic 20 dmg vs grunt Heavy => 10 per hit.
+    let mut app = armed(&bundle);
+    app.insert_resource(loop_map.attack_armor.clone());
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .unwrap();
+    try_place(&mut app.world_mut(), "tower", spot).unwrap();
+
+    let mut cursor = bevy::ecs::message::MessageCursor::<DamageDealt>::default();
+    let mut first_amount = None;
+    for _ in 0..300 {
         app.update();
+        let msgs = app.world().resource::<bevy::ecs::message::Messages<DamageDealt>>();
+        for d in cursor.read(msgs) {
+            if first_amount.is_none() {
+                first_amount = Some(d.amount);
+            }
+        }
+        if first_amount.is_some() {
+            break;
+        }
     }
-    let dist = player_distance(&mut app);
-    assert!(dist < 0.01, "player moved {dist} units while paused");
+    assert_eq!(first_amount, Some(10.0), "20 dmg x 0.5 Magic-vs-Heavy");
+}
+
+/// G-LP-07: selling refunds the bundle pct, frees cell + population.
+#[test]
+fn selling_refunds_and_frees() {
+    let bundle = scenario_bundle(LeakPolicy::Stockpile { cap: 50 }, 9, None);
+    let mut app = armed(&bundle);
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .unwrap();
+    try_place(&mut app.world_mut(), "tower", spot).unwrap();
+    let refund = try_sell(&mut app.world_mut(), spot).expect("sell ok");
+    assert_eq!(refund, 35, "70% of 50");
+    assert_eq!(app.world().resource::<Resources>().gold, 200 - 50 + 35);
+    assert_eq!(app.world().resource::<Population>().used, 0);
+    assert!(app.world().resource::<BuildGrid>().check(spot).is_ok(), "cell freed");
+}
+
+/// SMK-01: the maze smoke map — same base, different bundle = different game
+/// (open path + Lives + Manual). Towers clear all 5 waves.
+#[test]
+fn maze_smoke_map_swaps_the_game() {
+    let bundle = load_bundle(std::path::Path::new(MAZE_MAP)).expect("maze-smoke loads");
+    validate(&bundle).unwrap();
+    assert!(matches!(bundle.rules.leak, LeakPolicy::Lives { .. }));
+    assert!(matches!(bundle.waves.advance, Advance::Manual));
+
+    let mut app = armed(&bundle);
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .unwrap();
+    try_place(&mut app.world_mut(), "guard", spot).unwrap();
+
+    // Manual: start each wave as the previous clears.
+    let mut ended = 0;
+    for _ in 0..5 {
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<StartWave>>()
+            .write(StartWave);
+        for _ in 0..400 {
+            app.update();
+            if matches!(app.world().resource::<MatchFlow>(), MatchFlow::Won(_)) {
+                ended += 1;
+                break;
+            }
+        }
+    }
+    assert_eq!(
+        *app.world().resource::<MatchFlow>(),
+        MatchFlow::Won("survived all waves".into()),
+        "maze bundle cleared through the same base"
+    );
+    assert_eq!(ended, 1);
 }

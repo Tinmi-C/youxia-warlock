@@ -16,6 +16,8 @@ fn sample_bundle() -> MapBundle {
             attrs: BaseAttributes { hp: 50.0, move_speed: 1.0, body_radius: 0.3 },
             attack: None,
             armor_type: ArmorType::Light,
+            cost_gold: 0,
+            cost_wood: 0,
             bounty_gold: 3,
             bounty_wood: 0,
             grant_xp: 1,
@@ -32,7 +34,7 @@ fn sample_bundle() -> MapBundle {
         units,
         waves: WaveTable {
             waves: vec![WaveEntry {
-                spawns: vec![SpawnSpec { unit: "grunt".into(), count: 2, interval: 0.5, path: 0, delay: 0.0 }],
+                spawns: vec![SpawnSpec { unit: "grunt".into(), count: 2, interval: 0.5, path: 0, delay: 0.0, hp_scale: 1.0 }],
                 boss_timeout: None,
                 preview: "2 grunts".into(),
             }],

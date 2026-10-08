@@ -37,7 +37,7 @@ pub enum BuildMode {
 
 /// Occupancy map. Ghost preview and commit both call `check` — the
 /// same-source rule that killed warden's preview/commit drift.
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub struct BuildGrid {
     pub mode: BuildMode,
     pub cell_size: f32,

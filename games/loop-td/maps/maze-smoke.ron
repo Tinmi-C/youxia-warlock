@@ -1,0 +1,51 @@
+// SMK 迷宫冒烟地图：同一基底换 bundle 即换玩法（ADR-0013 验收件）
+// 开链路径 + Lives 漏怪扣命 + 手动开波 —— 与 loop.ron（闭环/存量/自动）成对照。
+(
+    identity: (id: "maze-smoke", version: 1),
+    world: (
+        paths: [
+            (points: [(-6.0, 0.0), (6.0, 0.0)], closed: false),
+        ],
+        build: FreeGrid(cell: 1.0, cols: 16, rows: 8),
+        blocked: [],
+    ),
+    units: {
+        "arrow": (id: "arrow", attrs: (hp: 80, move_speed: 0.0, body_radius: 0.4),
+                  attack: Some((damage: 12, interval: 0.8, range: 4.5, attack_type: Piercing, targets: Both, projectile: Some((speed: 20.0)))),
+                  armor_type: Fortified, cost_gold: 50, bounty_gold: 0, grant_xp: 0, traits: []),
+        "guard": (id: "guard", attrs: (hp: 80, move_speed: 0.0, body_radius: 0.4),
+                  attack: Some((damage: 60, interval: 0.5, range: 8.0, attack_type: Piercing, targets: Both, projectile: Some((speed: 40.0)))),
+                  armor_type: Fortified, cost_gold: 50, bounty_gold: 0, grant_xp: 0, traits: []),
+        "runner": (id: "runner", attrs: (hp: 40, move_speed: 1.0, body_radius: 0.3),
+                   armor_type: Light, cost_gold: 0, bounty_gold: 3, grant_xp: 1, traits: []),
+    },
+    waves: (
+        waves: [
+            (spawns: [(unit: "runner", count: 4, interval: 0.8, path: 0, hp_scale: 1.0)], boss_timeout: None, preview: "4 runners"),
+            (spawns: [(unit: "runner", count: 5, interval: 0.7, path: 0, hp_scale: 1.1)], boss_timeout: None, preview: "5 runners"),
+            (spawns: [(unit: "runner", count: 6, interval: 0.6, path: 0, hp_scale: 1.2)], boss_timeout: None, preview: "6 runners"),
+            (spawns: [(unit: "runner", count: 7, interval: 0.5, path: 0, hp_scale: 1.3)], boss_timeout: None, preview: "7 runners"),
+            (spawns: [(unit: "runner", count: 8, interval: 0.5, path: 0, hp_scale: 1.4)], boss_timeout: None, preview: "8 runners"),
+        ],
+        advance: Manual,
+        early_call_bonus: None,
+    ),
+    rules: (
+        leak: Lives(lives: 10),
+        build_window: Always,
+        lap_buff: None,
+        win: SurviveWaves(waves: 5),
+        sell_refund_pct: 0.7,
+    ),
+    econ_start: (gold: 150, wood: 0, pop_cap: 8),
+    econ_rules: (wood_to_gold: 25, pop_cost_base: 2, pop_cost_growth: 1.5, pop_gain: 2),
+    attack_armor: (
+        mult: (
+            (1.0, 1.0, 1.0, 0.7, 1.0, 0.05),
+            (1.5, 1.0, 0.75, 0.35, 1.0, 0.05),
+            (1.0, 1.0, 1.5, 1.5, 0.5, 0.05),
+            (1.25, 0.75, 0.5, 0.35, 1.0, 0.05),
+            (1.0, 1.0, 1.0, 0.5, 1.0, 0.05),
+        ),
+    ),
+)

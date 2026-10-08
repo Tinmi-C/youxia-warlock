@@ -116,6 +116,11 @@ pub struct UnitDef {
     #[serde(default)]
     pub attack: Option<AttackDef>,
     pub armor_type: ArmorType,
+    /// Build cost (towers); 0 for creeps. Numbers ship in the map bundle.
+    #[serde(default)]
+    pub cost_gold: u32,
+    #[serde(default)]
+    pub cost_wood: u32,
     #[serde(default)]
     pub bounty_gold: u32,
     #[serde(default)]
@@ -126,7 +131,7 @@ pub struct UnitDef {
     pub traits: Vec<UnitTrait>,
 }
 
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub struct UnitRegistry {
     pub defs: HashMap<UnitId, UnitDef>,
 }
@@ -178,7 +183,8 @@ pub enum Allegiance {
 #[derive(Component, Debug)]
 pub struct AirUnit;
 
-/// Spawn a unit instance from its def. Returns None for unknown ids.
+/// Spawn a unit instance from its def; `hp_scale` multiplies hp/max-hp
+/// (per-wave scaling ships in the wave table). Returns None for unknown ids.
 /// Extra behaviour comes from composition (caller inserts PathFollower,
 /// XpHolder, ...).
 pub fn spawn_unit(
@@ -187,12 +193,13 @@ pub fn spawn_unit(
     id: &str,
     pos: Vec3,
     side: Allegiance,
+    hp_scale: f32,
 ) -> Option<Entity> {
     let def = registry.get(id)?.clone();
     let mut e = world.spawn((
         UnitInstance { def: def.id.clone(), level: 1 },
-        Hp(def.attrs.hp),
-        MaxHp(def.attrs.hp),
+        Hp(def.attrs.hp * hp_scale),
+        MaxHp(def.attrs.hp * hp_scale),
         Armor(def.armor_type),
         side,
         Transform::from_translation(pos),
@@ -222,12 +229,13 @@ pub fn spawn_unit_deferred(
     id: &str,
     pos: Vec3,
     side: Allegiance,
+    hp_scale: f32,
 ) -> Option<Entity> {
     let def = registry.get(id)?.clone();
     let mut ec = commands.spawn((
         UnitInstance { def: def.id.clone(), level: 1 },
-        Hp(def.attrs.hp),
-        MaxHp(def.attrs.hp),
+        Hp(def.attrs.hp * hp_scale),
+        MaxHp(def.attrs.hp * hp_scale),
         Armor(def.armor_type),
         side,
         Transform::from_translation(pos),

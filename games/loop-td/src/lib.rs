@@ -35,6 +35,7 @@ pub fn build_app() -> App {
             // Game logic plugs in around WarbaseSet via before/after.
             warbase::WarbasePlugin,
             plugins::game::GamePlugin,
+            plugins::game::VisualPlugin,
             plugins::debug::DebugPlugin,
         ));
     app

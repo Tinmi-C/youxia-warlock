@@ -14,6 +14,8 @@ fn grunt_registry() -> UnitRegistry {
             attrs: BaseAttributes { hp: 10.0, move_speed: 0.0, body_radius: 0.3 },
             attack: None,
             armor_type: ArmorType::Light,
+            cost_gold: 0,
+            cost_wood: 0,
             bounty_gold: 0,
             bounty_wood: 0,
             grant_xp: 0,
@@ -35,7 +37,7 @@ fn armed_app(table: WaveTable) -> App {
 
 fn one_grunt_wave() -> WaveEntry {
     WaveEntry {
-        spawns: vec![SpawnSpec { unit: "grunt".into(), count: 1, interval: 1.0, path: 0, delay: 0.0 }],
+        spawns: vec![SpawnSpec { unit: "grunt".into(), count: 1, interval: 1.0, path: 0, delay: 0.0, hp_scale: 1.0 }],
         boss_timeout: None,
         preview: "grunt pack".into(),
     }

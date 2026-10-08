@@ -1,0 +1,94 @@
+// loop-td 主地图：环形循环圈（ADR-0013 —— 地图=自包含数据包）
+// 数值全部为占位初值，进锚点表校准（GDD §玩法数值）。
+(
+    identity: (id: "loop", version: 1),
+    world: (
+        paths: [
+            // 跑道形闭环（周长 64）
+            (points: [(-10.0, -6.0), (10.0, -6.0), (10.0, 6.0), (-10.0, 6.0)], closed: true),
+        ],
+        build: FreeGrid(cell: 1.0, cols: 28, rows: 18),
+        blocked: [],
+    ),
+    units: {
+        // ---- 塔（Defender 侧） ----
+        "arrow":  (id: "arrow",  attrs: (hp: 80,  move_speed: 0.0, body_radius: 0.4),
+                   attack: Some((damage: 12, interval: 0.8, range: 4.5, attack_type: Piercing, targets: Both, projectile: Some((speed: 20.0)))),
+                   armor_type: Fortified, cost_gold: 50, bounty_gold: 0, grant_xp: 0, traits: []),
+        "cannon": (id: "cannon", attrs: (hp: 120, move_speed: 0.0, body_radius: 0.5),
+                   attack: Some((damage: 30, interval: 1.6, range: 3.5, attack_type: Siege, targets: Ground, projectile: Some((speed: 15.0)))),
+                   armor_type: Fortified, cost_gold: 80, bounty_gold: 0, grant_xp: 0, traits: []),
+        "mage":   (id: "mage",   attrs: (hp: 70,  move_speed: 0.0, body_radius: 0.4),
+                   attack: Some((damage: 20, interval: 1.2, range: 4.0, attack_type: Magic, targets: Both, projectile: Some((speed: 25.0)))),
+                   armor_type: Fortified, cost_gold: 70, bounty_gold: 0, grant_xp: 0, traits: []),
+        "sentry": (id: "sentry", attrs: (hp: 60,  move_speed: 0.0, body_radius: 0.35),
+                   attack: Some((damage: 8,  interval: 0.5, range: 3.0, attack_type: Normal, targets: Both, projectile: Some((speed: 30.0)))),
+                   armor_type: Fortified, cost_gold: 35, bounty_gold: 0, grant_xp: 0, traits: []),
+        // ---- 怪（Attacker 侧） ----
+        "grunt":  (id: "grunt",  attrs: (hp: 40,  move_speed: 1.2, body_radius: 0.3),
+                   armor_type: Light, cost_gold: 0, bounty_gold: 3, grant_xp: 1, traits: []),
+        "fast":   (id: "fast",   attrs: (hp: 26,  move_speed: 2.2, body_radius: 0.25),
+                   armor_type: Light, cost_gold: 0, bounty_gold: 3, grant_xp: 1, traits: [Fast]),
+        "tank":   (id: "tank",   attrs: (hp: 120, move_speed: 0.7, body_radius: 0.45),
+                   armor_type: Heavy, cost_gold: 0, bounty_gold: 8, grant_xp: 3, traits: []),
+        "flyer":  (id: "flyer",  attrs: (hp: 30,  move_speed: 1.6, body_radius: 0.3),
+                   armor_type: Light, cost_gold: 0, bounty_gold: 4, grant_xp: 1, traits: [Air]),
+        "boss":   (id: "boss",   attrs: (hp: 900, move_speed: 0.6, body_radius: 0.8),
+                   armor_type: Heavy, cost_gold: 0, bounty_gold: 60, grant_xp: 20, traits: []),
+    },
+    waves: (
+        waves: [
+            (spawns: [(unit: "grunt", count: 6,  interval: 0.8, path: 0, hp_scale: 1.0)],   boss_timeout: None,             preview: "6 grunts"),
+            (spawns: [(unit: "grunt", count: 8,  interval: 0.8, path: 0, hp_scale: 1.18)],  boss_timeout: None,             preview: "8 grunts"),
+            (spawns: [(unit: "fast",  count: 6,  interval: 0.6, path: 0, hp_scale: 1.18)],  boss_timeout: None,             preview: "fast pack"),
+            (spawns: [(unit: "grunt", count: 10, interval: 0.7, path: 0, hp_scale: 1.39)],  boss_timeout: None,             preview: "10 grunts"),
+            (spawns: [(unit: "tank",  count: 2,  interval: 2.0, path: 0, hp_scale: 1.18), (unit: "grunt", count: 6, interval: 0.8, path: 0, hp_scale: 1.64)], boss_timeout: None, preview: "armored"),
+            (spawns: [(unit: "grunt", count: 12, interval: 0.6, path: 0, hp_scale: 1.64)],  boss_timeout: None,             preview: "12 grunts"),
+            (spawns: [(unit: "flyer", count: 8,  interval: 0.5, path: 0, hp_scale: 1.39)],  boss_timeout: None,             preview: "air wave"),
+            (spawns: [(unit: "grunt", count: 10, interval: 0.7, path: 0, hp_scale: 1.94), (unit: "fast", count: 4, interval: 0.6, path: 0, hp_scale: 1.94)], boss_timeout: None, preview: "mixed"),
+            (spawns: [(unit: "tank",  count: 3,  interval: 1.5, path: 0, hp_scale: 1.94)],  boss_timeout: None,             preview: "3 tanks"),
+            (spawns: [(unit: "boss",  count: 1,  interval: 1.0, path: 0, hp_scale: 1.0), (unit: "grunt", count: 8, interval: 0.8, path: 0, hp_scale: 2.29)], boss_timeout: Some(60.0), preview: "BOSS #1"),
+            (spawns: [(unit: "grunt", count: 14, interval: 0.5, path: 0, hp_scale: 2.29)],  boss_timeout: None,             preview: "14 grunts"),
+            (spawns: [(unit: "fast",  count: 10, interval: 0.5, path: 0, hp_scale: 2.7)],   boss_timeout: None,             preview: "fast x10"),
+            (spawns: [(unit: "tank",  count: 4,  interval: 1.2, path: 0, hp_scale: 2.7)],   boss_timeout: None,             preview: "4 tanks"),
+            (spawns: [(unit: "flyer", count: 10, interval: 0.4, path: 0, hp_scale: 2.7)],   boss_timeout: None,             preview: "air x10"),
+            (spawns: [(unit: "grunt", count: 16, interval: 0.5, path: 0, hp_scale: 3.19), (unit: "tank", count: 2, interval: 2.0, path: 0, hp_scale: 3.19)], boss_timeout: None, preview: "mixed heavy"),
+            (spawns: [(unit: "fast",  count: 12, interval: 0.4, path: 0, hp_scale: 3.76)],  boss_timeout: None,             preview: "fast x12"),
+            (spawns: [(unit: "tank",  count: 5,  interval: 1.0, path: 0, hp_scale: 3.76)],  boss_timeout: None,             preview: "5 tanks"),
+            (spawns: [(unit: "flyer", count: 12, interval: 0.4, path: 0, hp_scale: 4.44)],  boss_timeout: None,             preview: "air x12"),
+            (spawns: [(unit: "grunt", count: 18, interval: 0.4, path: 0, hp_scale: 4.44), (unit: "fast", count: 6, interval: 0.5, path: 0, hp_scale: 4.44)], boss_timeout: None, preview: "swarm"),
+            (spawns: [(unit: "boss",  count: 1,  interval: 1.0, path: 0, hp_scale: 1.0), (unit: "tank", count: 4, interval: 1.5, path: 0, hp_scale: 5.23)], boss_timeout: Some(60.0), preview: "BOSS #2"),
+            (spawns: [(unit: "grunt", count: 20, interval: 0.4, path: 0, hp_scale: 5.23)],  boss_timeout: None,             preview: "20 grunts"),
+            (spawns: [(unit: "fast",  count: 14, interval: 0.4, path: 0, hp_scale: 6.18)],  boss_timeout: None,             preview: "fast x14"),
+            (spawns: [(unit: "tank",  count: 6,  interval: 1.0, path: 0, hp_scale: 6.18)],  boss_timeout: None,             preview: "6 tanks"),
+            (spawns: [(unit: "flyer", count: 14, interval: 0.3, path: 0, hp_scale: 7.29)],  boss_timeout: None,             preview: "air x14"),
+            (spawns: [(unit: "grunt", count: 22, interval: 0.35, path: 0, hp_scale: 7.29), (unit: "tank", count: 3, interval: 1.5, path: 0, hp_scale: 7.29)], boss_timeout: None, preview: "heavy swarm"),
+            (spawns: [(unit: "fast",  count: 16, interval: 0.3, path: 0, hp_scale: 8.6)],   boss_timeout: None,             preview: "fast x16"),
+            (spawns: [(unit: "tank",  count: 7,  interval: 0.9, path: 0, hp_scale: 10.15)], boss_timeout: None,             preview: "7 tanks"),
+            (spawns: [(unit: "flyer", count: 16, interval: 0.3, path: 0, hp_scale: 10.15)], boss_timeout: None,             preview: "air x16"),
+            (spawns: [(unit: "grunt", count: 24, interval: 0.3, path: 0, hp_scale: 11.98), (unit: "fast", count: 8, interval: 0.4, path: 0, hp_scale: 11.98)], boss_timeout: None, preview: "final swarm"),
+            (spawns: [(unit: "boss",  count: 2,  interval: 3.0, path: 0, hp_scale: 1.0), (unit: "grunt", count: 20, interval: 0.4, path: 0, hp_scale: 14.13)], boss_timeout: Some(90.0), preview: "FINAL BOSS x2"),
+        ],
+        advance: Auto(intermission: 12.0),
+        early_call_bonus: Some(25),
+    ),
+    rules: (
+        leak: Stockpile(cap: 50),
+        build_window: Always,
+        lap_buff: Some((speed_pct: 0.05, hp_pct: 0.03)),
+        win: SurviveWaves(waves: 30),
+        sell_refund_pct: 0.7,
+    ),
+    econ_start: (gold: 120, wood: 5, pop_cap: 8),
+    econ_rules: (wood_to_gold: 25, pop_cost_base: 2, pop_cost_growth: 1.5, pop_gain: 2),
+    // 行=攻击类型（Normal/Piercing/Siege/Magic/Hero），列=护甲（Light/Medium/Heavy/Fortified/Hero/Divine）
+    attack_armor: (
+        mult: (
+            (1.0,  1.0,  1.0,  0.7,  1.0, 0.05), // Normal
+            (1.5,  1.0,  0.75, 0.35, 1.0, 0.05), // Piercing
+            (1.0,  1.0,  1.5,  1.5,  0.5, 0.05), // Siege
+            (1.25, 0.75, 0.5,  0.35, 1.0, 0.05), // Magic
+            (1.0,  1.0,  1.0,  0.5,  1.0, 0.05), // Hero
+        ),
+    ),
+)
