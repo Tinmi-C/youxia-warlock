@@ -1,0 +1,48 @@
+# Root cargo workspace (ADR-0012): unified version pinning, a single lockfile,
+# and one-shot regression via `cargo test --workspace`.
+# New base/games join `members`; old demo projects / template / tools stay
+# standalone via `exclude` (they keep their own lockfiles).
+
+[workspace]
+resolver = "2"
+members = [
+    "engine/showroom-viewer",
+    "games/warden",
+]
+exclude = [
+    "games/bevy-spike",
+    "games/m1-demo",
+    "games/m2-demo",
+    "games/m2-bevy",
+    "games/wave-survival",
+    "templates/bevy-game",
+    "tools/art-catalog",
+]
+
+[workspace.dependencies]
+# Bevy version lock: iterate fast with breaking changes; check release notes
+# before upgrading. Features listed once here (default_font for UI without
+# font files, jpeg for glTF-embedded textures).
+bevy = { version = "0.19.1", features = ["default_font", "jpeg"] }
+bevy_egui = "0.42"
+rand = "0.10"
+serde_json = "1"
+
+# Profiles hoisted from games/* (member-level profiles are ignored inside a
+# workspace). Iteration friendly: optimize deps once, keep own code fast.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+
+# Daily acceptance profile (DB1): inherits release semantics (debug_assertions
+# off so cfg gates and string scans work) but drops LTO/optimization to avoid
+# a full thin-LTO link on every acceptance run. Use --full for final checks.
+[profile.release-check]
+inherits = "release"
+lto = false
+opt-level = 0

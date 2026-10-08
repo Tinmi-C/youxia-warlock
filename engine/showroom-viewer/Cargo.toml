@@ -5,9 +5,9 @@ edition = "2021"
 description = "通用美术资产展示场（中性影棚查看器）——团队 engine 沉淀，见 ADR-0010"
 
 [dependencies]
-# ⚠️ 版本锁同游戏侧（bevy 0.19.1 / bevy_egui 0.42），升版本先看 release notes。
-bevy = { version = "0.19.1", features = ["default_font", "jpeg"] }
-bevy_egui = "0.42"
+# Versions pinned once in the root workspace (ADR-0012).
+bevy = { workspace = true }
+bevy_egui = { workspace = true }
 
 [[bin]]
 name = "asset-viewer"
