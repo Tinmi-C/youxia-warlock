@@ -15,6 +15,8 @@
 | [[topics/game-design/unirig-auto-rigging-research\|UniRig 自动绑骨调研]] | reference | draft | 只绑骨不产动画；GLB/FBX 进 FBX 出；4060Ti 8GB 可跑可脚本化；许可证待人工核对；最大缺环=动画重定向（模板骨架方案先 PoC） |
 | [[topics/game-design/art-asset-catalog-tool-proposal\|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]] | reference | draft | 人操作 AI 辅助；两层资产域（库上移工作区级 `_library/`）；六模块 + 场景注册表（SC1-6 实录提炼 + 扩展位）+ 模板兼容规范层 C1-C4；评审清单全部落定；待动工 |
 | [[topics/game-design/design-target-anchors\|设计目标锚点框架（平衡数值方法论）]] | howto | draft | 先定目标体验→反推数值；5 字段锚点把体感难易变可测指标 + headless 读数闭环；锚点机制跨游戏通用、具体数值各藏；数据驱动≠外部化（见 ADR-0008） |
+| [[topics/game-design/wc3-rpg-td-map-genres\|魔兽 RPG 塔防地图品类调研——循环圈与「一基座多地图」生态]] | reference | draft | 循环圈=漏怪不死绕圈+活怪存量失败线（绿圈 100/水TD 漏队友区）+英雄塔八面养成；品类图谱（迷宫/宝石/元素/军团）；魔兽生态三层结构（Terrain/Object 数据驱动/Trigger→JASS）→ 自研「runtime + 地图 bundle」映射 |
+| [[topics/game-design/loop-td-game-proposal\|循环圈 TD 需求草案 v0.2——基底验证计划的第一张地图]] | reference | draft | 主产品=warbase 基底，本图是第一消费方兼验收场（四条验收：薄游戏/headless/迷宫冒烟/全落基底能力）；玩法层：单环+自由建塔+10 塔三档+英雄塔三层养成+金木人口+30 波；P0–P3 阶段交替推进基底（BX 卡线）与游戏卡；基底内容已移 warbase-architecture/ADR-0012 |
 
 ## 相关决策
 

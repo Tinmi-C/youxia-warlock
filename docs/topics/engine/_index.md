@@ -19,6 +19,9 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/table-driven-anim-state-design\|表驱动动画状态机设计方案]] | reference | draft | 动画 20+ 时的状态机形态：状态拓扑进表数据，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；ADR-0007 支撑材料 |
 | [[topics/engine/automated-game-testing-and-ai\|游戏自动化测试与 AI 参与开发——全景调研]] | reference | draft | 测试分层+引擎基建（UTF/Automation/Bevy 生态）；AI 三级演化（脚本→DRL→LLM agent，TITAN 数据）；TestGen-LLM 三道闸；与团队流程对标表（缺视觉快照/E2E agent） |
 | [[topics/engine/bevy-headless-visual-acceptance-loop\|游戏内 UI 的自建视觉验收闭环——帧脚本场景 + 截图 + 双通道裁决]] | howto | done | DB2 场景帧脚本驱动 UI 状态→引擎内截图→视觉模型+引擎侧诊断日志双通道过验；视觉模型对小字徽章不可靠（连续误读 3 轮）、无人值守跑真窗口光标会被 winit 冲掉需 PreUpdate 钉住 |
+| [[topics/engine/warbase-architecture\|warbase 架构与演化协议——魔兽式游戏基底的分层、落位与三通道上收（暂名）]] | reference | draft | 基底=engine/warbase（根 workspace、UI/FX feature 门控）：机制归基底、内容归 RON 地图文件（ADR-0013）、特殊规则归挂钩+薄插件；**warden 回迁为消费方 #0**（160 断言全绿作抽取忠实性验收），loop-td 为消费方 #1；演化三通道（抽取+回迁/基底先行/游戏孵化）；验收五条（warden-on-base/薄游戏/harness/`--map` 换图/数据可 diff） |
+| [[topics/engine/warbase-implementation-design\|warbase 技术实现设计 v0.2——模块、类型、调度与抽取回迁方案]] | reference | draft | 12 模块设计级类型（unit 组件组合/rule 加建造窗口/build 双模式/fx 插件/bundle serde+RON 装载校验+挂钩注册表/harness 双 bundle）；WarbaseSet 六段调度；**BX+WX 成对卡**（抽取与 warden 回迁同卡收口，含 WX6 参数化+warden.ron）；P0→P0.5(RON 先行)→P1→P1.5(warden-on-base)→P2→P3；7 条已验证坑预埋 |
+| [[topics/engine/warbase-test-strategy\|warbase 测试策略 v0.2——测试用例全集 + AI 测试方案]] | howto | draft | 六层金字塔 + ~70 条用例（UT/G-LP/W-REG/BAL/VIS/SMK）按模块+门禁卡对齐；`cargo test --workspace` 一击门禁；W 系=warden-on-base 回归（断言语义不变+读数不漂移）；bundle 拒载用例；AI 方案=人机三关卡+红绿门禁+回归矩阵+失败纪律（2 次不过即复盘） |
 
 ## 相关决策
 
@@ -29,6 +32,7 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[decisions/0005-animation-graph-migration|ADR-0005 表现层动画状态机迁移 bevy_animation_graph]]（superseded，见 ADR-0006）
 - [[decisions/0006-animation-state-machine-refactor|ADR-0006 动画状态机不走 bevy_animation_graph]]（proposed：FSM 转场事件驱动不支持输入条件比较，逻辑无法数据化）
 - [[decisions/0007-animation-state-machine-table-driven|ADR-0007 动画状态机采用表驱动形态]]（proposed：拓扑数据化，加状态=加表数据，控制流一次写好；播放用现成 Bevy 引擎；适配动画 20+）
+- [[decisions/0012-warbase-shared-runtime-and-map-architecture|ADR-0012 魔兽式游戏基底 warbase +「游戏=地图」分层架构]]（proposed：共享战斗 runtime crate + MapBundle 装配；三通道演化协议；待团队评审）
 
 ## 相关踩坑
 

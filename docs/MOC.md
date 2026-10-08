@@ -24,6 +24,8 @@ updated: 2026-10-06
 - [[decisions/0009-art-vault-to-game-asset-flow|ADR-0009 岩库美术资产进入游戏仓库]]（accepted：清单锁定 + `tools/art-sync` 桥，人/AI 同门不手拷；GLB 暂直提交 git；`_library/` 落地后落点切 raw+intake）
 - [[decisions/0010-showroom-generic-asset-viewer|ADR-0010 展示场通用化——engine/showroom-viewer]]（accepted：中性影棚资产查看器机制全量上收引擎 crate；游戏只注册目录；crate 自带 asset-viewer bin 扫任意 GLB 目录零接入；engine 首例，双消费方判据成立）
 - [[decisions/0011-generic-per-entity-skill-framework|ADR-0011 技能系统通用化——按实体挂载技能框架 + 统一伤害结算]]（accepted：SkillCaster 挂任意实体；被动/主动/自动施法三分法；StatMods→EffectiveStats 属性聚合；DamageRequest 单写入者结算；效果=按 id 分发小系统不用脚本；SkillBalance 单源数值表）
+- [[decisions/0012-warbase-shared-runtime-and-map-architecture|ADR-0012 魔兽式游戏基底 warbase +「游戏=地图」分层架构]]（proposed v2：共享战斗 runtime crate + RON 地图 + warden 回迁消费方 #0 + 根 workspace；三通道演化；待评审）
+- [[decisions/0013-mapbundle-as-data-file|ADR-0013 MapBundle 数据文件化]]（proposed：地图=自包含 RON 数据包、装载即校验、不静默迁移；收窄 ADR-0008 适用范围）
 
 ## 参考
 
@@ -35,6 +37,14 @@ updated: 2026-10-06
 
 ## 近期更新
 
+- [[topics/engine/warbase-implementation-design|warbase 技术实现设计 v0.2]]（修订，draft：按「效果优先」反转三处妥协——根 workspace、warden 回迁成对卡（BX+WX 含参数化+warden.ron）、bundle RON 装载层 P0.5 先行；12 模块类型含建造窗口/双模式/fx/挂钩注册表）
+- [[topics/engine/warbase-test-strategy|warbase 测试策略 v0.2]]（修订，draft：~70 用例新增 W 系（warden-on-base 断言不变+读数不漂移）与 bundle 拒载组；`cargo test --workspace` 一击门禁；测试卡与 P0→P3 全阶段对齐）
+- [[decisions/0013-mapbundle-as-data-file|ADR-0013 MapBundle 数据文件化]]（新增，proposed：地图=自包含 RON 数据包、装载即校验、不静默迁移；收窄 ADR-0008 适用范围）
+- [[decisions/0012-warbase-shared-runtime-and-map-architecture|ADR-0012 v2 魔兽式游戏基底 +「游戏=地图」分层架构]]（修订，proposed：warden 回迁消费方 #0 + 根 workspace + UI/FX feature 门控；待评审）
+- [[topics/engine/warbase-architecture|warbase 架构与演化协议 v0.2]]（修订，draft：结构树更新（根 workspace/maps 目录/feature 门控）；通道 A=抽取+回迁成对卡；基底验收五条（warden-on-base 为 #0、`--map` 换图实证））
+- [[decisions/0012-warbase-shared-runtime-and-map-architecture|ADR-0012 魔兽式游戏基底 +「游戏=地图」分层架构]]（新增，proposed，待评审）
+- [[topics/game-design/loop-td-game-proposal|循环圈 TD 需求草案 v0.2]]（修订，draft：重心倒转——基底为主产品、本图为第一张验证地图；基底内容移出至 warbase-architecture/ADR-0012；新增 BX 基底卡线与 P0–P3 交替推进）
+- [[topics/game-design/wc3-rpg-td-map-genres|魔兽 RPG 塔防品类调研——循环圈与一基座多地图生态]]（新增，draft：循环圈解剖——漏怪绕圈+存量失败线+英雄塔养成纵深（塔基/加点/天赋/装备/羁绊）；品类图谱；魔兽三层编辑器结构→runtime+地图 bundle 映射）
 - [[topics/engine/bevy-headless-visual-acceptance-loop|游戏内 UI 的自建视觉验收闭环]]（新增，howto done：帧脚本场景 + 引擎内截图 + 视觉模型/引擎日志双通道裁决；两坑——视觉模型读不准小字徽章、无人值守窗口光标被 winit 冲掉；warden skill-card 场景首例，SK8/SK10 ⚠️ 项清账）
 - [[topics/engine/bevy-messages-double-buffer-drain-pitfall|Bevy Messages 双缓冲跨帧 drain 坑]]（新增，pitfall：跨帧断言必须逐帧 drain；len() 翻转归零不能当累计器）
 - [[topics/engine/bevy-system-param-limits-pitfall|Bevy 系统参数两堵墙]]（新增，pitfall：元组 16 上限 + SystemParam derive 不收 mut Query；Res 捆束、可变查询独立参数）
