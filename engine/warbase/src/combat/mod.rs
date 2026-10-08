@@ -55,7 +55,7 @@ pub struct DamageDealt {
     pub killed: bool,
 }
 
-#[derive(Message, Debug)]
+#[derive(Message, Debug, Clone)]
 pub struct UnitDied {
     pub entity: Entity,
     pub def: UnitId,
@@ -147,23 +147,26 @@ pub fn fire_attacks(
             &Allegiance,
             &CurrentTarget,
             &mut AttackCooldown,
+            Option<&crate::buff::EffectiveStats>,
         ),
         Without<Dead>,
     >,
     targets: Query<(&Hp, &Allegiance), Without<Dead>>,
 ) {
-    for (entity, kit, pos, side, target, mut cd) in &mut attackers {
+    for (entity, kit, pos, side, target, mut cd, eff) in &mut attackers {
         let Some(t) = target.0 else { continue };
         let Ok((hp, tside)) = targets.get(t) else { continue };
         if hp.0 <= 0.0 || tside == side || cd.0 > 0.0 {
             continue;
         }
+        let eff = eff.copied().unwrap_or_else(crate::buff::EffectiveStats::neutral);
+        let damage = kit.def.damage * eff.damage_mult.max(0.0);
         match &kit.def.projectile {
             None => {
                 requests.write(DamageRequest {
                     target: t,
                     source: entity,
-                    amount: kit.def.damage,
+                    amount: damage,
                     attack_type: kit.def.attack_type,
                     crit: false,
                 });
@@ -174,14 +177,14 @@ pub fn fire_attacks(
                         target: t,
                         source: entity,
                         speed: proj.speed,
-                        damage: kit.def.damage,
+                        damage,
                         attack_type: kit.def.attack_type,
                     },
                     *pos,
                 ));
             }
         }
-        cd.0 = kit.def.interval;
+        cd.0 = kit.def.interval * eff.interval_mult.max(0.05);
     }
 }
 
@@ -230,16 +233,19 @@ pub fn resolve_damage(
     mut commands: Commands,
     registry: Res<crate::unit::UnitRegistry>,
     table: Res<AttackArmorTable>,
-    mut units: Query<(&mut Hp, &Armor, &UnitInstance)>,
+    mut units: Query<(&mut Hp, &Armor, &UnitInstance, Option<&crate::buff::EffectiveStats>)>,
 ) {
     for req in requests.read() {
-        let Ok((mut hp, armor, inst)) = units.get_mut(req.target) else {
+        let Ok((mut hp, armor, inst, eff)) = units.get_mut(req.target) else {
             continue;
         };
         if hp.0 <= 0.0 {
             continue; // already dead this frame — no double bounty
         }
-        let mult = table.multiplier(req.attack_type, armor.0);
+        let taken = eff
+            .map(|e| e.damage_taken_mult.max(0.0))
+            .unwrap_or(1.0);
+        let mult = table.multiplier(req.attack_type, armor.0) * taken;
         let amount = req.amount * mult;
         hp.0 -= amount;
         let killed = hp.0 <= 0.0;

@@ -111,17 +111,26 @@ pub struct Arrived {
 pub fn advance_followers(
     time: Res<Time>,
     paths: Query<&PathDef>,
-    mut followers: Query<(Entity, &mut PathFollower, &MoveSpeed, &mut Transform)>,
+    mut followers: Query<
+        (
+            Entity,
+            &mut PathFollower,
+            &MoveSpeed,
+            &mut Transform,
+            Option<&crate::buff::EffectiveStats>,
+        ),
+    >,
     mut laps: MessageWriter<LapCompleted>,
     mut arrived: MessageWriter<Arrived>,
 ) {
     let dt = time.delta_secs();
-    for (e, mut f, speed, mut tf) in &mut followers {
+    for (e, mut f, speed, mut tf, eff) in &mut followers {
         if f.finished {
             continue;
         }
         let Ok(path) = paths.get(f.path) else { continue };
-        f.progress += speed.0 * dt;
+        let move_mult = eff.map(|e| e.move_mult.max(0.0)).unwrap_or(1.0);
+        f.progress += speed.0 * move_mult * dt;
         let len = path.length();
         if path.closed {
             if f.progress >= len && len > 0.0 {

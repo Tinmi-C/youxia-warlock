@@ -22,6 +22,9 @@ fn sample_bundle() -> MapBundle {
             bounty_wood: 0,
             grant_xp: 1,
             traits: vec![],
+            auras: vec![],
+            hero: false,
+            skills: vec![],
         },
     );
     MapBundle {

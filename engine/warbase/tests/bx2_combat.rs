@@ -17,6 +17,9 @@ fn def(id: &str, hp: f32, armor: ArmorType) -> UnitDef {
         bounty_wood: 0,
         grant_xp: 2,
         traits: vec![],
+        auras: vec![],
+        hero: false,
+        skills: vec![],
     }
 }
 

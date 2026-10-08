@@ -20,6 +20,9 @@ fn grunt_registry() -> UnitRegistry {
             bounty_wood: 0,
             grant_xp: 0,
             traits: vec![],
+            auras: vec![],
+            hero: false,
+            skills: vec![],
         },
     );
     UnitRegistry { defs }

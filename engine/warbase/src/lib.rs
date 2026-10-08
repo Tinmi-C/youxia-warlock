@@ -9,6 +9,10 @@
 //! Design docs: docs/topics/engine/warbase-{architecture,implementation-design,test-strategy}.md
 
 pub mod prelude {
+    pub use crate::buff::{
+        aggregate_stats, apply_auras, AuraDef, Auras, EffectiveStats, ModEntry, StatKind,
+        StatMods,
+    };
     pub use crate::combat::{
         cleanup_dead, fire_attacks, move_projectiles, pick_targets, resolve_damage,
         tick_cooldowns, AttackCooldown, AttackKit, CurrentTarget, DamageDealt, DamageRequest,
@@ -24,6 +28,10 @@ pub mod prelude {
     pub use crate::rule::{
         building_open, rules_tick, BuildWindow, LapBuffPolicy, LeakPolicy, LivesLeft, MatchEnded,
         MatchFlow, MatchRules, StockCount, WinCondition,
+    };
+    pub use crate::skill::{
+        distribute_xp, process_casts, run_autocast, tick_skill_cooldowns, CastSkill, SkillCast,
+        SkillCaster, SkillDef, SkillDefs, SkillKind, SkillSlot, SkillTargeting,
     };
     pub use crate::unit::{
         spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
@@ -111,9 +119,13 @@ impl Plugin for WarbasePlugin {
             .add_message::<wave::BossTimedOut>()
             .add_message::<wave::StartWave>()
             .add_message::<rule::MatchEnded>()
+            .add_message::<skill::CastSkill>()
+            .add_message::<skill::SkillCast>()
             .init_resource::<rule::MatchRules>()
             .init_resource::<rule::MatchFlow>()
             .init_resource::<rule::StockCount>()
+            .init_resource::<skill::SkillDefs>()
+            .init_resource::<skill::XpEventCursor>()
             .init_resource::<unit::UnitRegistry>()
             .init_resource::<unit::AttackArmorTable>()
             .init_resource::<rng::MatchRng>()
@@ -127,7 +139,13 @@ impl Plugin for WarbasePlugin {
 
         app.add_systems(
             Update,
-            (combat::tick_cooldowns, econ::apply_econ)
+            (
+                combat::tick_cooldowns,
+                skill::tick_skill_cooldowns,
+                econ::apply_econ,
+                buff::apply_auras,
+                buff::aggregate_stats,
+            )
                 .chain()
                 .in_set(WarbaseSet::Tick),
         );
@@ -137,17 +155,22 @@ impl Plugin for WarbasePlugin {
                 .chain()
                 .in_set(WarbaseSet::Director),
         );
-        app.add_systems(Update, combat::pick_targets.in_set(WarbaseSet::Intent));
         app.add_systems(
             Update,
-            (combat::fire_attacks, combat::move_projectiles)
+            (skill::run_autocast, combat::pick_targets)
+                .chain()
+                .in_set(WarbaseSet::Intent),
+        );
+        app.add_systems(
+            Update,
+            (skill::process_casts, combat::fire_attacks, combat::move_projectiles)
                 .chain()
                 .in_set(WarbaseSet::Act),
         );
         app.add_systems(Update, combat::resolve_damage.in_set(WarbaseSet::Resolve));
         app.add_systems(
             Update,
-            (combat::cleanup_dead, rule::rules_tick)
+            (combat::cleanup_dead, rule::rules_tick, skill::distribute_xp)
                 .chain()
                 .in_set(WarbaseSet::Cleanup),
         );

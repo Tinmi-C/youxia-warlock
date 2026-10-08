@@ -43,6 +43,9 @@ pub struct BuildGrid {
     pub cell_size: f32,
     pub cols: i32,
     pub rows: i32,
+    /// World position of cell (0, 0)'s corner; lets the grid sit centered
+    /// on maps with negative coordinates.
+    pub origin: Vec2,
     /// Scenery/path-blocked cells (FreeGrid).
     pub blocked: std::collections::HashSet<Cell>,
     /// Fixed slot centers in world space (FixedSlots).
@@ -60,9 +63,10 @@ impl BuildGrid {
     }
 
     pub fn world_to_cell(&self, world: Vec2) -> Cell {
+        let local = world - self.origin;
         Cell(
-            (world.x / self.cell_size).floor() as i32,
-            (world.y / self.cell_size).floor() as i32,
+            (local.x / self.cell_size).floor() as i32,
+            (local.y / self.cell_size).floor() as i32,
         )
     }
 
@@ -117,10 +121,11 @@ impl BuildGrid {
     }
 
     pub fn cell_center(&self, cell: Cell) -> Vec2 {
-        Vec2::new(
-            (cell.0 as f32 + 0.5) * self.cell_size,
-            (cell.1 as f32 + 0.5) * self.cell_size,
-        )
+        self.origin
+            + Vec2::new(
+                (cell.0 as f32 + 0.5) * self.cell_size,
+                (cell.1 as f32 + 0.5) * self.cell_size,
+            )
     }
 
     pub fn used(&self) -> usize {

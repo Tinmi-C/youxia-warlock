@@ -129,6 +129,15 @@ pub struct UnitDef {
     pub grant_xp: u32,
     #[serde(default)]
     pub traits: Vec<UnitTrait>,
+    /// Function-tower auras (BX3); amounts ship in the map bundle.
+    #[serde(default)]
+    pub auras: Vec<crate::buff::AuraDef>,
+    /// Hero units spawn an XpHolder (level/points growth).
+    #[serde(default)]
+    pub hero: bool,
+    /// Skill ids to attach at spawn (looked up in SkillDefs).
+    #[serde(default)]
+    pub skills: Vec<UnitId>,
 }
 
 #[derive(Resource, Debug, Default, Clone)]
@@ -196,6 +205,10 @@ pub fn spawn_unit(
     hp_scale: f32,
 ) -> Option<Entity> {
     let def = registry.get(id)?.clone();
+    let known_skills: Vec<bool> = {
+        let defs = world.resource::<crate::skill::SkillDefs>();
+        def.skills.iter().map(|id| defs.get(id).is_some()).collect()
+    };
     let mut e = world.spawn((
         UnitInstance { def: def.id.clone(), level: 1 },
         Hp(def.attrs.hp * hp_scale),
@@ -203,6 +216,7 @@ pub fn spawn_unit(
         Armor(def.armor_type),
         side,
         Transform::from_translation(pos),
+        crate::buff::StatMods::default(),
     ));
     if def.traits.contains(&UnitTrait::Air) {
         e.insert(AirUnit);
@@ -217,6 +231,26 @@ pub fn spawn_unit(
         })
         .insert(crate::combat::AttackCooldown(0.0))
         .insert(crate::combat::CurrentTarget::default());
+    }
+    if !def.auras.is_empty() {
+        e.insert(crate::buff::Auras(def.auras.clone()));
+    }
+    if def.hero {
+        e.insert(XpHolder { xp: 0, level: 1, points: 0, next_level_xp: 10 });
+    }
+    if !def.skills.is_empty() {
+        let slots = def
+            .skills
+            .iter()
+            .zip(known_skills)
+            .map(|(id, k)| crate::skill::SkillSlot {
+                skill: id.clone(),
+                level: u8::from(k),
+                cooldown: 0.0,
+                autocast_on: false,
+            })
+            .collect();
+        e.insert(crate::skill::SkillCaster { slots });
     }
     Some(e.id())
 }
@@ -239,6 +273,7 @@ pub fn spawn_unit_deferred(
         Armor(def.armor_type),
         side,
         Transform::from_translation(pos),
+        crate::buff::StatMods::default(),
     ));
     if def.traits.contains(&UnitTrait::Air) {
         ec.insert(AirUnit);

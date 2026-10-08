@@ -64,6 +64,20 @@ pub fn build_grid_from(bundle: &MapBundle) -> BuildGrid {
     match &bundle.world.build {
         warbase::bundle::BuildDomainDef::FreeGrid { cell, cols, rows } => {
             let mut grid = BuildGrid::free_grid(*cell, *cols, *rows);
+            // Center the grid on the path bounding box (maps use signed
+            // coordinates; cell (0,0) is otherwise pinned at world origin).
+            let mut min = Vec2::splat(f32::MAX);
+            let mut max = Vec2::splat(f32::MIN);
+            for path in &bundle.world.paths {
+                for p in &path.points {
+                    min.x = min.x.min(p[0]);
+                    min.y = min.y.min(p[1]);
+                    max.x = max.x.max(p[0]);
+                    max.y = max.y.max(p[1]);
+                }
+            }
+            let center = (min + max) * 0.5;
+            grid.origin = center - Vec2::new(*cols as f32 * cell / 2.0, *rows as f32 * cell / 2.0);
             for path in &bundle.world.paths {
                 let len = path.length();
                 let mut d = 0.0;
@@ -186,6 +200,10 @@ pub fn build_input(world: &mut World) {
         (KeyCode::Digit2, "cannon"),
         (KeyCode::Digit3, "mage"),
         (KeyCode::Digit4, "sentry"),
+        (KeyCode::Digit5, "ice"),
+        (KeyCode::Digit6, "drum"),
+        (KeyCode::Digit7, "corrode"),
+        (KeyCode::Digit8, "hunter"),
     ] {
         if keys.just_pressed(key) {
             world.resource_mut::<SelectedTower>().0 = id.into();

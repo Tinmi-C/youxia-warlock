@@ -24,6 +24,21 @@
         "sentry": (id: "sentry", attrs: (hp: 60,  move_speed: 0.0, body_radius: 0.35),
                    attack: Some((damage: 8,  interval: 0.5, range: 3.0, attack_type: Normal, targets: Both, projectile: Some((speed: 30.0)))),
                    armor_type: Fortified, cost_gold: 35, bounty_gold: 0, grant_xp: 0, traits: []),
+        // ---- 功能塔（光环，BX3） ----
+        "ice":     (id: "ice", attrs: (hp: 70, move_speed: 0.0, body_radius: 0.4),
+                    armor_type: Fortified, cost_gold: 60, bounty_gold: 0, grant_xp: 0, traits: [],
+                    auras: [(radius: 3.0, kind: MoveSpeedMult, amount: -0.25)]),
+        "drum":    (id: "drum", attrs: (hp: 70, move_speed: 0.0, body_radius: 0.4),
+                    armor_type: Fortified, cost_gold: 90, bounty_gold: 0, grant_xp: 0, traits: [],
+                    auras: [(radius: 3.5, kind: DamageTakenMult, amount: 0.15)]),
+        "corrode": (id: "corrode", attrs: (hp: 70, move_speed: 0.0, body_radius: 0.4),
+                    armor_type: Fortified, cost_gold: 80, bounty_gold: 0, grant_xp: 0, traits: [],
+                    auras: [(radius: 3.0, kind: DamageTakenMult, amount: 0.2)]),
+        // ---- 英雄塔（吃经验成长，HR-lite） ----
+        "hunter":  (id: "hunter", attrs: (hp: 150, move_speed: 0.0, body_radius: 0.45),
+                    attack: Some((damage: 18, interval: 0.9, range: 5.0, attack_type: Piercing, targets: Both, projectile: Some((speed: 25.0)))),
+                    armor_type: Fortified, cost_gold: 150, bounty_gold: 0, grant_xp: 0, traits: [],
+                    hero: true),
         // ---- 怪（Attacker 侧） ----
         "grunt":  (id: "grunt",  attrs: (hp: 40,  move_speed: 1.2, body_radius: 0.3),
                    armor_type: Light, cost_gold: 0, bounty_gold: 3, grant_xp: 1, traits: []),

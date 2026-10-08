@@ -40,6 +40,9 @@ fn scenario_bundle(
         cost_gold: 50, cost_wood: 0,
         bounty_gold: 0, bounty_wood: 0, grant_xp: 0,
         traits: vec![],
+        auras: vec![],
+        hero: false,
+        skills: vec![],
     };
     let mut units = std::collections::HashMap::new();
     units.insert("grunt".into(), unit("grunt", 40.0, ArmorType::Heavy, 0.0));
@@ -251,4 +254,91 @@ fn maze_smoke_map_swaps_the_game() {
         "maze bundle cleared through the same base"
     );
     assert_eq!(ended, 1);
+}
+
+/// Nearest free cell to `around` (ring order) — tests place towers right
+/// next to the action instead of the grid's first-free corner.
+fn free_cell_near(grid: &BuildGrid, around: Cell) -> Option<Cell> {
+    for ring in 1i32..=8 {
+        let found = (-ring..=ring)
+            .flat_map(|dx| (-ring..=ring).map(move |dy| (dx, dy)))
+            .filter(|(dx, dy)| i32::abs(*dx) == ring || i32::abs(*dy) == ring)
+            .map(|(dx, dy)| Cell(around.0 + dx, around.1 + dy))
+            .find(|c| grid.check(*c).is_ok());
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// G-TO4: the shipped function towers ride the aura layer — ice slows
+/// creeps inside its radius, and the slow disappears when the tower is sold.
+#[test]
+fn function_tower_auras_work_through_the_bundle() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+
+    app.update();
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<StartWave>>()
+        .write(StartWave);
+    for _ in 0..10 {
+        app.update();
+    }
+    let creep = app
+        .world_mut()
+        .query_filtered::<Entity, With<PathFollower>>()
+        .iter(app.world())
+        .next()
+        .expect("creep on the loop");
+
+    let creep_pos = app.world().get::<Transform>(creep).unwrap().translation;
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let cell = grid.world_to_cell(Vec2::new(creep_pos.x, creep_pos.z));
+    let spot = free_cell_near(&grid, cell).expect("free cell near the creep");
+    try_place(&mut app.world_mut(), "ice", spot).expect("place ice");
+
+    for _ in 0..3 {
+        app.update();
+    }
+    let slowed = app.world().get::<EffectiveStats>(creep).unwrap().move_mult;
+    assert!(slowed < 1.0, "creep slowed by ice aura ({slowed})");
+
+    try_sell(&mut app.world_mut(), spot).unwrap();
+    for _ in 0..3 {
+        app.update();
+    }
+    let restored = app.world().get::<EffectiveStats>(creep).unwrap().move_mult;
+    assert!((restored - 1.0).abs() < 1e-5, "slow gone after sell ({restored})");
+}
+
+/// HR-lite: the hero tower eats kill xp (grunt grant_xp=3 from the shipped
+/// map) and its damage growth folds into EffectiveStats. Deaths are fed
+/// deterministically (the fight path is covered by the placement test).
+#[test]
+fn hero_tower_levels_through_kills() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    let grid = app.world().resource::<BuildGrid>().clone();
+    // Park the hunter next to the spawn corner so it eats every wave's xp.
+    let spawn_cell = grid.world_to_cell(Vec2::new(-10.0, -6.0));
+    let spot = free_cell_near(&grid, spawn_cell).expect("free cell near spawn");
+    app.world_mut().resource_mut::<Resources>().gold += 200; // hero costs 150, map starts at 120
+    let hero = try_place(&mut app.world_mut(), "hunter", spot).expect("place hunter");
+    assert!(app.world().get::<XpHolder>(hero).is_some(), "hero spawns with XpHolder");
+
+    // 4 grunt kills (3 xp each = 12 >= 10 needed for level 2).
+    for _ in 0..4 {
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<UnitDied>>()
+            .write(UnitDied { entity: Entity::PLACEHOLDER, def: "grunt".into(), gold: 0, wood: 0, xp: 3, killer: Some(hero) });
+        app.update();
+    }
+    let xp = app.world().get::<XpHolder>(hero).unwrap();
+    assert_eq!(xp.level, 2, "12 xp >= 10 needed");
+    assert_eq!(xp.points, 1);
+    app.update(); // growth entry lands in Cleanup; aggregation folds next Tick
+    let eff = app.world().get::<EffectiveStats>(hero).unwrap();
+    assert!((eff.damage_mult - 1.05).abs() < 1e-5, "growth folded: {}", eff.damage_mult);
 }

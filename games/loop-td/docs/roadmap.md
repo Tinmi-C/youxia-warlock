@@ -9,12 +9,12 @@
 | MA1 | 环形地图 + 建造网格（maps/loop.ron + build_grid_from 路径占格） | ✅ |
 | EN1 | 怪物定义表（bundle 数据：grunt/fast/tank/flyer/boss） | ✅ |
 | EN2 | 绕圈行为验收（漏怪留场 + 圈数 + 存量计数） | ✅ G-LP-02/03 |
-| EN3 | 特性行为四件套（快速/重甲/治疗/光环） | 🟡 快速✅(fast def) 重甲✅(armor matrix) 治疗⬜ 光环⬜(待 BX3/buff) |
+| EN3 | 特性行为四件套（快速/重甲/治疗/光环） | 🟡 快速✅ 重甲✅ 光环✅(敌方光环怪待做——机制已就绪) 治疗⬜ |
 | TO1 | 基础塔 ×4（arrow/cannon/mage/sentry，攻甲克制体验） | ✅ G-LP-11 |
 | TO2 | 自由放置与回收（键盘光标 + try_place/try_sell） | ✅ |
 | TO3 | 三级升级 | ⬜ |
-| TO4 | 功能塔 ×3（光环/减速/减甲） | ⬜（待 BX3/buff 上收后） |
-| HR1 | 英雄塔获取三来源 | ⬜（待 BX3 技能框架） |
+| TO4 | 功能塔 ×3（ice 减速/drum 增伤/corrode 破甲光环） | ✅ 光环层全链路（含出售即消） |
+| HR1 | 英雄塔获取三来源 | 🟡 hunter 可建（150g）+吃经验升级+伤害成长✅；三来源(里程碑/商店/BOSS掉落)⬜ |
 | HR2 | 英雄塔技能加点 UI 与流程 | ⬜ |
 | HR3 | 天赋三选一 | ⬜ |
 | WA1 | 30 波波次表（maps/loop.ron，含 1.18^n 强度曲线） | ✅ |
