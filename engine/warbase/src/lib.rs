@@ -18,6 +18,7 @@ pub mod prelude {
         apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,
         PopPurchases, Resources,
     };
+    pub use crate::build::{BuildGrid, BuildMode, BuildReject, Cell};
     pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
     pub use crate::rng::MatchRng;
     pub use crate::rule::{
@@ -44,7 +45,7 @@ pub mod testing;
 mod unit;
 
 mod buff;
-mod build;
+pub mod build;
 pub mod bundle;
 mod econ;
 mod harness;
