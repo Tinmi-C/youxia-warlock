@@ -37,8 +37,9 @@ games/<game-name>/
 
 | 项目 | 说明 |
 |------|------|
-| `warden/` | 塔防游戏（Bevy 0.19，能力卡驱动）：灰盒 MVP 全量可玩一局（5 塔来源+融合+Meta+中文面板 UI），23 断言全绿 |
-| `wave-survival/` | 当前主线，成品向开发中 |
+| `warden/` | 塔防游戏（Bevy 0.19，能力卡驱动）：灰盒 MVP 全量可玩一局（5 塔来源+融合+Meta+中文面板 UI），153 测试全绿；后续回迁 warbase 基底（WX 卡系，ADR-0012） |
+| `loop-td/` | 循环圈塔防：**第一张 warbase 地图**（验证基底，ADR-0012/0013）——玩法=maps/*.ron bundle + 薄插件；需求草案见 vault `docs/topics/game-design/loop-td-game-proposal.md` |
+| `wave-survival/` | 教学存档（早期主线） |
 | `bevy-spike/` | Bevy 0.19 冒烟验证（ADR-0004 证据） |
 | `m2-bevy/` | bevy_ecs 迁移教学存档 |
 | `m2-demo/` | 玩具 ECS 教学存档（已退役路线） |

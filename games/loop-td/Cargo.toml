@@ -1,0 +1,17 @@
+[package]
+name = "loop-td"
+version = "0.1.0"
+edition = "2021"
+description = "loop-td —— 循环圈塔防：第一张 warbase 地图（验证基底），需求草案见 docs/topics/game-design/loop-td-game-proposal.md"
+
+[dependencies]
+# Versions are pinned once in the root workspace (ADR-0012); members inherit.
+bevy = { workspace = true }
+
+# Warcraft-style battle runtime base (ADR-0012/0013): mechanisms & pipelines.
+# This game provides map bundles (maps/*.ron) + thin gameplay plugins only —
+# no damage/skill/wave pipeline code may live in this crate (thin-game rule).
+warbase = { path = "../../engine/warbase" }
+
+# NOTE: profiles (dev opt-level / release thin-LTO / release-check) live in
+# the root workspace Cargo.toml — member profiles are ignored in a workspace.

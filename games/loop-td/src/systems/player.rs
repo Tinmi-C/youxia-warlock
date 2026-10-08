@@ -1,0 +1,47 @@
+//! Player: WASD movement. Capability card: PlayerMove (docs/capability-cards.md).
+//! Interface: keys (in) -> Transform.translation (out).
+//! Behavior: direction = normalized(WASD sum); translation += direction * speed * dt.
+//! Acceptance: 1s straight move == speed (error < 1%); diagonal speed == speed,
+//!             not speed * sqrt(2); paused state freezes movement.
+
+use bevy::prelude::*;
+
+use crate::components::Player;
+
+pub fn spawn_player(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn((
+        Player { speed: 5.0 },
+        Mesh3d(meshes.add(Cuboid::new(0.8, 0.8, 0.8))),
+        MeshMaterial3d(materials.add(Color::srgb(0.9, 0.45, 0.2))),
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+}
+
+pub fn move_player(
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut q: Query<(&mut Transform, &Player)>,
+) {
+    let mut dir = Vec3::ZERO;
+    for (key, axis) in [
+        (KeyCode::KeyW, Vec3::Z),
+        (KeyCode::KeyS, -Vec3::Z),
+        (KeyCode::KeyA, -Vec3::X),
+        (KeyCode::KeyD, Vec3::X),
+    ] {
+        if keys.pressed(key) {
+            dir += axis;
+        }
+    }
+    if dir == Vec3::ZERO {
+        return;
+    }
+    let dir = dir.normalize(); // keep diagonal speed equal to straight speed
+    for (mut tf, player) in &mut q {
+        tf.translation += dir * player.speed * time.delta_secs();
+    }
+}
