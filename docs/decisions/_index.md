@@ -19,7 +19,9 @@
 | [[decisions/0005-animation-graph-migration\|ADR-0005]] | 表现层动画状态机迁移 bevy_animation_graph（数据驱动动画图） | superseded（见 ADR-0006） | 2026-09-01 |
 | [[decisions/0006-animation-state-machine-refactor\|ADR-0006]] | 动画状态机不走 bevy_animation_graph（转场不支持输入条件比较；形态见 ADR-0007） | proposed | 2026-09-02 |
 | [[decisions/0007-animation-state-machine-table-driven\|ADR-0007]] | 动画状态机采用表驱动形态（面向动画规模增长 20+） | accepted | 2026-09-02 |
-| [[decisions/0008-numeric-data-in-code-not-external\|ADR-0008]] | 游戏数值数据暂留代码内，不外部化到数据文件/数据库（定迁移门槛） | accepted | 2026-09-02 |
+| [[decisions/0008-numeric-data-in-code-not-external\|ADR-0008]] | 游戏数值数据暂留代码内，不外部化到数据文件/数据库（定迁移门槛；**适用范围已被 ADR-0013 收窄**：地图内容数值进 bundle 文件） | accepted | 2026-09-02 |
 | [[decisions/0009-art-vault-to-game-asset-flow\|ADR-0009]] | 美术资产从岩库（ArtVault）进入游戏仓库——清单锁定 + art-sync 桥 | accepted | 2026-09-14 |
 | [[decisions/0010-showroom-generic-asset-viewer\|ADR-0010]] | 展示场（美术资产查看器）通用化——抽入 engine/showroom-viewer（warden 适配 + 独立 asset-viewer bin 双消费方） | accepted | 2026-09-20 |
 | [[decisions/0011-generic-per-entity-skill-framework\|ADR-0011]] | 技能系统通用化——按实体挂载的技能框架（被动/主动/自动施法）+ 统一伤害结算 | accepted | 2026-09-29 |
+| [[decisions/0012-warbase-shared-runtime-and-map-architecture\|ADR-0012]] | 魔兽式游戏基底 warbase——共享战斗 runtime crate +「游戏=地图」分层架构（v2：warden 回迁消费方 #0 + 根 workspace + UI/FX feature 门控） | accepted | 2026-10-08 |
+| [[decisions/0013-mapbundle-as-data-file\|ADR-0013]] | MapBundle 数据文件化——「地图」是自包含 RON 数据包（收窄 ADR-0008 适用范围） | accepted | 2026-10-08 |
