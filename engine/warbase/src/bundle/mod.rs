@@ -149,6 +149,44 @@ pub fn validate(bundle: &MapBundle) -> Result<(), MapError> {
     Ok(())
 }
 
+/// Derive the build grid from the map's world def: FreeGrid bounds get
+/// centered on the path bounding box (signed-coordinate maps), path cells
+/// are blocked; FixedSlots pass through as slot centers.
+pub fn build_grid(world: &WorldDef) -> crate::build::BuildGrid {
+    use crate::build::{BuildGrid, Cell};
+    match &world.build {
+        BuildDomainDef::FreeGrid { cell, cols, rows } => {
+            let mut grid = BuildGrid::free_grid(*cell, *cols, *rows);
+            let mut min = Vec2::splat(f32::MAX);
+            let mut max = Vec2::splat(f32::MIN);
+            for path in &world.paths {
+                for p in &path.points {
+                    min.x = min.x.min(p[0]);
+                    min.y = min.y.min(p[1]);
+                    max.x = max.x.max(p[0]);
+                    max.y = max.y.max(p[1]);
+                }
+            }
+            let center = (min + max) * 0.5;
+            grid.origin = center - Vec2::new(*cols as f32 * cell / 2.0, *rows as f32 * cell / 2.0);
+            for path in &world.paths {
+                let len = path.length();
+                let mut d = 0.0;
+                while d < len {
+                    grid.blocked.insert(grid.world_to_cell(path.sample(d)));
+                    d += cell * 0.25;
+                }
+                grid.blocked.insert(grid.world_to_cell(path.sample(len)));
+            }
+            let _ = Cell(0, 0);
+            grid
+        }
+        BuildDomainDef::FixedSlots { slots } => {
+            BuildGrid::fixed_slots(slots.iter().map(|s| Vec2::new(s[0], s[1])).collect())
+        }
+    }
+}
+
 /// Assemble a validated bundle into a world: insert resources, spawn path
 /// entities, record them in `Paths`. Re-running a match = despawn entities +
 /// re-assemble (never rebuild the World — KB pitfall).

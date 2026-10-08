@@ -20,8 +20,8 @@
 | BX3+WX2 | SkillCaster 抽取 / warden 回迁 | ⬜ |
 | BX4+WX3 | 命令卡框架抽取泛化 / warden 回迁 | ⬜ |
 | WX4 | 通用战斗 FX（feature "fx"）/ warden 回迁 | ⬜ |
-| BX10 | headless harness（DriverStrategy + HarnessReport） | ⬜ |
-| WX5 | BAL 迁 harness（读数口径对齐、不漂移） | ⬜ |
+| BX10 | headless harness（DriverStrategy + HarnessReport + Greedy 基线 + 注入） | ✅（放置/出售/网格构建随之上收 base：try_place/try_sell/Buildable + bundle::build_grid） |
+| WX5 | BAL 迁 harness（读数口径对齐、不漂移） | ⬜（loop-td 侧 BAL-smoke 已可跑真图+可复现；warden 读数迁移仍待） |
 | WX6 | warden 参数化 + maps/warden.ron（基底验收 #0） | ⬜ |
 | BX9b | bundle 装配器收口 + `--map` 加载 + 迷宫冒烟（SMK） | ⬜ |
 

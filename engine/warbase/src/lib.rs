@@ -9,6 +9,12 @@
 //! Design docs: docs/topics/engine/warbase-{architecture,implementation-design,test-strategy}.md
 
 pub mod prelude {
+    pub use crate::build::{try_place, try_sell, Buildable, BuildGrid, BuildMode, BuildReject, Cell};
+    pub use crate::bundle::build_grid;
+    pub use crate::harness::{
+        run_headless, DriverAction, DriverStrategy, GreedyDriver, HarnessOpts, HarnessReport,
+        HarnessView,
+    };
     pub use crate::buff::{
         aggregate_stats, apply_auras, AuraDef, Auras, EffectiveStats, ModEntry, StatKind,
         StatMods,
@@ -22,7 +28,6 @@ pub mod prelude {
         apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,
         PopPurchases, Resources,
     };
-    pub use crate::build::{BuildGrid, BuildMode, BuildReject, Cell};
     pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
     pub use crate::rng::MatchRng;
     pub use crate::rule::{
@@ -56,7 +61,7 @@ mod buff;
 pub mod build;
 pub mod bundle;
 mod econ;
-mod harness;
+pub mod harness;
 mod rule;
 mod skill;
 mod wave;

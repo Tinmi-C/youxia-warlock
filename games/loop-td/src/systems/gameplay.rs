@@ -1,10 +1,15 @@
-//! Gameplay core (map load, build grid, place/sell) and keyboard input.
-//! Thin-game rule: everything here composes warbase mechanisms — no
-//! damage/skill/wave pipeline code lives in this crate.
+//! Gameplay core (map load, input). Thin-game rule: everything here
+//! composes warbase mechanisms — placement/selling/grid construction live in
+//! the base (genre-generic), this crate only wires them to input/UI and the
+//! map file.
 
 use bevy::prelude::*;
 use warbase::bundle::{assemble, load_bundle, MapBundle};
 use warbase::prelude::*;
+
+// Base-level placement (hoisted during BX10 prep — the harness drives the
+// same path real input does).
+pub use warbase::build::{try_place, try_sell, Buildable};
 
 /// The loaded map (kept around for rebuilds / UI).
 #[derive(Resource)]
@@ -17,13 +22,6 @@ pub struct BuildCursor(pub Cell);
 /// Currently selected tower def id.
 #[derive(Resource, Debug)]
 pub struct SelectedTower(pub String);
-
-/// A placed tower (sell pairs with this).
-#[derive(Component, Debug)]
-pub struct Buildable {
-    pub cell: Cell,
-    pub cost_gold: u32,
-}
 
 /// Default map: the crate's own maps/loop.ron. Override with `--map <path>`
 /// or env `LOOP_TD_MAP`.
@@ -50,7 +48,7 @@ pub fn load_map(world: &mut World) {
         Err(e) => panic!("[loop-td] failed to load map {}: {e}", path.display()),
     };
     assemble(world, &bundle);
-    let grid = build_grid_from(&bundle);
+    let grid = warbase::bundle::build_grid(&bundle.world);
     world.insert_resource(grid);
     world.insert_resource(CurrentMap(bundle));
     world.insert_resource(BuildCursor(Cell(10, 8)));
@@ -58,112 +56,9 @@ pub fn load_map(world: &mut World) {
     info!("[loop-td] map loaded: {}", path.display());
 }
 
-/// Derive the build grid from the map's world def: bounds from the domain,
-/// path cells blocked (sampled finely), FixedSlots pass-through.
+/// Delegate to the base (kept as a game-side name for tests/ callers).
 pub fn build_grid_from(bundle: &MapBundle) -> BuildGrid {
-    match &bundle.world.build {
-        warbase::bundle::BuildDomainDef::FreeGrid { cell, cols, rows } => {
-            let mut grid = BuildGrid::free_grid(*cell, *cols, *rows);
-            // Center the grid on the path bounding box (maps use signed
-            // coordinates; cell (0,0) is otherwise pinned at world origin).
-            let mut min = Vec2::splat(f32::MAX);
-            let mut max = Vec2::splat(f32::MIN);
-            for path in &bundle.world.paths {
-                for p in &path.points {
-                    min.x = min.x.min(p[0]);
-                    min.y = min.y.min(p[1]);
-                    max.x = max.x.max(p[0]);
-                    max.y = max.y.max(p[1]);
-                }
-            }
-            let center = (min + max) * 0.5;
-            grid.origin = center - Vec2::new(*cols as f32 * cell / 2.0, *rows as f32 * cell / 2.0);
-            for path in &bundle.world.paths {
-                let len = path.length();
-                let mut d = 0.0;
-                while d < len {
-                    let p = path.sample(d);
-                    grid.blocked.insert(grid.world_to_cell(p));
-                    d += cell * 0.25;
-                }
-                let p = path.sample(len);
-                grid.blocked.insert(grid.world_to_cell(p));
-            }
-            grid
-        }
-        warbase::bundle::BuildDomainDef::FixedSlots { slots } => {
-            BuildGrid::fixed_slots(slots.iter().map(|s| Vec2::new(s[0], s[1])).collect())
-        }
-    }
-}
-
-/// Place a tower at a cell. Thin composition of base mechanisms: build
-/// window + grid check + econ + spawn + occupancy. Err carries a readable
-/// reason for the UI.
-pub fn try_place(world: &mut World, def_id: &str, cell: Cell) -> Result<Entity, String> {
-    if *world.resource::<MatchFlow>() != MatchFlow::Running {
-        return Err("match over".into());
-    }
-    let rules = world.resource::<MatchRules>().clone();
-    if !building_open(&rules, world.resource::<WaveDirector>()) {
-        return Err("building locked during a wave".into());
-    }
-    let (cost_gold, cost_wood) = world
-        .resource::<UnitRegistry>()
-        .get(def_id)
-        .map(|d| (d.cost_gold, d.cost_wood))
-        .ok_or_else(|| format!("unknown tower '{def_id}'"))?;
-    {
-        let mut grid = world.resource_mut::<BuildGrid>();
-        grid.check(cell).map_err(|r| r.reason().to_string())?;
-    }
-    {
-        let mut res = world.resource_mut::<Resources>();
-        if res.gold < cost_gold || res.wood < cost_wood {
-            return Err(format!("need {cost_gold}g/{cost_wood}w"));
-        }
-        res.gold -= cost_gold;
-        res.wood -= cost_wood;
-    }
-    let mut pop = world.resource_mut::<Population>();
-    if pop.used >= pop.cap {
-        return Err("population full".into());
-    }
-    pop.used += 1;
-
-    let (registry, center) = {
-        // NB: Res<T>::clone clones the *wrapper* (borrowed); clone the inner.
-        let registry: UnitRegistry = (*world.resource::<UnitRegistry>()).clone();
-        let center = world.resource::<BuildGrid>().cell_center(cell);
-        (registry, center)
-    };
-    let entity = spawn_unit(
-        world,
-        &registry,
-        def_id,
-        Vec3::new(center.x, 0.0, center.y),
-        Allegiance::Defender,
-        1.0,
-    )
-    .ok_or("spawn failed")?;
-    world.entity_mut(entity).insert(Buildable { cell, cost_gold });
-    world.resource_mut::<BuildGrid>().place(cell, entity);
-    Ok(entity)
-}
-
-/// Sell the tower at a cell: refund (bundle pct), free cell + population.
-pub fn try_sell(world: &mut World, cell: Cell) -> Result<u32, String> {
-    let entity = world
-        .resource_mut::<BuildGrid>()
-        .free(cell)
-        .ok_or("no tower there")?;
-    let cost = world.get::<Buildable>(entity).map(|b| b.cost_gold).unwrap_or(0);
-    let refund = (cost as f32 * world.resource::<MatchRules>().sell_refund_pct) as u32;
-    world.entity_mut(entity).despawn();
-    let mut res = world.resource_mut::<Resources>();
-    res.gold += refund;
-    world.resource_mut::<Population>().used = world.resource::<Population>().used.saturating_sub(1);
-    Ok(refund)
+    warbase::bundle::build_grid(&bundle.world)
 }
 
 /// Update: keyboard cursor + selection + place/sell. Runs only with real

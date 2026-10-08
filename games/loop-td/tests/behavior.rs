@@ -6,6 +6,7 @@
 use bevy::prelude::*;
 use loop_td::systems::gameplay::{build_grid_from, try_place, try_sell};
 use warbase::bundle::{assemble, load_bundle, validate, MapBundle};
+use warbase::harness::{run_headless, GreedyDriver, HarnessOpts};
 use warbase::prelude::*;
 use warbase::testing::{count_over_frames, test_app};
 
@@ -341,4 +342,25 @@ fn hero_tower_levels_through_kills() {
     app.update(); // growth entry lands in Cleanup; aggregation folds next Tick
     let eff = app.world().get::<EffectiveStats>(hero).unwrap();
     assert!((eff.damage_mult - 1.05).abs() < 1e-5, "growth folded: {}", eff.damage_mult);
+}
+
+/// BAL-smoke: the harness drives the REAL shipped map with the greedy
+/// baseline — reproducible, towers actually get built and fight.
+#[test]
+fn bal_smoke_greedy_driver_on_the_real_map() {
+    let mut bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    // Quick deterministic scenario: fast intermission, first 3 waves only.
+    bundle.waves.advance = Advance::Auto { intermission: 0.5 };
+    bundle.waves.waves.truncate(3);
+    bundle.rules.win = WinCondition::SurviveWaves { waves: 3 };
+
+    let opts = HarnessOpts { max_frames: 60 * 45, ..Default::default() };
+    let mut d1 = GreedyDriver { tower: "arrow".into() };
+    let mut d2 = GreedyDriver { tower: "arrow".into() };
+    let r1 = run_headless(&bundle, &mut d1, opts.clone());
+    let r2 = run_headless(&bundle, &mut d2, opts);
+    assert_eq!(r1, r2, "real-map run is reproducible");
+    assert!(r1.towers_built >= 2, "greedy built towers: {r1:?}");
+    let arrow = r1.damage_by_def.get("arrow").copied().unwrap_or(0.0);
+    assert!(arrow > 50.0, "arrows fought through the real map: {r1:?}");
 }

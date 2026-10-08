@@ -132,3 +132,103 @@ impl BuildGrid {
         self.occupancy.len()
     }
 }
+
+/// A placed tower (sell pairs with this). Base-level: placing towers on a
+/// grid is genre-generic, not game-specific.
+#[derive(Component, Debug)]
+pub struct Buildable {
+    pub cell: Cell,
+    pub cost_gold: u32,
+}
+
+/// Place a tower at a cell. Composition of base mechanisms: match state +
+/// build window + grid check + econ + population + spawn + occupancy.
+/// Err carries a readable reason for the UI.
+pub fn try_place(world: &mut World, def_id: &str, cell: Cell) -> Result<Entity, String> {
+    use crate::econ::{EconChanged, Population, Resources};
+    use crate::rule::{building_open, MatchFlow, MatchRules};
+    use crate::unit::{spawn_unit, Allegiance, UnitRegistry};
+    use crate::wave::WaveDirector;
+
+    if *world.resource::<MatchFlow>() != MatchFlow::Running {
+        return Err("match over".into());
+    }
+    if !building_open(world.resource::<MatchRules>(), world.resource::<WaveDirector>()) {
+        return Err("building locked during a wave".into());
+    }
+    let (cost_gold, cost_wood) = world
+        .resource::<UnitRegistry>()
+        .get(def_id)
+        .map(|d| (d.cost_gold, d.cost_wood))
+        .ok_or_else(|| format!("unknown tower '{def_id}'"))?;
+    world.resource::<BuildGrid>().check(cell).map_err(|r| r.reason().to_string())?;
+    {
+        // Capacity check before spending (no refund path needed).
+        let pop = world.resource::<Population>();
+        if pop.used >= pop.cap {
+            return Err("population full".into());
+        }
+    }
+    {
+        let mut res = world.resource_mut::<Resources>();
+        if res.gold < cost_gold || res.wood < cost_wood {
+            return Err(format!("need {cost_gold}g/{cost_wood}w"));
+        }
+        res.gold -= cost_gold;
+        res.wood -= cost_wood;
+    }
+    world.resource_mut::<Population>().used += 1;
+    {
+        let snapshot = {
+            let res = world.resource::<Resources>();
+            let pop = world.resource::<Population>();
+            EconChanged { gold: res.gold, wood: res.wood, pop_used: pop.used, pop_cap: pop.cap }
+        };
+        world
+            .resource_mut::<bevy::ecs::message::Messages<EconChanged>>()
+            .write(snapshot);
+    }
+    let (registry, center) = {
+        // NB: Res<T>::clone clones the *wrapper* (borrowed); clone the inner.
+        let registry: UnitRegistry = (*world.resource::<UnitRegistry>()).clone();
+        let center = world.resource::<BuildGrid>().cell_center(cell);
+        (registry, center)
+    };
+    let entity = spawn_unit(
+        world,
+        &registry,
+        def_id,
+        Vec3::new(center.x, 0.0, center.y),
+        Allegiance::Defender,
+        1.0,
+    )
+    .ok_or("spawn failed")?;
+    world.entity_mut(entity).insert(Buildable { cell, cost_gold });
+    world.resource_mut::<BuildGrid>().place(cell, entity);
+    Ok(entity)
+}
+
+/// Sell the tower at a cell: refund (bundle pct), free cell + population.
+pub fn try_sell(world: &mut World, cell: Cell) -> Result<u32, String> {
+    use crate::econ::{EconChanged, Population, Resources};
+    use crate::rule::MatchRules;
+
+    let entity = world.resource_mut::<BuildGrid>().free(cell).ok_or("no tower there")?;
+    let cost = world.get::<Buildable>(entity).map(|b| b.cost_gold).unwrap_or(0);
+    let refund = (cost as f32 * world.resource::<MatchRules>().sell_refund_pct) as u32;
+    world.entity_mut(entity).despawn();
+    world.resource_mut::<Resources>().gold += refund;
+    let pop_used = world.resource::<Population>().used.saturating_sub(1);
+    world.resource_mut::<Population>().used = pop_used;
+    {
+        let snapshot = {
+            let res = world.resource::<Resources>();
+            let pop = world.resource::<Population>();
+            EconChanged { gold: res.gold, wood: res.wood, pop_used: pop.used, pop_cap: pop.cap }
+        };
+        world
+            .resource_mut::<bevy::ecs::message::Messages<EconChanged>>()
+            .write(snapshot);
+    }
+    Ok(refund)
+}
