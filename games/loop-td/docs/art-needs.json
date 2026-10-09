@@ -1,0 +1,409 @@
+{
+  "schema_version": 1,
+  "game": "loop-td",
+  "source": "http://127.0.0.1:8765",
+  "source_maps": [
+    "maps/loop.ron"
+  ],
+  "demands": [
+    {
+      "local_key": "creep-boss",
+      "origin": "scan",
+      "name": "Boss（每 10 波一只，巨型高血）",
+      "category": "model",
+      "source_defs": [
+        "boss"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": "35ba36b61a3e4a2eb6a95c7de5860069",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "creep-fast",
+      "origin": "scan",
+      "name": "快速怪 fast（高速突进）",
+      "category": "model",
+      "source_defs": [
+        "fast"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 5k tris（高频出场，压预算）",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 5k tris（高频出场，压预算）、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": "11dea57989d24435b2f71fc87a5b5b18",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "creep-flyer",
+      "origin": "scan",
+      "name": "飞行怪 flyer（空军）",
+      "category": "model",
+      "source_defs": [
+        "flyer"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 5k tris（高频出场，压预算）",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 5k tris（高频出场，压预算）、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": "7ac724975d5f450a8cb90771673a745b",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "creep-grunt",
+      "origin": "scan",
+      "name": "地面小兵 grunt（基础怪）",
+      "category": "model",
+      "source_defs": [
+        "grunt"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 5k tris（高频出场，压预算）",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 5k tris（高频出场，压预算）、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": "67d59b04d4e04265b8b29aeb1699d1ed",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "creep-mender",
+      "origin": "scan",
+      "name": "医疗怪 mender（治疗友军）",
+      "category": "model",
+      "source_defs": [
+        "mender"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": "40d07f2203bc44f781c200fa0f30e7c6",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "creep-shaman",
+      "origin": "scan",
+      "name": "萨满怪 shaman（增益/远程）",
+      "category": "model",
+      "source_defs": [
+        "shaman"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": "50e4c416e3834008b2ebdd70f3ba8328",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "creep-tank",
+      "origin": "scan",
+      "name": "重甲怪 tank（重型甲、慢速高血）",
+      "category": "model",
+      "source_defs": [
+        "tank"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": "7a1577d081bd40e88c67c8a3a569019e",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "hero-hunter",
+      "origin": "scan",
+      "name": "英雄塔 hunter（吃经验成长的主角塔）",
+      "category": "model",
+      "source_defs": [
+        "hunter"
+      ],
+      "spec": {
+        "base": "单模型（成长塔主角，辨识度优先）",
+        "poly_budget": "≤ 15k tris",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack",
+          "victory"
+        ]
+      },
+      "acceptance": "三角面 ≤ 15k tris、动画 idle、attack、victory 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "5bbf5a16c903473d8d75e2af52fff9d2",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "terrain-loop",
+      "origin": "manual",
+      "name": "环形跑道主地形 loop（地表/路面/起点终点/装饰件）",
+      "category": "model",
+      "source_defs": [],
+      "spec": {
+        "base": "跑道形闭环（周长 64）+ 自由建造网格；风格与 warden 荒隘黄昏系一致或差异化待拍板",
+        "poly_budget": "地表 tile 化；装饰件每件 ≤ 3k tris",
+        "texture": "地表/路面 2048 tiling（diffuse+法线），可优先复用岩库 PolyHaven 组",
+        "animations": []
+      },
+      "acceptance": "跑一圈视觉可读（路径一眼可辨）、建造网格视觉对齐、showroom 场景快照过审",
+      "priority": "P2",
+      "demand_id": "ea5266030e19490a8999028baf33c1b8",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "tower-arrow",
+      "origin": "scan",
+      "name": "箭塔 arrow（三阶：物理穿刺单体）",
+      "category": "model",
+      "source_defs": [
+        "arrow",
+        "arrow2",
+        "arrow3"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ],
+        "variants": [
+          "arrow (tier 1)",
+          "arrow2 (tier 2)",
+          "arrow3 (tier 3)"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "faa219e92bfd419cb91dd78215b45fde",
+      "status": "accepted",
+      "removed": false
+    },
+    {
+      "local_key": "tower-cannon",
+      "origin": "scan",
+      "name": "火炮塔 cannon（三阶：攻城溅射对地）",
+      "category": "model",
+      "source_defs": [
+        "cannon",
+        "cannon2",
+        "cannon3"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ],
+        "variants": [
+          "cannon (tier 1)",
+          "cannon2 (tier 2)",
+          "cannon3 (tier 3)"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "6023a01e33e44a1083c15337c09aab35",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "tower-corrode",
+      "origin": "scan",
+      "name": "腐蚀光环塔 corrode（范围增伤 20%）",
+      "category": "model",
+      "source_defs": [
+        "corrode"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "c46306eea55a403dbf591b29a04ea1be",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "tower-drum",
+      "origin": "scan",
+      "name": "战鼓光环塔 drum（范围增伤 15%）",
+      "category": "model",
+      "source_defs": [
+        "drum"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "3d7b07d4116c476ea9c1258ea479e91f",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "tower-ice",
+      "origin": "scan",
+      "name": "冰霜光环塔 ice（范围减速 25%）",
+      "category": "model",
+      "source_defs": [
+        "ice"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "1a2e59136d63441c8b071239cf8cb76e",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "tower-mage",
+      "origin": "scan",
+      "name": "法师塔 mage（三阶：魔法攻击）",
+      "category": "model",
+      "source_defs": [
+        "mage",
+        "mage2",
+        "mage3"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ],
+        "variants": [
+          "mage (tier 1)",
+          "mage2 (tier 2)",
+          "mage3 (tier 3)"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "3818e26c9dfa4bd59397979545dffd6f",
+      "status": "submitted",
+      "removed": false
+    },
+    {
+      "local_key": "tower-sentry",
+      "origin": "scan",
+      "name": "岗哨塔 sentry（三阶：高频低伤）",
+      "category": "model",
+      "source_defs": [
+        "sentry",
+        "sentry2",
+        "sentry3"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ],
+        "variants": [
+          "sentry (tier 1)",
+          "sentry2 (tier 2)",
+          "sentry3 (tier 3)"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": "d208bca30526473cbd2d680f2547082d",
+      "status": "submitted",
+      "removed": false
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "note": "换装映射（ADR-0015）：def_id → 资产引用（岩库:<asset_id>[@vN]）。null = 灰盒占位（需求未 fulfilled 的默认态，内容不被美术阻塞）。demand fulfilled 后在这里配 def，再到 art-assets.json 锁版本走 art-sync 拉文件。格式见 tools/art-needs/README.md。",
+  "mapping": {
+    "arrow": null,
+    "arrow2": null,
+    "arrow3": null,
+    "cannon": null,
+    "cannon2": null,
+    "cannon3": null,
+    "mage": null,
+    "mage2": null,
+    "mage3": null,
+    "sentry": null,
+    "sentry2": null,
+    "sentry3": null,
+    "ice": null,
+    "drum": null,
+    "corrode": null,
+    "hunter": null,
+    "grunt": null,
+    "fast": null,
+    "tank": null,
+    "flyer": null,
+    "boss": null,
+    "mender": null,
+    "shaman": null
+  }
+}
