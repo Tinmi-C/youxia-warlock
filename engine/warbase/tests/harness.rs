@@ -65,6 +65,7 @@ fn bundle(leak: LeakPolicy, open: bool, waves: usize) -> MapBundle {
                     }],
                     boss_timeout: None,
                     preview: "2 grunts".into(),
+                    reward_gold: 0,
                 })
                 .collect(),
             advance: Advance::Auto { intermission: 0.5 },

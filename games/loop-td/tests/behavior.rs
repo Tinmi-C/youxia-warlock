@@ -62,6 +62,7 @@ fn scenario_bundle(
                 spawns: vec![SpawnSpec { unit: "grunt".into(), count: 2, interval: 0.2, path: 0, delay: 0.0, hp_scale: 1.0 }],
                 boss_timeout,
                 preview: "scenario".into(),
+                reward_gold: 0,
             }],
             advance: Advance::Auto { intermission: 0.5 },
             early_call_bonus: None,

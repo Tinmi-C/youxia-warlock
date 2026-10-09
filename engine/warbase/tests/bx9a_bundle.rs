@@ -41,6 +41,7 @@ fn sample_bundle() -> MapBundle {
                 spawns: vec![SpawnSpec { unit: "grunt".into(), count: 2, interval: 0.5, path: 0, delay: 0.0, hp_scale: 1.0 }],
                 boss_timeout: None,
                 preview: "2 grunts".into(),
+                reward_gold: 0,
             }],
             advance: Advance::Auto { intermission: 1.0 },
             early_call_bonus: Some(10),

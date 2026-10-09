@@ -44,6 +44,7 @@ fn one_grunt_wave() -> WaveEntry {
         spawns: vec![SpawnSpec { unit: "grunt".into(), count: 1, interval: 1.0, path: 0, delay: 0.0, hp_scale: 1.0 }],
         boss_timeout: None,
         preview: "grunt pack".into(),
+        reward_gold: 0,
     }
 }
 

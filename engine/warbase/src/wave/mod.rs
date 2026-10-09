@@ -43,6 +43,9 @@ pub struct WaveEntry {
     /// Preview key/label for the prep-phase UI.
     #[serde(default)]
     pub preview: String,
+    /// Gold granted when this wave is fully cleared (numbers ship per map).
+    #[serde(default)]
+    pub reward_gold: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,6 +256,10 @@ pub fn run_director(
                 if let Some(w) = director.running {
                     if !tagged.iter().any(|t| t.0 == w) {
                         cleared.write(WaveCleared(w));
+                        let reward = table.waves[w].reward_gold;
+                        if reward > 0 {
+                            econ.write(EconCommand::Grant { gold: reward, wood: 0 });
+                        }
                         director.running = None;
                         director.next_wave = w + 1;
                         if director.next_wave >= table.waves.len() {
