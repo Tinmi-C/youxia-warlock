@@ -16,6 +16,7 @@ python3 tools/art-needs/art_needs.py games/loop-td scan           # 扫图 diff 
 python3 tools/art-needs/art_needs.py games/loop-td scan --write   # 把新需求草稿写进文件
 python3 tools/art-needs/art_needs.py games/loop-td submit         # 草稿提报岩库 + 回填 demand_id
 python3 tools/art-needs/art_needs.py games/loop-td status         # 拉岩库状态投影 + 覆盖度
+python3 tools/art-needs/art_needs.py games/loop-td sync           # 锁定上报（锁清单 demand 字段 → 岩库 locks）
 ```
 
 退出码 = 问题数（0 = 干净），与 art-sync / art-catalog 同约定。
@@ -33,8 +34,14 @@ python3 tools/art-needs/art_needs.py games/loop-td status         # 拉岩库状
    `removed`；已提报条目的 def 集变化 → 提示走岩库 `changed` 流转（v2 迭代环）。
 4. **提报**：`submit` 把 draft 条目 POST 岩库 `/demands` 并流转 submitted，
    幂等（已有 demand_id 的跳过）；提报时顺带打印**复用提示**（岩库相似资产）。
-5. **投影**：`status` 把岩库状态拉回本地（含 fulfilled 资产 id → 提示可进
-   art-mapping / art-assets）。
+5. **投影与上报**：`status` 把岩库状态拉回本地（fulfilled 资产 id → 提示可进
+   art-mapping / art-assets；fulfilled-无关联资产等失真状态会报问题——岩库零校验，
+   质量责任在游戏侧投影）；`sync` 读 art-assets.json 的 demand 回链字段上报锁定
+   （DemandLock 记录，幂等 upsert，版本升级后重跑即刷新）。
+
+状态语义（契约 v1，已会签）：岩库对状态流转**零校验**（PATCH 直改 + 事件留痕），
+约定工作流由本 CLI 与 P2 看板引导；**locked 是记录不是状态**——锁定事实源在
+锁清单，岩库被动接收上报，与需求生命周期正交。
 
 ## 文件契约（三文件，全部进 git）
 

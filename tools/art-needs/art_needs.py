@@ -15,6 +15,10 @@ Usage (from repo root):
     python3 tools/art-needs/art_needs.py games/loop-td scan --write   # update file
     python3 tools/art-needs/art_needs.py games/loop-td submit         # drafts -> vault
     python3 tools/art-needs/art_needs.py games/loop-td status         # state projection
+    python3 tools/art-needs/art_needs.py games/loop-td sync           # report locks
+
+Contract: vault docs/design/demand-board-contract.md v1 (co-signed by ADR-0015) —
+zero-validation status via PATCH, locks are DemandLock records (not a state).
 
 Exit code = number of problems (0 = clean), same convention as art-sync.
 Zero dependencies (Python 3 stdlib only). Human and AI run the same command.
@@ -349,8 +353,9 @@ def cmd_submit(game_dir: Path) -> int:
         try:
             created = api(base, "POST", "/demands", body)
             did = created["id"]
-            api(base, "POST", f"/demands/{did}/transition",
-                {"to": "submitted", "actor": f"art-needs/{needs['game']}",
+            # Contract v1: zero-validation status via PATCH (status_change event).
+            api(base, "PATCH", f"/demands/{did}",
+                {"status": "submitted", "actor": f"art-needs/{needs['game']}",
                  "note": f"scan source_defs={body['source_defs']}"})
             d["demand_id"] = did
             d["status"] = "submitted"
@@ -395,7 +400,7 @@ def cmd_status(game_dir: Path) -> int:
         return 1
     try:
         remote = api(base, "GET", f"/demands?game_key={needs['game']}&page_size=100")
-        cov = api(base, "GET", f"/demands/coverage?game_key={needs['game']}")
+        cov = api(base, "GET", f"/demands/stats?game_key={needs['game']}")
     except urllib.error.URLError as e:
         print(f"[art-needs] 岩库不可达，本地投影可能过期: {e}")
         return 1
@@ -421,11 +426,23 @@ def cmd_status(game_dir: Path) -> int:
             print(f"  ~ {d['local_key']}: {d['status']} → {r['status']}")
             d["status"] = r["status"]
             changed_projection = True
-        if r.get("asset_ids") and not d.get("asset_ref"):
-            d["asset_ref"] = r["asset_ids"][0]
+        # Zero-validation quality guard (contract v1): the vault never rejects
+        # a lying fulfilled — the CLI projection reports it instead.
+        if r["status"] == "fulfilled" and r.get("asset_count", 0) == 0:
+            print(f"  ! {d['local_key']}: fulfilled 但无关联资产"
+                  f"（岩库零校验——补 POST /demands/{d['demand_id']}/assets 或纠正状态）")
+            problems += 1
+        if r.get("asset_count") and not d.get("asset_ref"):
+            detail = api(base, "GET", f"/demands/{d['demand_id']}")
+            asset_id = detail["assets"][0]["asset_id"]
+            d["asset_ref"] = asset_id
             changed_projection = True
-            print(f"  ✓ {d['local_key']}: fulfilled 资产 {r['asset_ids'][0]}"
+            print(f"  ✓ {d['local_key']}: fulfilled 资产 {asset_id}"
                   f"（可进 art-mapping.json / art-assets.json）")
+        if r.get("locked") and not d.get("locked_by_self"):
+            d["locked_by_self"] = True
+            changed_projection = True
+            print(f"  ⊙ {d['local_key']}: 已有锁定记录（三层追溯链闭合）")
     orphan = set(remote_by_id) - local_ids
     for oid in orphan:
         print(f"  ? 岩库有 {oid}「{remote_by_id[oid]['name']}」但本地清单没有")
@@ -433,6 +450,55 @@ def cmd_status(game_dir: Path) -> int:
     if changed_projection:
         save_needs(game_dir, needs)
         print(f"[art-needs] 投影已更新（{NEEDS_NAME}），记得提交")
+    return problems
+
+
+def cmd_sync(game_dir: Path) -> int:
+    """Report locks to the vault (contract §6): read art-assets.json entries
+    with a `demand` back-link field, POST /demands/{id}/locks per game.
+    Idempotent on both sides — re-run after version bumps to refresh."""
+    needs = load_needs(game_dir)
+    if not needs.get("source"):
+        print(f"[art-needs] {NEEDS_NAME} 缺 source（岩库地址），先补")
+        return 1
+    manifest_path = game_dir / "art-assets.json"
+    if not manifest_path.is_file():
+        print(f"[art-needs] {manifest_path} 不存在——还没有锁定的岩库资产，无可上报")
+        return 0
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        base = validated_source(manifest.get("source") or needs["source"])
+    except ValueError as e:
+        print(f"[art-needs] {e}")
+        return 1
+
+    linked = [a for a in manifest.get("assets", []) if a.get("demand")]
+    if not linked:
+        print(f"[art-needs] 清单 {len(manifest.get('assets', []))} 条资产均无 demand 回链字段，无可上报")
+        print("[art-needs] 提示: fulfilled 后在条目加 \"demand\": \"<demand_id>\" 再跑 sync")
+        return 0
+
+    problems = 0
+    for entry in linked:
+        body = {
+            "game_key": needs["game"],
+            "asset_id": entry["id"],
+            "version_no": entry["version"],
+            "actor": f"art-needs({needs['game']})",
+            "note": f"lockfile {manifest_path.name}",
+        }
+        try:
+            lk = api(base, "POST", f"/demands/{entry['demand']}/locks", body)
+            print(f"[art-needs] 锁定上报: {entry.get('name', entry['id'])}"
+                  f" v{lk['version_no']} → demand {entry['demand']}")
+        except urllib.error.HTTPError as e:
+            print(f"[art-needs] 上报失败 {entry.get('name')}: HTTP {e.code}"
+                  f" {e.read().decode()[:200]}")
+            problems += 1
+        except urllib.error.URLError as e:
+            print(f"[art-needs] 岩库不可达（服务起了吗？）: {e}")
+            problems = len(linked)
+            break
     return problems
 
 
@@ -445,6 +511,7 @@ def main() -> int:
     scan.add_argument("--write", action="store_true", help="write updates")
     sub.add_parser("submit", help="submit drafts to the vault")
     sub.add_parser("status", help="project vault state locally")
+    sub.add_parser("sync", help="report art-assets.json locks to the vault")
     args = ap.parse_args()
 
     game = Path(args.game)
@@ -456,6 +523,8 @@ def main() -> int:
         return cmd_scan(game, args.write)
     if args.cmd == "submit":
         return cmd_submit(game)
+    if args.cmd == "sync":
+        return cmd_sync(game)
     return cmd_status(game)
 
 
