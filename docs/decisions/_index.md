@@ -26,3 +26,4 @@
 | [[decisions/0012-warbase-shared-runtime-and-map-architecture\|ADR-0012]] | 魔兽式游戏基底 warbase——共享战斗 runtime crate +「游戏=地图」分层架构（v2：warden 回迁消费方 #0 + 根 workspace + UI/FX feature 门控） | accepted | 2026-10-08 |
 | [[decisions/0013-mapbundle-as-data-file\|ADR-0013]] | MapBundle 数据文件化——「地图」是自包含 RON 数据包（收窄 ADR-0008 适用范围） | accepted | 2026-10-08 |
 | [[decisions/0014-deprecate-capability-card-workflow\|ADR-0014]] | 开发流程简化——能力卡工作流退役，规格-测试-小步提交（进度用各项目 roadmap.md） | accepted | 2026-10-08 |
+| [[decisions/0015-art-needs-demand-integration\|ADR-0015]] | 游戏侧美术需求接入——art-needs 工具与三文件契约（art-needs.json / art-mapping.json / art-assets.json demand 回链） | accepted | 2026-10-09 |
