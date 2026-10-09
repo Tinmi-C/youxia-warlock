@@ -12,6 +12,8 @@ bevy = { workspace = true }
 # This game provides map bundles (maps/*.ron) + thin gameplay plugins only —
 # no damage/skill/wave pipeline code may live in this crate (thin-game rule).
 warbase = { path = "../../engine/warbase" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 # NOTE: profiles (dev opt-level / release thin-LTO / release-check) live in
 # the root workspace Cargo.toml — member profiles are ignored in a workspace.

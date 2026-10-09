@@ -247,6 +247,125 @@ pub fn hero_talents(world: &mut World) {
     world.remove_resource::<PendingTalent>();
 }
 
+// ---------------------------------------------------------------------------
+// MT1: cross-run meta. Points bank from cleared waves; the end screen buys
+// persistent start-gold ranks; R restarts the match with bonuses applied.
+// ---------------------------------------------------------------------------
+
+#[derive(Resource, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MetaState {
+    pub points: u32,
+    pub start_gold_bonus: u32,
+}
+
+impl Default for MetaState {
+    fn default() -> Self {
+        Self { points: 0, start_gold_bonus: 0 }
+    }
+}
+
+pub const META_UPGRADE_COST: u32 = 10;
+pub const META_UPGRADE_GOLD: u32 = 20;
+
+pub fn meta_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/meta_save.txt"))
+}
+
+/// Load is pure — never deletes (a stray delete here would wipe real saves).
+/// Tests inject MetaState directly instead of touching the file.
+pub fn load_meta(path: &std::path::Path) -> MetaState {
+    match std::fs::read_to_string(path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => MetaState::default(),
+    }
+}
+
+/// Startup: real game loads the save; tests inject their own MetaState.
+pub fn load_meta_startup(world: &mut World) {
+    if world.contains_resource::<MetaState>() {
+        return;
+    }
+    let meta = load_meta(&meta_path());
+    world.insert_resource(meta);
+}
+
+pub fn save_meta(path: &std::path::Path, meta: &MetaState) {
+    if let Ok(json) = serde_json::to_string(meta) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+/// Bank the run's cleared waves into points exactly once (idempotent via
+/// the marker resource).
+#[derive(Resource)]
+pub struct RunBanked;
+
+pub fn bank_run(world: &mut World) {
+    if *world.resource::<MatchFlow>() == MatchFlow::Running {
+        return;
+    }
+    if world.get_resource::<RunBanked>().is_some() {
+        return;
+    }
+    let cleared = world.resource::<WaveDirector>().next_wave as u32;
+    world.resource_mut::<MetaState>().points += cleared;
+    world.insert_resource(RunBanked);
+    let path = meta_path();
+    let meta = world.resource::<MetaState>().clone();
+    save_meta(&path, &meta);
+}
+
+/// End-screen input: M buys a start-gold rank, R restarts with bonuses.
+pub fn end_screen_input(world: &mut World) {
+    if *world.resource::<MatchFlow>() == MatchFlow::Running {
+        return;
+    }
+    if !world.contains_resource::<ButtonInput<KeyCode>>() {
+        return;
+    }
+    let keys = world.resource::<ButtonInput<KeyCode>>().clone();
+    if keys.just_pressed(KeyCode::KeyM) {
+        let mut meta = world.resource_mut::<MetaState>();
+        if meta.points >= META_UPGRADE_COST {
+            meta.points -= META_UPGRADE_COST;
+            meta.start_gold_bonus += META_UPGRADE_GOLD;
+            let snapshot = meta.clone();
+            drop(meta);
+            save_meta(&meta_path(), &snapshot);
+            info!("[loop-td] meta: start gold +{}/rank", META_UPGRADE_GOLD);
+        }
+    }
+    if keys.just_pressed(KeyCode::KeyR) {
+        restart_run(world);
+    }
+}
+
+/// Fresh match from the loaded map, meta bonus applied (assemble resets
+/// director/flow/econ/rules; towers/creeps/paths despawned).
+pub fn restart_run(world: &mut World) {
+    let bundle = world.resource::<CurrentMap>().0.clone();
+    // Despawn units and path entities (panel/HUD/camera stay).
+    let mut to_despawn: Vec<Entity> = Vec::new();
+    {
+        let mut q = world.query_filtered::<Entity, With<UnitInstance>>();
+        to_despawn.extend(q.iter(world));
+    }
+    if let Some(paths) = world.get_resource::<Paths>() {
+        to_despawn.extend(paths.0.iter().copied());
+    }
+    for e in to_despawn {
+        let _ = world.get_entity_mut(e).map(|mut em| em.despawn());
+    }
+    warbase::bundle::assemble(world, &bundle);
+    let grid = warbase::bundle::build_grid(&bundle.world);
+    world.insert_resource(grid);
+    world.insert_resource(BuildCursor(Cell(10, 8)));
+    world.remove_resource::<RunBanked>();
+    let bonus = world.resource::<MetaState>().start_gold_bonus;
+    world.resource_mut::<Resources>().gold += bonus;
+    info!("[loop-td] run restarted (+{bonus} meta gold)");
+}
+
 /// Dispatch base command-card actions onto the map (BX4b consumer side).
 pub fn command_dispatch(world: &mut World) {    let events: Vec<warbase::ui::CommandCardAction> = {
         let msgs = world.resource::<bevy::ecs::message::Messages<warbase::ui::CommandCardAction>>();

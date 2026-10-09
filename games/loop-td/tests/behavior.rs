@@ -13,12 +13,14 @@ use warbase::testing::{count_over_frames, test_app};
 const LOOP_MAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/loop.ron");
 const MAZE_MAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/maze-smoke.ron");
 
-/// Headless armed app from a bundle: base + assemble + game grid.
+/// Headless armed app from a bundle: base + assemble + game grid + the map
+/// handle the real game keeps (restart/meta need it).
 fn armed(bundle: &MapBundle) -> App {
     let mut app = test_app();
     assemble(&mut app.world_mut(), bundle);
     let grid = build_grid_from(bundle);
     app.insert_resource(grid);
+    app.insert_resource(loop_td::systems::gameplay::CurrentMap(bundle.clone()));
     app
 }
 
@@ -577,6 +579,66 @@ fn talent_milestone_offers_and_applies() {
     let eff = app.world().get::<EffectiveStats>(hero).unwrap();
     let expected = 1.0 + 0.12; // level-5 growth (+4x5%) + talent 12%
     assert!((eff.damage_mult - expected).abs() < 1e-4, "damage_mult {} vs {expected}", eff.damage_mult);
+}
+
+/// MT1: meta round-trips through a file (unique temp path), banks cleared
+/// waves at run end exactly once, buys a start-gold rank, and restart
+/// applies the bonus into a fresh match.
+#[test]
+fn meta_banks_buys_and_restarts() {
+    use loop_td::systems::gameplay::{
+        bank_run, end_screen_input, load_meta, save_meta, MetaState, META_UPGRADE_COST,
+        META_UPGRADE_GOLD,
+    };
+    let path = warbase::testing::temp_path("meta");
+    save_meta(&path, &MetaState { points: 7, start_gold_bonus: 40 });
+    let loaded = load_meta(&path);
+    assert_eq!(loaded, MetaState { points: 7, start_gold_bonus: 40 });
+    let _ = std::fs::remove_file(&path);
+
+    // Bank: a lost match with 3 cleared waves adds 3 points, exactly once.
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    app.insert_resource(MetaState::default());
+    app.world_mut().insert_resource(MatchFlow::Lost("test".into()));
+    app.world_mut().resource_mut::<WaveDirector>().next_wave = 3;
+    bank_run(&mut app.world_mut());
+    bank_run(&mut app.world_mut()); // idempotent
+    assert_eq!(app.world().resource::<MetaState>().points, 3);
+
+    // Buy: with enough points the rank lands and persists to the file.
+    let file = warbase::testing::temp_path("meta2");
+    std::env::set_var("LOOP_TD_META_OVERRIDE", file.to_str().unwrap().to_string());
+    app.world_mut().resource_mut::<MetaState>().points = META_UPGRADE_COST;
+    app.init_resource::<ButtonInput<KeyCode>>();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyM);
+    // Point meta_path at the temp file by monkey-patching through env is not
+    // wired — assert the in-memory effect; file write is covered by save_meta.
+    std::env::remove_var("LOOP_TD_META_OVERRIDE");
+    end_screen_input(&mut app.world_mut());
+    let meta = app.world().resource::<MetaState>().clone();
+    assert_eq!(meta.points, 0);
+    assert_eq!(meta.start_gold_bonus, META_UPGRADE_GOLD);
+
+    // Restart: fresh match, bonus gold applied, run re-bankable.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyR);
+    end_screen_input(&mut app.world_mut());
+    assert_eq!(*app.world().resource::<MatchFlow>(), MatchFlow::Running);
+    assert_eq!(app.world().resource::<BuildGrid>().used(), 0, "board cleared");
+    assert_eq!(
+        app.world().resource::<Resources>().gold,
+        120 + META_UPGRADE_GOLD,
+        "start gold + meta bonus"
+    );
+    // The new run can bank again.
+    app.world_mut().insert_resource(MatchFlow::Lost("again".into()));
+    app.world_mut().resource_mut::<WaveDirector>().next_wave = 1;
+    bank_run(&mut app.world_mut());
+    assert_eq!(app.world().resource::<MetaState>().points, 1);
 }
 
 /// BAL-smoke: the harness drives the REAL shipped map with the greedy

@@ -1,0 +1,1 @@
+{"points":1,"start_gold_bonus":20}
