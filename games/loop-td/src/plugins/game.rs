@@ -14,6 +14,8 @@ impl Plugin for GamePlugin {
             .add_systems(Startup, hud::spawn_hud)
             .add_systems(Update, gameplay::build_input)
             .add_systems(Update, gameplay::command_dispatch)
+            .add_systems(Update, gameplay::snipe_effect)
+            .add_systems(Update, gameplay::hero_talents)
             .add_systems(Update, hud::refresh_hud);
     }
 }

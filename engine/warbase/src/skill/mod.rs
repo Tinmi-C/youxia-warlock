@@ -67,7 +67,7 @@ pub struct CastSkill {
 }
 
 /// Emitted after validation; game-side effect systems dispatch by skill id.
-#[derive(Message, Debug)]
+#[derive(Message, Debug, Clone)]
 pub struct SkillCast {
     pub caster: Entity,
     pub skill: String,
@@ -112,6 +112,40 @@ pub fn process_casts(
         slot.cooldown = def.cooldown;
         casts.write(SkillCast { caster: req.caster, skill: slot.skill.clone(), level: slot.level });
     }
+}
+
+/// HR2: spend one banked point on a skill slot. Errors are readable for UI.
+pub fn spend_skill_point(world: &mut World, entity: Entity, slot: usize) -> Result<(), String> {
+    // Scoped reads first (sequential borrows only).
+    let (points, slot_info) = {
+        let Ok(holder) = world.get_entity_mut(entity) else {
+            return Err("no such entity".into());
+        };
+        let points = holder.get::<XpHolder>().map(|x| x.points).ok_or("not a hero")?;
+        let info = holder
+            .get::<SkillCaster>()
+            .and_then(|c| c.slots.get(slot).map(|s| (s.skill.clone(), s.level)))
+            .ok_or("no such slot")?;
+        (points, info)
+    };
+    if points == 0 {
+        return Err("no skill points".into());
+    }
+    let (skill, level) = slot_info;
+    let max_level = world
+        .resource::<SkillDefs>()
+        .get(&skill)
+        .map(|d| d.max_level)
+        .unwrap_or(1);
+    if level >= max_level {
+        return Err("max level".into());
+    }
+    let Ok(mut holder) = world.get_entity_mut(entity) else {
+        return Err("no such entity".into());
+    };
+    holder.get_mut::<XpHolder>().unwrap().points -= 1;
+    holder.get_mut::<SkillCaster>().unwrap().slots[slot].level += 1;
+    Ok(())
 }
 
 /// Persistent cursor for xp events — a fresh cursor every frame would

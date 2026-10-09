@@ -192,6 +192,8 @@ pub struct XpHolder {
     pub level: u8,
     pub points: u8,
     pub next_level_xp: u32,
+    /// Milestone talents already taken (HR3 bookkeeping).
+    pub talents_taken: u8,
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,9 +221,12 @@ pub fn spawn_unit(
     hp_scale: f32,
 ) -> Option<Entity> {
     let def = registry.get(id)?.clone();
-    let known_skills: Vec<bool> = {
+    let known_skills: Vec<Option<bool>> = {
         let defs = world.resource::<crate::skill::SkillDefs>();
-        def.skills.iter().map(|id| defs.get(id).is_some()).collect()
+        def.skills
+            .iter()
+            .map(|id| defs.get(id).map(|d| d.kind == crate::skill::SkillKind::Autocast))
+            .collect()
     };
     let mut e = world.spawn((
         UnitInstance { def: def.id.clone(), level: 1 },
@@ -250,7 +255,7 @@ pub fn spawn_unit(
         e.insert(crate::buff::Auras(def.auras.clone()));
     }
     if def.hero {
-        e.insert(XpHolder { xp: 0, level: 1, points: 0, next_level_xp: 10 });
+        e.insert(XpHolder { xp: 0, level: 1, points: 0, next_level_xp: 10, talents_taken: 0 });
     }
     if let Some(h) = def.heal {
         e.insert(crate::combat::Healer { amount: h.amount, interval: h.interval, radius: h.radius, timer: 0.0 });
@@ -260,11 +265,12 @@ pub fn spawn_unit(
             .skills
             .iter()
             .zip(known_skills)
-            .map(|(id, k)| crate::skill::SkillSlot {
+            .map(|(id, autocast)| crate::skill::SkillSlot {
                 skill: id.clone(),
-                level: u8::from(k),
+                level: u8::from(autocast.is_some()),
                 cooldown: 0.0,
-                autocast_on: false,
+                // Autocast-kind skills start ON (WC3 habit); players toggle.
+                autocast_on: autocast.unwrap_or(false),
             })
             .collect();
         e.insert(crate::skill::SkillCaster { slots });

@@ -484,6 +484,101 @@ fn command_card_drives_the_real_game() {
     assert_eq!(app.world().resource::<BuildGrid>().used(), 1);
 }
 
+/// HR2: hunter's snipe autocasts (SkillCast -> game effect -> DamageRequest)
+/// and a banked point raises the skill level via spend_skill_point.
+#[test]
+fn hero_snipe_autocasts_and_points_level_it() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    // The game registers this in load_map; mirror it (test app skips Startup).
+    let mut defs = SkillDefs::default();
+    defs.defs.insert(
+        "snipe".into(),
+        SkillDef {
+            id: "snipe".into(),
+            kind: SkillKind::Autocast,
+            targeting: SkillTargeting::None,
+            max_level: 3,
+            cooldown: 6.0,
+        },
+    );
+    app.insert_resource(defs);
+    let reg: UnitRegistry = (*app.world().resource::<UnitRegistry>()).clone();
+    // Re-register skills through spawn by re-spawning hunter with defs present.
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .unwrap();
+    app.world_mut().resource_mut::<Resources>().gold += 200;
+    let hero = try_place(&mut app.world_mut(), "hunter", spot).expect("place hunter");
+    assert!(app.world().get::<SkillCaster>(hero).is_some(), "snipe attached at spawn");
+    assert_eq!(app.world().get::<SkillCaster>(hero).unwrap().slots[0].skill, "snipe");
+
+    // A grunt in range gets sniped: 60 base x Piercing-vs-Light 1.5 = 90
+    // dealt (distinct from the 18-base pierce hits at 27).
+    let grunt = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(-10.0, 0.0, -6.0), Allegiance::Attacker, 1.0).unwrap();
+    let path_e = app.world().resource::<Paths>().0[0];
+    app.world_mut().entity_mut(grunt).insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false });
+
+    let mut cursor = bevy::ecs::message::MessageCursor::<DamageDealt>::default();
+    let mut saw_snipe = false;
+    for _ in 0..300 {
+        app.update();
+        loop_td::systems::gameplay::snipe_effect(&mut app.world_mut());
+        let msgs = app.world().resource::<bevy::ecs::message::Messages<DamageDealt>>();
+        for d in cursor.read(msgs) {
+            if d.source == hero && (d.amount - 90.0).abs() < 1e-3 {
+                saw_snipe = true;
+            }
+        }
+        if saw_snipe {
+            break;
+        }
+    }
+    assert!(saw_snipe, "snipe autocast landed (60 x 1.5 = 90 dealt)");
+
+    // HR2: a banked point raises the skill (slot 0), errors are readable.
+    app.world_mut().get_mut::<XpHolder>(hero).unwrap().points = 1;
+    spend_skill_point(&mut app.world_mut(), hero, 0).expect("level snipe to 2");
+    assert_eq!(app.world().get::<SkillCaster>(hero).unwrap().slots[0].level, 2);
+    assert_eq!(app.world().get::<XpHolder>(hero).unwrap().points, 0);
+    let err = loop { break spend_skill_point(&mut app.world_mut(), hero, 0).unwrap_err() };
+    assert_eq!(err, "no skill points");
+}
+
+/// HR3: reaching level 5 offers the milestone talent; picking one applies a
+/// permanent growth entry and books it.
+#[test]
+fn talent_milestone_offers_and_applies() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .unwrap();
+    app.world_mut().resource_mut::<Resources>().gold += 200;
+    let hero = try_place(&mut app.world_mut(), "hunter", spot).unwrap();
+    app.world_mut().get_mut::<XpHolder>(hero).unwrap().level = 5;
+    app.init_resource::<ButtonInput<KeyCode>>();
+
+    loop_td::systems::gameplay::hero_talents(&mut app.world_mut());
+    assert!(app.world().get_resource::<loop_td::systems::gameplay::PendingTalent>().is_some(), "offer at level 5");
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Digit1); // 力：+12% damage
+    loop_td::systems::gameplay::hero_talents(&mut app.world_mut());
+    app.update(); // aggregate folds the entry
+
+    assert!(app.world().get_resource::<loop_td::systems::gameplay::PendingTalent>().is_none(), "resolved");
+    assert_eq!(app.world().get::<XpHolder>(hero).unwrap().talents_taken, 1);
+    let eff = app.world().get::<EffectiveStats>(hero).unwrap();
+    let expected = 1.0 + 0.12; // level-5 growth (+4x5%) + talent 12%
+    assert!((eff.damage_mult - expected).abs() < 1e-4, "damage_mult {} vs {expected}", eff.damage_mult);
+}
+
 /// BAL-smoke: the harness drives the REAL shipped map with the greedy
 /// baseline — reproducible, towers actually get built and fight.
 #[test]
