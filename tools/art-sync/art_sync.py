@@ -166,6 +166,20 @@ def main() -> int:
         asset_id = entry["id"]
         pinned = entry["version"]
         label = entry.get("name", asset_id)
+        # Optional demand back-link (ADR-0015): "需求 → 资产 → 锁定版本"
+        # three-layer traceability. Read-only check — art-sync never writes
+        # vault state (management flow stays decoupled from build flow).
+        demand_id = entry.get("demand")
+        if demand_id:
+            try:
+                dem = http_json(f"{source}/demands/{demand_id}")
+                if args.outdated:
+                    print(f"[art-sync] demand: {label} ← 「{dem.get('name')}」"
+                          f"({dem.get('status')})")
+            except urllib.error.HTTPError as e:
+                problems.append(f"{label}: 回链 demand {demand_id} 查无（HTTP {e.code}）")
+            except (urllib.error.URLError, ValueError) as e:
+                print(f"[art-sync] 提示: demand {demand_id} 状态查询失败（不影响同步）: {e}")
         try:
             detail = http_json(f"{source}/assets/{asset_id}")
         except urllib.error.HTTPError as e:
