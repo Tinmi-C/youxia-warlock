@@ -26,6 +26,7 @@ fn sample_bundle() -> MapBundle {
             hero: false,
             skills: vec![],
             upgrade_to: None,
+            heal: None,
         },
     );
     MapBundle {

@@ -142,6 +142,16 @@ pub struct UnitDef {
     /// cost_gold. None = max tier.
     #[serde(default)]
     pub upgrade_to: Option<UnitId>,
+    /// Support-unit periodic heal (numbers per map).
+    #[serde(default)]
+    pub heal: Option<HealDef>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct HealDef {
+    pub amount: f32,
+    pub interval: f32,
+    pub radius: f32,
 }
 
 #[derive(Resource, Debug, Default, Clone)]
@@ -241,6 +251,9 @@ pub fn spawn_unit(
     }
     if def.hero {
         e.insert(XpHolder { xp: 0, level: 1, points: 0, next_level_xp: 10 });
+    }
+    if let Some(h) = def.heal {
+        e.insert(crate::combat::Healer { amount: h.amount, interval: h.interval, radius: h.radius, timer: 0.0 });
     }
     if !def.skills.is_empty() {
         let slots = def

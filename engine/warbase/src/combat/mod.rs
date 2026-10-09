@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::path::PathFollower;
-use crate::unit::{AirUnit, Allegiance, Armor, AttackArmorTable, AttackDef, AttackType, Hp, TargetDomain, UnitId, UnitInstance};
+use crate::unit::{AirUnit, Allegiance, Armor, AttackArmorTable, AttackDef, AttackType, Hp, MaxHp, TargetDomain, UnitId, UnitInstance};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetingPriority {
@@ -53,6 +53,62 @@ pub struct DamageDealt {
     pub amount: f32,
     pub crit: bool,
     pub killed: bool,
+}
+
+#[derive(Message, Debug)]
+pub struct HealRequest {
+    pub target: Entity,
+    pub source: Entity,
+    pub amount: f32,
+}
+
+/// Resolve: the only writer of "hp goes up" (kept beside resolve_damage so
+/// the single-writer family lives in one place).
+pub fn resolve_heals(
+    mut requests: MessageReader<HealRequest>,
+    mut units: Query<(&mut Hp, &MaxHp), Without<Dead>>,
+) {
+    for req in requests.read() {
+        if let Ok((mut hp, max)) = units.get_mut(req.target) {
+            if hp.0 > 0.0 {
+                hp.0 = (hp.0 + req.amount).min(max.0);
+            }
+        }
+    }
+}
+
+/// Periodic area heal for support units (numbers from the map bundle).
+#[derive(Component, Debug)]
+pub struct Healer {
+    pub amount: f32,
+    pub interval: f32,
+    pub radius: f32,
+    pub timer: f32,
+}
+
+pub fn healer_tick(
+    time: Res<Time>,
+    mut requests: MessageWriter<HealRequest>,
+    mut healers: Query<(Entity, &Transform, &Allegiance, &mut Healer)>,
+    allies: Query<(Entity, &Transform, &Allegiance, &Hp, &MaxHp), Without<Dead>>,
+) {
+    let dt = time.delta_secs();
+    for (e, pos, side, mut healer) in &mut healers {
+        healer.timer -= dt;
+        if healer.timer > 0.0 {
+            continue;
+        }
+        healer.timer = healer.interval;
+        for (ae, apos, aside, hp, max) in &allies {
+            if aside != side || hp.0 <= 0.0 || hp.0 >= max.0 {
+                continue;
+            }
+            if pos.translation.distance(apos.translation) <= healer.radius {
+                let _ = max;
+                requests.write(HealRequest { target: ae, source: e, amount: healer.amount });
+            }
+        }
+    }
 }
 
 #[derive(Message, Debug, Clone)]

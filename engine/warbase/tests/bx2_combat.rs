@@ -21,6 +21,7 @@ fn def(id: &str, hp: f32, armor: ArmorType) -> UnitDef {
         hero: false,
         skills: vec![],
         upgrade_to: None,
+        heal: None,
     }
 }
 

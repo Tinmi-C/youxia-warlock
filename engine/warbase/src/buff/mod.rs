@@ -112,6 +112,47 @@ fn fold(mods: &StatMods, eff: &mut EffectiveStats, now: f32) {
     }
 }
 
+/// Follower auras: creep-side carriers buffing their ALLIES on the path
+/// (enemy aura bearers — the "kill the shaman first" archetype). Same
+/// per-frame rebuild semantics as tower auras.
+pub fn apply_follower_auras(
+    sources: Query<(Entity, &Transform, &Allegiance, &Auras), With<PathFollower>>,
+    mut targets: Query<(Entity, &Transform, &Allegiance, &mut StatMods), With<PathFollower>>,
+) {
+    if sources.is_empty() {
+        return;
+    }
+    let mut grants: std::collections::HashMap<Entity, Vec<ModEntry>> =
+        std::collections::HashMap::new();
+    for (tgt_e, tgt_pos, tgt_side, mut mods) in &mut targets {
+        mods.entries.retain(|e| !e.from_aura);
+        for (src_e, src_pos, src_side, auras) in &sources {
+            if *src_side != *tgt_side {
+                continue; // followers buff allies only
+            }
+            let d = src_pos.translation.distance(tgt_pos.translation);
+            for aura in &auras.0 {
+                if d <= aura.radius {
+                    grants.entry(tgt_e).or_default().push(ModEntry {
+                        source: src_e,
+                        kind: aura.kind,
+                        amount: aura.amount,
+                        expires_at: None,
+                        from_aura: true,
+                    });
+                }
+            }
+        }
+    }
+    for (tgt, list) in grants {
+        if let Ok((_, _, _, mut mods)) = targets.get_mut(tgt) {
+            for entry in list {
+                mods.upsert(entry);
+            }
+        }
+    }
+}
+
 /// Auras: sources = aura carriers without PathFollower (towers), targets =
 /// enemy creeps on paths. Per-frame full rebuild of the target's
 /// aura-sourced entries; entries from non-aura sources are preserved.

@@ -95,6 +95,7 @@ fn upgrade_swaps_tier_in_place() {
         bounty_gold: 0, bounty_wood: 0, grant_xp: 0,
         traits: vec![], auras: vec![], hero: false, skills: vec![],
         upgrade_to: up,
+        heal: None,
     };
     defs.insert("arrow".into(), tower_def("arrow", 50, Some("arrow2".into())));
     defs.insert("arrow2".into(), tower_def("arrow2", 90, None));

@@ -32,6 +32,7 @@ fn unit(id: &str, hp: f32, armor: ArmorType, dmg: f32, cost: u32) -> UnitDef {
         hero: false,
         skills: vec![],
         upgrade_to: None,
+        heal: None,
     }
 }
 

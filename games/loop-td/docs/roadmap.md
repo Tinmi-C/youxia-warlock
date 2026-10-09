@@ -9,7 +9,7 @@
 | MA1 | 环形地图 + 建造网格（maps/loop.ron + build_grid_from 路径占格） | ✅ |
 | EN1 | 怪物定义表（bundle 数据：grunt/fast/tank/flyer/boss） | ✅ |
 | EN2 | 绕圈行为验收（漏怪留场 + 圈数 + 存量计数） | ✅ G-LP-02/03 |
-| EN3 | 特性行为四件套（快速/重甲/治疗/光环） | 🟡 快速✅ 重甲✅ 光环✅(敌方光环怪待做——机制已就绪) 治疗⬜ |
+| EN3 | 特性行为四件套（快速/重甲/治疗/光环） | ✅ 快速/重甲/治疗(mender 8/1.5s r3 不逾上限)/敌方光环(shaman -25% taken r3.5，杀即消)——四件全齐，已编入 13/19/23/27 波 |
 | TO1 | 基础塔 ×4（arrow/cannon/mage/sentry，攻甲克制体验） | ✅ G-LP-11 |
 | TO2 | 自由放置与回收（键盘光标 + try_place/try_sell） | ✅ |
 | TO3 | 三级升级（基底 try_upgrade + 全 4 塔 ×3 阶链 + U 键） | ✅ 实装为逐阶链 arrow/arrow2/arrow3…（原「三级」按链式兑现） |

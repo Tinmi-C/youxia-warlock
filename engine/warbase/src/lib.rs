@@ -20,9 +20,9 @@ pub mod prelude {
         StatMods,
     };
     pub use crate::combat::{
-        cleanup_dead, fire_attacks, move_projectiles, pick_targets, resolve_damage,
-        tick_cooldowns, AttackCooldown, AttackKit, CurrentTarget, DamageDealt, DamageRequest,
-        Dead, Projectile, TargetingPriority, UnitDied,
+        cleanup_dead, fire_attacks, healer_tick, move_projectiles, pick_targets, resolve_damage,
+        resolve_heals, tick_cooldowns, AttackCooldown, AttackKit, CurrentTarget, DamageDealt,
+        DamageRequest, Dead, HealRequest, Healer, Projectile, TargetingPriority, UnitDied,
     };
     pub use crate::econ::{
         apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,
@@ -126,6 +126,7 @@ impl Plugin for WarbasePlugin {
             .add_message::<rule::MatchEnded>()
             .add_message::<skill::CastSkill>()
             .add_message::<skill::SkillCast>()
+            .add_message::<combat::HealRequest>()
             .init_resource::<rule::MatchRules>()
             .init_resource::<rule::MatchFlow>()
             .init_resource::<rule::StockCount>()
@@ -149,6 +150,7 @@ impl Plugin for WarbasePlugin {
                 skill::tick_skill_cooldowns,
                 econ::apply_econ,
                 buff::apply_auras,
+                buff::apply_follower_auras,
                 buff::aggregate_stats,
             )
                 .chain()
@@ -172,7 +174,13 @@ impl Plugin for WarbasePlugin {
                 .chain()
                 .in_set(WarbaseSet::Act),
         );
-        app.add_systems(Update, combat::resolve_damage.in_set(WarbaseSet::Resolve));
+        app.add_systems(
+            Update,
+            (combat::resolve_damage, combat::resolve_heals)
+                .chain()
+                .in_set(WarbaseSet::Resolve),
+        );
+        app.add_systems(Update, combat::healer_tick.in_set(WarbaseSet::Tick));
         app.add_systems(
             Update,
             (combat::cleanup_dead, rule::rules_tick, skill::distribute_xp)

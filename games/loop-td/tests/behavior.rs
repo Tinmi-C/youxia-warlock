@@ -45,6 +45,7 @@ fn scenario_bundle(
         hero: false,
         skills: vec![],
         upgrade_to: None,
+        heal: None,
     };
     let mut units = std::collections::HashMap::new();
     units.insert("grunt".into(), unit("grunt", 40.0, ArmorType::Heavy, 0.0));
@@ -344,6 +345,82 @@ fn hero_tower_levels_through_kills() {
     app.update(); // growth entry lands in Cleanup; aggregation folds next Tick
     let eff = app.world().get::<EffectiveStats>(hero).unwrap();
     assert!((eff.damage_mult - 1.05).abs() < 1e-5, "growth folded: {}", eff.damage_mult);
+}
+
+/// EN3-a: the shaman's DamageTakenMult aura shields allies while it lives
+/// and the shield disappears when it dies ("kill the shaman first").
+#[test]
+fn enemy_aura_bearer_shields_allies_until_killed() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    let reg: UnitRegistry = (*app.world().resource::<UnitRegistry>()).clone();
+    let path_e = app.world().resource::<Paths>().0[0];
+
+    let spawn_at = |app: &mut App, id: &str, progress: f32| {
+        let e = spawn_unit(&mut app.world_mut(), &reg, id, Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
+        app.world_mut().entity_mut(e).insert(PathFollower { path: path_e, progress, laps: 0, finished: false });
+        e
+    };
+    let tank = spawn_at(&mut app, "tank", 0.0);
+    let shaman = spawn_at(&mut app, "shaman", 0.5);
+    app.update();
+    app.update();
+
+    let src = app.world_mut().spawn_empty().id();
+    let hit = |app: &mut App, target: Entity| -> f32 {
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
+            .write(DamageRequest { target, source: src, amount: 100.0, attack_type: AttackType::Piercing, crit: false });
+        app.update();
+        let mut cursor = bevy::ecs::message::MessageCursor::<DamageDealt>::default();
+        let msgs = app.world().resource::<bevy::ecs::message::Messages<DamageDealt>>();
+        cursor.read(msgs).next().map(|d| d.amount).unwrap_or(-1.0)
+    };
+
+    // Piercing x Heavy = 0.75; shaman aura -25% taken => 100*0.75*0.75.
+    let shielded = hit(&mut app, tank);
+    assert!((shielded - 56.25).abs() < 1e-3, "shielded: {shielded}");
+
+    // Kill the shaman; next hit on the tank takes full 0.75.
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
+        .write(DamageRequest { target: shaman, source: src, amount: 9999.0, attack_type: AttackType::Magic, crit: false });
+    app.update();
+    app.update();
+    app.update();
+    let unshielded = hit(&mut app, tank);
+    assert!((unshielded - 75.0).abs() < 1e-3, "unshielded: {unshielded}");
+}
+
+/// EN3-b: the mender periodically heals hurt allies (Hp-up stays inside the
+/// Resolve single-writer family) and never overheals past max.
+#[test]
+fn enemy_healer_restores_wounded_allies() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    let reg: UnitRegistry = (*app.world().resource::<UnitRegistry>()).clone();
+    let path_e = app.world().resource::<Paths>().0[0];
+
+    let grunt = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
+    app.world_mut().entity_mut(grunt).insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false });
+    let mender = spawn_unit(&mut app.world_mut(), &reg, "mender", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
+    app.world_mut().entity_mut(mender).insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false });
+    assert!(app.world().get::<Healer>(mender).is_some(), "mender def carries heal spec");
+
+    // Wound the grunt badly; mender heals 8 per 1.5s.
+    app.world_mut().get_mut::<Hp>(grunt).unwrap().0 = 20.0;
+    for _ in 0..130 {
+        app.update(); // ~2.2 s => at least one heal tick
+    }
+    let healed = app.world().get::<Hp>(grunt).unwrap().0;
+    assert!(healed >= 28.0, "healer ticked: {healed}");
+
+    // Cap: leave it running long — hp must never exceed max (40).
+    for _ in 0..600 {
+        app.update();
+    }
+    let capped = app.world().get::<Hp>(grunt).unwrap().0;
+    assert!(capped <= 40.0 + 1e-3, "no overheal: {capped}");
 }
 
 /// BAL-smoke: the harness drives the REAL shipped map with the greedy
