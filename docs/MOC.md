@@ -38,7 +38,7 @@ updated: 2026-10-06
 
 ## 近期更新
 
-- [[topics/game-design/artvault-demand-board-proposal|岩库需求板块设计稿 v0.1]]（新增，draft：给岩库的美术需求管理提案——Demand 状态机/游戏侧 def 为需求源/art-mapping 联调面/解耦红线；youxia 发起，待团队+岩库侧评审）
+- [[topics/game-design/artvault-demand-board-proposal|岩库需求板块设计稿 v0.1]]（P1 已落地 2026-10-09：岩库 ADR-006 + 本仓库 ADR-0015/tools/art-needs；loop-td 16 需求已上板；四拍板项决议见 §8）
 - [[decisions/0014-deprecate-capability-card-workflow|ADR-0014 能力卡工作流退役]]（新增，accepted：youxia 拍板——卡的形式退役，纪律保留为规格-测试-小步提交；各项目以 docs/roadmap.md 平面表追踪进度；模板/根约定同步改写）
 - [[topics/engine/warbase-implementation-design|warbase 技术实现设计 v0.2]]（修订，draft：按「效果优先」反转三处妥协——根 workspace、warden 回迁成对卡（BX+WX 含参数化+warden.ron）、bundle RON 装载层 P0.5 先行；12 模块类型含建造窗口/双模式/fx/挂钩注册表）
 - [[topics/engine/warbase-test-strategy|warbase 测试策略 v0.2]]（修订，draft：~70 用例新增 W 系（warden-on-base 断言不变+读数不漂移）与 bundle 拒载组；`cargo test --workspace` 一击门禁；测试卡与 P0→P3 全阶段对齐）

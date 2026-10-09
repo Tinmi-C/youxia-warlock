@@ -4,7 +4,7 @@ type: reference
 topic: game-design
 date: 2026-10-08
 author: AI 起草（ZCode），待团队 + 岩库侧评审
-status: draft
+status: accepted（P1 已落地）
 tags: [artvault, art-pipeline, requirements, proposal, integration]
 related: ["[[decisions/0009-art-vault-to-game-asset-flow|ADR-0009 岩库资产流]]", "[[topics/game-design/ai-asset-pipeline|AI 生成美术管线八站流程]]", "[[topics/game-design/art-asset-catalog-tool-proposal|art-catalog 设计稿]]", "[[topics/game-design/loop-td-game-proposal|loop-td 需求草案]]"]
 ---
@@ -117,9 +117,14 @@ draft（游戏侧草稿）
 - **ai-asset-pipeline 八站流程** = producing 状态的 stage 细化，方法论不动。
 - 落地时序：岩库侧评审通过本稿 → 岩库立项 P1；游戏侧 `art-needs` 工具 + art-mapping 表 + art-assets.json 回链字段，动工时在本仓库立 ADR-0015（游戏侧接入契约）。
 
-## 8. 待拍板
+## 8. 待拍板（已决议，2026-10-09 P1 落地时按建议执行）
 
-1. Demand 是否区分「新制」与「复用已有资产」两种满足方式（建议：都走 fulfilled，复用时 asset_ids 指向既有资产即可）。
-2. 状态机里 review 的通过权：纯游戏侧（建议）还是双人（审美 H 关卡本来就是人）。
-3. `game_key` 命名空间是否预留非 games/ 目录的消费方（如 showroom 示例资产）。
-4. P1 的 CLI 放 `tools/art-needs`（本仓库）还是岩库仓库发 bin（建议本仓库，与 art-sync 对称）。
+1. 「新制」与「复用已有资产」不区分——都走 fulfilled，复用时 asset_ids 指向既有资产（岩库 ADR-006 决策 3）。
+2. review 通过权 = 纯游戏侧；P1 无鉴权，岩库只记录流转不拦截操作者（岩库 ADR-006 决策 5）。
+3. `game_key` 为自由字符串、约定 = warlock 仓库 games/ 目录名，预留 showroom 等命名空间（岩库 ADR-006 决策 6）。
+4. CLI 放本仓库 `tools/art-needs`（ADR-0015 备选 2 记录了否掉岩库发 bin 的理由）。
+
+> **落地记录（2026-10-09）**：P1 已全链路落地——岩库侧 ADR-006（Demand/DemandEvent/DemandAsset 三表
+> + 状态机 + /demands 十端点 + 41 测试全过）；游戏侧 ADR-0015（warbase mapbundle-dump bin +
+> tools/art-needs CLI + 三文件契约）；loop-td 16 条需求（15 扫描 + 1 手工地形）已提报岩库，
+> tower-arrow 已试点流转 accepted，状态投影正常。

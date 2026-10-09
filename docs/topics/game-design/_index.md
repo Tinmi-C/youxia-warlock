@@ -16,7 +16,7 @@
 | [[topics/game-design/art-asset-catalog-tool-proposal\|美术资产管理系统功能设计（art-catalog 设计稿 v0.4）]] | reference | draft | 人操作 AI 辅助；两层资产域（库上移工作区级 `_library/`）；六模块 + 场景注册表（SC1-6 实录提炼 + 扩展位）+ 模板兼容规范层 C1-C4；评审清单全部落定；待动工 |
 | [[topics/game-design/design-target-anchors\|设计目标锚点框架（平衡数值方法论）]] | howto | draft | 先定目标体验→反推数值；5 字段锚点把体感难易变可测指标 + headless 读数闭环；锚点机制跨游戏通用、具体数值各藏；数据驱动≠外部化（见 ADR-0008） |
 | [[topics/game-design/wc3-rpg-td-map-genres\|魔兽 RPG 塔防地图品类调研——循环圈与「一基座多地图」生态]] | reference | draft | 循环圈=漏怪不死绕圈+活怪存量失败线（绿圈 100/水TD 漏队友区）+英雄塔八面养成；品类图谱（迷宫/宝石/元素/军团）；魔兽生态三层结构（Terrain/Object 数据驱动/Trigger→JASS）→ 自研「runtime + 地图 bundle」映射 |
-| [[topics/game-design/artvault-demand-board-proposal\|岩库需求板块设计稿——游戏美术需求的声明、跟踪与双侧联调]] | reference | draft | 岩库新增 Demand 一等公民：需求状态机 draft→locked/changed；游戏侧以 MapBundle def 为需求源（tools/art-needs 扫描投影）+ art-mapping 换装面 + 锁清单回链 demand_id；CLI 先行 UI 后置；管理流与构建流解耦红线；P1 JSON/CLI 最小闭环→P2 看板→P3 变更回流 |
+| [[topics/game-design/artvault-demand-board-proposal\|岩库需求板块设计稿——游戏美术需求的声明、跟踪与双侧联调]] | reference | accepted（P1 落地） | 岩库新增 Demand 一等公民：需求状态机 draft→locked/changed；游戏侧以 MapBundle def 为需求源（tools/art-needs 扫描投影）+ art-mapping 换装面 + 锁清单回链 demand_id；CLI 先行 UI 后置；管理流与构建流解耦红线；P1 JSON/CLI 最小闭环→P2 看板→P3 变更回流；**P1 已落地 2026-10-09**（岩库 ADR-006 + ADR-0015，loop-td 16 需求上板） |
 | [[topics/game-design/loop-td-game-proposal\|循环圈 TD 需求草案 v0.2——基底验证计划的第一张地图]] | reference | draft | 主产品=warbase 基底，本图是第一消费方兼验收场（四条验收：薄游戏/headless/迷宫冒烟/全落基底能力）；玩法层：单环+自由建塔+10 塔三档+英雄塔三层养成+金木人口+30 波；P0–P3 阶段交替推进基底（BX 卡线）与游戏卡；基底内容已移 warbase-architecture/ADR-0012 |
 
 ## 相关决策
