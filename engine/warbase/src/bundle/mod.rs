@@ -223,3 +223,59 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     world.insert_resource(crate::rule::StockCount(0));
     world.remove_resource::<crate::rule::LivesLeft>();
 }
+
+// ---------- art-needs projection (ADR-0015) ----------
+
+/// Project a bundle's unit defs to JSON for `tools/art-needs` (ADR-0015).
+///
+/// This is the normalized input of the demand pipeline: Python tooling never
+/// parses RON text, it consumes this projection (serde-validated, so a format
+/// drift fails loudly instead of silently misreading). Field names are the
+/// contract with tools/art-needs — keep them stable across internal types.
+/// Output is deterministic: units sorted by id, wave_refs = spawned body count.
+pub fn dump_units_json(bundle: &MapBundle) -> String {
+    let mut wave_refs: HashMap<&str, usize> = HashMap::new();
+    for wave in &bundle.waves.waves {
+        for spec in &wave.spawns {
+            *wave_refs.entry(spec.unit.as_str()).or_default() += spec.count as usize;
+        }
+    }
+
+    let mut units: Vec<serde_json::Value> = bundle
+        .units
+        .values()
+        .map(|def| {
+            let kind = if def.hero {
+                "hero"
+            } else if def.cost_gold > 0 {
+                "tower"
+            } else if def.bounty_gold > 0 {
+                "creep"
+            } else {
+                "other"
+            };
+            serde_json::json!({
+                "id": def.id,
+                "kind": kind,
+                "hp": def.attrs.hp,
+                "move_speed": def.attrs.move_speed,
+                "body_radius": def.attrs.body_radius,
+                "armor_type": format!("{:?}", def.armor_type),
+                "attack_type": def.attack.as_ref()
+                    .map(|a| format!("{:?}", a.attack_type)),
+                "traits": def.traits.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>(),
+                "upgrade_to": &def.upgrade_to,
+                "has_aura": !def.auras.is_empty(),
+                "hero": def.hero,
+                "wave_refs": wave_refs.get(def.id.as_str()).copied().unwrap_or(0),
+            })
+        })
+        .collect();
+    units.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "map": {"id": bundle.identity.id, "version": bundle.identity.version},
+        "units": units,
+    }))
+    .expect("unit projection serializes to JSON")
+}

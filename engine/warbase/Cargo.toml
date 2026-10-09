@@ -9,6 +9,7 @@ description = "warbase —— 魔兽式战斗 runtime 基底（ADR-0012/0013：�
 bevy = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 ron = { workspace = true }
 
 [features]
