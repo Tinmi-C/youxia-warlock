@@ -131,6 +131,11 @@ impl BuildGrid {
     pub fn used(&self) -> usize {
         self.occupancy.len()
     }
+
+    /// Who occupies a cell (upgrades/selection ask this).
+    pub fn occupant(&self, cell: Cell) -> Option<Entity> {
+        self.occupancy.get(&cell).copied()
+    }
 }
 
 /// A placed tower (sell pairs with this). Base-level: placing towers on a
@@ -208,7 +213,77 @@ pub fn try_place(world: &mut World, def_id: &str, cell: Cell) -> Result<Entity, 
     Ok(entity)
 }
 
-/// Sell the tower at a cell: refund (bundle pct), free cell + population.
+/// Upgrade the tower at a cell to its next tier (TO3): pay the target
+/// def's cost, swap entities in place (population unchanged, 1:1).
+pub fn try_upgrade(world: &mut World, cell: Cell) -> Result<Entity, String> {
+    use crate::econ::{EconChanged, Population, Resources};
+    use crate::rule::{building_open, MatchFlow, MatchRules};
+    use crate::unit::{spawn_unit, Allegiance, UnitInstance, UnitRegistry};
+    use crate::wave::WaveDirector;
+
+    if *world.resource::<MatchFlow>() != MatchFlow::Running {
+        return Err("match over".into());
+    }
+    if !building_open(world.resource::<MatchRules>(), world.resource::<WaveDirector>()) {
+        return Err("building locked during a wave".into());
+    }
+    let occupant = world
+        .resource::<BuildGrid>()
+        .occupant(cell)
+        .ok_or("no tower there")?;
+    let current = world
+        .get::<UnitInstance>(occupant)
+        .map(|i| i.def.clone())
+        .ok_or("not a unit")?;
+    let next = world
+        .resource::<UnitRegistry>()
+        .get(&current)
+        .and_then(|d| d.upgrade_to.clone())
+        .ok_or("max tier")?;
+    let (cost_gold, cost_wood) = world
+        .resource::<UnitRegistry>()
+        .get(&next)
+        .map(|d| (d.cost_gold, d.cost_wood))
+        .ok_or_else(|| format!("unknown tier '{next}'"))?;
+    {
+        let mut res = world.resource_mut::<Resources>();
+        if res.gold < cost_gold || res.wood < cost_wood {
+            return Err(format!("need {cost_gold}g/{cost_wood}w"));
+        }
+        res.gold -= cost_gold;
+        res.wood -= cost_wood;
+    }
+    // Swap: free the cell, despawn the old tower, spawn the new one in place.
+    world.resource_mut::<BuildGrid>().free(cell);
+    world.entity_mut(occupant).despawn();
+    let (registry, center) = {
+        let registry: UnitRegistry = (*world.resource::<UnitRegistry>()).clone();
+        let center = world.resource::<BuildGrid>().cell_center(cell);
+        (registry, center)
+    };
+    let entity = spawn_unit(
+        world,
+        &registry,
+        &next,
+        Vec3::new(center.x, 0.0, center.y),
+        Allegiance::Defender,
+        1.0,
+    )
+    .ok_or("spawn failed")?;
+    world.entity_mut(entity).insert(Buildable { cell, cost_gold });
+    world.resource_mut::<BuildGrid>().place(cell, entity);
+    {
+        let snapshot = {
+            let res = world.resource::<Resources>();
+            let pop = world.resource::<Population>();
+            EconChanged { gold: res.gold, wood: res.wood, pop_used: pop.used, pop_cap: pop.cap }
+        };
+        world
+            .resource_mut::<bevy::ecs::message::Messages<EconChanged>>()
+            .write(snapshot);
+    }
+    Ok(entity)
+}
 pub fn try_sell(world: &mut World, cell: Cell) -> Result<u32, String> {
     use crate::econ::{EconChanged, Population, Resources};
     use crate::rule::MatchRules;

@@ -4,7 +4,7 @@
 //! exists in this crate — that's the point under test.
 
 use bevy::prelude::*;
-use loop_td::systems::gameplay::{build_grid_from, try_place, try_sell};
+use loop_td::systems::gameplay::{build_grid_from, try_place, try_sell, try_upgrade};
 use warbase::bundle::{assemble, load_bundle, validate, MapBundle};
 use warbase::harness::{run_headless, GreedyDriver, HarnessOpts};
 use warbase::prelude::*;
@@ -44,6 +44,7 @@ fn scenario_bundle(
         auras: vec![],
         hero: false,
         skills: vec![],
+        upgrade_to: None,
     };
     let mut units = std::collections::HashMap::new();
     units.insert("grunt".into(), unit("grunt", 40.0, ArmorType::Heavy, 0.0));
@@ -363,4 +364,30 @@ fn bal_smoke_greedy_driver_on_the_real_map() {
     assert!(r1.towers_built >= 2, "greedy built towers: {r1:?}");
     let arrow = r1.damage_by_def.get("arrow").copied().unwrap_or(0.0);
     assert!(arrow > 50.0, "arrows fought through the real map: {r1:?}");
+}
+
+/// TO3: tier chain through the shipped map — arrow -> arrow2 -> arrow3,
+/// pays each target tier's cost, population stays 1:1.
+#[test]
+fn tower_upgrades_walk_the_shipped_chain() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let spot = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .find(|c| grid.check(*c).is_ok())
+        .unwrap();
+    try_place(&mut app.world_mut(), "arrow", spot).unwrap();
+    app.world_mut().resource_mut::<Resources>().gold += 100; // headroom for tiers
+    let gold_before_up = app.world().resource::<Resources>().gold;
+
+    let t2 = try_upgrade(&mut app.world_mut(), spot).expect("arrow -> arrow2");
+    assert_eq!(app.world().get::<UnitInstance>(t2).unwrap().def, "arrow2");
+    assert_eq!(app.world().resource::<Resources>().gold, gold_before_up - 90);
+    assert_eq!(app.world().resource::<Population>().used, 1);
+
+    app.world_mut().resource_mut::<Resources>().gold += 200;
+    let t3 = try_upgrade(&mut app.world_mut(), spot).expect("arrow2 -> arrow3");
+    assert_eq!(app.world().get::<UnitInstance>(t3).unwrap().def, "arrow3");
+    assert_eq!(try_upgrade(&mut app.world_mut(), spot), Err("max tier".to_string()));
 }

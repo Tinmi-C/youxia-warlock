@@ -23,6 +23,7 @@ fn grunt_registry() -> UnitRegistry {
             auras: vec![],
             hero: false,
             skills: vec![],
+            upgrade_to: None,
         },
     );
     UnitRegistry { defs }

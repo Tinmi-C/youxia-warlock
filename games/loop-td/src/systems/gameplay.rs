@@ -9,7 +9,7 @@ use warbase::prelude::*;
 
 // Base-level placement (hoisted during BX10 prep — the harness drives the
 // same path real input does).
-pub use warbase::build::{try_place, try_sell, Buildable};
+pub use warbase::build::{try_place, try_sell, try_upgrade, Buildable};
 
 /// The loaded map (kept around for rebuilds / UI).
 #[derive(Resource)]
@@ -115,6 +115,11 @@ pub fn build_input(world: &mut World) {
     if keys.just_pressed(KeyCode::KeyX) {
         if let Err(e) = try_sell(world, cell) {
             info!("[loop-td] sell failed: {e}");
+        }
+    }
+    if keys.just_pressed(KeyCode::KeyU) {
+        if let Err(e) = try_upgrade(world, cell) {
+            info!("[loop-td] upgrade failed: {e}");
         }
     }
 }

@@ -74,3 +74,50 @@ fn fixed_slots_hand_out_in_order_then_reject() {
     g.free(c0);
     assert!(g.first_free_slot().is_ok());
 }
+
+/// TO3: upgrade swaps the tier in place — pays the target def's cost,
+/// keeps cell + population, changes the def; max tier rejects.
+#[test]
+fn upgrade_swaps_tier_in_place() {
+    use warbase::prelude::*;
+    let mut app = warbase::testing::test_app();
+    let mut defs = std::collections::HashMap::new();
+    let tower_def = |id: &str, cost: u32, up: Option<String>| UnitDef {
+        id: id.into(),
+        attrs: BaseAttributes { hp: 80.0, move_speed: 0.0, body_radius: 0.4 },
+        attack: Some(AttackDef {
+            damage: 12.0, interval: 0.8, range: 5.0,
+            attack_type: AttackType::Piercing, targets: TargetDomain::Both,
+            projectile: Some(ProjDef { speed: 20.0 }),
+        }),
+        armor_type: ArmorType::Fortified,
+        cost_gold: cost, cost_wood: 0,
+        bounty_gold: 0, bounty_wood: 0, grant_xp: 0,
+        traits: vec![], auras: vec![], hero: false, skills: vec![],
+        upgrade_to: up,
+    };
+    defs.insert("arrow".into(), tower_def("arrow", 50, Some("arrow2".into())));
+    defs.insert("arrow2".into(), tower_def("arrow2", 90, None));
+    let registry = UnitRegistry { defs };
+    app.insert_resource(UnitRegistry { defs: registry.defs.clone() });
+    app.insert_resource(BuildGrid::free_grid(1.0, 8, 8));
+    app.world_mut().resource_mut::<warbase::prelude::Resources>().gold = 200;
+    app.world_mut().resource_mut::<warbase::prelude::Population>().cap = 8;
+
+    let cell = Cell(2, 2);
+    let t1 = try_place(&mut app.world_mut(), "arrow", cell).unwrap();
+    assert_eq!(app.world().resource::<warbase::prelude::Resources>().gold, 150);
+    assert_eq!(app.world().resource::<warbase::prelude::Population>().used, 1);
+
+    let t2 = try_upgrade(&mut app.world_mut(), cell).unwrap();
+    assert_ne!(t1, t2, "new entity replaces the old");
+    assert_eq!(app.world().get::<UnitInstance>(t2).unwrap().def, "arrow2");
+    assert_eq!(app.world().resource::<warbase::prelude::Resources>().gold, 150 - 90);
+    assert_eq!(app.world().resource::<warbase::prelude::Population>().used, 1, "1:1 swap");
+    assert_eq!(app.world().resource::<BuildGrid>().occupant(cell), Some(t2));
+
+    // Max tier rejects with a readable reason.
+    let err = try_upgrade(&mut app.world_mut(), cell).unwrap_err();
+    assert_eq!(err, "max tier");
+    assert_eq!(app.world().resource::<warbase::prelude::Resources>().gold, 60, "no spend on reject");
+}

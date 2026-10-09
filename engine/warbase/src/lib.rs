@@ -9,7 +9,7 @@
 //! Design docs: docs/topics/engine/warbase-{architecture,implementation-design,test-strategy}.md
 
 pub mod prelude {
-    pub use crate::build::{try_place, try_sell, Buildable, BuildGrid, BuildMode, BuildReject, Cell};
+    pub use crate::build::{try_place, try_sell, try_upgrade, Buildable, BuildGrid, BuildMode, BuildReject, Cell};
     pub use crate::bundle::build_grid;
     pub use crate::harness::{
         run_headless, DriverAction, DriverStrategy, GreedyDriver, HarnessOpts, HarnessReport,

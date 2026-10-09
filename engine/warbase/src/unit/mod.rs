@@ -138,6 +138,10 @@ pub struct UnitDef {
     /// Skill ids to attach at spawn (looked up in SkillDefs).
     #[serde(default)]
     pub skills: Vec<UnitId>,
+    /// Next tier def id (TO3 upgrade chain); cost is the target def's own
+    /// cost_gold. None = max tier.
+    #[serde(default)]
+    pub upgrade_to: Option<UnitId>,
 }
 
 #[derive(Resource, Debug, Default, Clone)]
