@@ -13,6 +13,7 @@ impl Plugin for GamePlugin {
         app.add_systems(Startup, gameplay::load_map)
             .add_systems(Startup, hud::spawn_hud)
             .add_systems(Update, gameplay::build_input)
+            .add_systems(Update, gameplay::command_dispatch)
             .add_systems(Update, hud::refresh_hud);
     }
 }

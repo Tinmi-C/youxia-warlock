@@ -18,7 +18,7 @@
 | BX8 | 规则插拔：Lives/Stockpile/漏下家 + 建造窗口 + 绕圈增益 + 胜负 | ✅ bc0baf6 |
 | build | 建造域：FreeGrid/FixedSlots 双模式 + 同源校验 + 占用/释放 | ✅ |
 | BX3+WX2 | SkillCaster 抽取 / warden 回迁 | ⬜ |
-| BX4+WX3 | 命令卡框架抽取泛化 / warden 回迁 | 🟡 BX4a headless 核心已落地（def 驱动卡面/build_card_from_registry 自动生成/热键解析/CommandCardAction 分发，4 测试）；渲染面板与 WX3 回迁待续 |
+| BX4+WX3 | 命令卡框架抽取泛化 / warden 回迁 | 🟡 BX4a 核心+BX4b 面板已落地（数据驱动底栏槽位、缓存键重建、升级阶不入建造卡；loop-td 已切换消费：B 切模式/数字键经卡面真建造/动作分发）；剩 WX3 warden 回迁与视觉定版（H3） |
 | WX4 | 通用战斗 FX（feature "fx"）/ warden 回迁 | ⬜ |
 | BX10 | headless harness（DriverStrategy + HarnessReport + Greedy 基线 + 注入） | ✅（放置/出售/网格构建随之上收 base：try_place/try_sell/Buildable + bundle::build_grid） |
 | WX5 | BAL 迁 harness（读数口径对齐、不漂移） | ⬜（loop-td 侧 BAL-smoke 已可跑真图+可复现；warden 读数迁移仍待） |

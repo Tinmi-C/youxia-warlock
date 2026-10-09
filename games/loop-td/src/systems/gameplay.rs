@@ -52,7 +52,18 @@ pub fn load_map(world: &mut World) {
     world.insert_resource(grid);
     world.insert_resource(CurrentMap(bundle));
     world.insert_resource(BuildCursor(Cell(10, 8)));
-    world.insert_resource(SelectedTower("arrow".into()));
+    // Command card (BX4b): auto-generated build menu from the map's defs.
+    {
+        let card = warbase::ui::build_card_from_registry(
+            world.resource::<UnitRegistry>(),
+        );
+        world.resource_mut::<warbase::ui::CommandCards>()
+            .cards
+            .insert(warbase::ui::BUILD_CARD.to_string(), card);
+    }
+    world.insert_resource(warbase::ui::Selection {
+        mode: warbase::ui::SelectionMode::Build,
+    });
     info!("[loop-td] map loaded: {}", path.display());
 }
 
@@ -61,10 +72,13 @@ pub fn build_grid_from(bundle: &MapBundle) -> BuildGrid {
     warbase::bundle::build_grid(&bundle.world)
 }
 
-/// Update: keyboard cursor + selection + place/sell. Runs only with real
-/// input (headless tests call try_place/try_sell directly). Exclusive
-/// system: input snapshot is cloned out of the world first.
+/// Update: keyboard cursor + selection mode toggle. Build/sell/upgrade now
+/// flow through the base command card (command_input -> CommandCardAction
+/// -> command_dispatch below); tests can still call try_place directly.
 pub fn build_input(world: &mut World) {
+    if !world.contains_resource::<ButtonInput<KeyCode>>() {
+        return;
+    }
     let keys: ButtonInput<KeyCode> = world.resource::<ButtonInput<KeyCode>>().clone();
     // Cursor movement (clamped to the grid).
     let (cols, rows) = {
@@ -89,29 +103,16 @@ pub fn build_input(world: &mut World) {
         let Cell(cx, cy) = cursor.0;
         cursor.0 = Cell((cx + dx).clamp(0, cols - 1), (cy + dy).clamp(0, rows - 1));
     }
-
-    for (key, id) in [
-        (KeyCode::Digit1, "arrow"),
-        (KeyCode::Digit2, "cannon"),
-        (KeyCode::Digit3, "mage"),
-        (KeyCode::Digit4, "sentry"),
-        (KeyCode::Digit5, "ice"),
-        (KeyCode::Digit6, "drum"),
-        (KeyCode::Digit7, "corrode"),
-        (KeyCode::Digit8, "hunter"),
-    ] {
-        if keys.just_pressed(key) {
-            world.resource_mut::<SelectedTower>().0 = id.into();
-        }
+    drop(cursor);
+    if keys.just_pressed(KeyCode::KeyB) {
+        let mut sel = world.resource_mut::<warbase::ui::Selection>();
+        sel.mode = match sel.mode {
+            warbase::ui::SelectionMode::Build => warbase::ui::SelectionMode::None,
+            _ => warbase::ui::SelectionMode::Build,
+        };
     }
-
+    // Legacy at-cursor keys (kept until unit selection lands).
     let cell = world.resource::<BuildCursor>().0;
-    if keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Enter) {
-        let id = world.resource::<SelectedTower>().0.clone();
-        if let Err(e) = try_place(world, &id, cell) {
-            info!("[loop-td] place failed: {e}");
-        }
-    }
     if keys.just_pressed(KeyCode::KeyX) {
         if let Err(e) = try_sell(world, cell) {
             info!("[loop-td] sell failed: {e}");
@@ -120,6 +121,36 @@ pub fn build_input(world: &mut World) {
     if keys.just_pressed(KeyCode::KeyU) {
         if let Err(e) = try_upgrade(world, cell) {
             info!("[loop-td] upgrade failed: {e}");
+        }
+    }
+}
+
+/// Dispatch base command-card actions onto the map (BX4b consumer side).
+pub fn command_dispatch(world: &mut World) {
+    let events: Vec<warbase::ui::CommandCardAction> = {
+        let msgs = world.resource::<bevy::ecs::message::Messages<warbase::ui::CommandCardAction>>();
+        let mut cursor = bevy::ecs::message::MessageCursor::default();
+        cursor.read(msgs).cloned().collect()
+    };
+    let cell = world.resource::<BuildCursor>().0;
+    for event in events {
+        match event.action {
+            warbase::ui::CommandAction::Build(def) => {
+                if let Err(e) = try_place(world, &def, cell) {
+                    info!("[loop-td] place {def} failed: {e}");
+                }
+            }
+            warbase::ui::CommandAction::Upgrade => {
+                if let Err(e) = try_upgrade(world, cell) {
+                    info!("[loop-td] upgrade failed: {e}");
+                }
+            }
+            warbase::ui::CommandAction::Sell => {
+                if let Err(e) = try_sell(world, cell) {
+                    info!("[loop-td] sell failed: {e}");
+                }
+            }
+            warbase::ui::CommandAction::Cast(_) => {}
         }
     }
 }

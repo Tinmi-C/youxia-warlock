@@ -423,6 +423,67 @@ fn enemy_healer_restores_wounded_allies() {
     assert!(capped <= 40.0 + 1e-3, "no overheal: {capped}");
 }
 
+/// BX4b: the game runs on the base command card — the auto-generated build
+/// menu drives real placement through key presses, and the panel's slot
+/// count matches the card data (tiers excluded, buildables only).
+#[test]
+fn command_card_drives_the_real_game() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    // The real game registers the card in load_map; mirror it here.
+    {
+        let card = warbase::ui::build_card_from_registry(app.world().resource::<UnitRegistry>());
+        app.world_mut()
+            .resource_mut::<warbase::ui::CommandCards>()
+            .cards
+            .insert(warbase::ui::BUILD_CARD.to_string(), card);
+    }
+    app.world_mut()
+        .insert_resource(warbase::ui::Selection { mode: warbase::ui::SelectionMode::Build });
+    app.insert_resource(loop_td::systems::gameplay::BuildCursor(Cell(10, 8)));
+    app.init_resource::<ButtonInput<KeyCode>>();
+
+    // Panel renders after a frame (Startup + refresh).
+    app.update();
+    let slots_in_card = app
+        .world()
+        .resource::<warbase::ui::CommandCards>()
+        .cards
+        .get(warbase::ui::BUILD_CARD)
+        .unwrap()
+        .slots
+        .len();
+    // 4 basics + 3 function towers + hunter = 8 buildables (tiers excluded).
+    assert_eq!(slots_in_card, 8, "buildables only, upgrade tiers excluded");
+    let panel = app
+        .world_mut()
+        .query_filtered::<Entity, With<warbase::ui::CommandPanel>>()
+        .single(app.world())
+        .unwrap();
+    let children = app
+        .world()
+        .get::<Children>(panel)
+        .map(|c| c.len())
+        .unwrap_or(0);
+    assert_eq!(children, slots_in_card, "panel slots mirror the card data");
+
+    // Sorted first buildable is "arrow" (50g) on Digit1 — press it and the
+    // tower lands at the cursor through the full card -> dispatch -> place path.
+    let gold_before = app.world().resource::<Resources>().gold;
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Digit1);
+    for _ in 0..3 {
+        app.update(); // command_input resolves the hotkey into an action
+    }
+    // The test app doesn't run the game plugin's dispatch system — invoke
+    // the same function the real game schedules.
+    loop_td::systems::gameplay::command_dispatch(&mut app.world_mut());
+    app.update();
+    assert_eq!(app.world().resource::<Resources>().gold, gold_before - 50, "arrow placed via card");
+    assert_eq!(app.world().resource::<BuildGrid>().used(), 1);
+}
+
 /// BAL-smoke: the harness drives the REAL shipped map with the greedy
 /// baseline — reproducible, towers actually get built and fight.
 #[test]
