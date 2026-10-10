@@ -1,5 +1,7 @@
 //! FxPlugin: combat presentation (FX1–FX3, requirements batch 2). Pure
 //! visuals — rule logic, gold and despawn timing stay in their own domains.
+//! WX4: the generic primitives (flash/rings/shells) are the base's systems;
+//! warden keeps the Enemy-driven bars and the status tints/badges.
 
 use bevy::prelude::*;
 
@@ -10,18 +12,25 @@ pub struct FxPlugin;
 
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-                Update,
-                (
-                    systems::fx::refresh_health_bars,
-                    systems::fx::tick_hit_flash,
-                    systems::fx::spawn_blast_rings,
-                    systems::fx::tick_blast_rings,
-                    systems::fx::tick_death_shells,
-                    systems::fx::tint_slowed,
-                    systems::fx::attach_shield_badges,
-                )
-                    .in_set(GameSet::Observe),
-            );
+        // The base's blast-ring input message (the bridge forwards warden's
+        // ProjectileImpact into it each frame).
+        app.add_message::<warbase::fx::FxBlast>().add_systems(
+            Update,
+            (
+                // FX1: warden-local bars (Enemy god-component data source;
+                // swaps to the base's with the WX6 component split).
+                systems::fx::refresh_health_bars,
+                // FX2: base primitives — flash, rings (via the warden
+                // impact bridge), shells.
+                warbase::fx::tick_hit_flash,
+                (systems::fx::forward_blast_feedback, warbase::fx::spawn_blast_rings).chain(),
+                warbase::fx::tick_blast_rings,
+                warbase::fx::tick_death_shells,
+                // FX3: status visuals (game identity).
+                systems::fx::tint_slowed,
+                systems::fx::attach_shield_badges,
+            )
+                .in_set(GameSet::Observe),
+        );
     }
 }

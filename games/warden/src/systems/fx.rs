@@ -2,13 +2,17 @@
 //! visualization. Pure visuals on top of the existing logic — kill gold,
 //! despawn timing and every rule stays untouched (requirements §5.1 batch 2).
 //!
-//!   - FX1: a bar appears above an enemy only once it is damaged (Defender's
-//!     Quest convention — no full-health spam); width == hp/max_hp; elites
-//!     and bosses get a wider, golden bar.
-//!   - FX2: hit flash (<0.15 s), AOE blast rings from `ProjectileImpact`
-//!     (<0.5 s), death shells via an OnRemove observer (~0.4 s fade).
-//!   - FX3: slowed enemies tint blue while `Slow` lasts; armored enemies
-//!     carry a shield badge from spawn; healers keep their green.
+//! WX4 (ADR-0012): the game-agnostic primitives — hit flash, blast rings,
+//! death shells — now come from `warbase::fx` (re-exported below under their
+//! historical warden paths). What stays warden-side by design:
+//!   - FX1 health bars: the data source is the warden `Enemy` god-component
+//!     (hp/max_hp live inside it); they switch to the base's Hp/MaxHp-driven
+//!     bars with the WX6 component split (one-line swap then).
+//!   - FX3 status visuals: slow tint restores the archetype color from
+//!     `EnemyDefs`, the shield badge reads `physical_armor` — game identity.
+//!   - The `ProjectileImpact` observability message stays warden's (tests
+//!     and multiple writers); `forward_blast_feedback` bridges it into the
+//!     base's `FxBlast` so the base ring system renders it.
 
 use bevy::prelude::*;
 
@@ -17,7 +21,11 @@ use crate::resources::EnemyDefs;
 use crate::systems::enemy::enemy_base_color;
 use crate::systems::projectiles::ProjectileImpact;
 
-// --- FX1: health bars ---------------------------------------------------------
+// Base FX primitives under their historical warden paths (WX4).
+pub use warbase::fx::spawn_death_shell;
+pub use warbase::fx::{BlastRing, DeathShell, HitFlash, HIT_FLASH_SECS};
+
+// --- FX1: health bars (warden-local until the WX6 Enemy split) -------------------
 
 /// Marker on an enemy's health bar (a child entity of the enemy).
 #[derive(Component)]
@@ -82,155 +90,24 @@ pub fn refresh_health_bars(
     }
 }
 
-// --- FX2: hit flash, blast rings, death shells --------------------------------
+// --- FX2 bridge: warden impacts -> base blast rings (WX4) ------------------------
 
-/// A white flash on a damaged enemy; expires back to the archetype color.
-#[derive(Component)]
-pub struct HitFlash {
-    pub timer: f32,
-    pub original: Option<Color>,
-}
-
-/// FX2 acceptance: the hit flash lasts <0.15 s (shared by the injectors).
-pub const HIT_FLASH_SECS: f32 = 0.15;
-const BLAST_RING_SECS: f32 = 0.5;
-const DEATH_SHELL_SECS: f32 = 0.4;
-
-/// Tick hit flashes: capture the original color once, flash white, restore.
-pub fn tick_hit_flash(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut q: Query<(Entity, &mut HitFlash, &MeshMaterial3d<StandardMaterial>)>,
-) {
-    for (eid, mut flash, mat) in &mut q {
-        flash.timer -= time.delta_secs();
-        if let Some(mut m) = materials.get_mut(&mat.0) {
-            if flash.original.is_none() {
-                flash.original = Some(m.base_color);
-                m.base_color = Color::srgb(1.0, 1.0, 0.95);
-            }
-            if flash.timer <= 0.0 {
-                if let Some(orig) = flash.original {
-                    m.base_color = orig;
-                }
-                commands.entity(eid).remove::<HitFlash>();
-            }
-        }
-    }
-}
-
-/// Marker on an expanding AOE blast ring.
-#[derive(Component)]
-pub struct BlastRing {
-    pub timer: f32,
-    pub max_radius: f32,
-}
-
-/// FX2: on every AOE impact, spawn an expanding ring at the blast point.
-pub fn spawn_blast_rings(
+/// Forward warden's `ProjectileImpact` observability message into the base's
+/// `FxBlast` so `warbase::fx::spawn_blast_rings` renders the feedback. Runs
+/// chained before the base spawner in Observe.
+pub fn forward_blast_feedback(
     mut impacts: MessageReader<ProjectileImpact>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut blasts: MessageWriter<warbase::fx::FxBlast>,
 ) {
     for impact in impacts.read() {
-        if impact.aoe_radius <= 0.0 {
-            continue;
-        }
-        commands.spawn((
-            BlastRing {
-                timer: BLAST_RING_SECS,
-                max_radius: impact.aoe_radius,
-            },
-            Mesh3d(meshes.add(Circle::new(1.0))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgba(1.0, 0.7, 0.25, 0.6),
-                unlit: true,
-                alpha_mode: AlphaMode::Blend,
-                ..default()
-            })),
-            Visibility::Visible,
-            Transform::from_xyz(impact.position.x, 0.1, impact.position.z)
-                .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-        ));
+        blasts.write(warbase::fx::FxBlast {
+            position: impact.position,
+            radius: impact.aoe_radius,
+        });
     }
 }
 
-/// Expand + fade blast rings, despawn after BLAST_RING_SECS.
-pub fn tick_blast_rings(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut q: Query<(Entity, &mut BlastRing, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
-) {
-    for (eid, mut ring, mut tf, mat) in &mut q {
-        ring.timer -= time.delta_secs();
-        let t = 1.0 - (ring.timer / BLAST_RING_SECS).clamp(0.0, 1.0); // 0→1
-        let r = ring.max_radius * (0.2 + 0.8 * t);
-        tf.scale = Vec3::splat(r);
-        if let Some(mut m) = materials.get_mut(&mat.0) {
-            m.base_color.set_alpha(0.6 * (1.0 - t));
-        }
-        if ring.timer <= 0.0 {
-            commands.entity(eid).despawn();
-        }
-    }
-}
-
-/// Marker on a death shell (pure visual; the logic despawn already happened).
-#[derive(Component)]
-pub struct DeathShell {
-    pub timer: f32,
-}
-
-/// FX2: spawn a dissolving shell for a dying enemy. Called from
-/// `enemy::resolve_death` right before the despawn — the gold/despawn logic
-/// and timing stay untouched; this only adds the visual.
-pub fn spawn_death_shell(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    tf: &Transform,
-    color: Color,
-) {
-    commands.spawn((
-        DeathShell {
-            timer: DEATH_SHELL_SECS,
-        },
-        Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: color,
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        })),
-        Visibility::Visible,
-        Transform::from_translation(tf.translation),
-    ));
-}
-
-/// Shrink + fade death shells, despawn after DEATH_SHELL_SECS.
-pub fn tick_death_shells(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut q: Query<(Entity, &mut DeathShell, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
-) {
-    for (eid, mut shell, mut tf, mat) in &mut q {
-        shell.timer -= time.delta_secs();
-        let t = (shell.timer / DEATH_SHELL_SECS).clamp(0.0, 1.0); // 1→0
-        tf.scale = Vec3::splat(t.max(0.05));
-        if let Some(mut m) = materials.get_mut(&mat.0) {
-            m.base_color.set_alpha(t);
-        }
-        if shell.timer <= 0.0 {
-            commands.entity(eid).despawn();
-        }
-    }
-}
-
-// --- FX3: status visualization --------------------------------------------------
+// --- FX3: status visualization (game identity, stays warden) ---------------------
 
 /// The blue tint of a slowed enemy.
 fn slow_tint() -> Color {
