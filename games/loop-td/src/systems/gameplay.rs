@@ -513,6 +513,97 @@ pub fn refresh_end_screen(world: &mut World) {
 #[derive(Resource, Default)]
 pub struct EndlessNext;
 
+// ---------------------------------------------------------------------------
+// HR1: hero acquisition sources — build (already working), wave-milestone
+// grant (free hero at N waves), BOSS kill drop (chance on boss death).
+// ---------------------------------------------------------------------------
+
+/// Free hero grant at every N-th wave cleared (data in MatchRules side or
+/// hardcoded for now — tune via the map when the bundle grows a field).
+const HERO_MILESTONE_WAVES: usize = 10;
+const HERO_DROP_CHANCE: f32 = 0.5; // 50% chance per boss kill
+
+#[derive(Resource, Debug, Default)]
+pub struct HeroGrants {
+    pub milestones_claimed: usize,
+    pub boss_drops: u32,
+}
+
+/// Cleanup: on wave-cleared milestones and boss kills, grant a free hero
+/// (spawned at a free cell near the map center if population allows).
+pub fn hero_acquisition(world: &mut World) {
+    world.get_resource_or_insert_with(HeroGrants::default);
+    let mut grants: Vec<&'static str> = Vec::new(); // reason for each grant
+
+    // Milestone: every HERO_MILESTONE_WAVES waves.
+    {
+        let waves = world.resource::<WaveDirector>().next_wave;
+        let milestones = waves / HERO_MILESTONE_WAVES;
+        let claimed = world.resource::<HeroGrants>().milestones_claimed;
+        if milestones > claimed {
+            grants.push("milestone");
+            world.resource_mut::<HeroGrants>().milestones_claimed += 1;
+        }
+    }
+
+    // BOSS drop: 50% chance per boss UnitDied this frame.
+    {
+        let deaths: Vec<UnitDied> = {
+            let msgs = world.resource::<bevy::ecs::message::Messages<UnitDied>>();
+            let mut c = bevy::ecs::message::MessageCursor::default();
+            c.read(msgs)
+                .filter(|d| d.def == "boss")
+                .cloned()
+                .collect()
+        };
+        let mut drops = 0u32;
+        {
+            let mut rng = world.resource_mut::<MatchRng>();
+            for _ in &deaths {
+                if rng.next_f32() < HERO_DROP_CHANCE {
+                    drops += 1;
+                }
+            }
+        }
+        for _ in 0..drops {
+            grants.push("boss-drop");
+            world.resource_mut::<HeroGrants>().boss_drops += 1;
+        }
+    }
+
+    // Spawn granted heroes at a free cell near the ring center.
+    for reason in grants {
+        let grid = world.resource::<BuildGrid>().clone();
+        let center = Cell(grid.cols / 2, grid.rows / 2);
+        let spot = (1..6).find_map(|ring| {
+            (-ring..=ring)
+                .flat_map(|dx| (-ring..=ring).map(move |dy| (dx, dy)))
+                .filter(|(dx, dy)| i32::abs(*dx) == ring || i32::abs(*dy) == ring)
+                .map(|(dx, dy)| Cell(center.0 + dx, center.1 + dy))
+                .find(|c| grid.check(*c).is_ok())
+        });
+        let Some(cell) = spot else {
+            info!("[loop-td] hero grant ({reason}) skipped: no free cell");
+            continue;
+        };
+        // Grant is free: cover the cost so try_place succeeds, then the
+        // refund keeps the player's gold unchanged.
+        let cost = world
+            .resource::<UnitRegistry>()
+            .get("hunter")
+            .map(|d| d.cost_gold)
+            .unwrap_or(150);
+        world.resource_mut::<Resources>().gold += cost;
+        match try_place(world, "hunter", cell) {
+            Ok(_) => info!("[loop-td] hero granted ({reason}) at {cell:?}"),
+            Err(e) => {
+                world.resource_mut::<Resources>().gold -= cost; // refund on failure
+                info!("[loop-td] hero grant ({reason}) failed: {e}");
+            }
+        }
+    }
+}
+
 /// Dispatch base command-card actions onto the map (BX4b consumer side).
 pub fn command_dispatch(world: &mut World) {    let events: Vec<warbase::ui::CommandCardAction> = {
         let msgs = world.resource::<bevy::ecs::message::Messages<warbase::ui::CommandCardAction>>();
