@@ -30,6 +30,12 @@ pub struct CommandSlotDef {
     pub hotkey: Hotkey,
     pub tooltip: String,
     pub action: CommandAction,
+    /// WX3: grey-out state — disabled slots render grey and neither their
+    /// click nor their hotkey dispatches (games set it for combat locks,
+    /// unaffordable entries...).
+    pub enabled: bool,
+    /// WX3: corner badge letter (the grid position's hotkey letter).
+    pub badge: Option<char>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,6 +48,42 @@ pub const BUILD_CARD: &str = "__build__";
 
 /// Reserved card key for the skill bar (commander skills — Z/X/C zone).
 pub const SKILL_CARD: &str = "__skills__";
+
+/// The WC3 2x4 command grid, row-major: Q W E R / A S D F (WX3 lifted from
+/// warden §16.7 — the canonical grid order for card hotkeys and badges).
+pub const GRID_KEYS: [KeyCode; 8] = [
+    KeyCode::KeyQ,
+    KeyCode::KeyW,
+    KeyCode::KeyE,
+    KeyCode::KeyR,
+    KeyCode::KeyA,
+    KeyCode::KeyS,
+    KeyCode::KeyD,
+    KeyCode::KeyF,
+];
+
+/// Badge letter for a grid slot (row-major, mod 8).
+pub fn grid_badge(grid: u8) -> char {
+    "QWERASDF".as_bytes()[grid as usize % 8] as char
+}
+
+/// Fill hotkeys + corner badges in slot order (grid 0..8); slots beyond the
+/// 2x4 grid get neither. Games wanting the 1..9QWER build-menu order keep
+/// `build_card_from_registry`'s assignment instead.
+pub fn assign_grid_hotkeys(card: &mut CommandCardDef) {
+    for (i, slot) in card.slots.iter_mut().enumerate() {
+        match GRID_KEYS.get(i) {
+            Some(k) => {
+                slot.hotkey = Hotkey::Key(*k);
+                slot.badge = Some(grid_badge(i as u8));
+            }
+            None => {
+                slot.hotkey = Hotkey::None;
+                slot.badge = None;
+            }
+        }
+    }
+}
 
 /// Selection states the panel reacts to (five-state model from warden UI9:
 /// None → Build → Unit → Aiming → Casting — the base drives the first three;
@@ -110,6 +152,8 @@ pub fn build_card_from_registry(registry: &UnitRegistry) -> CommandCardDef {
                 hotkey: keys.get(i).copied().map(Hotkey::Key).unwrap_or(Hotkey::None),
                 tooltip: format!("{} ({}g/{}w)", def.id, def.cost_gold, def.cost_wood),
                 action: CommandAction::Build(def.id.clone()),
+                enabled: true,
+                badge: None,
             })
             .collect(),
     }
@@ -141,6 +185,9 @@ pub fn command_input(world: &mut World) {
     let selection = world.resource::<Selection>().mode.clone();
     for slot in &card.slots {
         if let Hotkey::Key(k) = slot.hotkey {
+            if !slot.enabled {
+                continue; // WX3: a greyed slot's hotkey stays inert too
+            }
             if keys.just_pressed(k) {
                 world
                     .resource_mut::<bevy::ecs::message::Messages<CommandCardAction>>()
@@ -150,18 +197,96 @@ pub fn command_input(world: &mut World) {
     }
 }
 
+/// Marker on a rendered panel slot (WX3). Carries everything the click and
+/// tooltip systems need without re-reading the card def.
+#[derive(Component, Debug)]
+pub struct CommandSlotButton {
+    pub action: CommandAction,
+    pub enabled: bool,
+    pub tooltip: String,
+}
+
+/// WX3 click path: a pressed slot dispatches the same `CommandCardAction` a
+/// hotkey press produces — one dispatch seam, so the two can never diverge.
+pub fn command_clicks(
+    q: Query<(&Interaction, &CommandSlotButton), Changed<Interaction>>,
+    selection: Res<Selection>,
+    mut actions: MessageWriter<CommandCardAction>,
+) {
+    for (inter, slot) in &q {
+        if *inter == Interaction::Pressed && slot.enabled {
+            actions.write(CommandCardAction {
+                action: slot.action.clone(),
+                selection: selection.mode.clone(),
+            });
+        }
+    }
+}
+
+/// Marker on the hover tooltip's text (WX3).
+#[derive(Component, Debug)]
+pub struct TooltipText;
+
+/// WX3 tooltip: hovering a slot shows its def-provided tooltip string in a
+/// panel above the bar; leaving despawns it. Content is the game's business
+/// (labels/tooltips arrive localized in the card def); the base only owns
+/// the show/hide mechanics.
+pub fn refresh_tooltip(
+    mut commands: Commands,
+    slots: Query<(&Interaction, &CommandSlotButton)>,
+    existing: Query<Entity, With<TooltipText>>,
+    mut cache: Local<Option<String>>,
+) {
+    let hovered = slots
+        .iter()
+        .find(|(inter, _)| **inter == Interaction::Hovered)
+        .map(|(_, b)| b.tooltip.clone());
+    if *cache == hovered {
+        return;
+    }
+    *cache = hovered.clone();
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+    if let Some(text) = hovered {
+        commands.spawn((
+            TooltipText,
+            Text::new(text),
+            TextFont { font_size: FontSize::Px(11.0), ..default() },
+            TextColor(Color::srgb(0.85, 0.88, 0.92)),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(72.0), // above the panel's slot row
+                left: Val::Px(8.0),
+                padding: UiRect::all(Val::Px(6.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.05, 0.06, 0.08)),
+        ));
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Panel (BX4b): the bottom-bar face of the active card, rebuilt only when
-// the active card key changes (cache-key; the CJK reflow pitfall). Logic is
-// headless-testable — Node/Text components exist without a renderer; the
-// visual pass is a human gate (H3) deferred with the rest of the art line.
+// Panel (BX4b + WX3): the bottom-bar face of the active card, rebuilt only
+// when the active card key OR the game-bumped version changes (cache-key;
+// the CJK reflow pitfall). Slots are real buttons (WX3): clicks dispatch the
+// same actions hotkeys do, disabled slots render grey, badges print in the
+// corner, hovering shows the def's tooltip. Logic is headless-testable —
+// Node/Text components exist without a renderer; the visual pass is a human
+// gate (H3) deferred with the rest of the art line.
 // ---------------------------------------------------------------------------
 
 #[derive(Component, Debug)]
 pub struct CommandPanel;
 
 #[derive(Resource, Debug, Default)]
-struct PanelKey(Option<String>);
+struct PanelKey(Option<String>, u64);
+
+/// WX3: games bump this when the card CONTENT changed without the active
+/// key changing (language toggle, economy affordability greying...) — the
+/// panel rebuilds on the next update.
+#[derive(Resource, Debug, Default)]
+pub struct PanelVersion(pub u64);
 
 pub fn spawn_command_panel(mut commands: Commands) {
     commands.spawn((
@@ -179,16 +304,21 @@ pub fn spawn_command_panel(mut commands: Commands) {
     ));
 }
 
-/// Rebuild the panel children when (and only when) the active card changes.
+/// Rebuild the panel children when (and only when) the active card or the
+/// game-bumped version changes.
 pub fn refresh_command_panel(
     world: &mut World,
 ) {
+    let version = world.resource::<PanelVersion>().0;
     let Some(key) = active_card_key(world) else {
         maybe_clear(world);
         return;
     };
-    let changed = world.resource::<PanelKey>().0.as_ref() != Some(&key);
-    if !changed {
+    let (last_key, last_version) = {
+        let pk = world.resource::<PanelKey>();
+        (pk.0.clone(), pk.1)
+    };
+    if last_key == Some(key.clone()) && last_version == version {
         return;
     }
     let Some(card) = world.resource::<CommandCards>().cards.get(&key).cloned() else {
@@ -196,17 +326,20 @@ pub fn refresh_command_panel(
         return;
     };
     world.resource_mut::<PanelKey>().0 = Some(key);
+    world.resource_mut::<PanelKey>().1 = version;
 
     let panel = world
         .query_filtered::<Entity, With<CommandPanel>>()
         .single(world)
         .expect("command panel spawned at startup");
-    let mut cmds = world.entity_mut(panel);
-    cmds.clear_children();
-    // Collect children to despawn (clear_children unparents; despawn them).
-    let children: Vec<Entity> = cmds.get::<Children>().map(|c| c.to_vec()).unwrap_or_default();
-    for c in children {
-        world.despawn(c);
+    // Despawn the previous slots (bottom-up subtree walk — a slot's Texts
+    // are grandchildren the shallow despawn helpers would orphan).
+    let prev: Vec<Entity> = world
+        .get::<Children>(panel)
+        .map(|c| c.to_vec())
+        .unwrap_or_default();
+    for slot in prev {
+        despawn_subtree(world, slot);
     }
     let mut entity = world.get_entity_mut(panel).unwrap();
     for slot in &card.slots {
@@ -214,27 +347,54 @@ pub fn refresh_command_panel(
             Hotkey::Key(k) => format!("{k:?}"),
             Hotkey::None => " ".to_string(),
         };
+        // WX3: disabled slots render grey (combat locks, affordability).
+        let (bg, fg) = if slot.enabled {
+            (Color::srgb(0.14, 0.16, 0.2), Color::WHITE)
+        } else {
+            (Color::srgb(0.16, 0.16, 0.18), Color::srgb(0.45, 0.45, 0.45))
+        };
         entity.with_children(|p| {
             p.spawn((
+                Button,
+                CommandSlotButton {
+                    action: slot.action.clone(),
+                    enabled: slot.enabled,
+                    tooltip: slot.tooltip.clone(),
+                },
+                Interaction::None,
                 Node {
                     width: Val::Px(84.0),
                     height: Val::Px(56.0),
                     padding: UiRect::all(Val::Px(4.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.14, 0.16, 0.2)),
+                BackgroundColor(bg),
             ))
             .with_children(|slot_root| {
                 slot_root.spawn((
                     Text::new(format!("[{hotkey}] {}", slot.label)),
                     TextFont { font_size: FontSize::Px(14.0), ..default() },
-                    TextColor(Color::WHITE),
+                    TextColor(fg),
                 ));
                 slot_root.spawn((
                     Text::new(slot.tooltip.clone()),
                     TextFont { font_size: FontSize::Px(10.0), ..default() },
                     TextColor(Color::srgb(0.7, 0.7, 0.7)),
                 ));
+                // WX3: grid badge in the corner (when the card assigns one).
+                if let Some(badge) = slot.badge {
+                    slot_root.spawn((
+                        Text::new(badge.to_string()),
+                        TextFont { font_size: FontSize::Px(9.0), ..default() },
+                        TextColor(Color::srgb(0.6, 0.8, 1.0)),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            top: Val::Px(2.0),
+                            right: Val::Px(4.0),
+                            ..default()
+                        },
+                    ));
+                }
             });
         });
     }
@@ -251,10 +411,22 @@ fn maybe_clear(world: &mut World) {
                 .map(|c| c.to_vec())
                 .unwrap_or_default();
             for c in children {
-                world.despawn(c);
+                despawn_subtree(world, c);
             }
         }
     }
+}
+
+/// Despawn an entity and everything below it in the UI tree.
+fn despawn_subtree(world: &mut World, root: Entity) {
+    let children: Vec<Entity> = world
+        .get::<Children>(root)
+        .map(|c| c.to_vec())
+        .unwrap_or_default();
+    for c in children {
+        despawn_subtree(world, c);
+    }
+    let _ = world.entity_mut(root).despawn();
 }
 
 pub struct UiPlugin;
@@ -265,7 +437,16 @@ impl Plugin for UiPlugin {
             .init_resource::<CommandCards>()
             .init_resource::<Selection>()
             .init_resource::<PanelKey>()
+            .init_resource::<PanelVersion>()
             .add_systems(Startup, spawn_command_panel)
-            .add_systems(Update, (command_input, refresh_command_panel));
+            .add_systems(
+                Update,
+                (
+                    command_input,
+                    command_clicks,
+                    refresh_command_panel,
+                    refresh_tooltip,
+                ),
+            );
     }
 }

@@ -105,22 +105,10 @@ pub struct CommandButton {
     pub grid: u8,
 }
 
-/// The grid hotkey letters in row-major order (§16.7).
-pub const GRID_KEYS: [KeyCode; 8] = [
-    KeyCode::KeyQ,
-    KeyCode::KeyW,
-    KeyCode::KeyE,
-    KeyCode::KeyR,
-    KeyCode::KeyA,
-    KeyCode::KeyS,
-    KeyCode::KeyD,
-    KeyCode::KeyF,
-];
-
-/// Badge letter for a grid slot (printed on the button corner, §16.7).
-pub fn grid_badge(grid: u8) -> char {
-    "QWERASDF".as_bytes()[grid as usize % 8] as char
-}
+/// The grid hotkeys and badge letters (§16.7) are the base's canonical WC3
+/// 2×4 grid since WX3 — re-exported here for the existing warden paths.
+pub use warbase::ui::GRID_KEYS;
+pub use warbase::ui::grid_badge;
 
 /// Marker on the selected tower's ground range ring (selection-driven, UI9).
 #[derive(Component)]
