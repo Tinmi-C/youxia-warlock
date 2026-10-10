@@ -37,10 +37,10 @@ pub struct CurrentTarget(pub Option<Entity>);
 #[derive(Component, Debug)]
 pub struct Dead;
 
-#[derive(Message, Debug)]
+#[derive(Message, Debug, Clone, Copy)]
 pub struct DamageRequest {
     pub target: Entity,
-    pub source: Entity,
+    pub source: DamageOrigin,
     pub amount: f32,
     pub attack_type: AttackType,
     pub crit: bool,
@@ -49,7 +49,7 @@ pub struct DamageRequest {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct DamageDealt {
     pub target: Entity,
-    pub source: Entity,
+    pub source: DamageOrigin,
     pub amount: f32,
     pub crit: bool,
     pub killed: bool,
@@ -118,14 +118,28 @@ pub struct UnitDied {
     pub gold: u32,
     pub wood: u32,
     pub xp: u32,
-    pub killer: Option<Entity>,
+    pub killer: Option<DamageOrigin>,
+}
+
+/// Who caused a piece of damage — the attribution seam for kill credit,
+/// balance readouts and skill on-hit hooks. `CommanderSkill`/`TowerSkill`
+/// carry the registry def id of the skill (WX1: lifted from warden's
+/// DamageSource so BAL attribution survives the migration).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DamageOrigin {
+    /// A basic-attack hit from a unit.
+    Attack(Entity),
+    /// A hero/commander skill cast by that entity.
+    Skill { caster: Entity, skill: usize },
+    /// Environment / system damage.
+    System,
 }
 
 /// Homing projectile as a pure logic entity; visuals are the game's business.
 #[derive(Component, Debug)]
 pub struct Projectile {
     pub target: Entity,
-    pub source: Entity,
+    pub source: DamageOrigin,
     pub speed: f32,
     pub damage: f32,
     pub attack_type: AttackType,
@@ -221,7 +235,7 @@ pub fn fire_attacks(
             None => {
                 requests.write(DamageRequest {
                     target: t,
-                    source: entity,
+                    source: DamageOrigin::Attack(entity),
                     amount: damage,
                     attack_type: kit.def.attack_type,
                     crit: false,
@@ -231,7 +245,7 @@ pub fn fire_attacks(
                 commands.spawn((
                     Projectile {
                         target: t,
-                        source: entity,
+                        source: DamageOrigin::Attack(entity),
                         speed: proj.speed,
                         damage,
                         attack_type: kit.def.attack_type,

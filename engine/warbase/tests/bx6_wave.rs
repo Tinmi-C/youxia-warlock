@@ -148,7 +148,7 @@ fn killing_all_wave_units_emits_cleared_and_finishes() {
     let src = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: victim, source: src, amount: 999.0, attack_type: AttackType::Normal, crit: false });
+        .write(DamageRequest { target: victim, source: DamageOrigin::Attack(src), amount: 999.0, attack_type: AttackType::Normal, crit: false });
 
     let cleared = count_over_frames::<WaveCleared>(&mut app, 10);
     assert_eq!(cleared, 1);

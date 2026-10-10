@@ -168,7 +168,7 @@ pub fn snipe_effect(world: &mut World) {
             .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
             .write(DamageRequest {
                 target,
-                source: cast.caster,
+                source: DamageOrigin::Skill { caster: cast.caster, skill: 0 },
                 amount: 60.0 * cast.level as f32,
                 attack_type: AttackType::Piercing,
                 crit: false,

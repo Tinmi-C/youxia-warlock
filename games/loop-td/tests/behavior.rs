@@ -338,7 +338,7 @@ fn hero_tower_levels_through_kills() {
     for _ in 0..4 {
         app.world_mut()
             .resource_mut::<bevy::ecs::message::Messages<UnitDied>>()
-            .write(UnitDied { entity: Entity::PLACEHOLDER, def: "grunt".into(), gold: 0, wood: 0, xp: 3, killer: Some(hero) });
+            .write(UnitDied { entity: Entity::PLACEHOLDER, def: "grunt".into(), gold: 0, wood: 0, xp: 3, killer: Some(DamageOrigin::Attack(hero)) });
         app.update();
     }
     let xp = app.world().get::<XpHolder>(hero).unwrap();
@@ -372,7 +372,7 @@ fn enemy_aura_bearer_shields_allies_until_killed() {
     let hit = |app: &mut App, target: Entity| -> f32 {
         app.world_mut()
             .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-            .write(DamageRequest { target, source: src, amount: 100.0, attack_type: AttackType::Piercing, crit: false });
+            .write(DamageRequest { target, source: DamageOrigin::Attack(src), amount: 100.0, attack_type: AttackType::Piercing, crit: false });
         app.update();
         let mut cursor = bevy::ecs::message::MessageCursor::<DamageDealt>::default();
         let msgs = app.world().resource::<bevy::ecs::message::Messages<DamageDealt>>();
@@ -386,7 +386,7 @@ fn enemy_aura_bearer_shields_allies_until_killed() {
     // Kill the shaman; next hit on the tank takes full 0.75.
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: shaman, source: src, amount: 9999.0, attack_type: AttackType::Magic, crit: false });
+        .write(DamageRequest { target: shaman, source: DamageOrigin::Attack(src), amount: 9999.0, attack_type: AttackType::Magic, crit: false });
     app.update();
     app.update();
     app.update();
@@ -530,7 +530,9 @@ fn hero_snipe_autocasts_and_points_level_it() {
         loop_td::systems::gameplay::snipe_effect(&mut app.world_mut());
         let msgs = app.world().resource::<bevy::ecs::message::Messages<DamageDealt>>();
         for d in cursor.read(msgs) {
-            if d.source == hero && (d.amount - 90.0).abs() < 1e-3 {
+            if matches!(d.source, DamageOrigin::Skill { caster, .. } if caster == hero)
+                && (d.amount - 90.0).abs() < 1e-3
+            {
                 saw_snipe = true;
             }
         }
@@ -664,7 +666,7 @@ fn settlement_tracks_scores_and_shows_the_end_screen() {
     for v in victims {
         app.world_mut()
             .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-            .write(DamageRequest { target: v, source: src, amount: 999.0, attack_type: AttackType::Normal, crit: false });
+            .write(DamageRequest { target: v, source: DamageOrigin::Attack(src), amount: 999.0, attack_type: AttackType::Normal, crit: false });
     }
     app.update();
     track_stats(&mut app.world_mut());

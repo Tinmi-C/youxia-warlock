@@ -110,7 +110,7 @@ fn killer_xp_levels_and_grows() {
 
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: v, source: h, amount: 99.0, attack_type: AttackType::Normal, crit: false });
+        .write(DamageRequest { target: v, source: DamageOrigin::Attack(h), amount: 99.0, attack_type: AttackType::Normal, crit: false });
     for _ in 0..4 {
         app.update(); // death -> UnitDied -> distribute_xp
     }
@@ -183,7 +183,7 @@ fn damage_taken_auras_stack_into_resolve() {
     let src = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: e, source: src, amount: 10.0, attack_type: AttackType::Normal, crit: false });
+        .write(DamageRequest { target: e, source: DamageOrigin::Attack(src), amount: 10.0, attack_type: AttackType::Normal, crit: false });
     app.update();
 
     let eff = app.world().get::<EffectiveStats>(e).unwrap();

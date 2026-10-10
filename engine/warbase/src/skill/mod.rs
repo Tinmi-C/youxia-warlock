@@ -164,7 +164,9 @@ pub fn distribute_xp(world: &mut World) {
         })
     };
     for death in events {
-        let Some(killer) = death.killer else { continue };
+        let Some(crate::combat::DamageOrigin::Attack(killer)) = death.killer else {
+            continue; // skill/system kills don't feed tower xp in v1
+        };
         let Ok(mut holder) = world.get_entity_mut(killer) else { continue };
         let Some(mut xp) = holder.get_mut::<XpHolder>() else { continue };
         xp.xp += death.xp;

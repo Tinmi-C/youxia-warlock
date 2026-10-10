@@ -157,8 +157,16 @@ pub fn run_headless(
             let world = app.world();
             let msgs = world.resource::<Messages<DamageDealt>>();
             for d in dmg_cursor.read(msgs) {
+                let source_entity = match d.source {
+                    crate::combat::DamageOrigin::Attack(e) => e,
+                    crate::combat::DamageOrigin::Skill { caster, .. } => caster,
+                    crate::combat::DamageOrigin::System => {
+                        *damage_by_def.entry("system".into()).or_default() += d.amount;
+                        continue;
+                    }
+                };
                 let def = world
-                    .get::<UnitInstance>(d.source)
+                    .get::<UnitInstance>(source_entity)
                     .map(|i| i.def.clone())
                     .unwrap_or_else(|| "unknown".into());
                 *damage_by_def.entry(def).or_default() += d.amount;

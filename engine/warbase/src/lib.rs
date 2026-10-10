@@ -22,7 +22,8 @@ pub mod prelude {
     pub use crate::combat::{
         cleanup_dead, fire_attacks, healer_tick, move_projectiles, pick_targets, resolve_damage,
         resolve_heals, tick_cooldowns, AttackCooldown, AttackKit, CurrentTarget, DamageDealt,
-        DamageRequest, Dead, HealRequest, Healer, Projectile, TargetingPriority, UnitDied,
+        DamageOrigin, DamageRequest, Dead, HealRequest, Healer, Projectile, TargetingPriority,
+        UnitDied,
     };
     pub use crate::econ::{
         apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,

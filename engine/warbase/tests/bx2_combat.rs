@@ -38,7 +38,7 @@ fn damage_request_reduces_hp() {
     let source = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: e, source, amount: 30.0, attack_type: AttackType::Normal, crit: false });
+        .write(DamageRequest { target: e, source: DamageOrigin::Attack(source), amount: 30.0, attack_type: AttackType::Normal, crit: false });
     app.update();
     assert_eq!(app.world().get::<Hp>(e).unwrap().0, 70.0);
 }
@@ -55,7 +55,7 @@ fn armor_multiplier_applies() {
     let source = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: e, source, amount: 40.0, attack_type: AttackType::Magic, crit: false });
+        .write(DamageRequest { target: e, source: DamageOrigin::Attack(source), amount: 40.0, attack_type: AttackType::Magic, crit: false });
     app.update();
     assert_eq!(app.world().get::<Hp>(e).unwrap().0, 80.0);
 }
@@ -71,7 +71,7 @@ fn kill_chain_emits_died_and_despawns() {
     let source = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: e, source, amount: 99.0, attack_type: AttackType::Normal, crit: false });
+        .write(DamageRequest { target: e, source: DamageOrigin::Attack(source), amount: 99.0, attack_type: AttackType::Normal, crit: false });
     app.update();
 
     let mut cursor = bevy::ecs::message::MessageCursor::<UnitDied>::default();
@@ -87,7 +87,7 @@ fn kill_chain_emits_died_and_despawns() {
     assert_eq!(dealt.len(), 1);
     assert!(dealt[0].killed);
     assert_eq!(dealt[0].amount, 99.0);
-    assert_eq!(dealt[0].source, source, "attribution rides the pipeline");
+    assert_eq!(dealt[0].source, DamageOrigin::Attack(source), "attribution rides the pipeline");
 
     app.update(); // Cleanup despawns
     assert!(app.world().get_entity(e).is_err());

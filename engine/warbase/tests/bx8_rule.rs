@@ -82,7 +82,7 @@ fn stockpile_recounts_after_real_kill() {
     let src = app.world_mut().spawn_empty().id();
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
-        .write(DamageRequest { target: a, source: src, amount: 999.0, attack_type: AttackType::Normal, crit: false });
+        .write(DamageRequest { target: a, source: DamageOrigin::Attack(src), amount: 999.0, attack_type: AttackType::Normal, crit: false });
     app.update();
     assert_eq!(app.world().resource::<StockCount>().0, 0, "despawned attacker not counted");
     assert_eq!(*app.world().resource::<MatchFlow>(), MatchFlow::Running);
