@@ -196,7 +196,6 @@ fn spawn_dead_normal(app: &mut App) {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(0.0, 0.4, 0.0),
     ));
@@ -219,7 +218,6 @@ fn elite_kill_always_drops_tower_card() {
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 4, // elite
-                next_wp: 0,
             },
             Transform::from_xyz(0.0, 0.4, 0.0),
         ));
@@ -322,7 +320,6 @@ fn tower_fires_at_enemy_in_range() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
@@ -449,7 +446,6 @@ fn fused_tower_receives_tower_index_damage_boost() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
@@ -495,7 +491,6 @@ fn range_boost_extends_reach() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(13.0, 0.5, 0.0),
     ));
@@ -542,7 +537,6 @@ fn attack_speed_boost_shortens_cooldown() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
@@ -661,29 +655,36 @@ fn meta_upgrade_button_grants_purchase() {
 }
 
 /// Capability card EN2 — acceptance: an enemy that reaches the base deducts its
-/// leak amount from base HP and despawns.
+/// leak amount from base HP and despawns. (WX6-1: arrival is the base's
+/// `Arrived` message — injected here the way advance_followers would.)
 #[test]
 fn leaked_enemy_deducts_base_hp() {
     let mut app = test_app();
-    app.world_mut().spawn((
-        Enemy {
-            hp: 10.0,
-            max_hp: 10.0,
-            speed: 0.0,
-            leak: 1,
-            kill_gold: 0,
-            physical_armor: false,
-            def_index: 0,
-            next_wp: 4, // == waypoints.len(), so it counts as reached the base
-        },
-        Transform::from_xyz(12.0, 0.4, -9.0),
-    ));
+    let e = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                hp: 10.0,
+                max_hp: 10.0,
+                speed: 0.0,
+                leak: 1,
+                kill_gold: 0,
+                physical_armor: false,
+                def_index: 0,
+            },
+            Transform::from_xyz(12.0, 0.4, -9.0),
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<Messages<warbase::prelude::Arrived>>()
+        .write(warbase::prelude::Arrived { unit: e });
     app.update();
     assert_eq!(
         app.world().resource::<BaseHp>().hp,
         9,
         "an ordinary leaked enemy should drop base hp 10 -> 9"
     );
+    assert!(app.world().get::<Enemy>(e).is_none(), "the leaker despawns");
 }
 
 /// Capability card WA1/WA2 — acceptance: starting a wave flips to Combat and
@@ -745,7 +746,6 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 3,
-                next_wp: 0,
             },
             Healer {
                 radius: 6.0,
@@ -765,7 +765,6 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.4, 0.0),
     ));
@@ -1053,7 +1052,6 @@ fn physical_damage_halved_vs_armored_enemy() {
             kill_gold: 0,
             physical_armor: true,
             def_index: 2,
-            next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
@@ -1099,7 +1097,6 @@ fn magic_damage_ignores_armor() {
             kill_gold: 0,
             physical_armor: true,
             def_index: 2,
-            next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
@@ -2297,7 +2294,6 @@ fn projectile_flies_tracks_and_lands_on_time() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(8.0, 0.4, 0.0),
     ));
@@ -2378,7 +2374,6 @@ fn shield_tower_melee_hits_instantly_and_slows_target() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(2.0, 0.4, 0.0),
     ));
@@ -2412,7 +2407,6 @@ fn single_target_round_dissipates_when_target_dies() {
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 0,
-                next_wp: 0,
             },
             Transform::from_xyz(12.0, 0.4, 12.0),
         ))
@@ -2443,7 +2437,6 @@ fn single_target_round_dissipates_when_target_dies() {
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
-            next_wp: 0,
         },
         Transform::from_xyz(9.0, 0.4, 0.0),
     ));
@@ -2498,7 +2491,6 @@ fn wave_end_clears_in_flight_projectiles() {
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 0,
-                next_wp: 0,
             },
             Transform::from_xyz(90.0, 0.4, 90.0),
         ))
@@ -2567,8 +2559,7 @@ fn spawn_visual_enemy(app: &mut App, def_index: usize, hp: f32, max_hp: f32, pos
                 kill_gold: 6,
                 physical_armor: def_index == 2,
                 def_index,
-                next_wp: 1, // valid waypoint; speed 0 keeps it in place
-            },
+            }, // no PathFollower: FX units stand still (speed 0 anyway)
             Mesh3d(mesh_handle),
             MeshMaterial3d(mat_handle),
             Transform::from_xyz(pos.x, 0.4, pos.z),
@@ -3164,22 +3155,30 @@ mod debug_scenarios {
     }
 
     /// DB2 acceptance: the projectile scenario is one tower plus one ordinary
-    /// enemy exactly 8 units away (XZ), walking toward the base.
+    /// enemy 8 units ALONG THE PATH past the tower's closest approach
+    /// (WX6-1: walkers live on the path; the round has its flight time),
+    /// walking toward the base.
     #[test]
     fn scenario_projectile_enemy_at_eight_units() {
         let mut app = debug_app();
         queue_scenario(&mut app, Scenario::Projectile);
         app.update();
         let mut towers = app.world_mut().query_filtered::<&Transform, With<Tower>>();
-        let mut enemies = app.world_mut().query_filtered::<&Transform, With<Enemy>>();
+        let mut enemies = app
+            .world_mut()
+            .query_filtered::<&warbase::prelude::PathFollower, With<Enemy>>();
         assert_eq!(towers.iter(app.world()).count(), 1, "exactly one tower");
         assert_eq!(enemies.iter(app.world()).count(), 1, "exactly one enemy");
         let t = towers.single(app.world()).unwrap().translation;
-        let e = enemies.single(app.world()).unwrap().translation;
-        let dist = Vec3::new(t.x - e.x, 0.0, t.z - e.z).length();
+        let prog = enemies.single(app.world()).unwrap().progress;
+        let tower_prog = warden::systems::enemy::nearest_path_progress(
+            app.world().resource::<warden::resources::PathInfo>(),
+            t,
+        );
         assert!(
-            (dist - 8.0).abs() < 1e-3,
-            "enemy exactly 8 units from the tower (got {dist})"
+            (prog - tower_prog - 8.0).abs() < 1e-3,
+            "enemy 8 units along the path past the tower (got {})",
+            prog - tower_prog
         );
     }
 
@@ -3747,7 +3746,6 @@ mod skills_sk2 {
                     kill_gold: 6,
                     physical_armor: armor,
                     def_index: 0,
-                    next_wp: 0,
                 },
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
@@ -3943,6 +3941,17 @@ mod skills_sk3 {
     /// A live enemy with a real walking speed (slows are observable through
     /// movement) parked at a world position.
     fn spawn_walker(app: &mut App, pos: Vec3, speed: f32) -> Entity {
+        // WX6-1: walkers ride the base's path movement — the follower starts
+        // at the path point CLOSEST to `pos`, so radius/position assertions
+        // made before the first update keep their meaning.
+        let path_e = app
+            .world()
+            .resource::<warbase::prelude::Paths>()
+            .0[0];
+        let progress = warden::systems::enemy::nearest_path_progress(
+            app.world().resource::<warden::resources::PathInfo>(),
+            pos,
+        );
         app.world_mut()
             .spawn((
                 Enemy {
@@ -3953,8 +3962,14 @@ mod skills_sk3 {
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
-                    next_wp: 0,
                 },
+                warbase::prelude::PathFollower {
+                    path: path_e,
+                    progress,
+                    laps: 0,
+                    finished: false,
+                },
+                warbase::prelude::MoveSpeed(speed),
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
             .id()
@@ -4156,7 +4171,6 @@ mod skills_sk4 {
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
-                    next_wp: 0,
                 },
                 Transform::from_xyz(pos.x + 3.0, 0.4, pos.z),
             ))
@@ -4811,7 +4825,6 @@ fn static_enemy(app: &mut App, pos: Vec3) -> bevy::ecs::entity::Entity {
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 0,
-                next_wp: 0,
             },
             Transform::from_translation(pos),
         ))
@@ -6233,7 +6246,6 @@ mod damage_pipeline {
                     kill_gold: 6,
                     physical_armor: armor,
                     def_index: 0,
-                    next_wp: 0,
                 },
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
@@ -6490,7 +6502,6 @@ mod skills_archer {
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
-                    next_wp: 0,
                 },
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
@@ -6823,7 +6834,6 @@ mod skills_fusion {
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
-                    next_wp: 0,
                 },
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))

@@ -8,4 +8,4 @@
 | ART9 | 分件手术 v3 | ▶ 待实现（排在 WX 系列之后上 warbase 底座） |
 | ART10 | 弦箭动画 | ▶ 待实现（同上） |
 | BAL2 | 锚点表数值收敛（驱动策略已落地；数值收敛按负责人意见暂缓） | 🟡 |
-| WX1–WX6 | 回迁 warbase 基底（成对增量，见 `engine/warbase/docs/roadmap.md`；完成后 ART9/10 在新底座上做）。WX1 归因桥接 ✅ · WX2 技能框架切基底 ✅ · WX3a 基底命令卡渲染层 ✅（GRID_KEYS/grid_badge 已上收基底；本作卡切换 WX3b 依赖 WX6 数据化）· WX4 FX 切基底 ✅（闪白/爆炸环/死亡壳走基底；血条待 WX6 Enemy 拆解，FX3 状态色留游戏侧） | 🟡 3/6 |
+| WX1–WX6 | 回迁 warbase 基底（成对增量，见 `engine/warbase/docs/roadmap.md`；完成后 ART9/10 在新底座上做）。WX1 归因桥接 ✅ · WX2 技能框架切基底 ✅ · WX3a 基底命令卡渲染层 ✅（GRID_KEYS/grid_badge 已上收基底；本作卡切换 WX3b 依赖 WX6 数据化）· WX4 FX 切基底 ✅（闪白/爆炸环/死亡壳走基底；血条待 WX6 Enemy 拆解，FX3 状态色留游戏侧）· WX6-1 敌人行走切基底路径 ✅（PathFollower/advance_followers，漏怪走 Arrived） | 🟡 3/6 + 切片 1/6 |

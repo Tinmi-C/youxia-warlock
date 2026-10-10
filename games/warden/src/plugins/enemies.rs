@@ -1,5 +1,8 @@
 //! EnemiesPlugin: enemy definitions + movement/leak + kill/gold + healer aura.
 //! Capability cards: EN1 (defs), EN2 (move/leak), EN3 (death/gold), EN5 (healer).
+//! WX6-1: the walk itself is the base's `advance_followers`; warden brackets
+//! it with the slow-factor sync (before) and the facing + leak systems
+//! (after, same frame).
 
 use bevy::prelude::*;
 
@@ -15,7 +18,13 @@ impl Plugin for EnemiesPlugin {
         app.insert_resource(EnemyDefs::palette())
             .add_systems(
                 Update,
-                systems::enemy::move_enemy
+                (
+                    systems::enemy::sync_move_speed,
+                    warbase::prelude::advance_followers,
+                    systems::enemy::face_movement,
+                    systems::enemy::leak_arrived,
+                )
+                    .chain()
                     .in_set(GameSet::Simulate)
                     .run_if(in_state(GameState::Playing)),
             )

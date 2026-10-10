@@ -164,6 +164,7 @@ pub struct CheatsCore<'w, 's> {
 pub struct CheatsBoard<'w, 's> {
     pub defs: Res<'w, EnemyDefs>,
     pub path: Res<'w, PathInfo>,
+    pub paths: Res<'w, warbase::prelude::Paths>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub materials: ResMut<'w, Assets<StandardMaterial>>,
     /// ART11: present in the real app (enemy models), absent in headless
@@ -237,6 +238,7 @@ pub fn debug_cheat_executor(
                         &mut core.commands,
                         &board.defs,
                         &board.path,
+                        board.paths.0[0],
                         def_index,
                         &mut board.meshes,
                         &mut board.materials,
@@ -600,19 +602,25 @@ fn apply_scenario(world: &mut World, scenario: Scenario) {
                 .copied()
                 .expect("the map has tower slots");
             place_towers(world, 0, &[(slot, tower_pos)]);
-            // Exactly 8 units from the tower on the XZ plane, heading for the
-            // base waypoint so it walks like a real target.
+            // 8 units ALONG THE PATH past the tower's closest approach —
+            // walks the last stretch like a real target (flight time for
+            // the round). The XZ comes from the progress (WX6-1).
+            let progress = crate::systems::enemy::nearest_path_progress(
+                world.resource::<PathInfo>(),
+                tower_pos,
+            ) + 8.0;
             let enemy_pos = tower_pos + Vec3::new(8.0, 0.0, 0.0);
-            let next_wp = world.resource::<PathInfo>().waypoints.len().saturating_sub(1);
-            spawn_debug_enemy(world, 0, enemy_pos, next_wp, None);
+            spawn_debug_enemy(world, 0, enemy_pos, progress, None);
         }
         Scenario::Fx => {
             // Four ordinary enemies at 1 hp walking the middle segment, one
             // healer among them at full hp (heal aura radius 6 covers all).
+            // Progress on the vertical segment (x=-4): seg1 ends at 9+9=18,
+            // then z maps 9 -> -9 as progress 18 -> 36.
             for (x, z) in [(-4.0, 3.0), (-4.0, 0.5), (-4.0, -2.0), (-4.0, -4.5)] {
-                spawn_debug_enemy(world, 0, Vec3::new(x, 0.0, z), 2, Some(1.0));
+                spawn_debug_enemy(world, 0, Vec3::new(x, 0.0, z), 18.0 + (9.0 - z), Some(1.0));
             }
-            spawn_debug_enemy(world, 3, Vec3::new(-4.0, 0.0, -1.2), 2, None);
+            spawn_debug_enemy(world, 3, Vec3::new(-4.0, 0.0, -1.2), 18.0 + (9.0 - (-1.2)), None);
         }
         Scenario::Meta => {
             world.resource_mut::<BaseHp>().hp = 0;
@@ -990,18 +998,25 @@ fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
 }
 
 /// Spawn one enemy for a scenario (DB2): def index, explicit position and
-/// waypoint to head toward, optional HP override (wounded-pack setups).
+/// progress along the path (WX6-1; the base writes the XZ from it), optional
+/// HP override (wounded-pack setups).
 fn spawn_debug_enemy(
     world: &mut World,
     def_index: usize,
     pos: Vec3,
-    next_wp: usize,
+    progress: f32,
     hp_override: Option<f32>,
 ) {
     let Some(def) = world.resource::<EnemyDefs>().list.get(def_index).cloned() else {
         warn!("[debug] enemy def {def_index} missing; scenario enemy skipped");
         return;
     };
+    let path_e = world
+        .resource::<warbase::prelude::Paths>()
+        .0
+        .first()
+        .copied()
+        .unwrap_or(bevy::ecs::entity::Entity::PLACEHOLDER);
     let units = path_units_per_point(world.resource::<PathInfo>());
     let mut queue = CommandQueue::default();
     world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
@@ -1013,7 +1028,8 @@ fn spawn_debug_enemy(
                 &def,
                 def_index,
                 pos,
-                next_wp,
+                path_e,
+                progress,
                 hp_override,
                 units,
                 &mut meshes,

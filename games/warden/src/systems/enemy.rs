@@ -58,10 +58,12 @@ pub fn enemy_base_color(def: &crate::resources::EnemyDef) -> Color {
 }
 
 /// Spawn one enemy of archetype `index` at the path entry.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_enemy(
     commands: &mut Commands,
     defs: &EnemyDefs,
     path: &PathInfo,
+    path_e: bevy::ecs::entity::Entity,
     index: usize,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -76,7 +78,8 @@ pub fn spawn_enemy(
         def,
         index,
         start,
-        1,
+        path_e,
+        0.0,
         None,
         path_units_per_point(path),
         meshes,
@@ -96,19 +99,59 @@ pub fn path_units_per_point(path: &PathInfo) -> f32 {
     path_len / ANCHOR_TRAVERSE_SECS
 }
 
+/// Distance along the polyline up to waypoint `idx` (the progress value
+/// that places a follower AT that waypoint) — the WX6-1 bridge for the old
+/// next_wp-index spawn semantics.
+pub fn waypoint_progress(path: &PathInfo, idx: usize) -> f32 {
+    path.waypoints
+        .windows(2)
+        .take(idx)
+        .map(|w| w[0].distance(w[1]))
+        .sum()
+}
+
+/// Progress of the polyline point closest to `pos` (per-segment clamped
+/// projection) — the WX6-1 bridge for "spawn/measure near a world position".
+pub fn nearest_path_progress(path: &PathInfo, pos: Vec3) -> f32 {
+    let p = Vec2::new(pos.x, pos.z);
+    let mut best = (f32::MAX, 0.0f32); // (dist², progress)
+    let mut acc = 0.0f32;
+    for w in path.waypoints.windows(2) {
+        let a = Vec2::new(w[0].x, w[0].z);
+        let b = Vec2::new(w[1].x, w[1].z);
+        let ab = b - a;
+        let len = ab.length();
+        let t = if len > 0.0 {
+            ((p - a).dot(ab) / len / len).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let d2 = p.distance_squared(a + ab * t);
+        if d2 < best.0 {
+            best = (d2, acc + t * len);
+        }
+        acc += len;
+    }
+    best.1
+}
+
 /// Spawn one enemy at an explicit position (debug scenarios, DB2): same
 /// construction as `spawn_enemy`, plus overrides for the spawn point, the
-/// first waypoint to head toward and the starting HP (残血 setups for FX).
+/// progress along the path and the starting HP (残血 setups for FX).
 /// ART11: with an AssetServer the archetype model rides as a feet-origin
 /// scene child (deferred walk animation via `EnemyAnim`); without one the
 /// tinted cuboid fallback stays (headless tests).
+/// WX6-1: movement rides the base — the entity gets a `PathFollower` on
+/// `path_e` at `progress` plus a `MoveSpeed`; callables that must NOT move
+/// (e.g. range dummies) remove the follower after this call.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_enemy_at(
     commands: &mut Commands,
     def: &crate::resources::EnemyDef,
     index: usize,
     pos: Vec3,
-    next_wp: usize,
+    path_e: bevy::ecs::entity::Entity,
+    progress: f32,
     hp_override: Option<f32>,
     units_per_point: f32,
     meshes: &mut Assets<Mesh>,
@@ -126,8 +169,16 @@ pub fn spawn_enemy_at(
                 kill_gold: def.kill_gold,
                 physical_armor: def.physical_armor,
                 def_index: index,
-                next_wp,
             },
+            // WX6-1: the base's path movement (advance_followers writes the
+            // XZ translation; the spawn Y survives — models are feet-origin).
+            warbase::prelude::PathFollower {
+                path: path_e,
+                progress,
+                laps: 0,
+                finished: false,
+            },
+            warbase::prelude::MoveSpeed(def.speed * units_per_point),
             // Explicit Visibility: the model path has no mesh on this entity,
             // so without it the scene child's InheritedVisibility breaks (B0004).
             Visibility::Visible,
@@ -271,50 +322,66 @@ pub fn find_player(
         .find_map(|k| find_player(k, children, players))
 }
 
-/// Advance every live enemy toward its next waypoint. On reaching the last one
-/// it leaks to the base, deducting HP and despawning.
-pub fn move_enemy(
-    time: Res<Time>,
-    path: Res<PathInfo>,
+// --- WX6-1: movement on the base's advance_followers ------------------------------
+//
+// The walk itself is `warbase::prelude::advance_followers` (progress sampling,
+// Arrived at the end of the open chain). Warden keeps three thin systems
+// around it: the slow factor folds into MoveSpeed, models face the path
+// tangent, and Arrived resolves the leak (base HP + wave counter + despawn).
+
+/// Fold the `Slow` factor of the moment into the follower's MoveSpeed
+/// (`Enemy.speed` is the pre-slow base; apply_slow keeps one strongest
+/// component per enemy).
+pub fn sync_move_speed(
+    slows: Query<&Slow>,
+    mut q: Query<(Entity, &Enemy, &mut warbase::prelude::MoveSpeed), Without<RangeDummy>>,
+) {
+    for (eid, enemy, mut speed) in &mut q {
+        let factor = slows.get(eid).map(|s| s.factor).unwrap_or(1.0);
+        speed.0 = enemy.speed * factor;
+    }
+}
+
+/// ART11 facing: rotate walkers toward the path tangent at their progress
+/// (models are +Z-forward — ENEMY_FORWARD_YAW_OFFSET). The symmetric box
+/// fallback rotates invisibly, so one code path serves both.
+pub fn face_movement(
+    paths: Query<&warbase::prelude::PathDef>,
+    mut q: Query<(&warbase::prelude::PathFollower, &mut Transform), Without<RangeDummy>>,
+) {
+    for (f, mut tf) in &mut q {
+        if f.finished {
+            continue;
+        }
+        let Ok(path) = paths.get(f.path) else { continue };
+        let a = path.sample(f.progress);
+        let b = path.sample(f.progress + 0.25);
+        let dir = b - a;
+        if dir.length_squared() > 1e-8 {
+            tf.rotation = Quat::from_rotation_y(
+                f32::atan2(dir.x, dir.y) + ENEMY_FORWARD_YAW_OFFSET,
+            );
+        }
+    }
+}
+
+/// EN2 leak: an enemy that finished the open chain deducts its `leak` from
+/// the base and despawns (consumes the base's Arrived message).
+pub fn leak_arrived(
+    mut arrived: MessageReader<warbase::prelude::Arrived>,
     mut base: ResMut<BaseHp>,
     mut wave: ResMut<WaveState>,
     mut commands: Commands,
-    mut enemies: Query<(Entity, &mut Enemy, &mut Transform), Without<RangeDummy>>,
-    slowed: Query<&Slow>,
+    enemies: Query<&Enemy>,
 ) {
-    for (eid, mut enemy, mut tf) in &mut enemies {
-        // Dead enemies are cleaned up in `resolve_death`; do not move them.
-        if enemy.hp <= 0.0 {
-            continue;
-        }
-        if enemy.next_wp >= path.waypoints.len() {
-            // Reached the base.
-            base.hp = base.hp.saturating_sub(enemy.leak);
-            wave.active = wave.active.saturating_sub(1);
-            commands.entity(eid).despawn();
-            info!("[enemy] leaked, base hp={}", base.hp);
-            continue;
-        }
-        let mut speed = enemy.speed;
-        if let Ok(slow) = slowed.get(eid) {
-            speed *= slow.factor;
-        }
-        let target = path.waypoints[enemy.next_wp];
-        let mut dir = target - tf.translation;
-        dir.y = 0.0;
-        if dir.length() <= 0.05 {
-            enemy.next_wp += 1;
-            continue;
-        }
-        let step = (speed * time.delta_secs()).min(dir.length());
-        let heading = dir.normalize();
-        tf.translation += heading * step;
-        // ART11: face the movement direction. Models are taken as +Z-forward
-        // (see ENEMY_FORWARD_YAW_OFFSET); the symmetric box fallback rotates
-        // invisibly, so one code path serves both.
-        tf.rotation = Quat::from_rotation_y(
-            f32::atan2(heading.x, heading.z) + ENEMY_FORWARD_YAW_OFFSET,
-        );
+    for a in arrived.read() {
+        let Ok(enemy) = enemies.get(a.unit) else {
+            continue; // already resolved between the message and here
+        };
+        base.hp = base.hp.saturating_sub(enemy.leak);
+        wave.active = wave.active.saturating_sub(1);
+        commands.entity(a.unit).despawn();
+        info!("[enemy] leaked, base hp={}", base.hp);
     }
 }
 

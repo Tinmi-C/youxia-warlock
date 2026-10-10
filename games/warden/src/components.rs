@@ -35,17 +35,21 @@ pub enum TowerKind {
 }
 
 /// A live enemy instance walking the path. Values come from `EnemyDefs`
-/// (resources.rs) at spawn; this is the mutable runtime copy.
+/// (resources.rs) at spawn; this is the mutable runtime copy. Movement is
+/// the base's since WX6-1: the entity carries a `PathFollower` + `MoveSpeed`
+/// and `warbase::prelude::advance_followers` drives it (`speed` here is the
+/// pre-slow BASE speed; the sync system folds the `Slow` factor into
+/// `MoveSpeed`).
 #[derive(Component)]
 pub struct Enemy {
     pub hp: f32,
     pub max_hp: f32,
+    /// Base speed (world units/s, before slow effects).
     pub speed: f32,
     pub leak: u32,          // base HP lost when this enemy reaches the base
     pub kill_gold: u32,     // gold earned when this enemy dies
     pub physical_armor: bool, // shield enemy: physical damage -50%
     pub def_index: usize,   // archetype index into EnemyDefs (AC3 drop rules)
-    pub next_wp: usize,     // index of the next waypoint to head toward
 }
 
 /// A placed tower. Values come from `TowerDefs` (base) or a fusion recipe at

@@ -213,6 +213,7 @@ pub fn range_maintain(
     tower_defs: Res<TowerDefs>,
     enemy_defs: Res<EnemyDefs>,
     path: Res<PathInfo>,
+    paths: Res<warbase::prelude::Paths>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     server: Option<Res<AssetServer>>,
@@ -248,6 +249,7 @@ pub fn range_maintain(
                 &mut commands,
                 &enemy_defs,
                 &path,
+                paths.0[0],
                 state.dummy,
                 dummy_pos(state.origin, n, state.count),
                 &mut meshes,
@@ -266,6 +268,7 @@ pub fn range_maintain(
             &mut commands,
             &enemy_defs,
             &path,
+            paths.0[0],
             def,
             pos,
             &mut meshes,
@@ -279,6 +282,7 @@ fn spawn_dummy(
     commands: &mut Commands,
     enemy_defs: &EnemyDefs,
     path: &PathInfo,
+    path_e: bevy::ecs::entity::Entity,
     def: usize,
     pos: Vec3,
     meshes: &mut Assets<Mesh>,
@@ -291,14 +295,16 @@ fn spawn_dummy(
         def,
         0,
         pos,
-        0,
+        path_e,
+        0.0,
         None,
         path_units_per_point(path),
         meshes,
         materials,
         server,
     );
-    commands.entity(eid).insert(RangeDummy);
+    // A dummy stands and takes it — no base path movement (WX6-1).
+    commands.entity(eid).insert(RangeDummy).remove::<warbase::prelude::PathFollower>();
 }
 
 /// The ledger: poll the dummies' real hp each frame — any drop is real

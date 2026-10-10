@@ -19,6 +19,7 @@ pub fn wave_spawn(
     mut wave: ResMut<WaveState>,
     defs: Res<EnemyDefs>,
     path: Res<PathInfo>,
+    paths: Res<warbase::prelude::Paths>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -30,10 +31,13 @@ pub fn wave_spawn(
     wave.spawn_timer -= time.delta_secs();
     if wave.spawn_timer <= 0.0 {
         if let Some(index) = wave.spawn_queue.pop_front() {
+            let path_e =
+                paths.0.first().copied().unwrap_or(bevy::ecs::entity::Entity::PLACEHOLDER);
             spawn_enemy(
                 &mut commands,
                 &*defs,
                 &*path,
+                path_e,
                 index,
                 &mut *meshes,
                 &mut *materials,
