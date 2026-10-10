@@ -23,53 +23,64 @@ use crate::systems::damage::{DamageRequest, DamageSource};
 use crate::systems::skills::{learn_skill, SkillCast};
 use crate::systems::tower::{projectile_visual, TowerFired};
 
-/// Registry ids of the fusion signatures (SK12; rows 6-9).
-pub const SKILL_DEADEYE: usize = 6;
-pub const SKILL_ARCANE_BLAST: usize = 7;
-pub const SKILL_PIERCING_BOLT: usize = 8;
-pub const SKILL_CONCUSSION: usize = 9;
+/// Registry ids of the fusion signatures (SK12; rows after the archer kit —
+/// see `resources::SKILL_ORDER`).
+pub const SKILL_DEADEYE: &str = "deadeye";
+pub const SKILL_ARCANE_BLAST: &str = "arcane_blast";
+pub const SKILL_PIERCING_BOLT: &str = "piercing_bolt";
+pub const SKILL_CONCUSSION: &str = "concussion";
 
 /// The fusion rows appended to the production registry by
-/// `skills::production_skill_defs` (single source of structure).
-pub fn fusion_skill_defs() -> [SkillDef; 4] {
+/// `skills::production_skill_defs` (single source of structure; the def's
+/// `cooldown` mirrors the table's lv1 value — the cast gate reads the table).
+pub fn fusion_skill_defs(balance: &SkillBalance) -> [SkillDef; 4] {
+    let mk = |id: &'static str,
+              kind: SkillKind,
+              target: SkillTargetMode,
+              max_level: u8,
+              badge: char| SkillDef {
+        id: id.to_string(),
+        kind,
+        targeting: target,
+        max_level,
+        cooldown: balance.cooldown(id, 1),
+        badge: Some(badge),
+        hotkey: None, // SK10 assigns the context hotkeys
+    };
     [
-        SkillDef {
-            name: "deadeye",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::None,
-            max_level: 3,
-            badge: 'D',
-            hotkey: None, // SK10 assigns the context hotkeys
-        },
-        SkillDef {
-            name: "arcane_blast",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::Point,
-            max_level: 3,
-            badge: 'A',
-            hotkey: None,
-        },
-        SkillDef {
-            name: "piercing_bolt",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::Point,
-            max_level: 3,
-            badge: 'P',
-            hotkey: None,
-        },
-        SkillDef {
-            name: "concussion",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::Point,
-            max_level: 3,
-            badge: 'C',
-            hotkey: None,
-        },
+        mk(
+            SKILL_DEADEYE,
+            SkillKind::Active,
+            SkillTargetMode::None,
+            3,
+            'D',
+        ),
+        mk(
+            SKILL_ARCANE_BLAST,
+            SkillKind::Active,
+            SkillTargetMode::Point,
+            3,
+            'A',
+        ),
+        mk(
+            SKILL_PIERCING_BOLT,
+            SkillKind::Active,
+            SkillTargetMode::Point,
+            3,
+            'P',
+        ),
+        mk(
+            SKILL_CONCUSSION,
+            SkillKind::Active,
+            SkillTargetMode::Point,
+            3,
+            'C',
+        ),
     ]
 }
 
 /// The signature each fusion kind ships with (出厂自带 lv1, SK12).
-pub fn fusion_signature(kind: FusionKind) -> usize {
+pub fn fusion_signature(kind: FusionKind) -> &'static str {
     match kind {
         FusionKind::Marksman => SKILL_DEADEYE,
         FusionKind::Archmage => SKILL_ARCANE_BLAST,
@@ -105,7 +116,7 @@ pub fn fusion_skill_effects(
     enemies: Query<(Entity, &Transform, &Enemy), Without<Projectile>>,
 ) {
     for cast in casts.read() {
-        match cast.def {
+        match cast.skill.as_str() {
             SKILL_DEADEYE => {
                 let Ok((tower, ttf, estats)) = towers.get(cast.caster) else {
                     continue;
@@ -267,7 +278,7 @@ fn blast(
     damage: f32,
     attack_type: AttackType,
     caster: Entity,
-    skill: usize,
+    skill: &'static str,
 ) -> Vec<Entity> {
     let mut victims = Vec::new();
     for (ven, vtf, venemy) in enemies.iter() {

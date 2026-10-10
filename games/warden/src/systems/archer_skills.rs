@@ -25,39 +25,51 @@ use crate::systems::skills::{learn_skill, CastSkill, SkillCast};
 use crate::systems::stats::set_stat_mod;
 use crate::systems::tower::{projectile_visual, TowerFired};
 
-/// Registry ids of the archer kit (SK9; rows 3-5, after the commander's).
-pub const SKILL_EAGLE_EYE: usize = 3;
-pub const SKILL_MULTISHOT: usize = 4;
-pub const SKILL_FIRE_ARROWS: usize = 5;
+/// Registry ids of the archer kit (SK9; rows after the commander's — see
+/// `resources::SKILL_ORDER`).
+pub const SKILL_EAGLE_EYE: &str = "eagle_eye";
+pub const SKILL_MULTISHOT: &str = "multishot";
+pub const SKILL_FIRE_ARROWS: &str = "fire_arrows";
 
 /// The archer rows appended to the production registry by
-/// `skills::production_skill_defs` (single source of structure).
-pub fn archer_skill_defs() -> [SkillDef; 3] {
+/// `skills::production_skill_defs` (single source of structure; the def's
+/// `cooldown` mirrors the table's lv1 value — the cast gate reads the table).
+pub fn archer_skill_defs(balance: &SkillBalance) -> [SkillDef; 3] {
+    let mk = |id: &'static str,
+              kind: SkillKind,
+              target: SkillTargetMode,
+              max_level: u8,
+              badge: char| SkillDef {
+        id: id.to_string(),
+        kind,
+        targeting: target,
+        max_level,
+        cooldown: balance.cooldown(id, 1),
+        badge: Some(badge),
+        hotkey: None, // SK10 assigns the context hotkeys
+    };
     [
-        SkillDef {
-            name: "eagle_eye",
-            kind: SkillKind::Passive,
-            target: SkillTargetMode::None,
-            max_level: 3,
-            badge: 'E',
-            hotkey: None, // SK10 assigns the context hotkeys
-        },
-        SkillDef {
-            name: "multishot",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::None,
-            max_level: 3,
-            badge: 'M',
-            hotkey: None,
-        },
-        SkillDef {
-            name: "fire_arrows",
-            kind: SkillKind::Autocast,
-            target: SkillTargetMode::None,
-            max_level: 3,
-            badge: 'F',
-            hotkey: None,
-        },
+        mk(
+            SKILL_EAGLE_EYE,
+            SkillKind::Passive,
+            SkillTargetMode::None,
+            3,
+            'E',
+        ),
+        mk(
+            SKILL_MULTISHOT,
+            SkillKind::Active,
+            SkillTargetMode::None,
+            3,
+            'M',
+        ),
+        mk(
+            SKILL_FIRE_ARROWS,
+            SkillKind::Autocast,
+            SkillTargetMode::None,
+            3,
+            'F',
+        ),
     ]
 }
 
@@ -81,7 +93,7 @@ pub fn sync_archer_passives(
     mut casters: Query<(Entity, &SkillCaster, Option<&mut StatMods>)>,
 ) {
     for (eid, caster, mods) in &mut casters {
-        let Some(slot) = caster.slots.iter().find(|s| s.def == SKILL_EAGLE_EYE) else {
+        let Some(slot) = caster.slots.iter().find(|s| s.skill == SKILL_EAGLE_EYE) else {
             continue;
         };
         let source = ModSource::Skill {
@@ -128,7 +140,7 @@ pub fn archer_skill_effects(
     balance: Res<SkillBalance>,
 ) {
     for cast in casts.read() {
-        match cast.def {
+        match cast.skill.as_str() {
             SKILL_MULTISHOT => {
                 let Ok((tower, ttf, estats)) = towers.get(cast.caster) else {
                     continue;
@@ -218,7 +230,7 @@ pub fn archer_autocast_fire_arrows(
             continue;
         }
         for (slot_idx, slot) in caster.slots.iter().enumerate() {
-            if slot.def == SKILL_FIRE_ARROWS && slot.autocast && slot.cooldown <= 0.0 {
+            if slot.skill == SKILL_FIRE_ARROWS && slot.autocast_on && slot.cooldown <= 0.0 {
                 requests.write(CastSkill {
                     caster: eid,
                     slot: slot_idx,

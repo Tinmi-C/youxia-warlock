@@ -1,12 +1,19 @@
 //! Commander skills on the generic per-entity framework (ADR-0011; phase-1
-//! cards SK1-SK4, migrated by SK8). The commander is a persistent singleton
-//! entity carrying a `SkillCaster` with the three skills — meteor rain /
-//! frost nova / war frenzy, all free, purely cooldown-gated:
+//! cards SK1-SK4, migrated by SK8). WX2 (ADR-0012): the framework TYPES
+//! (SkillCaster/SkillSlot/SkillDefs/SkillDef/CastSkill/SkillCast) now come
+//! from warbase — re-exported here and in resources/components under their
+//! historical paths. What stays warden-side by design: the per-(id, level)
+//! numbers (SkillBalance), the point-aiming interaction layer (SkillAiming —
+//! the base validates and fires immediately; warden defers Point skills to a
+//! ground pick and starts the cooldown only on confirm), and the effect
+//! systems. The commander is a persistent singleton entity carrying a
+//! `SkillCaster` with the three skills — meteor rain / frost nova / war
+//! frenzy, all free, purely cooldown-gated:
 //!   - per-slot cooldowns tick with virtual game time in BOTH phases, never
 //!     reset across waves, start ready, freeze on pause (state-gated system
 //!     + zero virtual delta under the debug freeze);
 //!   - hotkeys Z/X/C and the control-zone buttons both write `CastSkill`;
-//!     the framework validates (cooldown gate) and either confirms
+//!     the warden validator (cooldown gate + aiming) either confirms
 //!     (`SkillCast` -> `commander_skill_effects`) or enters point aiming
 //!     (`SkillAiming` — indicator ring + left-click confirm, Esc/right-click
 //!     cancel via command::cancel_modes);
@@ -20,7 +27,7 @@ use bevy::window::Window;
 
 use crate::resources::{
     BuildMode, DebugPanelCapture, Lang, SkillBalance, SkillDef, SkillDefs, SkillId, SkillKind,
-    SkillTargetMode, SkillAiming, WarFrenzy, PROJECTILE_SPEED,
+    SkillTargetMode, SkillAiming, WarFrenzy, PROJECTILE_SPEED, SKILL_ORDER,
 };
 use crate::states::GameState;
 use crate::components::{
@@ -30,52 +37,88 @@ use crate::systems::command::{cursor_over_blocking_ui, BlocksWorldInput, Control
 use crate::systems::hud::UiFont;
 use crate::systems::l10n;
 
-/// Registry ids of the commander skills (SK8). Order is contract: the
-/// registry starts with the commander rows; archer rows land after them
-/// (SK9). `SkillId::index()` equals its registry id (see resources.rs).
-pub const SKILL_METEOR_RAIN: usize = 0;
-pub const SKILL_FROST_NOVA: usize = 1;
-pub const SKILL_WAR_FRENZY: usize = 2;
+// The cast messages are the base's (WX2); SkillCast carries the confirmed
+// ground point for Point-target casts, which the warden aiming layer writes.
+pub use warbase::prelude::CastSkill;
+pub use warbase::prelude::SkillCast;
 
-/// The production skill registry (SK8 commander rows + SK9 archer rows).
-/// Structure only — numbers live in `SkillBalance`.
+/// Registry ids of the commander skills (SK8). The string def ids are the
+/// contract: the registry starts with the commander rows; archer rows land
+/// after them (SK9), fusion rows last (SK12) — see `resources::SKILL_ORDER`.
+pub const SKILL_METEOR_RAIN: &str = "meteor_rain";
+pub const SKILL_FROST_NOVA: &str = "frost_nova";
+pub const SKILL_WAR_FRENZY: &str = "war_frenzy";
+
+/// The production skill registry (SK8 commander rows + SK9 archer rows +
+/// SK12 fusion rows): the base's string-keyed SkillDefs. Structure only —
+/// numbers live in `SkillBalance` (the def's `cooldown` mirrors the table's
+/// lv1 value so the base type stays complete; warden's cast gate always
+/// reads the table per (id, level)).
 pub fn production_skill_defs() -> SkillDefs {
-    let mut defs = vec![
-        SkillDef {
-            name: "meteor_rain",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::Point,
-            max_level: 1,
-            badge: 'Z',
-            hotkey: Some(KeyCode::KeyZ),
-        },
-        SkillDef {
-            name: "frost_nova",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::Point,
-            max_level: 1,
-            badge: 'X',
-            hotkey: Some(KeyCode::KeyX),
-        },
-        SkillDef {
-            name: "war_frenzy",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::None,
-            max_level: 1,
-            badge: 'C',
-            hotkey: Some(KeyCode::KeyC),
-        },
-    ];
-    defs.extend(crate::systems::archer_skills::archer_skill_defs());
-    defs.extend(crate::systems::fusion_skills::fusion_skill_defs());
-    SkillDefs(defs)
+    let balance = production_skill_balance();
+    let mut defs = SkillDefs::default();
+    let mut put = |id: &str,
+                   kind: SkillKind,
+                   target: SkillTargetMode,
+                   max_level: u8,
+                   badge: Option<char>,
+                   hotkey: Option<KeyCode>| {
+        defs.defs.insert(
+            id.to_string(),
+            SkillDef {
+                id: id.to_string(),
+                kind,
+                targeting: target,
+                max_level,
+                cooldown: balance.cooldown(id, 1),
+                badge,
+                hotkey,
+            },
+        );
+    };
+    put(
+        SKILL_METEOR_RAIN,
+        SkillKind::Active,
+        SkillTargetMode::Point,
+        1,
+        Some('Z'),
+        Some(KeyCode::KeyZ),
+    );
+    put(
+        SKILL_FROST_NOVA,
+        SkillKind::Active,
+        SkillTargetMode::Point,
+        1,
+        Some('X'),
+        Some(KeyCode::KeyX),
+    );
+    put(
+        SKILL_WAR_FRENZY,
+        SkillKind::Active,
+        SkillTargetMode::None,
+        1,
+        Some('C'),
+        Some(KeyCode::KeyC),
+    );
+    for def in crate::systems::archer_skills::archer_skill_defs(&balance) {
+        defs.defs.insert(def.id.clone(), def);
+    }
+    for def in crate::systems::fusion_skills::fusion_skill_defs(&balance) {
+        defs.defs.insert(def.id.clone(), def);
+    }
+    debug_assert!(
+        SKILL_ORDER.iter().all(|id| defs.defs.contains_key(*id)),
+        "registry covers SKILL_ORDER"
+    );
+    defs
 }
 
-/// The production `SkillBalance` rows, parallel to the registry (SK8/9/11).
+/// The production `SkillBalance` rows, keyed by `SKILL_ORDER` (SK8/9/11/12).
 /// THE single source of every skill number in the game (SK11 gathered the
 /// last scattered constants here; tune via §14, never inline).
 pub fn production_skill_balance() -> SkillBalance {
     SkillBalance {
+        ids: SKILL_ORDER.iter().map(|s| s.to_string()).collect(),
         cooldowns: vec![
             vec![45.0], // meteor rain
             vec![40.0], // frost nova
@@ -208,7 +251,7 @@ pub fn release_meteor_shots(
                 damage: balance.meteor_damage(def, 1),
                 attack_type: AttackType::Magic,
                 source: crate::systems::damage::DamageSource::CommanderSkill(
-                    SkillId::MeteorRain.index(),
+                    SKILL_METEOR_RAIN,
                 ),
                 crit: false,
                 aoe_radius: balance.radius(def, 1),
@@ -277,7 +320,7 @@ pub fn skill_hotkeys(
         return;
     };
     for (slot_idx, slot) in caster.slots.iter().enumerate() {
-        if let Some(def) = defs.0.get(slot.def) {
+        if let Some(def) = defs.get(&slot.skill) {
             if def.hotkey.is_some_and(|k| keys.just_pressed(k)) {
                 requests.write(CastSkill {
                     caster: commander,
@@ -375,13 +418,14 @@ pub fn refresh_skill_buttons(
                 }))
                 .with_children(|row| {
                     for (slot_idx, slot) in caster.slots.iter().enumerate() {
-                        let def = defs.get(slot.def);
-                        // Command-zone buttons are commander-owned; their
-                        // defs are the registry's first rows.
-                        let skill_id = SkillId::ALL
-                            .get(slot.def)
-                            .copied()
-                            .expect("commander defs are the SkillId rows");
+                        // Skip slots whose def is not registered — tests
+                        // override the registry wholesale; the panel
+                        // self-heals like it does on zone rebuilds.
+                        let (Some(def), Some(skill_id)) =
+                            (defs.get(&slot.skill), SkillId::from_def_id(&slot.skill))
+                        else {
+                            continue;
+                        };
                         row.spawn((
                             Button,
                             SkillButton {
@@ -410,7 +454,7 @@ pub fn refresh_skill_buttons(
                                 TextColor(Color::srgb(0.45, 0.45, 0.45)),
                             ));
                             p.spawn((
-                                Text::new(def.badge.to_string()),
+                                Text::new(def.badge.map(|b| b.to_string()).unwrap_or_default()),
                                 TextFont {
                                     font: font.0.clone(),
                                     font_size: FontSize::Px(9.0),
@@ -469,46 +513,28 @@ pub fn refresh_skill_buttons(
     }
 }
 
-// --- Generic skill framework (phase 2, ADR-0011; card SK5) ------------------------
+// --- Generic skill framework (phase 2, ADR-0011; card SK5; base types WX2) ----------
 //
 // Owner-agnostic lifecycle for per-entity skills: validation, cooldown,
-// point aiming, learning/leveling. Everything here reads `SkillCaster` and
-// the `SkillDefs`/`SkillBalance` tables — never a specific owner type.
-// Concrete skill EFFECTS are separate systems that read `SkillCast` and
-// match on the def id; the framework never knows what a skill does.
-
-/// A request to cast slot `slot` of entity `caster`. Writers: UI buttons and
-/// hotkeys (SK8/SK10), owner-specific autocast triggers (SK9), tests.
-#[derive(Message, Debug)]
-pub struct CastSkill {
-    pub caster: Entity,
-    pub slot: usize,
-}
-
-/// A cast that passed validation AND aiming — the dispatch seam every skill
-/// effect system consumes (ADR-0011: effects are id-dispatched small
-/// systems). The cooldown is already running by the time this is read;
-/// `point` is Some only for Point-target skills.
-#[derive(Message, Debug)]
-pub struct SkillCast {
-    pub caster: Entity,
-    pub def: usize,
-    pub level: u8,
-    pub point: Option<Vec3>,
-}
+// point aiming, learning/leveling. Everything here reads the base
+// `SkillCaster` and the `SkillDefs`/`SkillBalance` tables — never a
+// specific owner type. Concrete skill EFFECTS are separate systems that
+// read `SkillCast` and match on the def id; the framework never knows what
+// a skill does. (`CastSkill`/`SkillCast` are the base messages, re-exported
+// at the top of this file.)
 
 /// Learn (or re-learn) a skill on a caster at `level` (SK5 API — content
 /// cards SK8/SK9 and tests call it). Pure data, no side effects: starts
 /// ready, autocast toggle OFF. Re-learning keeps the current cooldown.
-pub fn learn_skill(caster: &mut SkillCaster, def: usize, level: u8) {
-    if let Some(slot) = caster.slots.iter_mut().find(|s| s.def == def) {
+pub fn learn_skill(caster: &mut SkillCaster, def: &str, level: u8) {
+    if let Some(slot) = caster.slots.iter_mut().find(|s| s.skill == def) {
         slot.level = level;
     } else {
         caster.slots.push(SkillSlot {
-            def,
+            skill: def.to_string(),
             level,
             cooldown: 0.0,
-            autocast: false,
+            autocast_on: false,
         });
     }
 }
@@ -516,7 +542,11 @@ pub fn learn_skill(caster: &mut SkillCaster, def: usize, level: u8) {
 /// Raise a slot one level, clamped at the def's `max_level` (SK5 API — SK9
 /// wires this to tower invest). Returns the (possibly unchanged) level.
 pub fn level_up(defs: &SkillDefs, caster: &mut SkillCaster, slot: usize) -> u8 {
-    let max = defs.get(caster.slots[slot].def).max_level.max(1);
+    let max = defs
+        .get(&caster.slots[slot].skill)
+        .expect("skill def registered")
+        .max_level
+        .max(1);
     let slot = &mut caster.slots[slot];
     slot.level = (slot.level + 1).min(max);
     slot.level
@@ -529,6 +559,10 @@ pub fn level_up(defs: &SkillDefs, caster: &mut SkillCaster, slot: usize) -> u8 {
 /// skill enters `SkillAiming` instead — the cooldown only starts when the
 /// aim confirms, so a cancelled pick never pays (the SK1 law). `Unit`
 /// targets confirm immediately until unit picking exists.
+///
+/// Unlike the base's `process_casts` (immediate confirm, def-embedded
+/// cooldown), warden reads the per-(id, level) cooldown from SkillBalance
+/// and defers Point skills to the aiming layer — the WX2 semantics bridge.
 pub fn handle_cast_requests(
     mut requests: MessageReader<CastSkill>,
     mut casters: Query<&mut SkillCaster>,
@@ -545,28 +579,30 @@ pub fn handle_cast_requests(
         let Some(slot) = caster.slots.get(req.slot) else {
             continue;
         };
-        let (def_id, level, cooldown) = (slot.def, slot.level, slot.cooldown);
-        let def = defs.get(def_id);
+        let (skill_id, level, cooldown) = (slot.skill.clone(), slot.level, slot.cooldown);
+        let Some(def) = defs.get(&skill_id) else {
+            continue;
+        };
         if cooldown > 0.0 || def.kind == SkillKind::Passive {
             continue;
         }
         // A cast owns the next click: disarm any pending build.
         build.armed = false;
-        match def.target {
+        match def.targeting {
             SkillTargetMode::Point => {
                 aiming.0 = Some((req.caster, req.slot));
-                info!("[sk] {} entering point aiming", def.name);
+                info!("[sk] {} entering point aiming", def.id);
             }
             SkillTargetMode::None | SkillTargetMode::Unit => {
-                let cd = balance.cooldown(def_id, level);
+                let cd = balance.cooldown(&skill_id, level);
                 caster.slots[req.slot].cooldown = cd;
                 confirmed.write(SkillCast {
                     caster: req.caster,
-                    def: def_id,
+                    skill: skill_id,
                     level,
                     point: None,
                 });
-                info!("[sk] {} cast (lv {level}), cd {cd:.0}s", def.name);
+                info!("[sk] {} cast (lv {level}), cd {cd:.0}s", def.id);
             }
         }
     }
@@ -585,7 +621,7 @@ pub fn commander_skill_effects(
     mut frenzy: ResMut<WarFrenzy>,
 ) {
     for cast in casts.read() {
-        match cast.def {
+        match cast.skill.as_str() {
             SKILL_METEOR_RAIN => {
                 // SK2: schedule the volley at the confirmed point.
                 let point = cast.point.unwrap_or_default();
@@ -663,7 +699,7 @@ pub fn update_aim_picking(
         (Entity, &mut Transform, &mut Visibility),
         (With<SkillIndicatorRing>, Without<Enemy>),
     >,
-    mut cache: Local<Option<(usize, Entity)>>, // (aimed def, ring entity)
+    mut cache: Local<Option<(String, Entity)>>, // (aimed def id, ring entity)
 ) {
     // Resolve the aimed slot; None while not aiming, paused, or the caster
     // (or its slot) vanished mid-aim.
@@ -678,19 +714,19 @@ pub fn update_aim_picking(
             .map(|(caster, slot)| {
                 let c = casters.get(caster).expect("checked above");
                 let s = c.slots.get(slot).expect("checked above");
-                (caster, slot, s.def, s.level)
+                (caster, slot, s.skill.clone(), s.level)
             })
     } else {
         None
     };
     // Ring lifecycle: one ring while aiming, none otherwise; respawn when
     // the aimed def (radius) changes.
-    let aimed_def = aimed.map(|(_, _, def, _)| def);
-    if cache.map_or(true, |(d, _)| Some(d) != aimed_def) {
+    let aimed_def = aimed.as_ref().map(|(_, _, def, _)| def.clone());
+    if cache.as_ref().map_or(true, |(d, _)| Some(d) != aimed_def.as_ref()) {
         if let Some((_, ring)) = *cache {
             commands.entity(ring).despawn();
         }
-        if let Some(def) = aimed_def {
+        if let Some(def) = &aimed_def {
             // The ring shows the skill's effect radius — SkillBalance is the
             // single source (point skills are level-1 today).
             let ring = commands
@@ -708,7 +744,7 @@ pub fn update_aim_picking(
                         .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
                 ))
                 .id();
-            *cache = Some((def, ring));
+            *cache = Some((def.clone(), ring));
         } else {
             *cache = None;
         }
@@ -737,7 +773,7 @@ pub fn update_aim_picking(
     // Left click (away from the UI) confirms the cast at the ground point.
     if buttons.just_pressed(MouseButton::Left) && !cursor_over_blocking_ui(&blocking, &panel) {
         if let Some(point) = ground {
-            let cd = balance.cooldown(def_id, level);
+            let cd = balance.cooldown(&def_id, level);
             if let Ok(mut caster) = casters.get_mut(caster_e) {
                 if let Some(slot) = caster.slots.get_mut(slot_idx) {
                     slot.cooldown = cd;
@@ -745,30 +781,17 @@ pub fn update_aim_picking(
             }
             confirmed.write(SkillCast {
                 caster: caster_e,
-                def: def_id,
+                skill: def_id.clone(),
                 level,
                 point: Some(point),
             });
             aiming.0 = None;
             info!(
                 "[sk] {} cast at ({:.1}, {:.1}), cd {cd:.0}s",
-                defs.get(def_id).name,
+                defs.get(&def_id).map(|d| d.id.as_str()).unwrap_or("?"),
                 point.x,
                 point.z
             );
-        }
-    }
-}
-
-/// Tick every caster slot's cooldown down with virtual game time (SK5 —
-/// the SK1 cooldown law, per entity: flows in both wave phases, never
-/// resets across waves, frozen on pause via the Playing gate).
-pub fn tick_caster_cooldowns(time: Res<Time>, mut casters: Query<&mut SkillCaster>) {
-    for mut caster in &mut casters {
-        for slot in caster.slots.iter_mut() {
-            if slot.cooldown > 0.0 {
-                slot.cooldown = (slot.cooldown - time.delta_secs()).max(0.0);
-            }
         }
     }
 }

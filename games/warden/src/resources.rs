@@ -568,10 +568,10 @@ impl Default for WaveChoice {
 // --- Skills (phase 1, requirements §17 / cards SK1-SK4) -------------------------
 
 /// The three commander skills (requirements §17.2). Since SK8 the runtime
-/// home is the `SkillDefs` registry (the commander rows) and the SkillCaster
-/// on the commander entity; the enum stays as the l10n/tooltip key.
-/// INVARIANT: `SkillId::index()` == its registry def id (the commander rows
-/// are `systems::skills::{SKILL_METEOR_RAIN, SKILL_FROST_NOVA, SKILL_WAR_FRENZY}`).
+/// home is the base `SkillDefs` registry (the commander rows) and the base
+/// `SkillCaster` on the commander entity; the enum stays as the l10n/tooltip
+/// key. INVARIANT: `SkillId::def_id()` names the registry row (the
+/// `SKILL_ORDER` entries in `systems::skills`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SkillId {
     /// 流星火雨: 3 AOE blasts at a picked point (SK2).
@@ -586,12 +586,18 @@ impl SkillId {
     /// Definition order — also the Z/X/C button order (§17.3).
     pub const ALL: [SkillId; 3] = [SkillId::MeteorRain, SkillId::FrostNova, SkillId::WarFrenzy];
 
-    pub fn index(self) -> usize {
+    /// The base registry's string def id for this skill (WX2 id bridge).
+    pub fn def_id(self) -> &'static str {
         match self {
-            SkillId::MeteorRain => 0,
-            SkillId::FrostNova => 1,
-            SkillId::WarFrenzy => 2,
+            SkillId::MeteorRain => "meteor_rain",
+            SkillId::FrostNova => "frost_nova",
+            SkillId::WarFrenzy => "war_frenzy",
         }
+    }
+
+    /// Reverse of `def_id` — resolving a commander slot's def id.
+    pub fn from_def_id(id: &str) -> Option<SkillId> {
+        Self::ALL.into_iter().find(|s| s.def_id() == id)
     }
 }
 
@@ -616,71 +622,49 @@ impl Default for WarFrenzy {
     }
 }
 
-// --- Skill framework (phase 2, ADR-0011; cards SK5+) ------------------------------
+// --- Skill framework (phase 2, ADR-0011; base types since WX2) --------------------
 
-/// How a skill is used — the WC3 taxonomy (ADR-0011).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkillKind {
-    /// Always on once learned; contributes stat modifiers, never casts.
-    Passive,
-    /// Cast on demand (button/hotkey), purely cooldown-gated (§17.1).
-    Active,
-    /// An Active that may also fire on its own when the owner's domain
-    /// logic says so — e.g. the tower autocast system writes `CastSkill`
-    /// when the tower has a target (SK9). The framework treats it exactly
-    /// like Active; the auto-trigger lives with the owner.
-    Autocast,
-}
+// WX2 (ADR-0012): the framework TYPES live in warbase and are re-exported
+// under their historical warden paths so systems and tests keep resolving.
+// Field renames vs the warden originals: `id` (was `name`), `targeting`
+// (was `target`), `badge: Option<char>` (was `char`), plus the base's
+// `cooldown` (warden fills it from SkillBalance's lv1 value — the live cast
+// gate still reads SkillBalance per (id, level), the single number source).
+pub use warbase::prelude::SkillDef;
+pub use warbase::prelude::SkillDefs;
+pub use warbase::prelude::SkillKind;
+pub use warbase::prelude::SkillTargeting as SkillTargetMode;
 
-/// What the caster must aim before the cast resolves (ADR-0011). `Unit` is
-/// reserved for future unit-targeted skills; no def routes through it yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkillTargetMode {
-    /// Fires as soon as the cast request validates — no aiming.
-    None,
-    /// A ground point: indicator ring + left-click confirm, Esc/right-click
-    /// cancel (the SK1 point-skill interaction shape).
-    Point,
-    /// A specific entity target (reserved).
-    Unit,
-}
-
-/// Framework metadata for one skill (ADR-0011). Structure only — every
-/// NUMBER lives in [`SkillBalance`] (ADR-0008: data in code, single source).
-/// `name` is the stable code id used for lookups and log lines.
-pub struct SkillDef {
-    pub name: &'static str,
-    pub kind: SkillKind,
-    pub target: SkillTargetMode,
-    pub max_level: u8,
-    pub badge: char,
-    /// Global hotkey, if any (the commander's Z/X/C). Tower-skill hotkeys
-    /// arrive with SK10 as selection-scoped keys.
-    pub hotkey: Option<KeyCode>,
-}
-
-/// Registry of every skill definition, indexed by the `def` field of
-/// [`crate::components::SkillSlot`] — the TowerDefs pattern generalized to
-/// skills. Production rows land with their content cards (SK8 commander,
-/// SK9 archer); tests may push their own rows.
-#[derive(Resource, Default)]
-pub struct SkillDefs(pub Vec<SkillDef>);
-
-impl SkillDefs {
-    pub fn get(&self, def: usize) -> &SkillDef {
-        self.0.get(def).expect("skill def index in range")
-    }
-}
+/// Canonical production skill order (WX2): `SkillBalance.ids` and the def
+/// registry are filled in this order, and `DamageSource::to_origin` maps an
+/// id to its position here (the base's `DamageOrigin::Skill` attribution
+/// stays index-shaped). Tests may register their own ids — production only.
+pub const SKILL_ORDER: [&str; 10] = [
+    "meteor_rain",
+    "frost_nova",
+    "war_frenzy",
+    "eagle_eye",
+    "multishot",
+    "fire_arrows",
+    "deadeye",
+    "arcane_blast",
+    "piercing_bolt",
+    "concussion",
+];
 
 /// Single-source skill numbers (ADR-0011; SK11 gathered every scattered
 /// skill constant into it — tune here and nowhere else, loop B of the
-/// skill-design workflow). Per-skill rows parallel `SkillDefs`; each holds
+/// skill-design workflow). Rows are keyed by skill id through `ids` (WX2):
+/// row i of every per-skill table belongs to `ids[i]`, and each row holds
 /// per-level values (index level-1; levels beyond the array clamp to the
-/// last entry). Missing rows/cells read as 0.0 (commander rows have no
+/// last entry). Missing ids/rows/cells read as 0.0 (commander rows have no
 /// crit entries).
 #[derive(Resource, Default, Clone)]
 pub struct SkillBalance {
-    /// Full cast cooldown per (def, level).
+    /// Registry order contract: which skill id owns row i of every table
+    /// below. Production fills `SKILL_ORDER`; tests may register their own.
+    pub ids: Vec<String>,
+    /// Full cast cooldown per (id, level).
     pub cooldowns: Vec<Vec<f32>>,
     /// Point-skill effect radius (also the aiming indicator's radius).
     pub radius: Vec<Vec<f32>>,
@@ -729,17 +713,24 @@ pub struct SkillBalance {
 }
 
 impl SkillBalance {
-    fn level_value(rows: &[Vec<f32>], def: usize, level: u8) -> f32 {
-        rows.get(def)
+    /// Row index of a skill id (None = unregistered; reads as missing).
+    fn row(&self, def: &str) -> Option<usize> {
+        self.ids.iter().position(|s| s == def)
+    }
+
+    fn level_value(&self, rows: &[Vec<f32>], def: &str, level: u8) -> f32 {
+        self.row(def)
+            .and_then(|i| rows.get(i))
             .and_then(|r| r.get(level.saturating_sub(1) as usize).or_else(|| r.last()))
             .copied()
             .unwrap_or(0.0)
     }
 
-    /// Cooldowns PANIC on a missing row: every castable def must register
-    /// one (a silent 0 would mean free casting).
-    pub fn cooldown(&self, def: usize, level: u8) -> f32 {
-        let per_level = self.cooldowns.get(def).expect("skill balance cooldown row");
+    /// Cooldowns PANIC on an unregistered id or missing row: every castable
+    /// def must register one (a silent 0 would mean free casting).
+    pub fn cooldown(&self, def: &str, level: u8) -> f32 {
+        let idx = self.row(def).expect("skill balance id registered");
+        let per_level = self.cooldowns.get(idx).expect("skill balance cooldown row");
         per_level
             .get(level.saturating_sub(1) as usize)
             .or_else(|| per_level.last())
@@ -747,40 +738,40 @@ impl SkillBalance {
             .expect("at least one cooldown level")
     }
 
-    pub fn crit_chance(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.crit_chance, def, level)
+    pub fn crit_chance(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.crit_chance, def, level)
     }
 
-    pub fn crit_multiplier_add(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.crit_multiplier_add, def, level)
+    pub fn crit_multiplier_add(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.crit_multiplier_add, def, level)
     }
 
-    pub fn multishot_targets(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.multishot_targets, def, level)
+    pub fn multishot_targets(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.multishot_targets, def, level)
     }
 
-    pub fn fire_arrow_bonus(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.fire_arrow_bonus, def, level)
+    pub fn fire_arrow_bonus(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.fire_arrow_bonus, def, level)
     }
 
-    pub fn fire_arrow_duration(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.fire_arrow_duration, def, level)
+    pub fn fire_arrow_duration(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.fire_arrow_duration, def, level)
     }
 
-    pub fn radius(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.radius, def, level)
+    pub fn radius(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.radius, def, level)
     }
 
-    pub fn meteor_count(&self, def: usize, level: u8) -> u32 {
-        Self::level_value(&self.meteor_count, def, level) as u32
+    pub fn meteor_count(&self, def: &str, level: u8) -> u32 {
+        self.level_value(&self.meteor_count, def, level) as u32
     }
 
-    pub fn meteor_interval(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.meteor_interval, def, level)
+    pub fn meteor_interval(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.meteor_interval, def, level)
     }
 
-    pub fn meteor_damage(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.meteor_damage, def, level)
+    pub fn meteor_damage(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.meteor_damage, def, level)
     }
 
     /// SK10: cost to raise a kit at `min_level` one level (clamped to the
@@ -793,23 +784,23 @@ impl SkillBalance {
             .unwrap_or(0.0) as u32
     }
 
-    pub fn deadeye_mult(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.deadeye_mult, def, level)
+    pub fn deadeye_mult(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.deadeye_mult, def, level)
     }
 
-    pub fn arcane_damage(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.arcane_damage, def, level)
+    pub fn arcane_damage(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.arcane_damage, def, level)
     }
 
-    pub fn pierce_damage(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.pierce_damage, def, level)
+    pub fn pierce_damage(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.pierce_damage, def, level)
     }
 
-    pub fn pierce_length(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.pierce_length, def, level)
+    pub fn pierce_length(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.pierce_length, def, level)
     }
 
-    pub fn concussion_damage(&self, def: usize, level: u8) -> f32 {
-        Self::level_value(&self.concussion_damage, def, level)
+    pub fn concussion_damage(&self, def: &str, level: u8) -> f32 {
+        self.level_value(&self.concussion_damage, def, level)
     }
 }

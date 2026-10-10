@@ -1881,17 +1881,20 @@ fn set_commander_cooldown(app: &mut App, slot: usize, cd: f32) {
 }
 
 /// SkillBalance reads (SK11: the single source — tests never hardcode
-/// skill numbers).
+/// skill numbers). `def` is the commander slot order, mapped through
+/// SKILL_ORDER (WX2: the table is id-keyed now).
 fn cd_secs(app: &App, def: usize) -> f32 {
+    let id = warden::resources::SKILL_ORDER[def];
     app.world()
         .resource::<warden::resources::SkillBalance>()
-        .cooldown(def, 1)
+        .cooldown(id, 1)
 }
 
 fn nova_radius(app: &App) -> f32 {
+    let id = warden::resources::SKILL_ORDER[1];
     app.world()
         .resource::<warden::resources::SkillBalance>()
-        .radius(1, 1)
+        .radius(id, 1)
 }
 
 fn nova_factor(app: &App) -> f32 {
@@ -1919,9 +1922,10 @@ fn frenzy_dur(app: &App) -> f32 {
 }
 
 fn meteor_n(app: &App) -> usize {
+    let id = warden::resources::SKILL_ORDER[0];
     app.world()
         .resource::<warden::resources::SkillBalance>()
-        .meteor_count(0, 1) as usize
+        .meteor_count(id, 1) as usize
 }
 
 /// Regression (UI11 entry step): pressing the Fuse button with the cursor on
@@ -5731,45 +5735,36 @@ mod skills_core {
     fn register_test_defs(app: &mut App) {
         {
             let mut defs = app.world_mut().resource_mut::<SkillDefs>();
-            defs.0 = vec![
-                SkillDef {
-                    name: "burst",
-                    kind: SkillKind::Active,
-                    target: SkillTargetMode::None,
-                    max_level: 3,
-                    badge: 'B',
-                    hotkey: None,
-                },
-                SkillDef {
-                    name: "aimed",
-                    kind: SkillKind::Active,
-                    target: SkillTargetMode::Point,
-                    max_level: 1,
-                    badge: 'A',
-                    hotkey: None,
-                },
-                SkillDef {
-                    name: "instinct",
-                    kind: SkillKind::Passive,
-                    target: SkillTargetMode::None,
-                    max_level: 3,
-                    badge: 'P',
-                    hotkey: None,
-                },
-            ];
+            let mk = |id: &str,
+                      kind: SkillKind,
+                      targeting: SkillTargetMode,
+                      max_level: u8,
+                      badge: char| SkillDef {
+                id: id.to_string(),
+                kind,
+                targeting,
+                max_level,
+                cooldown: 0.0, // tests read SkillBalance (the cast gate's source)
+                badge: Some(badge),
+                hotkey: None,
+            };
+            defs.defs.clear();
+            defs.defs.insert("burst".into(), mk("burst", SkillKind::Active, SkillTargetMode::None, 3, 'B'));
+            defs.defs.insert("aimed".into(), mk("aimed", SkillKind::Active, SkillTargetMode::Point, 1, 'A'));
+            defs.defs.insert("instinct".into(), mk("instinct", SkillKind::Passive, SkillTargetMode::None, 3, 'P'));
         }
-        app.world_mut()
-            .resource_mut::<SkillBalance>()
-            .cooldowns = vec![vec![10.0, 12.0, 14.0], vec![20.0], vec![0.0, 0.0, 0.0]];
+        let mut balance = app.world_mut().resource_mut::<SkillBalance>();
+        balance.ids = vec!["burst".into(), "aimed".into(), "instinct".into()];
+        balance.cooldowns = vec![vec![10.0, 12.0, 14.0], vec![20.0], vec![0.0, 0.0, 0.0]];
     }
 
     /// A bare caster entity — no Tower, no other component: the framework
     /// must not care who owns the skills.
     fn spawn_caster(app: &mut App) -> Entity {
         let mut caster = SkillCaster { slots: vec![] };
-        learn_skill(&mut caster, 0, 1);
-        learn_skill(&mut caster, 1, 1);
-        learn_skill(&mut caster, 2, 1);
+        learn_skill(&mut caster, "burst", 1);
+        learn_skill(&mut caster, "aimed", 1);
+        learn_skill(&mut caster, "instinct", 1);
         app.world_mut().spawn(caster).id()
     }
 
@@ -5971,21 +5966,26 @@ mod skills_core {
     /// def's max_level; re-learning an owned skill refreshes only the level.
     #[test]
     fn level_up_clamps_at_max_level() {
-        let defs = SkillDefs(vec![SkillDef {
-            name: "x",
-            kind: SkillKind::Active,
-            target: SkillTargetMode::None,
-            max_level: 3,
-            badge: 'X',
-            hotkey: None,
-        }]);
+        let mut defs = SkillDefs::default();
+        defs.defs.insert(
+            "x".into(),
+            SkillDef {
+                id: "x".into(),
+                kind: SkillKind::Active,
+                targeting: SkillTargetMode::None,
+                max_level: 3,
+                cooldown: 0.0,
+                badge: Some('X'),
+                hotkey: None,
+            },
+        );
         let mut caster = SkillCaster { slots: vec![] };
-        learn_skill(&mut caster, 0, 1);
+        learn_skill(&mut caster, "x", 1);
         assert_eq!(level_up(&defs, &mut caster, 0), 2);
         assert_eq!(level_up(&defs, &mut caster, 0), 3);
         assert_eq!(level_up(&defs, &mut caster, 0), 3, "clamped at max_level");
         // Re-learn keeps one slot and only refreshes the level.
-        learn_skill(&mut caster, 0, 1);
+        learn_skill(&mut caster, "x", 1);
         assert_eq!(caster.slots.len(), 1);
         assert_eq!(caster.slots[0].level, 1);
     }
@@ -6064,7 +6064,7 @@ mod stats_pipeline {
             &mut app,
             t,
             StatMod {
-                source: ModSource::Skill { caster: t, def: 0 },
+                source: ModSource::Skill { caster: t, def: "s0" },
                 kind: StatKind::Damage,
                 add: 3.0,
                 mult: 1.0,
@@ -6099,7 +6099,7 @@ mod stats_pipeline {
     fn same_source_refreshes_instead_of_stacking() {
         let mut app = test_app();
         let t = spawn_tower(&mut app);
-        let source = ModSource::Skill { caster: t, def: 2 };
+        let source = ModSource::Skill { caster: t, def: "s2" };
         push_mod(
             &mut app,
             t,
@@ -6141,7 +6141,7 @@ mod stats_pipeline {
             &mut app,
             t,
             StatMod {
-                source: ModSource::Skill { caster: t, def: 1 },
+                source: ModSource::Skill { caster: t, def: "s1" },
                 kind: StatKind::Damage,
                 add: 8.0,
                 mult: 1.0,
@@ -6169,7 +6169,7 @@ mod stats_pipeline {
         let ally = spawn_tower(&mut app);
         let aura = ModSource::Aura {
             caster: owner,
-            def: 3,
+            def: "aura",
         };
         push_mod(
             &mut app,
@@ -6498,17 +6498,17 @@ mod skills_archer {
     }
 
     /// Slot index of a def on the caster (panic if absent).
-    fn slot_of(app: &mut App, tower: Entity, def: usize) -> usize {
+    fn slot_of(app: &mut App, tower: Entity, def: &str) -> usize {
         app.world()
             .get::<SkillCaster>(tower)
             .expect("caster")
             .slots
             .iter()
-            .position(|s| s.def == def)
+            .position(|s| s.skill == def)
             .expect("skill on caster")
     }
 
-    fn request_cast(app: &mut App, tower: Entity, def: usize) {
+    fn request_cast(app: &mut App, tower: Entity, def: &str) {
         let slot = slot_of(app, tower, def);
         app.world_mut()
             .resource_mut::<Messages<CastSkill>>()
@@ -6559,7 +6559,7 @@ mod skills_archer {
             caster
                 .slots
                 .iter()
-                .map(|s| s.def)
+                .map(|s| s.skill.clone())
                 .collect::<Vec<_>>(),
             vec![SKILL_EAGLE_EYE, SKILL_MULTISHOT, SKILL_FIRE_ARROWS]
         );
@@ -6682,7 +6682,7 @@ mod skills_archer {
         {
             let slot = slot_of(&mut app, tower, SKILL_FIRE_ARROWS);
             let mut caster = app.world_mut().get_mut::<SkillCaster>(tower).unwrap();
-            caster.slots[slot].autocast = true;
+            caster.slots[slot].autocast_on = true;
         }
         app.update();
         // A few frames: acquire target -> autocast queues -> cast confirms
@@ -6830,19 +6830,19 @@ mod skills_fusion {
             .id()
     }
 
-    fn slot_of(app: &mut App, tower: Entity, def: usize) -> usize {
+    fn slot_of(app: &mut App, tower: Entity, def: &str) -> usize {
         app.world()
             .get::<SkillCaster>(tower)
             .expect("caster")
             .slots
             .iter()
-            .position(|s| s.def == def)
+            .position(|s| s.skill == def)
             .expect("signature on caster")
     }
 
     /// Drive a POINT skill through the real request->aiming->confirm path:
     /// request the cast, put the cursor over `point`, click to confirm.
-    fn cast_point_skill(app: &mut App, tower: Entity, def: usize, point: Vec3) {
+    fn cast_point_skill(app: &mut App, tower: Entity, def: &str, point: Vec3) {
         let slot = slot_of(app, tower, def);
         app.world_mut()
             .resource_mut::<Messages<CastSkill>>()
@@ -6878,7 +6878,7 @@ mod skills_fusion {
     }
 
     /// A None-target signature cast (instant confirm, no aiming).
-    fn cast_none_skill(app: &mut App, tower: Entity, def: usize) {
+    fn cast_none_skill(app: &mut App, tower: Entity, def: &str) {
         let slot = slot_of(app, tower, def);
         app.world_mut()
             .resource_mut::<Messages<CastSkill>>()
@@ -6925,7 +6925,7 @@ mod skills_fusion {
             let caster = app.world().get::<SkillCaster>(tower).expect("kit attached");
             assert_eq!(fusion_signature(kind), def);
             assert_eq!(caster.slots.len(), 1, "one signature slot");
-            assert_eq!(caster.slots[0].def, def, "{kind:?} signature");
+            assert_eq!(caster.slots[0].skill, def, "{kind:?} signature");
             assert_eq!(caster.slots[0].level, 1, "ships at lv1");
             assert!(app.world().get::<StatMods>(tower).is_some());
         }
@@ -7236,7 +7236,7 @@ mod skills_ui {
         app.update(); // cast validates, effects run, cooldown starts
         {
             let caster = app.world().get::<SkillCaster>(tower).unwrap();
-            let slot = caster.slots.iter().find(|s| s.def == SKILL_MULTISHOT).unwrap();
+            let slot = caster.slots.iter().find(|s| s.skill == SKILL_MULTISHOT).unwrap();
             assert!(slot.cooldown > 24.0, "multishot cast + 25s cd (got {})", slot.cooldown);
         }
         // The live label shows the remaining seconds.
@@ -7305,8 +7305,8 @@ mod skills_ui {
         app.update();
         {
             let caster = app.world().get::<SkillCaster>(tower).unwrap();
-            let slot = caster.slots.iter().find(|s| s.def == SKILL_FIRE_ARROWS).unwrap();
-            assert!(slot.autocast, "right-click toggled autocast ON");
+            let slot = caster.slots.iter().find(|s| s.skill == SKILL_FIRE_ARROWS).unwrap();
+            assert!(slot.autocast_on, "right-click toggled autocast ON");
         }
         assert_eq!(
             app.world().resource::<Selection>().clone(),

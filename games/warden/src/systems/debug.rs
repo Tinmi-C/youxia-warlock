@@ -749,13 +749,13 @@ pub fn skill_card_shots(
     // Selected tower's caster helpers.
     let selected_caster = |casters: &mut Query<&mut SkillCaster>,
                            requests: &mut MessageWriter<CastSkill>,
-                           def: usize|
+                           def: &str|
      -> Option<()> {
         let Selection::Tower(tower) = *selection else {
             return None;
         };
         let caster = casters.get_mut(tower).ok()?;
-        let slot = caster.slots.iter().position(|s| s.def == def)?;
+        let slot = caster.slots.iter().position(|s| s.skill == def)?;
         requests.write(CastSkill {
             caster: tower,
             slot,
@@ -777,8 +777,8 @@ pub fn skill_card_shots(
             if let Selection::Tower(tower) = *selection {
                 if let Ok(mut caster) = casters.get_mut(tower) {
                     for slot in caster.slots.iter_mut() {
-                        if slot.def == SKILL_FIRE_ARROWS {
-                            slot.autocast = true;
+                        if slot.skill == SKILL_FIRE_ARROWS {
+                            slot.autocast_on = true;
                         }
                     }
                 }
@@ -794,7 +794,10 @@ pub fn skill_card_shots(
             // indicator ring renders at a visible ground point.
             if let Ok(cmd) = commanders.single() {
                 if let Ok(caster) = casters.get(cmd) {
-                    let slot = caster.slots.iter().position(|s| s.def == 1); // nova
+                    let slot = caster
+                        .slots
+                        .iter()
+                        .position(|s| s.skill == crate::systems::skills::SKILL_FROST_NOVA);
                     if let Some(slot) = slot {
                         requests.write(CastSkill { caster: cmd, slot });
                     }

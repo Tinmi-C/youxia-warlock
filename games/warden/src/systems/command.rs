@@ -240,9 +240,9 @@ pub fn refresh_tower_skill_buttons(
             (format!("{:.0}", slot.cooldown), Color::srgb(0.75, 0.75, 0.78))
         } else {
             // "»" marks a running autocast toggle (WC3-style indicator).
-            let auto = if slot.autocast { " »" } else { "" };
+            let auto = if slot.autocast_on { " »" } else { "" };
             (
-                format!("{} Lv{}{}", l10n::tower_skill_name(slot.def, *lang), slot.level, auto),
+                format!("{} Lv{}{}", l10n::tower_skill_name(&slot.skill, *lang), slot.level, auto),
                 Color::WHITE,
             )
         };
@@ -284,8 +284,8 @@ pub fn toggle_tower_autocast(
     };
     if let Ok(mut caster) = casters.get_mut(tower) {
         if let Some(slot) = caster.slots.get_mut(slot_idx) {
-            slot.autocast = !slot.autocast;
-            info!("[sk] autocast toggled {}", slot.autocast);
+            slot.autocast_on = !slot.autocast_on;
+            info!("[sk] autocast toggled {}", slot.autocast_on);
         }
     }
 }
@@ -683,9 +683,9 @@ pub fn refresh_command_card(
                 // `refresh_tower_skill_buttons` (no card rebuild per frame).
                 let min_level = slots.iter().map(|s| s.level).min().unwrap_or(1);
                 let cost = balance.skill_upgrade_cost(min_level);
-                let maxed = slots
-                    .iter()
-                    .all(|s| s.level >= skill_defs.get(s.def).max_level);
+                let maxed = slots.iter().all(|s| {
+                    s.level >= skill_defs.get(&s.skill).expect("skill def registered").max_level
+                });
                 let upgradable = !maxed && economy.gold >= cost as u32;
                 command_button(
                     card,
@@ -697,7 +697,7 @@ pub fn refresh_command_card(
                 );
                 let mut grid = 3u8;
                 for (slot_idx, slot) in slots.iter().enumerate() {
-                    let def = skill_defs.get(slot.def);
+                    let def = skill_defs.get(&slot.skill).expect("skill def registered");
                     if def.kind == SkillKind::Passive {
                         continue; // chips after the castables (grid below)
                     }
@@ -705,13 +705,13 @@ pub fn refresh_command_card(
                         card,
                         &font,
                         slot_idx,
-                        format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
+                        format!("{} Lv{}", l10n::tower_skill_name(&slot.skill, *lang), slot.level),
                         grid,
                     );
                     grid += 1;
                 }
                 for slot in slots.iter() {
-                    let def = skill_defs.get(slot.def);
+                    let def = skill_defs.get(&slot.skill).expect("skill def registered");
                     if def.kind != SkillKind::Passive {
                         continue;
                     }
@@ -720,7 +720,7 @@ pub fn refresh_command_card(
                         card,
                         &font,
                         CommandAction::Reserved,
-                        format!("{} Lv{}", l10n::tower_skill_name(slot.def, *lang), slot.level),
+                        format!("{} Lv{}", l10n::tower_skill_name(&slot.skill, *lang), slot.level),
                         false,
                         grid,
                     );
@@ -1611,12 +1611,16 @@ pub fn refresh_tooltip(
     let skill_line = |source: TooltipSource| -> Option<String> {
         match source {
             TooltipSource::Skill(id) => {
-                // Registry row for the badge (SkillId::index == def id).
-                let def = skill_defs.get(id.index());
+                // Registry row for the badge (the SkillId def id).
+                let badge = skill_defs
+                    .get(id.def_id())
+                    .and_then(|def| def.badge)
+                    .map(|b| b.to_string())
+                    .unwrap_or_default();
                 Some(format!(
                     "{}: {}\n{}",
                     l10n::TT_HOTKEY.pick(*lang),
-                    def.badge,
+                    badge,
                     l10n::skill_tooltip(*lang, id, &balance)
                 ))
             }
@@ -1683,7 +1687,7 @@ pub fn refresh_tooltip(
             // SK10: the selected tower's caster supplies def and level.
             let body = match *selection {
                 Selection::Tower(e) => casters.get(e).ok().and_then(|c| c.slots.get(slot_idx)).map(
-                    |s| l10n::tower_skill_tooltip(s.def, s.level, *lang),
+                    |s| l10n::tower_skill_tooltip(&s.skill, s.level, *lang),
                 ),
                 _ => None,
             }
@@ -1693,7 +1697,7 @@ pub fn refresh_tooltip(
                     .get(e)
                     .ok()
                     .and_then(|c| c.slots.get(slot_idx))
-                    .map(|s| l10n::tower_skill_name(s.def, *lang).to_string()),
+                    .map(|s| l10n::tower_skill_name(&s.skill, *lang).to_string()),
                 _ => None,
             }
             .unwrap_or_default();

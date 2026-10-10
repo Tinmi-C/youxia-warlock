@@ -35,7 +35,7 @@ use warden::systems::archer_skills::{
 };
 use warden::systems::damage::{DamageDealt, DamageSource};
 use warden::systems::fusion_skills::SKILL_DEADEYE;
-use warden::systems::skills::{CastSkill, SKILL_FROST_NOVA, SKILL_METEOR_RAIN, SKILL_WAR_FRENZY};
+use warden::systems::skills::{CastSkill, SKILL_METEOR_RAIN, SKILL_WAR_FRENZY};
 
 fn test_app() -> App {
     let mut app = App::new();
@@ -187,8 +187,8 @@ fn arm_archer_skills(app: &mut App) {
     let mut q = app.world_mut().query::<&mut SkillCaster>();
     for mut caster in q.iter_mut(app.world_mut()) {
         for slot in caster.slots.iter_mut() {
-            if slot.def == SKILL_FIRE_ARROWS {
-                slot.autocast = true;
+            if slot.skill == SKILL_FIRE_ARROWS {
+                slot.autocast_on = true;
             }
         }
     }
@@ -203,7 +203,7 @@ fn cast_ready_none_skills(app: &mut App) {
         let mut q = app.world_mut().query::<(bevy::ecs::entity::Entity, &SkillCaster)>();
         for (e, caster) in q.iter(app.world()) {
             for (slot, s) in caster.slots.iter().enumerate() {
-                let none_targeted = matches!(s.def, SKILL_MULTISHOT | SKILL_DEADEYE | SKILL_WAR_FRENZY);
+                let none_targeted = matches!(s.skill.as_str(), SKILL_MULTISHOT | SKILL_DEADEYE | SKILL_WAR_FRENZY);
                 if none_targeted && s.cooldown <= 0.0 {
                     requests.push(CastSkill { caster: e, slot });
                 }
@@ -341,7 +341,7 @@ fn cast_commander_meteor(app: &mut App) {
     let Some(slot) = caster
         .slots
         .iter()
-        .position(|s| s.def == SKILL_METEOR_RAIN && s.cooldown <= 0.0)
+        .position(|s| s.skill == SKILL_METEOR_RAIN && s.cooldown <= 0.0)
     else {
         return;
     };

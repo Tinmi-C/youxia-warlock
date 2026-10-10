@@ -22,44 +22,49 @@ use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 
 /// Who caused a piece of damage — the attribution seam for kill credit,
 /// balance readouts and skill on-hit hooks. `CommanderSkill`/`TowerSkill`
-/// carry the registry def id of the skill.
+/// carry the skill's string def id (WX2).
 ///
 /// WX1 bridge: this maps onto `warbase::combat::DamageOrigin`:
 /// - Tower(e)         ↔ DamageOrigin::Attack(e)
-/// - TowerSkill{t, s} ↔ DamageOrigin::Skill { caster: t, skill: s }
-/// - CommanderSkill(i)↔ DamageOrigin::Skill { caster: commander, skill: i }
+/// - TowerSkill{t, s} ↔ DamageOrigin::Skill { caster: t, skill: row(s) }
+/// - CommanderSkill(s)↔ DamageOrigin::Skill { caster: commander, skill: row(s) }
 /// - System           ↔ DamageOrigin::System
 ///
-/// warden keeps its own enum until the full component migration (WX2+)
-/// so all 153 existing tests stay untouched.
+/// warden keeps its own enum until the full component migration (WX3+)
+/// so the existing tests stay untouched. `row(s)` is the skill's position
+/// in `resources::SKILL_ORDER` — the base's attribution stays index-shaped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DamageSource {
     Tower(Entity),
-    CommanderSkill(usize),
-    TowerSkill { tower: Entity, skill: usize },
+    CommanderSkill(&'static str),
+    TowerSkill { tower: Entity, skill: &'static str },
     /// Environment/misc (nothing uses it yet; leaks damage the BASE, not
     /// enemies, so they never appear here).
     System,
 }
 
 impl DamageSource {
+    /// WX2 bridge: the base index for a skill id (`SKILL_ORDER` position).
+    fn skill_row(skill: &str) -> usize {
+        crate::resources::SKILL_ORDER
+            .iter()
+            .position(|s| *s == skill)
+            .expect("skill id in SKILL_ORDER")
+    }
+
     /// WX1 bridge: convert to the base's attribution type. `commander` is
     /// the singleton commander entity (callers that have it pass it in).
     pub fn to_origin(&self, commander: Option<Entity>) -> warbase::DamageOrigin {
         match self {
             DamageSource::Tower(e) => warbase::DamageOrigin::Attack(*e),
-            DamageSource::CommanderSkill(slot) => {
-                warbase::DamageOrigin::Skill {
-                    caster: commander.unwrap_or(Entity::PLACEHOLDER),
-                    skill: *slot,
-                }
-            }
-            DamageSource::TowerSkill { tower, skill } => {
-                warbase::DamageOrigin::Skill {
-                    caster: *tower,
-                    skill: *skill,
-                }
-            }
+            DamageSource::CommanderSkill(skill) => warbase::DamageOrigin::Skill {
+                caster: commander.unwrap_or(Entity::PLACEHOLDER),
+                skill: Self::skill_row(skill),
+            },
+            DamageSource::TowerSkill { tower, skill } => warbase::DamageOrigin::Skill {
+                caster: *tower,
+                skill: Self::skill_row(skill),
+            },
             DamageSource::System => warbase::DamageOrigin::System,
         }
     }

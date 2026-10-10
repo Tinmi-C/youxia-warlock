@@ -49,14 +49,7 @@ impl SkillDefs {
         self.defs.get(id)
     }
 
-    /// Index-based lookup (warden compat): returns the def at insertion
-    /// order. The base is string-keyed; this helper bridges index-model
-    /// consumers during the WX2 migration.
-    pub fn by_index(&self, idx: usize) -> Option<&SkillDef> {
-        self.defs.values().nth(idx)
-    }
-
-    /// Total registered skills (index-model compat).
+    /// Total registered skills.
     pub fn len(&self) -> usize {
         self.defs.len()
     }
@@ -87,18 +80,24 @@ pub struct CastSkill {
 }
 
 /// Emitted after validation; game-side effect systems dispatch by skill id.
+/// `point` is Some only when a game-side aiming layer confirmed a
+/// Point-target cast (the base validates and fires immediately; games that
+/// defer to a pick write the confirmed ground point here).
 #[derive(Message, Debug, Clone)]
 pub struct SkillCast {
     pub caster: Entity,
     pub skill: String,
     pub level: u8,
+    pub point: Option<Vec3>,
 }
 
 pub fn tick_skill_cooldowns(time: Res<Time>, mut q: Query<&mut SkillCaster>) {
     let dt = time.delta_secs();
     for mut caster in &mut q {
         for slot in &mut caster.slots {
-            slot.cooldown -= dt;
+            // Clamp at zero: cooldown is "seconds until ready" — never
+            // negative (exact-0 assertions and UI reads stay stable).
+            slot.cooldown = (slot.cooldown - dt).max(0.0);
         }
     }
 }
@@ -130,7 +129,12 @@ pub fn process_casts(
         }
         let Some(def) = defs.get(&slot.skill) else { continue };
         slot.cooldown = def.cooldown;
-        casts.write(SkillCast { caster: req.caster, skill: slot.skill.clone(), level: slot.level });
+        casts.write(SkillCast {
+            caster: req.caster,
+            skill: slot.skill.clone(),
+            level: slot.level,
+            point: None,
+        });
     }
 }
 
@@ -197,7 +201,7 @@ pub fn distribute_xp(world: &mut World) {
             xp.next_level_xp = (xp.next_level_xp as f32 * 2.0) as u32;
         }
         let level = xp.level;
-        let mut entry = holder.entry::<StatMods>().or_default();
+        let entry = holder.entry::<StatMods>().or_default();
         entry.into_mut().upsert(ModEntry {
             source: killer,
             kind: StatKind::DamageMult,

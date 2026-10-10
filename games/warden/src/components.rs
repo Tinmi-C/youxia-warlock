@@ -286,31 +286,16 @@ pub struct WiredAnim {
     pub node: AnimationNodeIndex,
 }
 
-// --- Skill framework (phase 2, ADR-0011; card SK5) --------------------------------
+// --- Skill framework (phase 2, ADR-0011; card SK5; base types since WX2) -----------
 
-/// One owned skill instance (ADR-0011). `def` indexes the `SkillDefs`
-/// registry; every NUMBER comes from `SkillBalance` by (def, level).
-#[derive(Debug, Clone)]
-pub struct SkillSlot {
-    pub def: usize,
-    /// 1..=def.max_level (clamped by `systems::skills::level_up`).
-    pub level: u8,
-    /// Seconds until the slot can cast again (<= 0 = ready). Ticks with
-    /// virtual game time under the SK1 cooldown law: flows in both wave
-    /// phases, never resets across waves, frozen on pause.
-    pub cooldown: f32,
-    /// Autocast toggle; only meaningful on a `SkillKind::Autocast` slot.
-    pub autocast: bool,
-}
-
-/// An entity that owns skills (ADR-0011): a tower, the commander singleton,
-/// any future character. Framework systems only ever read this component —
-/// they never query a specific owner type (that is what makes the framework
-/// generic; owner-specific trigger logic lives in the owner's own systems).
-#[derive(Component, Debug)]
-pub struct SkillCaster {
-    pub slots: Vec<SkillSlot>,
-}
+/// Per-entity skill ownership lives in the base (ADR-0012). Re-exported
+/// here so `warden::components::SkillCaster` keeps resolving for systems
+/// and tests; the slot's `skill` is the base string id (WX2: the registry
+/// index model retired — numbers still come from `SkillBalance` by id).
+pub use warbase::prelude::SkillCaster;
+/// One owned skill instance: `skill` = the base string def id, `level`
+/// 1..=def.max_level, cooldown under the SK1 law, `autocast_on` toggle.
+pub use warbase::prelude::SkillSlot;
 
 /// The persistent commander singleton (SK8): owns the three global skills
 /// (meteor rain / frost nova / war frenzy) via its `SkillCaster`. Spawned
@@ -324,12 +309,13 @@ pub struct Commander;
 /// Who contributes a stat modifier — the removable identity auras and timed
 /// buffs add/remove by. Entity+skill pairs cover self passives, applied
 /// buffs and auras from other entities; `Other` is a named escape hatch.
+/// The skill key is the base string def id (WX2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModSource {
     /// A skill owned by or applied to the entity itself (passive, timed buff).
-    Skill { caster: Entity, def: usize },
+    Skill { caster: Entity, def: &'static str },
     /// A skill aura projected by another entity.
-    Aura { caster: Entity, def: usize },
+    Aura { caster: Entity, def: &'static str },
     /// Anything else that needs a removable identity (e.g. a meta upgrade).
     Other(&'static str),
 }

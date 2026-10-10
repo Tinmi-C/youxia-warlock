@@ -173,8 +173,7 @@ pub fn skill_tooltip(
 ) -> String {
     use crate::resources::SkillId;
     use crate::systems::skills::{SKILL_FROST_NOVA, SKILL_METEOR_RAIN};
-    let def = kind.index();
-    let cd = balance.cooldown(def, 1);
+    let cd = balance.cooldown(kind.def_id(), 1);
     let effect = match kind {
         SkillId::MeteorRain => {
             let (count, dmg, radius) = (
@@ -221,7 +220,8 @@ pub const TT_SKILL_UPGRADE: Bi = Bi(
 );
 
 /// SK10: display name of a registry skill (archer + fusion kits today).
-pub fn tower_skill_name(def: usize, lang: Lang) -> &'static str {
+/// `def` is the base string def id (WX2).
+pub fn tower_skill_name(def: &str, lang: Lang) -> &'static str {
     use crate::systems::archer_skills::{SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
     use crate::systems::fusion_skills::{
         SKILL_ARCANE_BLAST, SKILL_CONCUSSION, SKILL_DEADEYE, SKILL_PIERCING_BOLT,
@@ -239,7 +239,7 @@ pub fn tower_skill_name(def: usize, lang: Lang) -> &'static str {
 }
 
 /// SK10: tooltip body with the level's live numbers (SkillBalance values).
-pub fn tower_skill_tooltip(def: usize, _level: u8, lang: Lang) -> String {
+pub fn tower_skill_tooltip(def: &str, _level: u8, lang: Lang) -> String {
     use crate::systems::archer_skills::{SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT};
     use crate::systems::fusion_skills::{
         SKILL_ARCANE_BLAST, SKILL_CONCUSSION, SKILL_DEADEYE, SKILL_PIERCING_BOLT,

@@ -59,8 +59,9 @@ impl Plugin for SkillsPlugin {
                     systems::fusion_skills::fusion_skill_effects,
                     // SK4: frenzy countdown.
                     systems::skills::tick_war_frenzy,
-                    // SK5: per-entity slot cooldowns, same law.
-                    systems::skills::tick_caster_cooldowns,
+                    // SK5: per-entity slot cooldowns, same law — the base's
+                    // ticker (WX2; the pause gate is this run_if).
+                    warbase::prelude::tick_skill_cooldowns,
                 )
                     .in_set(GameSet::Simulate)
                     .run_if(in_state(GameState::Playing)),

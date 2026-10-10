@@ -25,13 +25,14 @@
 | TO3 | 塔升级链：UnitDef.upgrade_to + try_upgrade（付目标阶造价、原格换体、人口 1:1、顶阶可读拒绝） | 7c8045c |
 | BAL1 | 三锚点收敛：A1 新手存量峰值 6/10 + A2 注入 20 翻盘 + A3 BOSS 38.2s∈[36,54] | 2348830 |
 | WX1 | warden 接基底依赖 + DamageSource.to_origin() 归因桥接（160 断言零漂移） | f93f0d7 |
+| WX2-prep | 基底 SkillDef 增 badge/hotkey + SkillDefs len()/is_empty() | 030a0d6 |
+| WX2 | warden 技能框架切基底：SkillCaster/SkillSlot/SkillDefs/SkillDef/CastSkill/SkillCast 全改用基底类型（历史路径重导出，调用面零改名）；id 模型索引→字符串（SKILL_ORDER = 平衡表行序 + DamageOrigin 桥）；SkillBalance 增 ids 字段改 id 键；基底 SkillCast 增 point（游戏侧瞄准层写入）+ tick_skill_cooldowns 钳 0（warden 复用）；移除 HashMap 序不稳的 by_index。160 断言零漂移 | 本笔 |
 
 ## 待做（warden 回迁，建议每对单独会话）
 
 | 增量 | 内容 | 障碍 |
 |------|------|------|
-| WX2 | warden SkillCaster 切基底 | warden 用索引 id (SkillId) + SkillBalance 独立数值表 + badge/hotkey 在 def 里；基底用字符串 id + def 内嵌 cooldown——需对齐 id 模型 |
-| WX3 | warden 命令卡切基底 | warden 五态切换/Tooltip/Grid 热键/中英双语需基底先补渲染层 |
+| WX3 | warden 命令卡切基底 | warden 五态切换/Tooltip/Grid 热键/中英双语需基底先补渲染层（WX3-prep 的 SKILL_CARD/PanelState 已就位） |
 | WX4 | warden FX 切基底 | warden FX 299 行深度耦合 Enemy.def_index/Slow/ProjectileImpact；基底 fx 是空壳 |
 | WX5 | warden BAL 切基底 harness | warden balance.rs 500+ 行驱动策略需改写为 DriverStrategy trait |
 | WX6 | warden 参数化 → maps/warden.ron | 最大单件：固定塔位/双速/单币/L 路径全成数据；requirements 层改写 |
@@ -41,4 +42,4 @@
 | 游戏 | 地图 | 状态 |
 |------|------|------|
 | loop-td | maps/loop.ron（30 波循环圈）+ maps/maze.ron（20 波迷宫）+ maps/maze-smoke.ron（5 波冒烟） | ✅ v1 完整可玩 |
-| warden | （待 WX6 后 maps/warden.ron） | 🟡 WX1 桥接就位 |
+| warden | （待 WX6 后 maps/warden.ron） | 🟡 WX1/WX2 已切（技能框架走基底） |
