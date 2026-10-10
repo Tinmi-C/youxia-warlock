@@ -37,7 +37,7 @@ fn cast_validation_and_cooldown() {
                 kind: SkillKind::Active,
                 targeting: SkillTargeting::None,
                 max_level: 3,
-                cooldown: 2.0,
+                cooldown: 2.0, badge: None, hotkey: None,
             },
         );
         defs
@@ -77,7 +77,7 @@ fn autocast_fires_when_ready() {
         let mut defs = SkillDefs::default();
         defs.defs.insert(
             "harden".into(),
-            SkillDef { id: "harden".into(), kind: SkillKind::Autocast, targeting: SkillTargeting::None, max_level: 1, cooldown: 5.0 },
+            SkillDef { id: "harden".into(), kind: SkillKind::Autocast, targeting: SkillTargeting::None, max_level: 1, cooldown: 5.0, badge: None, hotkey: None },
         );
         defs
     });

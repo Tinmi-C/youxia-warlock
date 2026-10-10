@@ -33,6 +33,10 @@ pub struct SkillDef {
     pub targeting: SkillTargeting,
     pub max_level: u8,
     pub cooldown: f32,
+    /// UI badge char (e.g. 'Z' for the hotkey label). Game-agnostic.
+    pub badge: Option<char>,
+    /// Global hotkey if the skill has one (commander Z/X/C style).
+    pub hotkey: Option<KeyCode>,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -43,6 +47,22 @@ pub struct SkillDefs {
 impl SkillDefs {
     pub fn get(&self, id: &str) -> Option<&SkillDef> {
         self.defs.get(id)
+    }
+
+    /// Index-based lookup (warden compat): returns the def at insertion
+    /// order. The base is string-keyed; this helper bridges index-model
+    /// consumers during the WX2 migration.
+    pub fn by_index(&self, idx: usize) -> Option<&SkillDef> {
+        self.defs.values().nth(idx)
+    }
+
+    /// Total registered skills (index-model compat).
+    pub fn len(&self) -> usize {
+        self.defs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.defs.is_empty()
     }
 }
 

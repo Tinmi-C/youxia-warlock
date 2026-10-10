@@ -502,7 +502,7 @@ fn hero_snipe_autocasts_and_points_level_it() {
             kind: SkillKind::Autocast,
             targeting: SkillTargeting::None,
             max_level: 3,
-            cooldown: 6.0,
+            cooldown: 6.0, badge: None, hotkey: None,
         },
     );
     app.insert_resource(defs);
