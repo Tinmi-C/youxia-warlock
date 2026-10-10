@@ -40,6 +40,19 @@ pub struct CommandCardDef {
 /// Reserved card key for the build menu (shown when nothing is selected).
 pub const BUILD_CARD: &str = "__build__";
 
+/// Reserved card key for the skill bar (commander skills — Z/X/C zone).
+pub const SKILL_CARD: &str = "__skills__";
+
+/// Selection states the panel reacts to (five-state model from warden UI9:
+/// None → Build → Unit → Aiming → Casting — the base drives the first three;
+/// aiming/casting overlays are game-side).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelState {
+    Hidden,
+    BuildMenu,
+    UnitSelected,
+}
+
 #[derive(Resource, Debug, Default)]
 pub struct CommandCards {
     pub cards: HashMap<String, CommandCardDef>,
