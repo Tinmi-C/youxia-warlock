@@ -18,6 +18,7 @@ impl Plugin for GamePlugin {
             .add_systems(Update, gameplay::snipe_effect)
             .add_systems(Update, gameplay::hero_talents)
             .add_systems(Update, (gameplay::bank_run, gameplay::end_screen_input))
+            .add_systems(Update, (gameplay::track_stats, gameplay::refresh_end_screen))
             .add_systems(Update, hud::refresh_hud);
     }
 }

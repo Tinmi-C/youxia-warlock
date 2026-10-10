@@ -120,13 +120,18 @@ fn boss_timeout_fires_once() {
     assert_eq!(timeouts, 1);
 }
 
-/// Cleared: kill the tagged unit -> WaveCleared, then Done (single wave).
+/// Cleared: kill the tagged unit -> WaveCleared, then Done (single wave,
+/// finite win condition — Endless rules wrap instead of finishing).
 #[test]
 fn killing_all_wave_units_emits_cleared_and_finishes() {
     let mut app = armed_app(WaveTable {
         waves: vec![one_grunt_wave()],
         advance: Advance::Manual,
         early_call_bonus: None,
+    });
+    app.insert_resource(MatchRules {
+        win: WinCondition::SurviveWaves { waves: 1 },
+        ..Default::default()
     });
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<StartWave>>()

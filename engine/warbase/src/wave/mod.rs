@@ -100,6 +100,9 @@ struct SpawnTrack {
     timer: f32,
 }
 
+/// Endless cycling: each full pass over the table multiplies hp by this.
+pub const ENDLESS_GROWTH: f32 = 1.15;
+
 #[derive(Resource, Debug)]
 pub struct WaveDirector {
     pub next_wave: usize,
@@ -107,6 +110,8 @@ pub struct WaveDirector {
     pub phase: DirectorPhase,
     pub phase_timer: f32,
     boss_timer: Option<f32>,
+    /// Completed passes over the wave table (endless mode; 0 on linear maps).
+    pub cycles: u32,
     ledger: Vec<SpawnTrack>,
     /// Consecutive frames where every spec finished spawning. Cleared-wave
     /// detection waits >=2 so the last queued spawn (deferred Commands) is
@@ -122,6 +127,7 @@ impl Default for WaveDirector {
             phase: DirectorPhase::Idle,
             phase_timer: 0.0,
             boss_timer: None,
+            cycles: 0,
             ledger: Vec::new(),
             spawned_clean_frames: 0,
         }
@@ -157,6 +163,7 @@ impl WaveDirector {
 #[allow(clippy::type_complexity)]
 pub fn run_director(
     time: Res<Time>,
+    rules: Res<crate::rule::MatchRules>,
     mut director: ResMut<WaveDirector>,
     table: Res<WaveTable>,
     registry: Res<UnitRegistry>,
@@ -214,7 +221,10 @@ pub fn run_director(
                     director.boss_timer = None; // fire once
                 }
             }
-            let running = director.running.unwrap_or(0);
+            let (running, cycle_growth) = {
+                let r = director.running.unwrap_or(0);
+                (r, ENDLESS_GROWTH.powi(director.cycles as i32))
+            };
             let mut all_spawned = true;
             for track in director.ledger.iter_mut() {
                 if track.remaining == 0 {
@@ -231,7 +241,7 @@ pub fn run_director(
                             &spec.unit,
                             Vec3::new(start.x, 0.0, start.y),
                             Allegiance::Attacker,
-                            spec.hp_scale,
+                            spec.hp_scale * cycle_growth,
                         ) {
                             commands.entity(u)
                                 .insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false })
@@ -263,7 +273,23 @@ pub fn run_director(
                         director.running = None;
                         director.next_wave = w + 1;
                         if director.next_wave >= table.waves.len() {
-                            director.phase = DirectorPhase::Done;
+                            if matches!(
+                                rules.win,
+                                crate::rule::WinCondition::Endless
+                            ) && !table.waves.is_empty()
+                            {
+                                // Endless: wrap around, one growth pass tougher.
+                                director.cycles += 1;
+                                director.next_wave = 0;
+                                if let Some(t) = intermission {
+                                    director.enter_intermission(t);
+                                    preview.write(WavePreview(0));
+                                } else {
+                                    director.phase = DirectorPhase::Idle;
+                                }
+                            } else {
+                                director.phase = DirectorPhase::Done;
+                            }
                         } else if let Some(t) = intermission {
                             director.enter_intermission(t);
                             preview.write(WavePreview(director.next_wave));

@@ -335,7 +335,12 @@ pub fn end_screen_input(world: &mut World) {
             info!("[loop-td] meta: start gold +{}/rank", META_UPGRADE_GOLD);
         }
     }
+    if keys.just_pressed(KeyCode::KeyE) {
+        world.insert_resource(EndlessNext);
+        restart_run(world);
+    }
     if keys.just_pressed(KeyCode::KeyR) {
+        world.remove_resource::<EndlessNext>();
         restart_run(world);
     }
 }
@@ -343,7 +348,11 @@ pub fn end_screen_input(world: &mut World) {
 /// Fresh match from the loaded map, meta bonus applied (assemble resets
 /// director/flow/econ/rules; towers/creeps/paths despawned).
 pub fn restart_run(world: &mut World) {
-    let bundle = world.resource::<CurrentMap>().0.clone();
+    let mut bundle = world.resource::<CurrentMap>().0.clone();
+    if world.get_resource::<EndlessNext>().is_some() {
+        bundle.rules.win = WinCondition::Endless;
+        info!("[loop-td] endless mode: next run cycles with +15%/pass");
+    }
     // Despawn units and path entities (panel/HUD/camera stay).
     let mut to_despawn: Vec<Entity> = Vec::new();
     {
@@ -365,6 +374,144 @@ pub fn restart_run(world: &mut World) {
     world.resource_mut::<Resources>().gold += bonus;
     info!("[loop-td] run restarted (+{bonus} meta gold)");
 }
+
+// ---------------------------------------------------------------------------
+// ST1: run stats (kills / stock peak / stock curve), score, end screen,
+// and the endless entry (E at the end screen -> next run is Endless).
+// ---------------------------------------------------------------------------
+
+#[derive(Resource, Debug, Default)]
+pub struct RunStats {
+    pub kills: u32,
+    pub stock_peak: u32,
+    /// StockCount sampled every 30 frames (0.5s) — the settlement curve.
+    pub stock_history: Vec<u32>,
+    samples: u32,
+}
+
+#[derive(Resource, Default)]
+struct DeathCursor(bevy::ecs::message::MessageCursor<UnitDied>);
+
+pub fn track_stats(world: &mut World) {
+    world.get_resource_or_insert_with(RunStats::default);
+    world.get_resource_or_insert_with(DeathCursor::default);
+    let deaths: Vec<UnitDied> = world.resource_scope(|w, mut c: Mut<DeathCursor>| {
+        let msgs = w.resource::<bevy::ecs::message::Messages<UnitDied>>();
+        c.0.read(msgs).cloned().collect()
+    });
+    let mut stats = world.resource_mut::<RunStats>();
+    stats.kills += deaths.len() as u32;
+    stats.samples += 1;
+    if stats.samples % 30 == 0 {
+        let stock = {
+            drop(&mut stats);
+            let s = world.resource::<StockCount>().0;
+            s
+        };
+        let mut stats = world.resource_mut::<RunStats>();
+        stats.stock_peak = stats.stock_peak.max(stock);
+        stats.stock_history.push(stock);
+    }
+}
+
+/// Settlement score: kills + waves + stock control + hero levels.
+pub fn settlement_score(world: &mut World) -> u32 {
+    let (kills, peak) = {
+        let stats = world.resource::<RunStats>();
+        (stats.kills, stats.stock_peak)
+    };
+    let waves = world.resource::<WaveDirector>().next_wave as u32;
+    let cap = match &world.resource::<MatchRules>().leak {
+        LeakPolicy::Stockpile { cap } => *cap,
+        _ => 50,
+    };
+    let heroes: u32 = {
+        let mut q = world.query_filtered::<&XpHolder, ()>();
+        q.iter(world).map(|x| x.level as u32).sum()
+    };
+    kills * 10 + waves * 100 + cap.saturating_sub(peak) * 2 + heroes * 50
+}
+
+#[derive(Component)]
+pub struct EndScreen;
+
+#[derive(Resource, Default)]
+struct EndScreenText(String);
+
+pub fn refresh_end_screen(world: &mut World) {
+    let flow = world.resource::<MatchFlow>().clone();
+    if flow == MatchFlow::Running {
+        if let Ok(e) = world.query_filtered::<Entity, With<EndScreen>>().single(world) {
+            world.despawn(e);
+            world.resource_mut::<EndScreenText>().0.clear();
+        }
+        return;
+    }
+    let next = {
+        let waves = world.resource::<WaveDirector>().next_wave;
+        let meta = world.resource::<MetaState>().clone();
+        let score = settlement_score(world);
+        let (kills, peak, history) = {
+            let stats = world.resource::<RunStats>();
+            (stats.kills, stats.stock_peak, stats.stock_history.clone())
+        };
+        // Compact stock curve: 20 buckets, '#' scaled to the cap.
+        let cap = match &world.resource::<MatchRules>().leak {
+            LeakPolicy::Stockpile { cap } => *cap,
+            _ => 50,
+        } as f32;
+        let curve: String = {
+            let h = &history;
+            let step = (h.len() / 20).max(1);
+            h.iter().step_by(step).take(20).map(|s| {
+                let h_chars = ((s.to_owned() as f32 / cap) * 8.0).round() as usize;
+                std::iter::repeat('#').take(h_chars.min(8)).collect::<String>()
+                    + &std::iter::repeat('.').take((8 - h_chars.min(8))).collect::<String>()
+                    + " "
+            }).collect()
+        };
+        let outcome = match &flow {
+            MatchFlow::Won(_) => format!("胜利！{}", score),
+            MatchFlow::Lost(r) => format!("失败（{r}）得分 {score}"),
+            MatchFlow::Running => unreachable!(),
+        };
+        format!(
+            "{outcome}\n波次 {}  击杀 {}  存量峰值 {}\n存量曲线 {}\nMeta 点数 {}（加成 +{}金）  M 买开局+20金(10点)  E 无尽重开  R 普通重开",
+            waves, kills, peak, curve.trim_end(), meta.points, meta.start_gold_bonus,
+        )
+    };
+    world.get_resource_or_insert_with(EndScreenText::default);
+    let mut key = world.resource_mut::<EndScreenText>();
+    if key.0 == next {
+        return;
+    }
+    key.0 = next.clone();
+    match world.query_filtered::<Entity, With<EndScreen>>().single(world) {
+        Ok(e) => {
+            if let Some(mut txt) = world.get_mut::<Text>(e) {
+                *txt = Text::new(next);
+            }
+        }
+        Err(_) => {
+            world.spawn((
+                EndScreen,
+                Text::new(next),
+                TextFont { font_size: FontSize::Px(22.0), ..default() },
+                TextColor(Color::WHITE),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(60.0),
+                    left: Val::Px(120.0),
+                    ..default()
+                },
+            ));
+        }
+    }
+}
+
+/// Marker: next restart runs Endless (E at the end screen).
+#[derive(Resource, Default)]
+pub struct EndlessNext;
 
 /// Dispatch base command-card actions onto the map (BX4b consumer side).
 pub fn command_dispatch(world: &mut World) {    let events: Vec<warbase::ui::CommandCardAction> = {

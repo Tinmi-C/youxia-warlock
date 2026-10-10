@@ -599,7 +599,7 @@ fn meta_banks_buys_and_restarts() {
     // Bank: a lost match with 3 cleared waves adds 3 points, exactly once.
     let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
     let mut app = armed(&bundle);
-    app.insert_resource(MetaState::default());
+    app.insert_resource(loop_td::systems::gameplay::MetaState::default());
     app.world_mut().insert_resource(MatchFlow::Lost("test".into()));
     app.world_mut().resource_mut::<WaveDirector>().next_wave = 3;
     bank_run(&mut app.world_mut());
@@ -639,6 +639,122 @@ fn meta_banks_buys_and_restarts() {
     app.world_mut().resource_mut::<WaveDirector>().next_wave = 1;
     bank_run(&mut app.world_mut());
     assert_eq!(app.world().resource::<MetaState>().points, 1);
+}
+
+/// ST1: kills/stock tracking, score formula, end screen with curve, and
+/// despawn on restart.
+#[test]
+fn settlement_tracks_scores_and_shows_the_end_screen() {
+    use loop_td::systems::gameplay::{refresh_end_screen, settlement_score, track_stats, RunStats};
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    app.insert_resource(loop_td::systems::gameplay::MetaState::default());
+    app.insert_resource(RunStats::default());
+
+    // Kill 3 grunts through the pipeline.
+    let reg: UnitRegistry = (*app.world().resource::<UnitRegistry>()).clone();
+    let path_e = app.world().resource::<Paths>().0[0];
+    let src = app.world_mut().spawn_empty().id();
+    let mut victims = Vec::new();
+    for _ in 0..3 {
+        let v = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::ZERO, Allegiance::Attacker, 1.0).unwrap();
+        app.world_mut().entity_mut(v).insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false });
+        victims.push(v);
+    }
+    for v in victims {
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<DamageRequest>>()
+            .write(DamageRequest { target: v, source: src, amount: 999.0, attack_type: AttackType::Normal, crit: false });
+    }
+    app.update();
+    track_stats(&mut app.world_mut());
+    assert_eq!(app.world().resource::<RunStats>().kills, 3);
+
+    // End the match -> screen shows loss + curve + meta hints; score formula.
+    app.world_mut().insert_resource(MatchFlow::Lost("stockpile full (50/50)".into()));
+    refresh_end_screen(&mut app.world_mut());
+    let screen = app
+        .world_mut()
+        .query_filtered::<Entity, With<loop_td::systems::gameplay::EndScreen>>()
+        .single(app.world())
+        .expect("end screen spawned");
+    let text = app.world().get::<Text>(screen).unwrap().0.clone().to_string();
+    assert!(text.contains("失败"), "{text}");
+    assert!(text.contains("存量曲线"), "{text}");
+    assert!(text.contains("M 买"), "{text}");
+    let score = settlement_score(&mut app.world_mut());
+    assert_eq!(score, 3 * 10 + (50 - 0) * 2, "kills 3 + full stock-control headroom");
+
+    // Restart clears the screen.
+    loop_td::systems::gameplay::restart_run(&mut app.world_mut());
+    refresh_end_screen(&mut app.world_mut());
+    assert!(
+        app.world_mut()
+            .query_filtered::<Entity, With<loop_td::systems::gameplay::EndScreen>>()
+            .single(app.world())
+            .is_err(),
+        "screen despawned on restart"
+    );
+}
+
+/// Endless: E at the end screen restarts with Endless rules — the wave
+/// table wraps with +15% hp per pass instead of finishing.
+#[test]
+fn endless_mode_wraps_the_wave_table_with_growth() {
+    let bundle = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    let mut app = armed(&bundle);
+    app.insert_resource(loop_td::systems::gameplay::MetaState::default());
+    app.insert_resource(loop_td::systems::gameplay::RunStats::default());
+
+    // Truncate to one fast wave, mark endless, lose on purpose, restart via E.
+    {
+        let map = app.world_mut().get_resource_mut::<loop_td::systems::gameplay::CurrentMap>().unwrap();
+        let mut b = map.0.clone();
+        b.waves.waves.truncate(1);
+        b.waves.advance = Advance::Auto { intermission: 0.2 };
+        app.world_mut().resource_mut::<loop_td::systems::gameplay::CurrentMap>().0 = b;
+    }
+    app.world_mut().insert_resource(MatchFlow::Lost("setup".into()));
+    app.init_resource::<ButtonInput<KeyCode>>();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyE);
+    loop_td::systems::gameplay::end_screen_input(&mut app.world_mut());
+    assert!(matches!(
+        app.world().resource::<MatchRules>().win,
+        WinCondition::Endless
+    ));
+
+    // Buy towers AFTER the restart (restart clears the board).
+    app.world_mut().resource_mut::<Resources>().gold += 600;
+    {
+        let grid = app.world().resource::<BuildGrid>().clone();
+        let spawn_cell = grid.world_to_cell(Vec2::new(-10.0, -6.0));
+        let mut placed = 0;
+        'outer: for ring in 1..6 {
+            for dy in -ring..=ring {
+                for dx in -ring..=ring {
+                    let c = Cell(spawn_cell.0 + dx, spawn_cell.1 + dy);
+                    if grid.check(c).is_ok() && try_place(&mut app.world_mut(), "arrow3", c).is_ok() {
+                        placed += 1;
+                        if placed >= 3 {
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(placed, 3);
+    }
+
+    for _ in 0..3600 {
+        app.update();
+        if app.world().resource::<WaveDirector>().cycles >= 1 {
+            break;
+        }
+    }
+    let dir = app.world().resource::<WaveDirector>();
+    assert!(dir.cycles >= 1, "table wrapped: cycles = {}", dir.cycles);
 }
 
 /// BAL-smoke: the harness drives the REAL shipped map with the greedy
