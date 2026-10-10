@@ -12,6 +12,7 @@ use warbase::testing::{count_over_frames, test_app};
 
 const LOOP_MAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/loop.ron");
 const MAZE_MAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/maze-smoke.ron");
+const MAZE_FULL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/maze.ron");
 
 /// Headless armed app from a bundle: base + assemble + game grid + the map
 /// handle the real game keeps (restart/meta need it).
@@ -804,6 +805,37 @@ fn hero_boss_drop_seeded() {
     // Seed 7 + the loop-td RNG gives a deterministic answer; assert the
     // mechanism works either way (drop or no drop).
     assert!(drops <= 1, "at most one drop per boss kill");
+}
+
+/// Maze TD proper (maps/maze.ron): loads, validates, and the harness
+/// greedy driver actually clears waves through the same base — the
+/// strongest "swap map, swap game" proof after the smoke test.
+#[test]
+fn maze_full_map_loads_and_greedy_clears_waves() {
+    let mut bundle = load_bundle(std::path::Path::new(MAZE_FULL)).expect("maze.ron loads");
+    validate(&bundle).expect("maze.ron validates");
+    assert_eq!(bundle.waves.waves.len(), 20);
+    assert_eq!(bundle.identity.id, "maze");
+    assert!(matches!(bundle.rules.leak, LeakPolicy::Lives { .. }));
+    assert!(matches!(bundle.waves.advance, Advance::Auto { .. }));
+
+    // The greedy baseline on the 96-unit S-path: coverage is sparse (the
+    // driver clusters at first-free-cell), but it should still clear the
+    // first waves and build towers through the same base.
+    bundle.waves.advance = Advance::Auto { intermission: 0.5 };
+    bundle.waves.waves.truncate(3);
+    bundle.rules.win = WinCondition::SurviveWaves { waves: 3 };
+    bundle.econ_start.gold = 300; // room for ~6 arrows
+    let mut driver = GreedyDriver { tower: "arrow".into() };
+    let r = run_headless(
+        &bundle,
+        &mut driver,
+        HarnessOpts { max_frames: 60 * 300, ..Default::default() },
+    );
+    println!("[MAZE-FULL] {r:?}");
+    assert!(r.waves_cleared >= 2, "greedy arrow clears early maze waves: {r:?}");
+    assert!(r.towers_built >= 4, "towers got built: {r:?}");
+    assert!(r.damage_by_def.contains_key("arrow"), "arrows fought");
 }
 
 /// BAL-smoke: the harness drives the REAL shipped map with the greedy
