@@ -6,7 +6,7 @@
 use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::prelude::*;
 
-use crate::build::{try_place, try_sell, BuildGrid, Cell};
+use crate::build::{try_place, try_sell, try_upgrade, BuildGrid, Cell};
 use crate::bundle::{assemble, build_grid, MapBundle};
 use crate::combat::DamageDealt;
 use crate::econ::{Population, Resources};
@@ -36,6 +36,65 @@ pub struct HarnessView {
 pub enum DriverAction {
     Place { def: String, cell: Cell },
     Sell { cell: Cell },
+    /// Raise the buildable at `cell` one tier (UnitDef.upgrade_to chain).
+    Upgrade { cell: Cell },
+    /// Start the next wave now (Manual advance) / early-call it (Auto, and
+    /// the table's early-call bonus applies).
+    CallWave,
+    /// Cast `skill` on the first caster that owns it (cooldown/aiming
+    /// validation is the base's cast pipeline's job, as with real input).
+    Cast { skill: String },
+    /// Spend one banked skill point on `skill` (XpHolder heroes only).
+    SpendPoint { skill: String },
+}
+
+/// Execute one driver action against the world. Returns whether it took
+/// effect (placed/upgraded/spent/cast) — the report counts on this. Shared
+/// by run_headless's per-frame loop and direct tests.
+pub fn apply_driver_action(world: &mut World, action: &DriverAction) -> bool {
+    match action {
+        DriverAction::Place { def, cell } => try_place(world, def, *cell).is_ok(),
+        DriverAction::Sell { cell } => try_sell(world, *cell).is_ok(),
+        DriverAction::Upgrade { cell } => try_upgrade(world, *cell).is_ok(),
+        DriverAction::CallWave => {
+            world
+                .resource_mut::<Messages<crate::wave::StartWave>>()
+                .write(crate::wave::StartWave);
+            true
+        }
+        DriverAction::Cast { skill } => {
+            let found = {
+                let mut q = world.query::<(Entity, &crate::skill::SkillCaster)>();
+                q.iter(world).find_map(|(e, c)| {
+                    c.slots.iter().position(|s| &s.skill == skill).map(|slot| (e, slot))
+                })
+            };
+            match found {
+                Some((caster, slot)) => {
+                    world
+                        .resource_mut::<Messages<crate::skill::CastSkill>>()
+                        .write(crate::skill::CastSkill { caster, slot });
+                    true
+                }
+                None => false,
+            }
+        }
+        DriverAction::SpendPoint { skill } => {
+            let found = {
+                let mut q =
+                    world.query_filtered::<(Entity, &crate::skill::SkillCaster), With<crate::unit::XpHolder>>();
+                q.iter(world).find_map(|(e, c)| {
+                    c.slots.iter().position(|s| &s.skill == skill).map(|slot| (e, slot))
+                })
+            };
+            match found {
+                Some((entity, slot)) => {
+                    crate::skill::spend_skill_point(world, entity, slot).is_ok()
+                }
+                None => false,
+            }
+        }
+    }
 }
 
 /// BAL2's driver generalized: decide placements/sells per frame.
@@ -86,6 +145,17 @@ pub struct HarnessReport {
     pub gold_left: u32,
     /// Damage attribution by unit def (BAL's per-source readings).
     pub damage_by_def: std::collections::BTreeMap<String, f32>,
+    /// Damage attribution by origin channel — attack / skill / system (the
+    /// warden BAL three-column share readout, base-side).
+    pub damage_by_origin: std::collections::BTreeMap<String, f32>,
+    /// Clear time per wave, game seconds (paired with WaveStarted/WaveCleared).
+    pub wave_times: Vec<f32>,
+    /// Stock gained per cleared wave (leaks of that wave).
+    pub leaks_per_wave: Vec<u32>,
+    /// Casts issued per skill id through DriverAction::Cast.
+    pub skills_cast: std::collections::BTreeMap<String, u32>,
+    /// End-of-run slot levels by skill id (point-spending outcome).
+    pub skill_levels: std::collections::BTreeMap<String, u8>,
 }
 
 /// Run a full headless match. Deterministic for a given (bundle, driver,
@@ -126,7 +196,14 @@ pub fn run_headless(
 
     let mut dmg_cursor = MessageCursor::<DamageDealt>::default();
     let mut wave_cursor = MessageCursor::<WaveCleared>::default();
+    let mut started_cursor = MessageCursor::<crate::wave::WaveStarted>::default();
     let mut damage_by_def = std::collections::BTreeMap::new();
+    let mut damage_by_origin = std::collections::BTreeMap::new();
+    let mut skills_cast = std::collections::BTreeMap::new();
+    let mut wave_times = Vec::new();
+    let mut leaks_per_wave = Vec::new();
+    let mut wave_started_secs: Option<f32> = None;
+    let mut last_stock = 0u32;
     let mut stock_peak = 0u32;
     let mut waves_cleared = 0usize;
     let mut towers_built = 0u32;
@@ -136,15 +213,13 @@ pub fn run_headless(
         // Driver acts before the frame (the same hook real input uses).
         let view = snapshot_view(&mut app, frames);
         for action in driver.decide(&view) {
-            let world = app.world_mut();
-            match action {
-                DriverAction::Place { def, cell } => {
-                    if try_place(world, &def, cell).is_ok() {
-                        towers_built += 1;
-                    }
+            let ok = apply_driver_action(&mut app.world_mut(), &action);
+            if ok {
+                if let DriverAction::Place { .. } = action {
+                    towers_built += 1;
                 }
-                DriverAction::Sell { cell } => {
-                    let _ = try_sell(world, cell);
+                if let DriverAction::Cast { skill } = &action {
+                    *skills_cast.entry(skill.clone()).or_default() += 1;
                 }
             }
         }
@@ -155,8 +230,18 @@ pub fn run_headless(
         // Per-frame drains (double-buffer pitfall).
         {
             let world = app.world();
+            let now = world.resource::<Time>().elapsed_secs();
+            for _ in started_cursor.read(world.resource::<Messages<crate::wave::WaveStarted>>()) {
+                wave_started_secs = Some(now);
+            }
             let msgs = world.resource::<Messages<DamageDealt>>();
             for d in dmg_cursor.read(msgs) {
+                let origin_key = match d.source {
+                    crate::combat::DamageOrigin::Attack(_) => "attack",
+                    crate::combat::DamageOrigin::Skill { .. } => "skill",
+                    crate::combat::DamageOrigin::System => "system",
+                };
+                *damage_by_origin.entry(origin_key.into()).or_default() += d.amount;
                 let source_entity = match d.source {
                     crate::combat::DamageOrigin::Attack(e) => e,
                     crate::combat::DamageOrigin::Skill { caster, .. } => caster,
@@ -174,6 +259,10 @@ pub fn run_headless(
             let cleared = world.resource::<Messages<WaveCleared>>();
             for w in wave_cursor.read(cleared) {
                 waves_cleared = waves_cleared.max(w.0 + 1);
+                wave_times.push(wave_started_secs.map(|s| (now - s).max(0.0)).unwrap_or(0.0));
+                let stock = world.resource::<StockCount>().0;
+                leaks_per_wave.push(stock.saturating_sub(last_stock));
+                last_stock = stock;
             }
             stock_peak = stock_peak.max(world.resource::<StockCount>().0);
         }
@@ -183,6 +272,21 @@ pub fn run_headless(
         }
         if frames >= opts.max_frames {
             break;
+        }
+    }
+
+    // End-of-run skill levels (point-spending readout).
+    let mut skill_levels = std::collections::BTreeMap::new();
+    {
+        let world = app.world_mut();
+        let mut q = world.query::<&crate::skill::SkillCaster>();
+        for caster in q.iter(world) {
+            for slot in &caster.slots {
+                skill_levels
+                    .entry(slot.skill.clone())
+                    .and_modify(|l: &mut u8| *l = (*l).max(slot.level))
+                    .or_insert(slot.level);
+            }
         }
     }
 
@@ -199,6 +303,11 @@ pub fn run_headless(
         towers_built,
         gold_left: app.world().resource::<Resources>().gold,
         damage_by_def,
+        damage_by_origin,
+        wave_times,
+        leaks_per_wave,
+        skills_cast,
+        skill_levels,
     }
 }
 

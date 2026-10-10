@@ -28,14 +28,15 @@
 | WX2-prep | 基底 SkillDef 增 badge/hotkey + SkillDefs len()/is_empty() | 030a0d6 |
 | WX2 | warden 技能框架切基底：SkillCaster/SkillSlot/SkillDefs/SkillDef/CastSkill/SkillCast 全改用基底类型（历史路径重导出，调用面零改名）；id 模型索引→字符串（SKILL_ORDER = 平衡表行序 + DamageOrigin 桥）；SkillBalance 增 ids 字段改 id 键；基底 SkillCast 增 point（游戏侧瞄准层写入）+ tick_skill_cooldowns 钳 0（warden 复用）；移除 HashMap 序不稳的 by_index。160 断言零漂移 | c4a6acc |
 | WX3a | 基底命令卡渲染层补全：槽位变真按钮（点击→CommandCardAction，与热键同一派发缝）+ enabled 置灰（点击/热键双门控）+ WC3 2×4 网格（GRID_KEYS/grid_badge/assign_grid_hotkeys，warden §16.7 上收）+ 徽章角标渲染 + 悬停 Tooltip + PanelVersion 版本重建；顺修 BX4b 重建旧槽位泄漏（clear_children 先解除关系致 despawn 列表恒空） | e1a401c |
-| WX4 | 基底 fx 空壳变实模块：HealthBar（Hp/MaxHp 数据源 + HealthBarStyle 游戏侧样式）/HitFlash/FxBlast 消息/BlastRing/DeathShell + 五系统（FxPlugin 注册，headless 下 init Assets 兼容）；warden 切换消费：HitFlash/BlastRing/DeathShell/spawn_death_shell 走基底（历史路径重导出），ProjectileImpact→FxBlast 转发桥，血条留 warden（Enemy 神组件数据源，WX6 拆解后一行切换），FX3 状态色/徽章留游戏侧（设计决定：游戏身份视觉不进基底）。warden 160 断言零漂移 | 本笔 |
+| WX4 | 基底 fx 空壳变实模块：HealthBar（Hp/MaxHp 数据源 + HealthBarStyle 游戏侧样式）/HitFlash/FxBlast 消息/BlastRing/DeathShell + 五系统（FxPlugin 注册，headless 下 init Assets 兼容）；warden 切换消费：HitFlash/BlastRing/DeathShell/spawn_death_shell 走基底（历史路径重导出），ProjectileImpact→FxBlast 转发桥，血条留 warden（Enemy 神组件数据源，WX6 拆解后一行切换），FX3 状态色/徽章留游戏侧（设计决定：游戏身份视觉不进基底）。warden 160 断言零漂移 | d8b3220 |
+| WX5a | 基底 harness 词表与读数补全：DriverAction += Upgrade/CallWave/Cast/SpendPoint（设计文档 §3.11 词表），执行统一收口 apply_driver_action（run_headless 与直测共用）；HarnessReport += damage_by_origin（attack/skill/system 三列，warden BAL 三列读数的基底对位）+ wave_times/leaks_per_wave（按波采样）+ skills_cast/skill_levels（施放与加点读数） | 本笔 |
 
 ## 待做（warden 回迁，建议每对单独会话）
 
 | 增量 | 内容 | 障碍 |
 |------|------|------|
 | WX3b | warden 命令卡切基底（卡内容从基底 CommandCards 生成） | **依赖发现（WX3a 期间确认）**：warden 卡内容绑定塔索引 Build(usize)/双语 l10n/8 个 warden 动作/三区布局，需先 WX6 数据化（塔与技能走基底注册表）后才能像 loop-td 一样由 build_card_from_registry 生成；渲染层（WX3a）+ WX3-prep（SKILL_CARD/PanelState）已备齐 |
-| WX5 | warden BAL 切基底 harness | **依赖发现（调研确认）**：run_headless 装配基底世界（MapBundle/BuildGrid/Resources），warden 世界全异——完整切换随 WX6（warden.ron）落地，与设计文档 P1.5→P2 顺序一致；基底侧词表/读数缺口见 WX5a |
+| WX5b | warden BAL 切基底 harness | **依赖发现（调研确认）**：run_headless 装配基底世界（MapBundle/BuildGrid/Resources），warden 世界全异——完整切换随 WX6（warden.ron）落地，与设计文档 P1.5→P2 顺序一致；基底侧词表/读数缺口已由 WX5a 补齐，届时 warden 锚点策略改写为 DriverStrategy 即收口 |
 | WX6 | warden 参数化 → maps/warden.ron | 最大单件：固定塔位/双速/单币/L 路径全成数据；requirements 层改写；完成后 WX3b（命令卡从基底生成）随之解锁 |
 
 ## 消费方
