@@ -8,13 +8,11 @@
 //!
 //! Design docs: docs/topics/engine/warbase-{architecture,implementation-design,test-strategy}.md
 
+pub use crate::combat::DamageOrigin;
+
 pub mod prelude {
     pub use crate::build::{try_place, try_sell, try_upgrade, Buildable, BuildGrid, BuildMode, BuildReject, Cell};
     pub use crate::bundle::build_grid;
-    pub use crate::harness::{
-        run_headless, DriverAction, DriverStrategy, GreedyDriver, HarnessOpts, HarnessReport,
-        HarnessView,
-    };
     pub use crate::buff::{
         aggregate_stats, apply_auras, AuraDef, Auras, EffectiveStats, ModEntry, StatKind,
         StatMods,

@@ -5,6 +5,11 @@
 //! lands here, and every application is published as `DamageDealt` with its
 //! source for FX, kill attribution and the BAL contribution readout (SK11).
 //!
+//! WX1 seam (ADR-0012): warden now depends on warbase. The attribution
+//! model (`DamageOrigin`) lives in the base; this module provides the
+//! warden-side bridge. The full component-level migration (Enemy → base
+//! Hp/Armor components) proceeds in WX2-WX6 paired increments.
+//!
 //! Frame semantics (the unified-damage-pipeline KB note): "simultaneous"
 //! means same frame — the writers run earlier in Simulate, the resolver
 //! drains everything they queued after them, one victim batch, no ordering
@@ -18,6 +23,15 @@ use crate::systems::fx::{HitFlash, HIT_FLASH_SECS};
 /// Who caused a piece of damage — the attribution seam for kill credit,
 /// balance readouts and skill on-hit hooks. `CommanderSkill`/`TowerSkill`
 /// carry the registry def id of the skill.
+///
+/// WX1 bridge: this maps onto `warbase::combat::DamageOrigin`:
+/// - Tower(e)         ↔ DamageOrigin::Attack(e)
+/// - TowerSkill{t, s} ↔ DamageOrigin::Skill { caster: t, skill: s }
+/// - CommanderSkill(i)↔ DamageOrigin::Skill { caster: commander, skill: i }
+/// - System           ↔ DamageOrigin::System
+///
+/// warden keeps its own enum until the full component migration (WX2+)
+/// so all 153 existing tests stay untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DamageSource {
     Tower(Entity),
@@ -26,6 +40,29 @@ pub enum DamageSource {
     /// Environment/misc (nothing uses it yet; leaks damage the BASE, not
     /// enemies, so they never appear here).
     System,
+}
+
+impl DamageSource {
+    /// WX1 bridge: convert to the base's attribution type. `commander` is
+    /// the singleton commander entity (callers that have it pass it in).
+    pub fn to_origin(&self, commander: Option<Entity>) -> warbase::DamageOrigin {
+        match self {
+            DamageSource::Tower(e) => warbase::DamageOrigin::Attack(*e),
+            DamageSource::CommanderSkill(slot) => {
+                warbase::DamageOrigin::Skill {
+                    caster: commander.unwrap_or(Entity::PLACEHOLDER),
+                    skill: *slot,
+                }
+            }
+            DamageSource::TowerSkill { tower, skill } => {
+                warbase::DamageOrigin::Skill {
+                    caster: *tower,
+                    skill: *skill,
+                }
+            }
+            DamageSource::System => warbase::DamageOrigin::System,
+        }
+    }
 }
 
 /// A pending application of damage. `amount` is PRE-armor; armor resolves

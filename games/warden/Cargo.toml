@@ -23,6 +23,11 @@ bevy_egui = { workspace = true }
 # only debug builds reference it.
 showroom-viewer = { path = "../../engine/showroom-viewer" }
 
+# Battle runtime base (ADR-0012, WX1): warden consumes the base's damage
+# attribution model; the full component-level migration proceeds in
+# WX2-WX6 paired increments.
+warbase = { path = "../../engine/warbase" }
+
 # SM7 showroom origins parse art-assets.json at runtime (debug-gated use).
 serde_json = { workspace = true }
 
