@@ -38,16 +38,17 @@ pub enum TowerKind {
 /// WX6-1 (`PathFollower` + `MoveSpeed`; `speed` here is the pre-slow BASE
 /// speed, the sync system folds the `Slow` factor in). HP lives in the
 /// base's `Hp`/`MaxHp` components since WX6-2 (the base's health bars and
-/// damage pipeline read them); what stays here is the warden economy/rule
-/// payload (bounty, leak, armor flag, archetype index).
+/// damage pipeline read them). Since WX6-6b this is a thin archetype index:
+/// leak/bounty/armor/heal numbers read through `EnemyDefs` (the content
+/// table the base registry is built from) — no mechanic payload is copied
+/// onto the entity. The healer aura rides the BASE's `Healer` component
+/// (inserted by the spawn gateway from the def's `heal` row).
 #[derive(Component)]
 pub struct Enemy {
     /// Base speed (world units/s, before slow effects).
     pub speed: f32,
-    pub leak: u32,          // base HP lost when this enemy reaches the base
-    pub kill_gold: u32,     // gold earned when this enemy dies
-    pub physical_armor: bool, // shield enemy: physical damage -50%
-    pub def_index: usize,   // archetype index into EnemyDefs (AC3 drop rules)
+    /// Archetype index into EnemyDefs (AC3 drop rules, presentation pins).
+    pub def_index: usize,
 }
 
 /// A placed tower. Values come from `TowerDefs` (base) or a fusion recipe at
@@ -186,16 +187,6 @@ pub struct Projectile {
     /// takes damage exactly once while the bolt flies through). Empty for
     /// every other origin mode.
     pub pierced: Vec<Entity>,
-}
-
-/// Healer aura (EN5): periodically restores hp of nearby damaged allies.
-/// Attached at spawn to enemies whose `EnemyDef::healer` is true.
-#[derive(Component)]
-pub struct Healer {
-    pub radius: f32,
-    pub period: f32, // seconds between heal ticks
-    pub heal_per_tick: f32,
-    pub tick_timer: f32,
 }
 
 /// One of the 8 buildable cells beside the path.

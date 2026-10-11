@@ -18,6 +18,7 @@ pub fn wave_spawn(
     time: Res<Time>,
     mut wave: ResMut<WaveState>,
     defs: Res<EnemyDefs>,
+    registry: Res<warbase::prelude::UnitRegistry>,
     path: Res<PathInfo>,
     paths: Res<warbase::prelude::Paths>,
     mut commands: Commands,
@@ -36,6 +37,7 @@ pub fn wave_spawn(
             spawn_enemy(
                 &mut commands,
                 &*defs,
+                &registry,
                 &*path,
                 path_e,
                 index,

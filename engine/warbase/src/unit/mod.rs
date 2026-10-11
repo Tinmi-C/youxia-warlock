@@ -320,5 +320,16 @@ pub fn spawn_unit_deferred(
         .insert(crate::combat::AttackCooldown(0.0))
         .insert(crate::combat::CurrentTarget::default());
     }
+    if !def.auras.is_empty() {
+        ec.insert(crate::buff::Auras(def.auras.clone()));
+    }
+    if def.hero {
+        ec.insert(XpHolder { xp: 0, level: 1, points: 0, next_level_xp: 10, talents_taken: 0 });
+    }
+    if let Some(h) = def.heal {
+        ec.insert(crate::combat::Healer { amount: h.amount, interval: h.interval, radius: h.radius, timer: 0.0 });
+    }
+    // Skill slots stay exclusive to the World variant: assembling them needs
+    // a SkillDefs read, which Commands cannot do mid-system.
     Some(ec.id())
 }

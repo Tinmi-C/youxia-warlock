@@ -212,6 +212,7 @@ pub fn range_maintain(
     dummies: Query<(Entity, &Transform), With<RangeDummy>>,
     tower_defs: Res<TowerDefs>,
     enemy_defs: Res<EnemyDefs>,
+    registry: Res<warbase::prelude::UnitRegistry>,
     path: Res<PathInfo>,
     paths: Res<warbase::prelude::Paths>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -248,6 +249,7 @@ pub fn range_maintain(
             spawn_dummy(
                 &mut commands,
                 &enemy_defs,
+                &registry,
                 &path,
                 paths.0[0],
                 state.dummy,
@@ -267,6 +269,7 @@ pub fn range_maintain(
         spawn_dummy(
             &mut commands,
             &enemy_defs,
+            &registry,
             &path,
             paths.0[0],
             def,
@@ -278,9 +281,11 @@ pub fn range_maintain(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_dummy(
     commands: &mut Commands,
     enemy_defs: &EnemyDefs,
+    registry: &warbase::prelude::UnitRegistry,
     path: &PathInfo,
     path_e: bevy::ecs::entity::Entity,
     def: usize,
@@ -289,11 +294,12 @@ fn spawn_dummy(
     materials: &mut Assets<StandardMaterial>,
     server: Option<&AssetServer>,
 ) {
-    let def = enemy_defs.list.get(def).unwrap_or(&enemy_defs.list[0]);
-    let eid = spawn_enemy_at(
+    let index = if enemy_defs.list.get(def).is_some() { def } else { 0 };
+    let Some(eid) = spawn_enemy_at(
         commands,
-        def,
-        0,
+        enemy_defs,
+        registry,
+        index,
         pos,
         path_e,
         0.0,
@@ -302,7 +308,9 @@ fn spawn_dummy(
         meshes,
         materials,
         server,
-    );
+    ) else {
+        return;
+    };
     // A dummy stands and takes it — no base path movement (WX6-1).
     commands.entity(eid).insert(RangeDummy).remove::<warbase::prelude::PathFollower>();
 }

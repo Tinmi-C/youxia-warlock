@@ -163,6 +163,7 @@ pub struct CheatsCore<'w, 's> {
 #[derive(SystemParam)]
 pub struct CheatsBoard<'w, 's> {
     pub defs: Res<'w, EnemyDefs>,
+    pub registry: Res<'w, warbase::prelude::UnitRegistry>,
     pub path: Res<'w, PathInfo>,
     pub paths: Res<'w, warbase::prelude::Paths>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
@@ -237,6 +238,7 @@ pub fn debug_cheat_executor(
                     spawn_enemy(
                         &mut core.commands,
                         &board.defs,
+                        &board.registry,
                         &board.path,
                         board.paths.0[0],
                         def_index,
@@ -1007,10 +1009,11 @@ fn spawn_debug_enemy(
     progress: f32,
     hp_override: Option<f32>,
 ) {
-    let Some(def) = world.resource::<EnemyDefs>().list.get(def_index).cloned() else {
+    if world.resource::<EnemyDefs>().list.get(def_index).is_none() {
         warn!("[debug] enemy def {def_index} missing; scenario enemy skipped");
         return;
-    };
+    }
+    let registry = world.resource::<warbase::prelude::UnitRegistry>().clone();
     let path_e = world
         .resource::<warbase::prelude::Paths>()
         .0
@@ -1025,7 +1028,8 @@ fn spawn_debug_enemy(
             let mut cmds = Commands::new(&mut queue, world);
             spawn_enemy_at(
                 &mut cmds,
-                &def,
+                world.resource::<EnemyDefs>(),
+                &registry,
                 def_index,
                 pos,
                 path_e,

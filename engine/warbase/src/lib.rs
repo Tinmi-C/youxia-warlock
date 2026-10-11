@@ -40,8 +40,8 @@ pub mod prelude {
     };
     pub use crate::unit::{
         spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
-        AttackDef, AttackType, BaseAttributes, Hp, MaxHp, ProjDef, TargetDomain, UnitDef, UnitId,
-        UnitInstance, UnitRegistry, UnitTrait, XpHolder,
+        AttackDef, AttackType, BaseAttributes, HealDef, Hp, MaxHp, ProjDef, TargetDomain, UnitDef,
+        UnitId, UnitInstance, UnitRegistry, UnitTrait, XpHolder,
     };
     pub use crate::wave::{
         run_director, Advance, BossTimedOut, DirectorPhase, Paths, SpawnSpec, StartWave,

@@ -11,8 +11,9 @@ use bevy::{
 };
 
 use warden::systems::pointer;
+use warbase::prelude::Healer;
 use warden::{
-    components::{AttackType, Enemy, FusionKind, Healer, Tower, TowerKind, TowerSlot},
+    components::{AttackType, Enemy, FusionKind, Tower, TowerKind, TowerSlot},
     plugins::{
         acquisition::AcquisitionPlugin, economy::EconomyPlugin, enemies::EnemiesPlugin,
         fx::FxPlugin, game::GamePlugin, map::MapPlugin, meta::MetaPlugin,
@@ -190,9 +191,6 @@ fn spawn_dead_normal(app: &mut App) {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(0.0),
@@ -212,9 +210,6 @@ fn elite_kill_always_drops_tower_card() {
         app.world_mut().spawn((
             Enemy {
                 speed: 0.0,
-                leak: 0,
-                kill_gold: 0,
-                physical_armor: false,
                 def_index: 4, // elite
             },
             warbase::prelude::Hp(0.0),
@@ -314,9 +309,6 @@ fn tower_fires_at_enemy_in_range() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(50.0),
@@ -440,9 +432,6 @@ fn fused_tower_receives_tower_index_damage_boost() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(60.0),
@@ -485,9 +474,6 @@ fn range_boost_extends_reach() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(20.0),
@@ -531,9 +517,6 @@ fn attack_speed_boost_shortens_cooldown() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(200.0),
@@ -665,9 +648,6 @@ fn leaked_enemy_deducts_base_hp() {
         .spawn((
             Enemy {
                 speed: 0.0,
-                leak: 1,
-                kill_gold: 0,
-                physical_armor: false,
                 def_index: 0,
             },
             warbase::prelude::Hp(10.0),
@@ -742,18 +722,15 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
         .spawn((
             Enemy {
                 speed: 0.0,
-                leak: 0,
-                kill_gold: 0,
-                physical_armor: false,
                 def_index: 3,
             },
             warbase::prelude::Hp(45.0),
             warbase::prelude::MaxHp(45.0),
-            Healer {
+            warbase::prelude::Healer {
+                amount: 3.0,
+                interval: 1.0,
                 radius: 6.0,
-                period: 1.0,
-                heal_per_tick: 3.0,
-                tick_timer: 1.0,
+                timer: 1.0,
             },
             Transform::from_xyz(0.0, 0.4, 0.0),
         ))
@@ -761,9 +738,6 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(10.0),
@@ -1048,9 +1022,6 @@ fn physical_damage_halved_vs_armored_enemy() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: true,
             def_index: 2,
         },
         warbase::prelude::Hp(90.0),
@@ -1094,9 +1065,6 @@ fn magic_damage_ignores_armor() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: true,
             def_index: 2,
         },
         warbase::prelude::Hp(90.0),
@@ -2292,9 +2260,6 @@ fn projectile_flies_tracks_and_lands_on_time() {
     app.world_mut().spawn((
         Enemy {
             speed: 1.0, // moving target: the round must track it
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(30.0),
@@ -2372,9 +2337,6 @@ fn shield_tower_melee_hits_instantly_and_slows_target() {
     app.world_mut().spawn((
         Enemy {
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(30.0),
@@ -2405,9 +2367,6 @@ fn single_target_round_dissipates_when_target_dies() {
         .spawn((
             Enemy {
                 speed: 0.0,
-                leak: 0,
-                kill_gold: 0,
-                physical_armor: false,
                 def_index: 0,
             },
             warbase::prelude::Hp(30.0),
@@ -2436,9 +2395,6 @@ fn single_target_round_dissipates_when_target_dies() {
         Enemy {
             // dies to any touch (HP in the base components below)
             speed: 0.0,
-            leak: 0,
-            kill_gold: 0,
-            physical_armor: false,
             def_index: 0,
         },
         warbase::prelude::Hp(1.0),
@@ -2490,9 +2446,6 @@ fn wave_end_clears_in_flight_projectiles() {
         .spawn((
             Enemy {
                 speed: 0.0,
-                leak: 0,
-                kill_gold: 0,
-                physical_armor: false,
                 def_index: 0,
             },
             warbase::prelude::Hp(100.0),
@@ -2559,9 +2512,6 @@ fn spawn_visual_enemy(app: &mut App, def_index: usize, hp: f32, max_hp: f32, pos
         .spawn((
             Enemy {
                 speed: 0.0,
-                leak: 0,
-                kill_gold: 6,
-                physical_armor: def_index == 2,
                 def_index,
             }, // no PathFollower: FX units stand still (speed 0 anyway)
             warbase::prelude::Hp(hp),
@@ -3748,9 +3698,6 @@ mod skills_sk2 {
             .spawn((
                 Enemy {
                     speed: 0.0,
-                    leak: 0,
-                    kill_gold: 6,
-                    physical_armor: armor,
                     def_index: 0,
                 },
                 warbase::prelude::Hp(hp),
@@ -3964,9 +3911,6 @@ mod skills_sk3 {
             .spawn((
                 Enemy {
                     speed,
-                    leak: 0,
-                    kill_gold: 0,
-                    physical_armor: false,
                     def_index: 0,
                 },
                 warbase::prelude::Hp(100.0),
@@ -4173,9 +4117,6 @@ mod skills_sk4 {
             .spawn((
                 Enemy {
                     speed: 0.0,
-                    leak: 0,
-                    kill_gold: 0,
-                    physical_armor: false,
                     def_index: 0,
                 },
                 warbase::prelude::Hp(100_000.0),
@@ -4827,9 +4768,6 @@ fn static_enemy(app: &mut App, pos: Vec3) -> bevy::ecs::entity::Entity {
         .spawn((
             Enemy {
                 speed: 0.0,
-                leak: 0,
-                kill_gold: 0,
-                physical_armor: false,
                 def_index: 0,
             },
             warbase::prelude::Hp(500.0),
@@ -6287,9 +6225,6 @@ mod damage_pipeline {
             .spawn((
                 Enemy {
                     speed: 0.0,
-                    leak: 0,
-                    kill_gold: 6,
-                    physical_armor: armor,
                     def_index: 0,
                 },
                 warbase::prelude::Hp(hp),
@@ -6544,9 +6479,6 @@ mod skills_archer {
             .spawn((
                 Enemy {
                     speed: 0.0,
-                    leak: 0,
-                    kill_gold: 0,
-                    physical_armor: false,
                     def_index: 0,
                 },
                 warbase::prelude::Hp(hp),
@@ -6876,9 +6808,6 @@ mod skills_fusion {
             .spawn((
                 Enemy {
                     speed: 0.0,
-                    leak: 0,
-                    kill_gold: 0,
-                    physical_armor: false,
                     def_index: 0,
                 },
                 warbase::prelude::Hp(hp),

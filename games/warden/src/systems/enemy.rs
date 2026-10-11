@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{Enemy, EnemyAnim, Healer, Slow};
+use crate::components::{Enemy, EnemyAnim, Slow};
 use crate::resources::{BaseHp, Boosts, Economy, EnemyDefs, PathInfo, WaveState};
 
 /// EN5 starting values (requirements §9 gives no numbers — tunable on the
@@ -62,6 +62,7 @@ pub fn enemy_base_color(def: &crate::resources::EnemyDef) -> Color {
 pub fn spawn_enemy(
     commands: &mut Commands,
     defs: &EnemyDefs,
+    registry: &warbase::prelude::UnitRegistry,
     path: &PathInfo,
     path_e: bevy::ecs::entity::Entity,
     index: usize,
@@ -69,13 +70,11 @@ pub fn spawn_enemy(
     materials: &mut Assets<StandardMaterial>,
     server: Option<&AssetServer>,
 ) {
-    let Some(def) = defs.list.get(index) else {
-        return;
-    };
     let start = path.waypoints.first().copied().unwrap_or(Vec3::ZERO);
     spawn_enemy_at(
         commands,
-        def,
+        defs,
+        registry,
         index,
         start,
         path_e,
@@ -90,8 +89,10 @@ pub fn spawn_enemy(
 
 /// The warden enemy defs as a BASE UnitRegistry (WX6-4a bridge, code-built
 /// now — the same rows ship as warden.ron data with WX6-6): name-keyed,
-/// armor mapped through the one-axis flag, bounty = kill gold. Lets the
-/// base's damage/death pipeline attribute by def id.
+/// armor mapped through the one-axis flag, bounty = kill gold, leak/heal
+/// rows carried per archetype. Lets the base's damage/death pipeline
+/// attribute by def id — and since WX6-6b the spawn gateway assembles
+/// warden enemies from these rows (the def IS the unit).
 pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
     let mut out = std::collections::HashMap::new();
     for def in &defs.list {
@@ -116,7 +117,13 @@ pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
                 hero: false,
                 skills: vec![],
                 upgrade_to: None,
-                heal: None,
+                // EN5 numbers (radius/period/amount above) move into the def
+                // row — data-driven like everything else on the unit.
+                heal: def.healer.then(|| warbase::prelude::HealDef {
+                    amount: HEALER_HEAL_PER_TICK,
+                    interval: HEALER_PERIOD,
+                    radius: HEALER_RADIUS,
+                }),
                 leak: def.leak,
             },
         );
@@ -174,16 +181,20 @@ pub fn nearest_path_progress(path: &PathInfo, pos: Vec3) -> f32 {
 /// Spawn one enemy at an explicit position (debug scenarios, DB2): same
 /// construction as `spawn_enemy`, plus overrides for the spawn point, the
 /// progress along the path and the starting HP (残血 setups for FX).
-/// ART11: with an AssetServer the archetype model rides as a feet-origin
-/// scene child (deferred walk animation via `EnemyAnim`); without one the
-/// tinted cuboid fallback stays (headless tests).
-/// WX6-1: movement rides the base — the entity gets a `PathFollower` on
-/// `path_e` at `progress` plus a `MoveSpeed`; callables that must NOT move
+/// WX6-6b: the BASE assembles the unit from its registry row
+/// (`spawn_unit_deferred` — UnitInstance/Hp/MaxHp/Armor/StatMods); warden
+/// attaches presentation + game identity on top: the §9 anchor speed, the
+/// path placement, health-bar style, the thin `Enemy` index, and the model
+/// scene (feet-origin child + deferred walk animation via `EnemyAnim`) or
+/// the tinted cuboid fallback (headless tests). Units that must NOT move
 /// (e.g. range dummies) remove the follower after this call.
+/// Returns None for an unknown archetype (or a def missing from the
+/// registry — they are built from the same table, so that is a bug guard).
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_enemy_at(
     commands: &mut Commands,
-    def: &crate::resources::EnemyDef,
+    defs: &EnemyDefs,
+    registry: &warbase::prelude::UnitRegistry,
     index: usize,
     pos: Vec3,
     path_e: bevy::ecs::entity::Entity,
@@ -193,51 +204,58 @@ pub fn spawn_enemy_at(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     server: Option<&AssetServer>,
-) -> bevy::ecs::entity::Entity {
-    let hp = hp_override.unwrap_or(def.hp);
-    let eid = commands
-        .spawn((
-            Enemy {
-                speed: def.speed * units_per_point,
-                leak: def.leak,
-                kill_gold: def.kill_gold,
-                physical_armor: def.physical_armor,
-                def_index: index,
+) -> Option<bevy::ecs::entity::Entity> {
+    let def = defs.list.get(index)?;
+    let reg_def = registry.get(def.name)?.clone();
+    let eid = warbase::prelude::spawn_unit_deferred(
+        commands,
+        registry,
+        def.name,
+        Vec3::new(pos.x, 0.0, pos.z),
+        warbase::prelude::Allegiance::Attacker,
+        1.0,
+    )?;
+    let mut ec = commands.entity(eid);
+    ec.insert((
+        Enemy { speed: def.speed * units_per_point, def_index: index },
+        // WX6-1: the base's path movement (advance_followers writes the
+        // XZ translation; the spawn Y survives — models are feet-origin).
+        warbase::prelude::PathFollower {
+            path: path_e,
+            progress,
+            laps: 0,
+            finished: false,
+        },
+        warbase::prelude::MoveSpeed(def.speed * units_per_point),
+        // WX6-2: elites (4) and bosses (5) style the base's bar wide +
+        // golden (the FX1 big-bar convention).
+        warbase::fx::HealthBarStyle {
+            width: if matches!(index, 4 | 5) { 1.4 } else { 0.9 },
+            color: if matches!(index, 4 | 5) {
+                Color::srgb(1.0, 0.8, 0.25)
+            } else {
+                Color::srgb(0.3, 0.9, 0.35)
             },
-            // WX6-2: HP rides the base's components (bars/pipeline read
-            // them); elites (4) and bosses (5) style the base's bar wide +
-            // golden (the FX1 big-bar convention).
-            warbase::prelude::Hp(hp),
-            warbase::prelude::MaxHp(def.hp),
-            warbase::prelude::Armor(crate::systems::damage::base_armor(
-                def.physical_armor,
-            )),
-            warbase::prelude::UnitInstance { def: def.name.to_string(), level: 1 },
-            // WX6-1: the base's path movement (advance_followers writes the
-            // XZ translation; the spawn Y survives — models are feet-origin).
-            warbase::prelude::PathFollower {
-                path: path_e,
-                progress,
-                laps: 0,
-                finished: false,
-            },
-            warbase::prelude::MoveSpeed(def.speed * units_per_point),
-            warbase::fx::HealthBarStyle {
-                width: if matches!(index, 4 | 5) { 1.4 } else { 0.9 },
-                color: if matches!(index, 4 | 5) {
-                    Color::srgb(1.0, 0.8, 0.25)
-                } else {
-                    Color::srgb(0.3, 0.9, 0.35)
-                },
-            },
-            // Explicit Visibility: the model path has no mesh on this entity,
-            // so without it the scene child's InheritedVisibility breaks (B0004).
-            Visibility::Visible,
-            // Feet-origin models sit at ground level; the box fallback below
-            // re-centers itself (y = 0.35 = half its 0.7 height).
-            Transform::from_xyz(pos.x, 0.0, pos.z),
-        ))
-        .id();
+        },
+        // Explicit Visibility: the model path has no mesh on this entity,
+        // so without it the scene child's InheritedVisibility breaks (B0004).
+        Visibility::Visible,
+        Transform::from_xyz(pos.x, 0.0, pos.z),
+    ));
+    // 残血 setups: replace the current HP only — the max stays the def's.
+    if let Some(hp) = hp_override {
+        ec.insert(warbase::prelude::Hp(hp));
+    }
+    if let Some(h) = reg_def.heal {
+        // warden convention: the first tick lands after one full period
+        // (the base's def-spawn timer starts at 0).
+        ec.insert(warbase::prelude::Healer {
+            amount: h.amount,
+            interval: h.interval,
+            radius: h.radius,
+            timer: h.interval,
+        });
+    }
     let model = server.zip(ENEMY_MODELS.get(index).copied());
     match model {
         Some((server, model)) => {
@@ -247,7 +265,7 @@ pub fn spawn_enemy_at(
             let gltf = server.load::<bevy::gltf::Gltf>(model);
             let scale = ENEMY_SCALES.get(index).copied().unwrap_or(0.8);
             let run = ENEMY_RUNS.get(index).copied().unwrap_or(false);
-            commands.entity(eid).with_children(|p| {
+            ec.with_children(|p| {
                 p.spawn((
                     EnemyAnim {
                         gltf,
@@ -260,23 +278,17 @@ pub fn spawn_enemy_at(
             });
         }
         None => {
+            // Headless fallback: the tinted cuboid re-centers itself
+            // (y = 0.35 = half its 0.7 height).
             let color = enemy_base_color(def);
-            commands.entity(eid).insert((
+            ec.insert((
                 Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
                 MeshMaterial3d(materials.add(color)),
                 Transform::from_xyz(pos.x, 0.35, pos.z),
             ));
         }
     }
-    if def.healer {
-        commands.entity(eid).insert(Healer {
-            radius: HEALER_RADIUS,
-            period: HEALER_PERIOD,
-            heal_per_tick: HEALER_HEAL_PER_TICK,
-            tick_timer: HEALER_PERIOD,
-        });
-    }
-    eid
+    Some(eid)
 }
 
 /// Marker for the debug range's stationary dummies (SM3R): excluded from
@@ -416,20 +428,29 @@ pub fn face_movement(
     }
 }
 
-/// EN2 leak: an enemy that finished the open chain deducts its `leak` from
-/// the base and despawns (consumes the base's Arrived message).
+/// EN2 leak: an enemy that finished the open chain deducts its def's `leak`
+/// from the base and despawns (consumes the base's Arrived message). The
+/// number reads through the archetype index into `EnemyDefs` — the same
+/// content table the base registry is built from (WX6-6b: no copy on the
+/// entity).
 pub fn leak_arrived(
     mut arrived: MessageReader<warbase::prelude::Arrived>,
     mut base: ResMut<BaseHp>,
     mut wave: ResMut<WaveState>,
     mut commands: Commands,
     enemies: Query<&Enemy>,
+    defs: Res<EnemyDefs>,
 ) {
     for a in arrived.read() {
         let Ok(enemy) = enemies.get(a.unit) else {
             continue; // already resolved between the message and here
         };
-        base.hp = base.hp.saturating_sub(enemy.leak);
+        let leak = defs
+            .list
+            .get(enemy.def_index)
+            .map(|d| d.leak)
+            .unwrap_or(1);
+        base.hp = base.hp.saturating_sub(leak);
         wave.active = wave.active.saturating_sub(1);
         commands.entity(a.unit).despawn();
         info!("[enemy] leaked, base hp={}", base.hp);
@@ -437,16 +458,18 @@ pub fn leak_arrived(
 }
 
 /// EN3: grant gold and despawn any enemy at or below 0 HP (the Hp
-/// component since WX6-2; bounty still reads Enemy.kill_gold — the AC4
-/// boost applies here). The base's resolver marks pipeline kills with hp<=0
-/// (+ its UnitDied message, which warden leaves unconsumed: this scan is
-/// source-agnostic and covers debug-spawned corpses too). FX2: the death
-/// shell rides along — gold/despawn logic and timing untouched.
+/// component since WX6-2; bounty reads the def's kill_gold through the
+/// archetype index — the AC4 boost applies here). The base's resolver marks
+/// pipeline kills with hp<=0 (+ its UnitDied message, which warden leaves
+/// unconsumed: this scan is source-agnostic and covers debug-spawned
+/// corpses too). FX2: the death shell rides along — gold/despawn logic and
+/// timing untouched.
 pub fn resolve_death(
     mut commands: Commands,
     boost: Res<Boosts>,
     mut economy: ResMut<Economy>,
     mut wave: ResMut<WaveState>,
+    defs: Res<EnemyDefs>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     enemies: Query<(Entity, &Enemy, &warbase::prelude::Hp)>,
@@ -454,7 +477,12 @@ pub fn resolve_death(
 ) {
     for (eid, enemy, hp) in &enemies {
         if hp.0 <= 0.0 {
-            let gain = (enemy.kill_gold as f32 * boost.kill_mult).round() as u32;
+            let kill_gold = defs
+                .list
+                .get(enemy.def_index)
+                .map(|d| d.kill_gold)
+                .unwrap_or(0);
+            let gain = (kill_gold as f32 * boost.kill_mult).round() as u32;
             economy.gold += gain;
             wave.active = wave.active.saturating_sub(1);
             if let Ok((tf, mat)) = visuals.get(eid) {
@@ -471,24 +499,26 @@ pub fn resolve_death(
 }
 
 /// EN5: healers periodically restore hp of nearby damaged allies (never
-/// themselves). Overheal is clamped to max_hp.
+/// themselves — a warden rule the base's game-agnostic healer_tick does not
+/// carry). The component is the BASE's `Healer` since WX6-6b (inserted from
+/// the def's `heal` row); over-heal clamps to max_hp.
 pub fn heal_aura(
     time: Res<Time>,
-    mut healers: Query<(Entity, &Transform, &mut Healer)>,
+    mut healers: Query<(Entity, &Transform, &mut warbase::prelude::Healer)>,
     mut enemies: Query<(Entity, &mut warbase::prelude::Hp, &warbase::prelude::MaxHp, &Transform)>,
 ) {
     for (healer_e, htf, mut healer) in &mut healers {
-        healer.tick_timer -= time.delta_secs();
-        if healer.tick_timer > 0.0 {
+        healer.timer -= time.delta_secs();
+        if healer.timer > 0.0 {
             continue;
         }
-        healer.tick_timer = healer.period;
+        healer.timer = healer.interval;
         for (eid, mut hp, max, etf) in &mut enemies {
             if eid == healer_e || hp.0 <= 0.0 || hp.0 >= max.0 {
                 continue;
             }
             if htf.translation.distance(etf.translation) <= healer.radius {
-                hp.0 = (hp.0 + healer.heal_per_tick).min(max.0);
+                hp.0 = (hp.0 + healer.amount).min(max.0);
                 info!("[enemy] healer aura -> hp={:.0}", hp.0);
             }
         }

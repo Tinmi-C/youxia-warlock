@@ -88,16 +88,22 @@ pub fn tint_slowed(
     }
 }
 
-/// FX3: armored enemies carry a shield badge from spawn.
+/// FX3: armored enemies carry a shield badge from spawn (the armor flag
+/// reads through the archetype index into `EnemyDefs` — WX6-6b).
 pub fn attach_shield_badges(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    defs: Res<EnemyDefs>,
     enemies: Query<(Entity, &Enemy), Added<Enemy>>,
     badged: Query<&ShieldBadge>,
 ) {
     for (eid, enemy) in &enemies {
-        if !enemy.physical_armor || badged.get(eid).is_ok() {
+        let armored = defs
+            .list
+            .get(enemy.def_index)
+            .is_some_and(|d| d.physical_armor);
+        if !armored || badged.get(eid).is_ok() {
             continue;
         }
         commands.entity(eid).with_children(|p| {
