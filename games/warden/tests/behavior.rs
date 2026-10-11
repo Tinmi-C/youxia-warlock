@@ -139,14 +139,9 @@ fn wave_resolve_refreshes_shop_offer() {
     let mut app = test_app();
     app.update(); // startup: initial offer
     let v0 = app.world().resource::<ShopOffers>().version;
-    {
-        let mut ws = app.world_mut().resource_mut::<WaveState>();
-        ws.current = 0;
-        ws.phase = WavePhase::Combat;
-        ws.spawn_queue.clear();
-        ws.active = 0;
-    }
-    app.update(); // wave resolves -> Intermission -> offer refreshes
+    force_begin_wave(&mut app);
+    app.update();
+    app.update(); // wave settles -> Intermission -> offer refreshes
     let shop = app.world().resource::<ShopOffers>();
     assert!(shop.version > v0, "offer must refresh after a wave clears");
     assert_eq!(
@@ -155,19 +150,49 @@ fn wave_resolve_refreshes_shop_offer() {
     );
 }
 
+/// WX6-6d: begin an EMPTY running wave on the base director — the
+/// director-era stand-in for the old manual "phase=Combat, queue cleared,
+/// active 0" setups. It settles through the normal cleared path after two
+/// updates (reward + intermission + 三选一), like a real cleared wave.
+fn force_begin_wave(app: &mut App) {
+    let mut d = app
+        .world_mut()
+        .resource_mut::<warbase::prelude::WaveDirector>();
+    let w = d.next_wave;
+    d.force_begin(w);
+}
+
+/// WX6-6d: begin an empty wave AND pin it in Combat with a live tagged unit
+/// (the director's cleared check waits on WaveTag) — the stand-in for the
+/// old "non-empty spawn queue holds the phase" trick. Returns the blocker.
+fn hold_combat(app: &mut App) -> bevy::ecs::entity::Entity {
+    force_begin_wave(app);
+    let w = app
+        .world()
+        .resource::<warbase::prelude::WaveDirector>()
+        .running
+        .unwrap_or(0);
+    app.world_mut()
+        .spawn((
+            Enemy { speed: 0.0, def_index: 0 },
+            warbase::prelude::Hp(1.0),
+            warbase::prelude::MaxHp(1.0),
+            Transform::from_xyz(500.0, 0.4, 500.0),
+            warbase::prelude::WaveTag(w),
+        ))
+        .id()
+}
+
 /// requirements §9 anchor — acceptance: an ordinary enemy (speed 1.0) crosses
 /// the L-shaped path (43 world units) in ≈20 s; leaks cost 1 base hp.
 #[test]
 fn ordinary_enemy_crosses_path_in_about_twenty_seconds() {
     let mut app = test_app();
     app.update(); // startup: PathInfo + systems live
-    {
-        let mut ws = app.world_mut().resource_mut::<WaveState>();
-        ws.phase = WavePhase::Combat;
-        ws.spawn_queue.push_back(0); // one ordinary enemy
-        ws.spawn_timer = 0.0;
-    }
-    app.update(); // spawns the enemy at the path entry
+    app.world_mut()
+        .resource_mut::<Messages<warbase::prelude::StartWave>>()
+        .write(warbase::prelude::StartWave);
+    app.update(); // spawns the first enemy at the path entry
     let mut frames = 0;
     while frames < 2400 && app.world().resource::<BaseHp>().hp == 10 {
         app.update();
@@ -334,14 +359,9 @@ fn three_choose_one_offers_distinct_random_categories() {
         app.update(); // startup: deal hand
         // Own one type so get-tower has a constraint to respect.
         app.world_mut().resource_mut::<Hand>().owned_towers.push(2);
-        // Force a cleared wave so wave_resolve deals the choice.
-        {
-            let mut wave = app.world_mut().resource_mut::<WaveState>();
-            wave.phase = WavePhase::Combat;
-            wave.spawn_queue.clear();
-            wave.active = 0;
-            wave.current = 0;
-        }
+        // Force a settled wave so the cleared hook deals the choice.
+        force_begin_wave(&mut app);
+        app.update();
         app.update();
         let choice = app.world().resource::<WaveChoice>();
         assert!(choice.pending, "seed {seed}: choice should be pending");
@@ -673,14 +693,9 @@ fn leaked_enemy_deducts_base_hp() {
 #[test]
 fn wave_resolve_awards_reward_and_returns_intermission() {
     let mut app = test_app();
-    {
-        let mut ws = app.world_mut().resource_mut::<WaveState>();
-        ws.current = 0;
-        ws.phase = WavePhase::Combat;
-        ws.spawn_queue.clear();
-        ws.active = 0;
-    }
+    force_begin_wave(&mut app);
     let before = app.world().resource::<Economy>().gold; // 100
+    app.update();
     app.update();
     assert_eq!(
         app.world().resource::<Economy>().gold,
@@ -893,13 +908,8 @@ fn fusing_two_archers_creates_marksman_and_costs_fee() {
 #[test]
 fn wave_resolve_surfaces_three_options() {
     let mut app = test_app();
-    {
-        let mut ws = app.world_mut().resource_mut::<WaveState>();
-        ws.current = 0;
-        ws.phase = WavePhase::Combat;
-        ws.spawn_queue.clear();
-        ws.active = 0;
-    }
+    force_begin_wave(&mut app);
+    app.update();
     app.update();
     let choice = app.world().resource::<WaveChoice>();
     assert!(choice.pending, "a three-choose-one should be pending after a wave");
@@ -956,10 +966,13 @@ fn start_wave_button_click_starts_wave_like_space() {
     app.update();
     let wave = app.world().resource::<WaveState>();
     assert_eq!(wave.phase, WavePhase::Combat, "button click must start the wave");
-    // The spawn system runs in the same frame right after Input, so the first
-    // enemy is already out the door: total (queued + active) must be 5.
+    // The director spawns in the same frame right after Input, so the first
+    // enemy is already out the door: total (pending + active) must be 5.
     assert_eq!(
-        wave.spawn_queue.len() + wave.active as usize,
+        app.world()
+            .resource::<warbase::prelude::WaveDirector>()
+            .pending_spawns() as usize
+            + wave.active as usize,
         5,
         "wave 1 totals 5 enemies (same as Space)"
     );
@@ -1301,12 +1314,9 @@ fn command_card_states_follow_selection() {
     );
 
     // Combat greys every action button but keeps it visible (锁建造铁律).
-    // A non-empty spawn queue keeps wave_resolve from settling the phase back.
-    {
-        let mut wave = app.world_mut().resource_mut::<WaveState>();
-        wave.phase = WavePhase::Combat;
-        wave.spawn_queue.push_back(0);
-    }
+    // An empty running wave holds Combat for the frame (the director-era
+    // stand-in for the old queue trick).
+    force_begin_wave(&mut app);
     app.update();
     let buttons = command_buttons(&mut app);
     assert!(
@@ -1671,11 +1681,7 @@ fn sell_refunds_seventy_percent_and_frees_slot() {
 
     // Combat rejects the sale (locked button = no gold change, tower stays).
     let e2 = place_and_select(&mut app, 0, 50, None);
-    {
-        let mut wave = app.world_mut().resource_mut::<WaveState>();
-        wave.phase = WavePhase::Combat;
-        wave.spawn_queue.push_back(0);
-    }
+    let blocker = hold_combat(&mut app);
     app.update(); // card rebuilds with Sell disabled in combat
     let pressed = {
         let mut q = app
@@ -2456,13 +2462,13 @@ fn single_target_round_dissipates_when_target_dies() {
 #[test]
 fn wave_end_clears_in_flight_projectiles() {
     let mut app = test_app();
-    // Start a wave so the phase transition Combat -> Intermission happens.
-    {
-        let mut wave = app.world_mut().resource_mut::<WaveState>();
-        wave.phase = WavePhase::Combat;
-        wave.spawn_queue.push_back(0);
-    }
-    // A live far-away target keeps the slow round legitimately in flight.
+    app.update();
+    // Start a (empty, running) wave so the phase transition Combat ->
+    // Intermission happens through the director + mirror.
+    force_begin_wave(&mut app);
+    app.update(); // mirror flips to Combat
+    // A live far-away target keeps the slow round legitimately in flight —
+    // and (tagged) pins the wave in Combat until the settle step.
     let far_target = app
         .world_mut()
         .spawn((
@@ -2473,6 +2479,7 @@ fn wave_end_clears_in_flight_projectiles() {
             warbase::prelude::Hp(100.0),
             warbase::prelude::MaxHp(100.0),
             Transform::from_xyz(90.0, 0.4, 90.0),
+            warbase::prelude::WaveTag(0),
         ))
         .id();
     app.update();
@@ -2499,11 +2506,13 @@ fn wave_end_clears_in_flight_projectiles() {
         let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
         assert_eq!(q.iter(app.world()).count(), 1, "the leftover round exists mid-wave");
     }
-    // Resolve the wave: unit-level phase transition (Combat -> Intermission)
-    // drives the clear; the wave machinery itself is covered elsewhere.
+    // Resolve the wave: the blocker goes away and the director's settle
+    // drives the mirror's phase transition (Combat -> Intermission), which
+    // the clear system sees.
+    app.world_mut().despawn(far_target);
     app.world_mut()
-        .resource_mut::<WaveState>()
-        .phase = WavePhase::Intermission;
+        .resource_mut::<warbase::prelude::WaveDirector>()
+        .force_settle();
     app.update(); // the clear system sees the transition
     app.update();
     let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
@@ -2886,12 +2895,8 @@ mod debug_cheats {
     fn debug_clear_wave_settles_through_normal_resolve() {
         let mut app = debug_app();
         app.update();
-        {
-            let mut ws = app.world_mut().resource_mut::<WaveState>();
-            ws.phase = WavePhase::Combat;
-            ws.spawn_queue = [0usize; 5].into(); // wave 1 still spawning
-            ws.active = 3;
-        }
+        // A running (empty) wave stands in for "wave 1 in progress".
+        force_begin_wave(&mut app);
         push(&mut app, DebugAction::ClearWave);
         app.update();
         let wave = app.world().resource::<WaveState>();
@@ -3293,13 +3298,11 @@ mod debug_db3 {
 
     /// Start wave 1 (5 ordinary enemies) so a live, moving enemy exists.
     fn start_wave_one(app: &mut App) {
-        let mut ws = app.world_mut().resource_mut::<WaveState>();
-        ws.phase = WavePhase::Combat;
-        ws.spawn_queue.clear();
-        for _ in 0..5 {
-            ws.spawn_queue.push_back(0);
-        }
-        ws.spawn_timer = 0.0;
+        // Wave 1 is exactly 5 ordinaries in the schedule — start it for
+        // real through the base director (WX6-6d).
+        app.world_mut()
+            .resource_mut::<Messages<warbase::prelude::StartWave>>()
+            .write(warbase::prelude::StartWave);
     }
 
     /// The first live enemy's (position, speed).
@@ -3383,6 +3386,7 @@ mod debug_db3 {
                 app.update();
             }
             start_wave_one(&mut app);
+            app.update(); // the director begins; the mirror flips to Combat
             let mut frames = 0;
             while app.world().resource::<WaveState>().phase == WavePhase::Combat {
                 app.update();
@@ -3620,14 +3624,9 @@ mod skills_sk1 {
         app.update();
         let full = cd_secs(&app, 1);
         set_commander_cooldown(&mut app, 1, full);
-        {
-            let mut ws = app.world_mut().resource_mut::<WaveState>();
-            ws.current = 0;
-            ws.phase = WavePhase::Combat;
-            ws.spawn_queue.clear();
-            ws.active = 0; // resolve immediately
-        }
-        app.update(); // wave resolves -> Intermission
+        force_begin_wave(&mut app);
+        app.update();
+        app.update(); // wave settles -> Intermission
         assert_eq!(
             app.world().resource::<WaveState>().phase,
             WavePhase::Intermission
@@ -4386,17 +4385,31 @@ fn enemy_assembly_is_pinned() {
     // present -> both take the model path). The no-server cuboid fallback is
     // pinned by every other headless test in this file (Mesh3d on Enemy is
     // what the FX queries see there).
+    // A one-shot table (boss then fast rogue, zero interval) driven through
+    // the base director — the gateway runs exactly as it does in play
+    // (AssetServer present -> both take the model path).
     {
-        let mut wave = app
-            .world_mut()
-            .resource_mut::<warden::resources::WaveState>();
-        wave.phase = warden::resources::WavePhase::Combat;
-        wave.spawn_queue.clear();
-        wave.spawn_queue.push_back(5);
-        wave.spawn_queue.push_back(1);
-        wave.spawn_timer = 0.0;
-        wave.spawn_interval = 0.0; // pop one per update tick
+        use warbase::prelude::{Advance, SpawnSpec, WaveEntry, WaveTable};
+        app.world_mut().insert_resource(WaveTable {
+            waves: vec![WaveEntry {
+                spawns: vec![
+                    SpawnSpec { unit: "boss".into(), count: 1, interval: 0.0, path: 0, delay: 0.0, hp_scale: 1.0 },
+                    SpawnSpec { unit: "fast".into(), count: 1, interval: 0.0, path: 0, delay: 0.0, hp_scale: 1.0 },
+                ],
+                boss_timeout: None,
+                preview: String::new(),
+                reward_gold: 0,
+            }],
+            advance: Advance::Manual,
+            early_call_bonus: None,
+        });
+        *app.world_mut()
+            .resource_mut::<warbase::prelude::WaveDirector>() =
+            warbase::prelude::WaveDirector::default();
     }
+    app.world_mut()
+        .resource_mut::<Messages<warbase::prelude::StartWave>>()
+        .write(warbase::prelude::StartWave);
     app.update(); // boss spawns (model path)
     app.update(); // rogue spawns (model path, run clip)
 

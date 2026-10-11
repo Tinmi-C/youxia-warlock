@@ -83,10 +83,11 @@ pub fn apply_choice(
 pub fn start_next_wave(
     keys: Res<ButtonInput<KeyCode>>,
     panel: Res<crate::resources::DebugPanelCapture>,
-    mut wave: ResMut<WaveState>,
+    wave: Res<WaveState>,
     schedule: Res<WaveSchedule>,
     choice: Res<WaveChoice>,
     state: Res<State<GameState>>,
+    mut start: MessageWriter<warbase::prelude::StartWave>,
 ) {
     // Typing (space) into a debug-panel field must not start waves (DB1).
     if panel.keyboard {
@@ -95,16 +96,20 @@ pub fn start_next_wave(
     if !keys.just_pressed(KeyCode::Space) {
         return;
     }
-    try_start_wave(&mut wave, &schedule, &choice, &state);
+    try_start_wave(&wave, &schedule, &choice, &state, &mut start);
 }
 
 /// Shared wave-start logic for the Space key and the "开始下一波" button (UI2).
-/// Returns true when the wave actually started.
+/// Returns true when the wave actually started. WX6-6d: the base director is
+/// the state machine — this is now the gate (phase/choice/state/last wave)
+/// plus a StartWave message; the director begins (and first-spawns) in the
+/// same frame's Spawn set.
 pub fn try_start_wave(
-    wave: &mut WaveState,
+    wave: &WaveState,
     schedule: &WaveSchedule,
     choice: &WaveChoice,
     state: &State<GameState>,
+    start: &mut MessageWriter<warbase::prelude::StartWave>,
 ) -> bool {
     if wave.phase != WavePhase::Intermission
         || choice.pending
@@ -115,17 +120,7 @@ pub fn try_start_wave(
     if (wave.current as usize) >= schedule.waves.len() {
         return false;
     }
-    let wave_def = &schedule.waves[wave.current as usize];
-    let mut q = VecDeque::new();
-    for entry in &wave_def.entries {
-        for _ in 0..entry.count {
-            q.push_back(entry.enemy_index);
-        }
-    }
-    wave.spawn_queue = q;
-    wave.phase = WavePhase::Combat;
-    wave.active = 0;
-    wave.spawn_timer = 0.0;
+    start.write(warbase::prelude::StartWave);
     info!("[wave] wave {} started", wave.current + 1);
     true
 }

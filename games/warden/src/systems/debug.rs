@@ -164,6 +164,7 @@ pub struct CheatsCore<'w, 's> {
 pub struct CheatsBoard<'w, 's> {
     pub defs: Res<'w, EnemyDefs>,
     pub registry: Res<'w, warbase::prelude::UnitRegistry>,
+    pub director: ResMut<'w, warbase::prelude::WaveDirector>,
     pub path: Res<'w, PathInfo>,
     pub paths: Res<'w, warbase::prelude::Paths>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
@@ -234,8 +235,20 @@ pub fn debug_cheat_executor(
             DebugAction::JumpToWave(n) => jump_to_wave(&mut core, &mut board, n),
             DebugAction::ClearWave => clear_wave(&mut core, &mut board),
             DebugAction::SummonEnemy { def_index, count } => {
+                // WX6-6d: summons ARE a wave — when idle, begin an empty
+                // one (force_begin) so the director tracks them through its
+                // normal cleared path once they are all gone.
+                if board.director.phase == warbase::prelude::DirectorPhase::Idle {
+                    let w = board.director.next_wave;
+                    board.director.force_begin(w);
+                }
+                let tag = board
+                    .director
+                    .running
+                    .unwrap_or(board.director.next_wave);
+                let mut spawned = 0;
                 for _ in 0..count {
-                    spawn_enemy(
+                    if let Some(e) = spawn_enemy(
                         &mut core.commands,
                         &board.defs,
                         &board.registry,
@@ -245,15 +258,16 @@ pub fn debug_cheat_executor(
                         &mut board.meshes,
                         &mut board.materials,
                         board.server.as_deref(),
-                    );
-                    core.wave.active += 1;
+                    ) {
+                        core
+                            .commands
+                            .entity(e)
+                            .insert(warbase::prelude::WaveTag(tag));
+                        spawned += 1;
+                    }
                 }
-                // Summons force combat so the wave machinery tracks them
-                // (and resolves the wave once they are all gone).
-                core.wave.phase = WavePhase::Combat;
                 info!(
-                    "[debug] summoned def {def_index} x{count} at the entry (active={})",
-                    core.wave.active
+                    "[debug] summoned def {def_index} x{spawned}/{count} at the entry (tagged wave {tag})"
                 );
             }
             DebugAction::UnlockAllTowers => {
@@ -347,11 +361,11 @@ fn jump_to_wave(core: &mut CheatsCore, board: &mut CheatsBoard, n: u32) {
         core.commands.entity(e).despawn();
     }
     hide_ghosts(core, board);
-    core.wave.current = target_idx as u32;
-    core.wave.phase = WavePhase::Intermission;
-    core.wave.spawn_queue.clear();
-    core.wave.active = 0;
-    core.wave.spawn_timer = 0.0;
+    // WX6-6d: the director is the wave state machine — jump = park it idle
+    // at the target wave (no running wave); the WaveState mirror follows.
+    board.director.phase = warbase::prelude::DirectorPhase::Idle;
+    board.director.running = None;
+    board.director.next_wave = target_idx;
     board.choice.pending = false;
     *board.selection = Selection::None;
     board.build.armed = false;
@@ -368,9 +382,10 @@ fn clear_wave(core: &mut CheatsCore, board: &mut CheatsBoard) {
     for e in &board.mobs {
         core.commands.entity(e).despawn();
     }
-    core.wave.spawn_queue.clear();
-    core.wave.active = 0;
-    info!("[debug] current wave force-cleared (settles via wave_resolve)");
+    // WX6-6d: settle through the director's NORMAL cleared path (reward +
+    // advance), same frame — force_settle marks the ledger done.
+    board.director.force_settle();
+    info!("[debug] current wave force-cleared (settles via the director)");
 }
 
 /// Full run reset (DB1 "快速重开"): fresh economy (meta upgrade 2 re-applied),
@@ -394,6 +409,7 @@ fn apply_restart(core: &mut CheatsCore, board: &mut CheatsBoard) {
     }
     *core.base = BaseHp::default();
     *core.wave = WaveState::default();
+    *board.director = warbase::prelude::WaveDirector::default();
     *board.boosts = Boosts::default();
     *board.choice = WaveChoice::default();
     *board.selection = Selection::None;

@@ -155,6 +155,31 @@ impl WaveDirector {
         self.phase = DirectorPhase::Intermission;
         self.phase_timer = intermission;
     }
+
+    /// Debug/cheat seam: begin wave `w` with an EMPTY spawn ledger — the
+    /// wave exists for tagging and cleared detection, but the table spawns
+    /// nothing itself (summoned units are the wave's content).
+    pub fn force_begin(&mut self, w: usize) {
+        self.running = Some(w);
+        self.phase = DirectorPhase::Spawning;
+        self.boss_timer = None;
+        self.spawned_clean_frames = 0;
+        self.ledger = Vec::new();
+    }
+
+    /// Debug/cheat seam: pretend the running wave fully spawned and its
+    /// units are gone — the next run_director tick takes the NORMAL cleared
+    /// path (reward grant, WaveCleared, advance), no duplicated logic.
+    pub fn force_settle(&mut self) {
+        self.ledger.clear();
+        self.spawned_clean_frames = 2;
+    }
+
+    /// Units the current wave still owes (sum of ledger remainders) — the
+    /// HUD-facing "wave progress" read.
+    pub fn pending_spawns(&self) -> u32 {
+        self.ledger.iter().map(|t| t.remaining).sum()
+    }
 }
 
 /// Director-set state machine. 13 params is deliberate (under the 16 tuple
@@ -185,6 +210,10 @@ pub fn run_director(
         Advance::Manual => None,
     };
 
+    // A wave that begins this frame runs its spawn tick in the SAME frame
+    // (warden's start button promises the first enemy on the starting
+    // frame), so the Spawning work sits below the match instead of inside
+    // a Spawning-only arm.
     match director.phase {
         DirectorPhase::Idle => {
             if director.next_wave >= table.waves.len() {
@@ -211,96 +240,97 @@ pub fn run_director(
                 }
             }
         }
-        DirectorPhase::Spawning => {
-            // Boss timer runs from wave start, spawning or not.
-            if let Some(t) = director.boss_timer.as_mut() {
-                *t -= dt;
-                if *t <= 0.0 {
-                    let w = director.running.unwrap_or(director.next_wave.saturating_sub(1));
-                    boss_out.write(BossTimedOut(w));
-                    director.boss_timer = None; // fire once
-                }
+        DirectorPhase::Spawning | DirectorPhase::Done => {}
+    }
+
+    if director.phase == DirectorPhase::Spawning {
+        // Boss timer runs from wave start, spawning or not.
+        if let Some(t) = director.boss_timer.as_mut() {
+            *t -= dt;
+            if *t <= 0.0 {
+                let w = director.running.unwrap_or(director.next_wave.saturating_sub(1));
+                boss_out.write(BossTimedOut(w));
+                director.boss_timer = None; // fire once
             }
-            let (running, cycle_growth) = {
-                let r = director.running.unwrap_or(0);
-                (r, ENDLESS_GROWTH.powi(director.cycles as i32))
-            };
-            let mut all_spawned = true;
-            for track in director.ledger.iter_mut() {
-                if track.remaining == 0 {
-                    continue;
-                }
-                track.timer -= dt;
-                while track.timer <= 0.0 && track.remaining > 0 {
-                    let spec = &table.waves[running].spawns[track.spec];
-                    if let Some(&path_e) = paths.0.get(spec.path) {
-                        let start = path_defs.get(path_e).map(|p| p.sample(0.0)).unwrap_or_default();
-                        if let Some(u) = spawn_unit_deferred(
-                            &mut commands,
-                            &registry,
-                            &spec.unit,
-                            Vec3::new(start.x, 0.0, start.y),
-                            Allegiance::Attacker,
-                            spec.hp_scale * cycle_growth,
-                        ) {
-                            commands.entity(u)
-                                .insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false })
-                                .insert(WaveTag(running));
-                        }
+        }
+        let (running, cycle_growth) = {
+            let r = director.running.unwrap_or(0);
+            (r, ENDLESS_GROWTH.powi(director.cycles as i32))
+        };
+        let mut all_spawned = true;
+        for track in director.ledger.iter_mut() {
+            if track.remaining == 0 {
+                continue;
+            }
+            track.timer -= dt;
+            while track.timer <= 0.0 && track.remaining > 0 {
+                let spec = &table.waves[running].spawns[track.spec];
+                if let Some(&path_e) = paths.0.get(spec.path) {
+                    let start = path_defs.get(path_e).map(|p| p.sample(0.0)).unwrap_or_default();
+                    if let Some(u) = spawn_unit_deferred(
+                        &mut commands,
+                        &registry,
+                        &spec.unit,
+                        Vec3::new(start.x, 0.0, start.y),
+                        Allegiance::Attacker,
+                        spec.hp_scale * cycle_growth,
+                    ) {
+                        commands.entity(u)
+                            .insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false })
+                            .insert(WaveTag(running));
                     }
-                    track.remaining -= 1;
-                    track.timer += spec.interval.max(0.0);
                 }
-                if track.remaining > 0 {
-                    all_spawned = false;
-                }
+                track.remaining -= 1;
+                track.timer += spec.interval.max(0.0);
             }
-            // Cleared = everything spawned (for 2+ frames, so deferred spawns
-            // are on-board) and nobody alive with this tag.
-            if all_spawned {
-                director.spawned_clean_frames += 1;
-            } else {
-                director.spawned_clean_frames = 0;
+            if track.remaining > 0 {
+                all_spawned = false;
             }
-            if all_spawned && director.spawned_clean_frames >= 2 {
-                if let Some(w) = director.running {
-                    if !tagged.iter().any(|t| t.0 == w) {
-                        cleared.write(WaveCleared(w));
-                        let reward = table.waves[w].reward_gold;
-                        if reward > 0 {
-                            econ.write(EconCommand::Grant { gold: reward, wood: 0 });
-                        }
-                        director.running = None;
-                        director.next_wave = w + 1;
-                        if director.next_wave >= table.waves.len() {
-                            if matches!(
-                                rules.win,
-                                crate::rule::WinCondition::Endless
-                            ) && !table.waves.is_empty()
-                            {
-                                // Endless: wrap around, one growth pass tougher.
-                                director.cycles += 1;
-                                director.next_wave = 0;
-                                if let Some(t) = intermission {
-                                    director.enter_intermission(t);
-                                    preview.write(WavePreview(0));
-                                } else {
-                                    director.phase = DirectorPhase::Idle;
-                                }
+        }
+        // Cleared = everything spawned (for 2+ frames, so deferred spawns
+        // are on-board) and nobody alive with this tag.
+        if all_spawned {
+            director.spawned_clean_frames += 1;
+        } else {
+            director.spawned_clean_frames = 0;
+        }
+        if all_spawned && director.spawned_clean_frames >= 2 {
+            if let Some(w) = director.running {
+                if !tagged.iter().any(|t| t.0 == w) {
+                    cleared.write(WaveCleared(w));
+                    let reward = table.waves[w].reward_gold;
+                    if reward > 0 {
+                        econ.write(EconCommand::Grant { gold: reward, wood: 0 });
+                    }
+                    director.running = None;
+                    director.next_wave = w + 1;
+                    if director.next_wave >= table.waves.len() {
+                        if matches!(
+                            rules.win,
+                            crate::rule::WinCondition::Endless
+                        ) && !table.waves.is_empty()
+                        {
+                            // Endless: wrap around, one growth pass tougher.
+                            director.cycles += 1;
+                            director.next_wave = 0;
+                            if let Some(t) = intermission {
+                                director.enter_intermission(t);
+                                preview.write(WavePreview(0));
                             } else {
-                                director.phase = DirectorPhase::Done;
+                                director.phase = DirectorPhase::Idle;
                             }
-                        } else if let Some(t) = intermission {
-                            director.enter_intermission(t);
-                            preview.write(WavePreview(director.next_wave));
                         } else {
-                            director.phase = DirectorPhase::Idle; // Manual waits again
+                            director.phase = DirectorPhase::Done;
                         }
+                    } else if let Some(t) = intermission {
+                        director.enter_intermission(t);
+                        preview.write(WavePreview(director.next_wave));
+                    } else {
+                        director.phase = DirectorPhase::Idle; // Manual waits again
                     }
                 }
             }
         }
-        DirectorPhase::Done => {}
     }
 }
 

@@ -69,7 +69,7 @@ pub fn spawn_enemy(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     server: Option<&AssetServer>,
-) {
+) -> Option<bevy::ecs::entity::Entity> {
     let start = path.waypoints.first().copied().unwrap_or(Vec3::ZERO);
     spawn_enemy_at(
         commands,
@@ -84,7 +84,7 @@ pub fn spawn_enemy(
         meshes,
         materials,
         server,
-    );
+    )
 }
 
 /// The warden enemy defs as a BASE UnitRegistry (WX6-4a bridge, code-built
@@ -232,7 +232,6 @@ pub fn spawn_enemy_at(
     )?;
     let mut ec = commands.entity(eid);
     ec.insert((
-        Enemy { speed: def.speed * units_per_point, def_index: index },
         // WX6-1: the base's path movement (advance_followers writes the
         // XZ translation; the spawn Y survives — models are feet-origin).
         warbase::prelude::PathFollower {
@@ -241,6 +240,33 @@ pub fn spawn_enemy_at(
             laps: 0,
             finished: false,
         },
+        Transform::from_xyz(pos.x, 0.0, pos.z),
+    ));
+    // 残血 setups: replace the current HP only — the max stays the def's.
+    if let Some(hp) = hp_override {
+        ec.insert(warbase::prelude::Hp(hp));
+    }
+    attach_enemy_layer_on(&mut ec, def, &reg_def, index, units_per_point, meshes, materials, server);
+    Some(eid)
+}
+
+/// Attach the warden layer (game identity + presentation) to a freshly
+/// spawned base enemy — shared by the direct gateway (`spawn_enemy_at`)
+/// and the director path (`attach_enemy_layer`), so the two can never
+/// drift. WX6-6d.
+#[allow(clippy::too_many_arguments)]
+fn attach_enemy_layer_on(
+    ec: &mut EntityCommands,
+    def: &crate::resources::EnemyDef,
+    reg_def: &warbase::prelude::UnitDef,
+    index: usize,
+    units_per_point: f32,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    server: Option<&AssetServer>,
+) {
+    ec.insert((
+        Enemy { speed: def.speed * units_per_point, def_index: index },
         warbase::prelude::MoveSpeed(def.speed * units_per_point),
         // WX6-2: elites (4) and bosses (5) style the base's bar wide +
         // golden (the FX1 big-bar convention).
@@ -255,12 +281,7 @@ pub fn spawn_enemy_at(
         // Explicit Visibility: the model path has no mesh on this entity,
         // so without it the scene child's InheritedVisibility breaks (B0004).
         Visibility::Visible,
-        Transform::from_xyz(pos.x, 0.0, pos.z),
     ));
-    // 残血 setups: replace the current HP only — the max stays the def's.
-    if let Some(hp) = hp_override {
-        ec.insert(warbase::prelude::Hp(hp));
-    }
     if let Some(h) = reg_def.heal {
         // warden convention: the first tick lands after one full period
         // (the base's def-spawn timer starts at 0).
@@ -299,11 +320,54 @@ pub fn spawn_enemy_at(
             ec.insert((
                 Mesh3d(meshes.add(Cuboid::new(0.7, 0.7, 0.7))),
                 MeshMaterial3d(materials.add(color)),
-                Transform::from_xyz(pos.x, 0.35, pos.z),
             ));
         }
     }
-    Some(eid)
+}
+
+/// WX6-6d: the base director spawns enemies as bare base units (its
+/// `spawn_unit_deferred`); this system attaches the warden layer — thin
+/// `Enemy` index, anchor speed, health-bar style, model scene / box — the
+/// same helper the direct gateway uses. Runs chained right after
+/// `run_director` so the layer is on-board the spawn frame.
+#[allow(clippy::type_complexity)]
+pub fn attach_enemy_layer(
+    mut commands: Commands,
+    defs: Res<EnemyDefs>,
+    registry: Res<warbase::prelude::UnitRegistry>,
+    path: Res<PathInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    server: Option<Res<AssetServer>>,
+    fresh: Query<
+        (Entity, &warbase::prelude::UnitInstance, &warbase::prelude::Allegiance),
+        (Added<warbase::prelude::UnitInstance>, Without<Enemy>),
+    >,
+) {
+    let units_per_point = path_units_per_point(&path);
+    for (eid, inst, side) in &fresh {
+        if *side != warbase::prelude::Allegiance::Attacker {
+            continue;
+        }
+        let Some(index) = defs.list.iter().position(|d| d.name == inst.def) else {
+            continue;
+        };
+        let Some(reg_def) = registry.get(&inst.def) else {
+            continue;
+        };
+        let reg_def = reg_def.clone();
+        let def = defs.list[index].clone();
+        attach_enemy_layer_on(
+            &mut commands.entity(eid),
+            &def,
+            &reg_def,
+            index,
+            units_per_point,
+            &mut meshes,
+            &mut materials,
+            server.as_deref(),
+        );
+    }
 }
 
 /// Marker for the debug range's stationary dummies (SM3R): excluded from
@@ -451,7 +515,6 @@ pub fn face_movement(
 pub fn leak_arrived(
     mut arrived: MessageReader<warbase::prelude::Arrived>,
     mut base: ResMut<BaseHp>,
-    mut wave: ResMut<WaveState>,
     mut commands: Commands,
     enemies: Query<&Enemy>,
     defs: Res<EnemyDefs>,
@@ -466,7 +529,6 @@ pub fn leak_arrived(
             .map(|d| d.leak)
             .unwrap_or(1);
         base.hp = base.hp.saturating_sub(leak);
-        wave.active = wave.active.saturating_sub(1);
         commands.entity(a.unit).despawn();
         info!("[enemy] leaked, base hp={}", base.hp);
     }
@@ -483,7 +545,6 @@ pub fn resolve_death(
     mut commands: Commands,
     boost: Res<Boosts>,
     mut economy: ResMut<Economy>,
-    mut wave: ResMut<WaveState>,
     defs: Res<EnemyDefs>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -499,7 +560,6 @@ pub fn resolve_death(
                 .unwrap_or(0);
             let gain = (kill_gold as f32 * boost.kill_mult).round() as u32;
             economy.gold += gain;
-            wave.active = wave.active.saturating_sub(1);
             if let Ok((tf, mat)) = visuals.get(eid) {
                 if let Some(color) = materials.get(&mat.0).map(|m| m.base_color) {
                     crate::systems::fx::spawn_death_shell(

@@ -69,14 +69,15 @@ pub struct LangToggleButton;
 /// Clicking "开始下一波" starts the next wave — identical to the Space key (UI2).
 pub fn handle_start_wave_button(
     mut q: Query<(&Interaction, &StartWaveButton), Changed<Interaction>>,
-    mut wave: ResMut<WaveState>,
+    wave: Res<WaveState>,
     schedule: Res<WaveSchedule>,
     choice: Res<WaveChoice>,
     state: Res<State<GameState>>,
+    mut start: MessageWriter<warbase::prelude::StartWave>,
 ) {
     for (inter, _) in &mut q {
         if *inter == Interaction::Pressed {
-            try_start_wave(&mut wave, &schedule, &choice, &state);
+            try_start_wave(&wave, &schedule, &choice, &state, &mut start);
         }
     }
 }

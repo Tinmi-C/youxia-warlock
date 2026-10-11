@@ -1,85 +1,112 @@
-//! Waves: spawn a wave's enemies over time, and settle the wave (reward) when
-//! all are gone. Also owns the lose/win transition.
-//! Capability cards: WA1 (config/spawn), WA2 (reward + intermission), WA3 (lose/win),
+//! Waves (WX6-6d): the BASE's WaveDirector is the state machine — the wave
+//! table ships as a base `WaveTable` (built from the warden schedule by the
+//! code bridge; warden.ron takes the content over with WX6-6f), spawning is
+//! `run_director`, settling/reward/advance is the director's cleared path.
+//! What stays warden-side:
+//!   - `sync_wave_state`: WaveState as the derived HUD/gating mirror
+//!     (phase/current/active; written ONLY on change so `refresh_shop`'s
+//!     change-detection hook fires once per transition).
+//!   - `on_wave_cleared`: the game hooks — 三选一 generation (AC4) on a
+//!     non-final clear, GameState::Win on the final one. The reward itself
+//!     is the director's `reward_gold` granted through EconCommand.
+//! Capability cards: WA1/WA2 (director), WA3 (check_lose until WX6-6e),
 //! AC4 (three-choose-one).
 
 use bevy::prelude::*;
 use rand::RngExt;
 
+use crate::components::Enemy;
 use crate::resources::{
-    BaseHp, ChoiceKind, ChoiceOption, Economy, EnemyDefs, Hand, PathInfo, RunRng, StatKind,
-    TowerDefs, WaveChoice, WavePhase, WaveSchedule, WaveState,
+    BaseHp, ChoiceKind, ChoiceOption, EnemyDefs, Hand, StatKind, TowerDefs, WaveChoice,
+    WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
-use crate::systems::enemy::spawn_enemy;
+use crate::systems::enemy::RangeDummy;
 
-/// Spawn the current wave's enemies, spaced by `WaveState::spawn_interval`.
-pub fn wave_spawn(
-    time: Res<Time>,
-    mut wave: ResMut<WaveState>,
-    defs: Res<EnemyDefs>,
-    registry: Res<warbase::prelude::UnitRegistry>,
-    path: Res<PathInfo>,
-    paths: Res<warbase::prelude::Paths>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    server: Option<Res<AssetServer>>,
-) {
-    if wave.phase != WavePhase::Combat || wave.spawn_queue.is_empty() {
-        return;
-    }
-    wave.spawn_timer -= time.delta_secs();
-    if wave.spawn_timer <= 0.0 {
-        if let Some(index) = wave.spawn_queue.pop_front() {
-            let path_e =
-                paths.0.first().copied().unwrap_or(bevy::ecs::entity::Entity::PLACEHOLDER);
-            spawn_enemy(
-                &mut commands,
-                &*defs,
-                &registry,
-                &*path,
-                path_e,
-                index,
-                &mut *meshes,
-                &mut *materials,
-                server.as_deref(),
-            );
-            wave.active += 1;
-        }
-        wave.spawn_timer = wave.spawn_interval;
+/// The warden schedule as a BASE WaveTable (WX6-6d code bridge): enemy
+/// indices map to def names through EnemyDefs, the global 0.5 s spawn
+/// interval becomes each spec's interval, rewards ride `reward_gold`
+/// (granted by the director via EconCommand). Manual advance: waves wait
+/// for StartWave, exactly warden's dual-speed rhythm.
+pub fn base_wave_table(schedule: &WaveSchedule, defs: &EnemyDefs) -> warbase::prelude::WaveTable {
+    warbase::prelude::WaveTable {
+        waves: schedule
+            .waves
+            .iter()
+            .map(|w| warbase::prelude::WaveEntry {
+                spawns: w
+                    .entries
+                    .iter()
+                    .filter_map(|e| {
+                        let name = defs.list.get(e.enemy_index).map(|d| d.name)?;
+                        Some(warbase::prelude::SpawnSpec {
+                            unit: name.to_string(),
+                            count: e.count,
+                            interval: 0.5,
+                            path: 0,
+                            delay: 0.0,
+                            hp_scale: 1.0,
+                        })
+                    })
+                    .collect(),
+                boss_timeout: None,
+                preview: String::new(),
+                reward_gold: w.reward,
+            })
+            .collect(),
+        advance: warbase::prelude::Advance::Manual,
+        early_call_bonus: None,
     }
 }
 
-/// When a combat wave has fully spawned and every enemy is resolved, award the
-/// reward, return to Intermission, advance — or Win on the last wave. On a
-/// non-final wave it also deals a "三选一" choice (AC4).
-pub fn wave_resolve(
+/// Mirror the base director into warden's WaveState (HUD + gating reads it;
+/// tests assert on it). Writes only on actual change so Res::is_changed
+/// consumers (the AC2 shop refresh) fire once per transition, not per frame.
+pub fn sync_wave_state(
+    director: Res<warbase::prelude::WaveDirector>,
     mut wave: ResMut<WaveState>,
+    enemies: Query<(), (With<Enemy>, Without<RangeDummy>)>,
+) {
+    let phase = if matches!(
+        director.phase,
+        warbase::prelude::DirectorPhase::Spawning
+    ) {
+        WavePhase::Combat
+    } else {
+        WavePhase::Intermission
+    };
+    let current = director.next_wave as u32;
+    let active = enemies.iter().count() as u32;
+    if wave.phase != phase {
+        wave.phase = phase;
+    }
+    if wave.current != current {
+        wave.current = current;
+    }
+    if wave.active != active {
+        wave.active = active;
+    }
+}
+
+/// Game hooks on the director's cleared path (WA2/AC4): the reward already
+/// landed through the director's EconCommand; warden adds the 三选一 after
+/// non-final waves and the Win transition after the final one.
+pub fn on_wave_cleared(
+    mut cleared: MessageReader<warbase::prelude::WaveCleared>,
     schedule: Res<WaveSchedule>,
     defs: Res<TowerDefs>,
-    mut economy: ResMut<Economy>,
-    hand: Res<Hand>,
     mut choice: ResMut<WaveChoice>,
-    mut rng: ResMut<RunRng>,
+    hand: Res<Hand>,
+    mut rng: ResMut<crate::resources::RunRng>,
     mut next: ResMut<NextState<GameState>>,
 ) {
-    if wave.phase != WavePhase::Combat || !wave.spawn_queue.is_empty() || wave.active != 0 {
-        return;
-    }
-    let Some(wave_def) = schedule.waves.get(wave.current as usize) else {
-        return;
-    };
-    economy.gold += wave_def.reward;
-    wave.phase = WavePhase::Intermission;
-    wave.current += 1;
-    info!("[wave] {} cleared, +{} gold -> intermission", wave.current, wave_def.reward);
-
-    if wave.current as usize >= schedule.waves.len() {
-        next.set(GameState::Win);
-        info!("[wave] all waves cleared -> Win");
-    } else {
-        generate_choices(&mut *choice, &*defs, &*hand, &mut rng);
+    for c in cleared.read() {
+        if c.0 + 1 >= schedule.waves.len() {
+            next.set(GameState::Win);
+            info!("[wave] all waves cleared -> Win");
+        } else {
+            generate_choices(&mut *choice, &*defs, &*hand, &mut rng);
+        }
     }
 }
 
@@ -117,7 +144,7 @@ pub(crate) fn generate_choices(
     choice: &mut WaveChoice,
     defs: &TowerDefs,
     hand: &Hand,
-    rng: &mut RunRng,
+    rng: &mut crate::resources::RunRng,
 ) {
     let mut pool = vec![
         Category::Stat(StatKind::Damage),
