@@ -117,6 +117,7 @@ pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
                 skills: vec![],
                 upgrade_to: None,
                 heal: None,
+                leak: def.leak,
             },
         );
     }

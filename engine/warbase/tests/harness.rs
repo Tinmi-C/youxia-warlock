@@ -13,6 +13,7 @@ use warbase::prelude::*;
 
 fn unit(id: &str, hp: f32, armor: ArmorType, dmg: f32, cost: u32) -> UnitDef {
     UnitDef {
+        leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: 1.0, body_radius: 0.3 },
         attack: if dmg > 0.0 {

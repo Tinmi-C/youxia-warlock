@@ -10,6 +10,7 @@ fn grunt_registry() -> UnitRegistry {
     defs.insert(
         "grunt".into(),
         UnitDef {
+            leak: 1,
             id: "grunt".into(),
             attrs: BaseAttributes { hp: 100.0, move_speed: 1.0, body_radius: 0.3 },
             attack: None,
@@ -110,6 +111,38 @@ fn lives_decrement_and_lose() {
         .write(Arrived { unit: Entity::PLACEHOLDER });
     app.update();
     assert_eq!(ended_outcome(&app), Some(Err("no lives left".into())));
+}
+
+/// UT-RUL-07: the Lives policy deducts the unit's own def `leak` (the
+/// Arrived unit's UnitInstance -> registry row); units without a resolvable
+/// def cost the plain 1.
+#[test]
+fn lives_leak_uses_unit_def_value() {
+    let mut app = test_app();
+    let mut reg = grunt_registry();
+    reg.defs.get_mut("grunt").unwrap().leak = 5;
+    app.insert_resource(MatchRules {
+        leak: LeakPolicy::Lives { lives: 10 },
+        ..Default::default()
+    })
+    .insert_resource(reg);
+    let e = spawn_attacker(&mut app);
+    app.update(); // rules_tick lazily inserts LivesLeft(10)
+    assert_eq!(app.world().resource::<LivesLeft>().0, 10);
+
+    // A def-driven leak: this grunt costs 5 lives.
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<Arrived>>()
+        .write(Arrived { unit: e });
+    app.update();
+    assert_eq!(app.world().resource::<LivesLeft>().0, 5);
+
+    // An unresolvable unit (despawned / bare test entity): plain 1.
+    app.world_mut()
+        .resource_mut::<bevy::ecs::message::Messages<Arrived>>()
+        .write(Arrived { unit: Entity::PLACEHOLDER });
+    app.update();
+    assert_eq!(app.world().resource::<LivesLeft>().0, 4);
 }
 
 /// UT-RUL-04: lap buffs are permanent and multiplicative.

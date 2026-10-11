@@ -145,6 +145,14 @@ pub struct UnitDef {
     /// Support-unit periodic heal (numbers per map).
     #[serde(default)]
     pub heal: Option<HealDef>,
+    /// Lives lost when this unit leaks (Lives policy; BX8). Elite/boss
+    /// creeps ship bigger numbers; default 1 keeps plain creeps terse.
+    #[serde(default = "default_leak")]
+    pub leak: u32,
+}
+
+fn default_leak() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

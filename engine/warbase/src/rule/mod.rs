@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::path::{Arrived, LapCompleted, MoveSpeed, PathFollower};
-use crate::unit::{Allegiance, Hp, MaxHp};
+use crate::unit::{Allegiance, Hp, MaxHp, UnitInstance, UnitRegistry};
 use crate::wave::{BossTimedOut, WaveCleared};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +98,7 @@ pub struct StockCount(pub u32);
 pub fn rules_tick(
     mut commands: Commands,
     rules: Res<MatchRules>,
+    registry: Res<UnitRegistry>,
     mut flow: ResMut<MatchFlow>,
     mut ended: MessageWriter<MatchEnded>,
     mut arrived: MessageReader<Arrived>,
@@ -112,6 +113,7 @@ pub fn rules_tick(
         Query<(&Hp, &Allegiance), With<PathFollower>>,
         Query<(&mut MoveSpeed, &mut Hp, &mut MaxHp)>,
     )>,
+    instances: Query<&UnitInstance>,
 ) {
     if *flow != MatchFlow::Running {
         return;
@@ -126,10 +128,22 @@ pub fn rules_tick(
 
     match &rules.leak {
         LeakPolicy::Lives { .. } => {
-            let leaks = arrived.read().count();
+            // Per-unit leak: the Arrived unit's def decides how many lives
+            // it costs (boss 5, elite 3, plain 1). Units without a resolvable
+            // def (despawned/bare test entities) cost the plain 1.
+            let mut leaks = 0u32;
+            for a in arrived.read() {
+                let per = instances
+                    .get(a.unit)
+                    .ok()
+                    .and_then(|i| registry.get(&i.def))
+                    .map(|d| d.leak)
+                    .unwrap_or(1);
+                leaks = leaks.saturating_add(per);
+            }
             if leaks > 0 {
                 if let Some(l) = lives.as_deref_mut() {
-                    l.0 = l.0.saturating_sub(leaks as u32);
+                    l.0 = l.0.saturating_sub(leaks);
                     if l.0 == 0 {
                         lose(&mut flow, &mut ended, "no lives left");
                     }

@@ -41,6 +41,7 @@ fn grunt_registry() -> UnitRegistry {
     defs.insert(
         "grunt".into(),
         UnitDef {
+            leak: 1,
             id: "grunt".into(),
             attrs: BaseAttributes { hp: 120.0, move_speed: 2.0, body_radius: 0.4 },
             attack: None,
@@ -94,4 +95,20 @@ fn air_trait_spawns_air_marker() {
 fn spawn_unknown_def_returns_none() {
     let mut app = test_app();
     assert!(spawn_unit(&mut app.world_mut(), &UnitRegistry::default(), "nope", Vec3::ZERO, Allegiance::Attacker, 1.0).is_none());
+}
+
+/// UT-UNIT-03: `leak` is optional in bundles — plain creeps deserialize to 1,
+/// boss/elite rows ship their own numbers.
+#[test]
+fn unit_def_leak_defaults_to_one_in_ron() {
+    let plain: UnitDef = ron::from_str(
+        r#"(id: "grunt", attrs: (hp: 10.0, move_speed: 1.0, body_radius: 0.3), armor_type: Light)"#,
+    )
+    .unwrap();
+    assert_eq!(plain.leak, 1);
+    let boss: UnitDef = ron::from_str(
+        r#"(id: "boss", attrs: (hp: 10.0, move_speed: 1.0, body_radius: 0.3), armor_type: Light, leak: 5)"#,
+    )
+    .unwrap();
+    assert_eq!(boss.leak, 5);
 }

@@ -17,6 +17,7 @@ fn registry_with(ids: &[(&str, u32)]) -> UnitRegistry {
         defs.insert(
             id.to_string(),
             UnitDef {
+                leak: 1,
                 id: id.to_string(),
                 attrs: BaseAttributes { hp: 80.0, move_speed: 0.0, body_radius: 0.4 },
                 attack: None,
