@@ -163,9 +163,9 @@ pub struct Projectile {
     /// Damage snapshot taken at launch (post-boost, pre-armor).
     pub damage: f32,
     pub attack_type: AttackType,
-    /// Who fired this round — forwarded into the DamageRequest at impact so
-    /// the unified pipeline can attribute every hit (SK7).
-    pub source: crate::systems::damage::DamageSource,
+    /// Who fired this round — the BASE's attribution carried into the
+    /// DamageRequest at impact (SK7; WX6-4b made it DamageOrigin).
+    pub source: crate::systems::damage::DamageOrigin,
     /// The shot rolled a critical (SK9 鹰眼): the damage snapshot already
     /// includes the multiplier; the flag rides along for FX and the BAL
     /// readout.

@@ -230,7 +230,9 @@ pub fn release_meteor_shots(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut volleys: Query<(Entity, &mut MeteorVolley)>,
+    commanders: Query<Entity, With<Commander>>,
 ) {
+    let commander = commanders.single().ok().unwrap_or(Entity::PLACEHOLDER);
     let def = SKILL_METEOR_RAIN;
     let total = balance.meteor_count(def, 1);
     for (eid, mut volley) in &mut volleys {
@@ -250,9 +252,10 @@ pub fn release_meteor_shots(
                 },
                 damage: balance.meteor_damage(def, 1),
                 attack_type: AttackType::Magic,
-                source: crate::systems::damage::DamageSource::CommanderSkill(
-                    SKILL_METEOR_RAIN,
-                ),
+                source: crate::systems::damage::DamageOrigin::Skill {
+                    caster: commander,
+                    skill: crate::systems::damage::skill_row(SKILL_METEOR_RAIN),
+                },
                 crit: false,
                 aoe_radius: balance.radius(def, 1),
                 slow_factor: 0.0,

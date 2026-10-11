@@ -636,7 +636,7 @@ pub use warbase::prelude::SkillKind;
 pub use warbase::prelude::SkillTargeting as SkillTargetMode;
 
 /// Canonical production skill order (WX2): `SkillBalance.ids` and the def
-/// registry are filled in this order, and `DamageSource::to_origin` maps an
+/// registry are filled in this order, and damage::skill_row maps an
 /// id to its position here (the base's `DamageOrigin::Skill` attribution
 /// stays index-shaped). Tests may register their own ids — production only.
 pub const SKILL_ORDER: [&str; 10] = [

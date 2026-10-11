@@ -16,15 +16,19 @@ pub struct ProjectilesPlugin;
 impl Plugin for ProjectilesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<systems::projectiles::ProjectileImpact>()
-            .add_message::<systems::damage::DamageRequest>()
-            .add_message::<systems::damage::DamageDealt>()
+            .add_message::<warbase::prelude::DamageRequest>()
+            .add_message::<warbase::prelude::DamageDealt>()
+            .add_message::<warbase::prelude::UnitDied>()
             .add_systems(
                 Update,
                 (
                     systems::projectiles::fly_projectiles,
-                    // SK7: every writer (melee in tower_fire, impacts here)
-                    // is upstream in the same frame; the resolver comes last.
-                    systems::damage::resolve_damage,
+                    // SK7 (WX6-4b): every writer (melee in tower_fire,
+                    // impacts here) is upstream in the same frame; the
+                    // BASE's resolver drains last, then warden's flash
+                    // reaction rides its DamageDealt.
+                    warbase::prelude::resolve_damage,
+                    systems::damage::flash_hits,
                 )
                     .chain()
                     .in_set(GameSet::Simulate)

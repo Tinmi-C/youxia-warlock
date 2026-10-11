@@ -17,7 +17,7 @@ use crate::components::{
 // ART12 ranger defender wiring shares the enemy rig machinery.
 use crate::components::{RangerBody, RangerCombat, RangerRig};
 use crate::resources::{TowerDef, PROJECTILE_SPEED};
-use crate::systems::damage::{DamageRequest, DamageSource};
+use crate::systems::damage::{to_base_attack, DamageOrigin, DamageRequest};
 
 /// The bundled 3D arrow tower (ArtVault 岩库 locked v1 via art-sync, ADR-0009;
 /// `art-assets.json` is the source of truth). Rodin image-to-3D, 23332 tris,
@@ -507,7 +507,6 @@ pub fn fused_tower_color(kind: FusionKind) -> Color {
 /// Resolve one-axis armor: physical is halved vs armored enemies; magic and
 /// mixed (穿甲) bypass it. Moved to `systems::damage` with the unified
 /// pipeline (SK7); re-exported here for existing callers/tests.
-pub use crate::systems::damage::effective_damage;
 
 /// The melee exception of the hybrid model (§5.1): the base shield tower.
 fn is_melee(tower: &Tower) -> bool {
@@ -583,10 +582,10 @@ pub fn tower_fire(
                     let (crit, dmg) =
                         crate::systems::archer_skills::roll_crit(&mut rng, estats);
                     requests.write(DamageRequest {
-                        victim: target,
+                        target: target,
                         amount: dmg,
-                        attack_type: tower.attack_type,
-                        source: DamageSource::Tower(tower_eid),
+                        attack_type: to_base_attack(tower.attack_type),
+                        source: DamageOrigin::Attack(tower_eid),
                         crit,
                     });
                     if tower.slow_factor > 0.0 {
@@ -627,7 +626,7 @@ pub fn tower_fire(
                     origin: ProjectileOrigin::Homing { target },
                     damage: shot_dmg,
                     attack_type: tower.attack_type,
-                    source: DamageSource::Tower(tower_eid),
+                    source: DamageOrigin::Attack(tower_eid),
                     crit,
                     aoe_radius: tower.aoe_radius,
                     slow_factor: tower.slow_factor,

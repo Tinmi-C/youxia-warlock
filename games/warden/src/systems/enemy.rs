@@ -435,9 +435,12 @@ pub fn leak_arrived(
     }
 }
 
-/// Grant gold and despawn any enemy at or below 0 HP. FX2: a pure-visual
-/// death shell spawns alongside — the gold/despawn logic and timing are
-/// untouched.
+/// EN3: grant gold and despawn any enemy at or below 0 HP (the Hp
+/// component since WX6-2; bounty still reads Enemy.kill_gold — the AC4
+/// boost applies here). The base's resolver marks pipeline kills with hp<=0
+/// (+ its UnitDied message, which warden leaves unconsumed: this scan is
+/// source-agnostic and covers debug-spawned corpses too). FX2: the death
+/// shell rides along — gold/despawn logic and timing untouched.
 pub fn resolve_death(
     mut commands: Commands,
     boost: Res<Boosts>,

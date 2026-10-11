@@ -19,7 +19,7 @@ use crate::components::{
     AttackType, EffectiveStats, Enemy, FusionKind, Projectile, ProjectileOrigin, SkillCaster, Tower,
 };
 use crate::resources::{SkillBalance, SkillDef, SkillKind, SkillTargetMode, PROJECTILE_SPEED};
-use crate::systems::damage::{DamageRequest, DamageSource};
+use crate::systems::damage::{skill_row, to_base_attack, DamageOrigin, DamageRequest};
 use crate::systems::skills::{learn_skill, SkillCast};
 use crate::systems::tower::{projectile_visual, TowerFired};
 
@@ -142,9 +142,9 @@ pub fn fusion_skill_effects(
                         origin: ProjectileOrigin::Homing { target },
                         damage: estats.damage * mult,
                         attack_type: tower.attack_type,
-                        source: DamageSource::TowerSkill {
-                            tower: cast.caster,
-                            skill: SKILL_DEADEYE,
+                        source: DamageOrigin::Skill {
+                            caster: cast.caster,
+                            skill: skill_row(SKILL_DEADEYE),
                         },
                         crit: false,
                         aoe_radius: 0.0,
@@ -178,7 +178,7 @@ pub fn fusion_skill_effects(
                     damage,
                     AttackType::Magic,
                     cast.caster,
-                    SKILL_ARCANE_BLAST,
+                    skill_row(SKILL_ARCANE_BLAST),
                 );
                 info!(
                     "[sk] arcane blast lv{} at ({:.1}, {:.1}) r{radius}",
@@ -207,9 +207,9 @@ pub fn fusion_skill_effects(
                         },
                         damage,
                         attack_type: tower.attack_type, // hybrid: mixed, armor-piercing
-                        source: DamageSource::TowerSkill {
-                            tower: cast.caster,
-                            skill: SKILL_PIERCING_BOLT,
+                        source: DamageOrigin::Skill {
+                            caster: cast.caster,
+                            skill: skill_row(SKILL_PIERCING_BOLT),
                         },
                         crit: false,
                         // The bolt's contact width doubles as its "AOE".
@@ -244,7 +244,7 @@ pub fn fusion_skill_effects(
                     damage,
                     AttackType::Physical,
                     cast.caster,
-                    SKILL_CONCUSSION,
+                    skill_row(SKILL_CONCUSSION),
                 );
                 for ven in victims.drain(..) {
                     crate::systems::tower::apply_slow(
@@ -278,7 +278,7 @@ fn blast(
     damage: f32,
     attack_type: AttackType,
     caster: Entity,
-    skill: &'static str,
+    skill: usize,
 ) -> Vec<Entity> {
     let mut victims = Vec::new();
     for (ven, vtf, venemy, vhp) in enemies.iter() {
@@ -287,10 +287,10 @@ fn blast(
         let _ = venemy;
         if vhp.0 > 0.0 && dx * dx + dz * dz <= radius * radius {
             requests.write(DamageRequest {
-                victim: ven,
+                target: ven,
                 amount: damage,
-                attack_type,
-                source: DamageSource::TowerSkill { tower: caster, skill },
+                attack_type: to_base_attack(attack_type),
+                source: DamageOrigin::Skill { caster, skill },
                 crit: false,
             });
             victims.push(ven);

@@ -1055,6 +1055,7 @@ fn physical_damage_halved_vs_armored_enemy() {
         },
         warbase::prelude::Hp(90.0),
         warbase::prelude::MaxHp(90.0),
+        warbase::prelude::Armor(warden::systems::damage::base_armor(true)),
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
     app.update(); // launch frame
@@ -1100,6 +1101,7 @@ fn magic_damage_ignores_armor() {
         },
         warbase::prelude::Hp(90.0),
         warbase::prelude::MaxHp(90.0),
+        warbase::prelude::Armor(warden::systems::damage::base_armor(true)),
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
     app.update(); // launch frame
@@ -2506,7 +2508,7 @@ fn wave_end_clears_in_flight_projectiles() {
             },
             damage: 1.0,
             attack_type: AttackType::Physical,
-            source: warden::systems::damage::DamageSource::System,
+            source: warden::systems::damage::DamageOrigin::System,
             crit: false,
             aoe_radius: 0.0,
             slow_factor: 0.0,
@@ -6278,7 +6280,7 @@ mod armor_table {
 mod damage_pipeline {
     use super::*;
     use bevy::ecs::message::MessageCursor;
-    use warden::systems::damage::{DamageDealt, DamageRequest, DamageSource};
+    use warden::systems::damage::{DamageDealt, DamageOrigin, DamageRequest};
 
     fn spawn_enemy_at(app: &mut App, pos: Vec3, hp: f32, armor: bool) -> Entity {
         app.world_mut()
@@ -6292,6 +6294,7 @@ mod damage_pipeline {
                 },
                 warbase::prelude::Hp(hp),
                 warbase::prelude::MaxHp(hp),
+                warbase::prelude::Armor(warden::systems::damage::base_armor(armor)),
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
             .id()
@@ -6323,10 +6326,10 @@ mod damage_pipeline {
         app.world_mut()
             .resource_mut::<Messages<DamageRequest>>()
             .write(DamageRequest {
-                victim,
+                target: victim,
                 amount,
-                attack_type: ty,
-                source: DamageSource::System,
+                attack_type: warden::systems::damage::to_base_attack(ty),
+                source: DamageOrigin::System,
                 crit: false,
             });
     }
@@ -6400,7 +6403,7 @@ mod damage_pipeline {
             dealt.read(msgs).cloned().collect()
         };
         assert!(
-            events.iter().any(|e| e.source == DamageSource::Tower(tower)),
+            events.iter().any(|e| e.source == DamageOrigin::Attack(tower)),
             "melee hit attributed to its tower"
         );
         assert!(app.world().get::<warbase::prelude::Hp>(enemy).unwrap().0 < 100.0);
@@ -6427,7 +6430,7 @@ mod damage_pipeline {
         assert!(
             events
                 .iter()
-                .any(|e| e.source == DamageSource::Tower(tower) && e.amount == 10.0),
+                .any(|e| e.source == DamageOrigin::Attack(tower) && e.amount == 10.0),
             "ranged hit attributed with the snapshot damage"
         );
         assert!(app.world().get::<warbase::prelude::Hp>(enemy).unwrap().0 < 500.0);
@@ -6486,7 +6489,7 @@ mod damage_pipeline {
         assert!(
             events
                 .iter()
-                .all(|e| matches!(e.source, DamageSource::CommanderSkill(_))),
+                .all(|e| matches!(e.source, DamageOrigin::Skill { caster, .. } if caster == commander)),
             "meteor damage attributed to the commander skill"
         );
         assert!(
@@ -6507,7 +6510,7 @@ mod skills_archer {
     use warden::systems::archer_skills::{
         archer_skill_caster, SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT,
     };
-    use warden::systems::damage::{DamageDealt, DamageSource};
+    use warden::systems::damage::{DamageDealt, DamageOrigin};
     use warden::systems::skills::{learn_skill, CastSkill};
 
     /// An archer tower carrying the stock kit. `cooldown` starts high so the
@@ -6654,7 +6657,7 @@ mod skills_archer {
             app.update();
             let msgs = app.world().resource::<Messages<DamageDealt>>();
             for d in dealt.read(msgs) {
-                if matches!(d.source, DamageSource::Tower(t) if t == tower) {
+                if matches!(d.source, DamageOrigin::Attack(t) if t == tower) {
                     total += d.amount;
                     hits += 1;
                     crits += d.crit as u32;
@@ -6699,9 +6702,9 @@ mod skills_archer {
             // Messages are double-buffered: drain every frame or events drop.
             let msgs = app.world().resource::<Messages<DamageDealt>>();
             for d in dealt.read(msgs) {
-                if let DamageSource::TowerSkill { tower: t, skill } = d.source {
-                    if t == tower && skill == SKILL_MULTISHOT {
-                        skill_hits.push((d.victim, d.amount));
+                if let DamageOrigin::Skill { caster: t, skill } = d.source {
+                    if t == tower && skill == warden::systems::damage::skill_row(SKILL_MULTISHOT) {
+                        skill_hits.push((d.target, d.amount));
                     }
                 }
             }
@@ -6827,7 +6830,7 @@ mod skills_fusion {
     use bevy::ecs::message::MessageCursor;
     use warden::components::{EffectiveStats, Enemy, SkillCaster, Slow, StatMods, Tower};
     use warden::resources::{FusionDefs, Selection, SkillAiming};
-    use warden::systems::damage::{DamageDealt, DamageSource};
+    use warden::systems::damage::{DamageDealt, DamageOrigin};
     use warden::systems::fusion_skills::{
         fusion_signature, SKILL_ARCANE_BLAST, SKILL_CONCUSSION, SKILL_DEADEYE,
         SKILL_PIERCING_BOLT,
@@ -6947,17 +6950,17 @@ mod skills_fusion {
     fn drain_damage(
         app: &mut App,
         frames: usize,
-    ) -> std::collections::HashMap<bevy::ecs::entity::Entity, (f32, Vec<DamageSource>)> {
+    ) -> std::collections::HashMap<bevy::ecs::entity::Entity, (f32, Vec<DamageOrigin>)> {
         let mut ledger: std::collections::HashMap<
             bevy::ecs::entity::Entity,
-            (f32, Vec<DamageSource>),
+            (f32, Vec<DamageOrigin>),
         > = std::collections::HashMap::new();
         let mut cursor = MessageCursor::<DamageDealt>::default();
         for _ in 0..frames {
             app.update();
             let msgs = app.world().resource::<Messages<DamageDealt>>();
             for msg in cursor.read(msgs) {
-                let e = ledger.entry(msg.victim).or_insert((0.0, vec![]));
+                let e = ledger.entry(msg.target).or_insert((0.0, vec![]));
                 e.0 += msg.amount;
                 e.1.push(msg.source);
             }
@@ -7020,7 +7023,7 @@ mod skills_fusion {
         assert!(*dmg >= 30.0, "sniper damage landed ({dmg})");
         assert!(srcs.iter().any(|s| matches!(
             s,
-            DamageSource::TowerSkill { skill: SKILL_DEADEYE, .. }
+            DamageOrigin::Skill { skill, .. } if *skill == warden::systems::damage::skill_row(SKILL_DEADEYE)
         )));
         assert!(!ledger.contains_key(&near_low), "nearest low-HP untouched");
     }
@@ -7055,7 +7058,8 @@ mod skills_fusion {
             for msg in cursor.read(msgs) {
                 if matches!(
                     msg.source,
-                    DamageSource::TowerSkill { tower: t, skill: SKILL_ARCANE_BLAST } if t == tower
+                    DamageOrigin::Skill { caster: t, skill }
+                        if t == tower && skill == warden::systems::damage::skill_row(SKILL_ARCANE_BLAST)
                 ) {
                     credited += 1;
                 }

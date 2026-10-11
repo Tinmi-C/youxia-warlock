@@ -20,7 +20,7 @@ use crate::components::{
 use crate::resources::{
     RunRng, SkillBalance, SkillDef, SkillKind, SkillTargetMode, StatKind, PROJECTILE_SPEED,
 };
-use crate::systems::damage::DamageSource;
+use crate::systems::damage::{skill_row, DamageOrigin};
 use crate::systems::skills::{learn_skill, CastSkill, SkillCast};
 use crate::systems::stats::set_stat_mod;
 use crate::systems::tower::{projectile_visual, TowerFired};
@@ -164,9 +164,9 @@ pub fn archer_skill_effects(
                             origin: ProjectileOrigin::Homing { target },
                             damage: estats.damage,
                             attack_type: tower.attack_type,
-                            source: DamageSource::TowerSkill {
-                                tower: cast.caster,
-                                skill: SKILL_MULTISHOT,
+                            source: DamageOrigin::Skill {
+                                caster: cast.caster,
+                                skill: skill_row(SKILL_MULTISHOT),
                             },
                             crit: false,
                             aoe_radius: 0.0,

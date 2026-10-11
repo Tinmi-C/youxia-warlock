@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::path::PathFollower;
-use crate::unit::{AirUnit, Allegiance, Armor, AttackArmorTable, AttackDef, AttackType, Hp, MaxHp, TargetDomain, UnitId, UnitInstance};
+use crate::unit::{AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable, AttackDef, AttackType, Hp, MaxHp, TargetDomain, UnitId, UnitInstance};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetingPriority {
@@ -303,7 +303,15 @@ pub fn resolve_damage(
     mut commands: Commands,
     registry: Res<crate::unit::UnitRegistry>,
     table: Res<AttackArmorTable>,
-    mut units: Query<(&mut Hp, &Armor, &UnitInstance, Option<&crate::buff::EffectiveStats>)>,
+    // Armor/UnitInstance are Option-tolerant: bare test entities (no armor
+    // row, no def) resolve at full damage with zero bounty instead of being
+    // silently skipped — a hit must never vanish for a missing component.
+    mut units: Query<(
+        &mut Hp,
+        Option<&Armor>,
+        Option<&UnitInstance>,
+        Option<&crate::buff::EffectiveStats>,
+    )>,
 ) {
     for req in requests.read() {
         let Ok((mut hp, armor, inst, eff)) = units.get_mut(req.target) else {
@@ -315,7 +323,8 @@ pub fn resolve_damage(
         let taken = eff
             .map(|e| e.damage_taken_mult.max(0.0))
             .unwrap_or(1.0);
-        let mult = table.multiplier(req.attack_type, armor.0) * taken;
+        let armor = armor.map(|a| a.0).unwrap_or(ArmorType::Light);
+        let mult = table.multiplier(req.attack_type, armor) * taken;
         let amount = req.amount * mult;
         hp.0 -= amount;
         let killed = hp.0 <= 0.0;
@@ -328,13 +337,16 @@ pub fn resolve_damage(
         });
         if killed {
             commands.entity(req.target).insert(Dead);
+            let def = inst
+                .map(|i| i.def.clone())
+                .unwrap_or_else(|| "unknown".into());
             let (gold, wood, xp) = registry
-                .get(&inst.def)
+                .get(&def)
                 .map(|d| (d.bounty_gold, d.bounty_wood, d.grant_xp))
                 .unwrap_or((0, 0, 0));
             died.write(UnitDied {
                 entity: req.target,
-                def: inst.def.clone(),
+                def,
                 gold,
                 wood,
                 xp,

@@ -33,6 +33,7 @@
 | WX6-1 | warden 敌人行走切基底路径（垂直切片 1/6）：Enemy 删 next_wp，实体挂基底 PathFollower/MoveSpeed，move_enemy 删除改调度 warbase::path::advance_followers；warden 三薄系统桥接——sync_move_speed（Slow 因子折进 MoveSpeed）/face_movement（ART11 朝向走路径切线）/leak_arrived（Arrived 消息消费漏怪）；MapPlugin 派生 PathDef 实体 + Paths 资源（PathInfo 仍为 warden 视图）；spawn 链路传 path 实体，waypoint_progress/nearest_path_progress 桥接旧 next_wp 语义；RangeDummy 摘 PathFollower 站桩。20s 锚点、漏怪、减速全零漂移 | 本笔 |
 | WX6-2 | warden Enemy 神组件拆 Hp/MaxHp（基底组件，spawn/伤害单写者/治疗光环/索敌/投射物/技能过滤/debug 面板/测试构造全迁移）；血条收口：删 warden 本地 refresh_health_bars 改调度基底系统，精英/BOSS 经 HealthBarStyle 注样式（宽 1.4 金条）。160 断言零漂移 | 本笔 |
 | WX6-4a | 伤害数值走基底攻甲矩阵：effective_damage 改查 AttackArmorTable（warden 语义 = 唯一 0.5 单元 Normal×Fortified，Physical/Magic/Mixed 映射 Normal/Magic/Piercing 三行）；敌人 spawn 挂基底 Armor+UnitInstance；EnemyDefs→UnitRegistry 代码桥（WX6-6 转 RON 前置）。160+1 断言零漂移 | 本笔 |
+| WX6-4b | 伤害消息切基底：DamageRequest/DamageDealt/DamageOrigin 替换 warden 三类型（DamageSource/to_origin 桥退役，Projectile.source 直接携带 DamageOrigin，meteor 发射带 commander caster）；基底 resolve_damage 接管（warden 删除本地解析器，HitFlash 改挂 DamageDealt 的 flash_hits 反应系统）；基底 resolve_damage 的 Armor/UnitInstance 查询放宽为 Option（裸测试实体全额伤害+零赏金，伤害不再因缺组件消失）；resolve_death 保持 hp<=0 扫尸（覆盖 debug 手搓尸体，UnitDied 留基底侧不消费）。161 断言零漂移 | 本笔 |
 
 ## 待做（warden 回迁，建议每对单独会话）
 

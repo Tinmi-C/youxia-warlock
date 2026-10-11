@@ -12,7 +12,7 @@ use bevy::prelude::*;
 
 use crate::components::{Enemy, Projectile, ProjectileOrigin};
 use crate::resources::{WavePhase, WaveState};
-use crate::systems::damage::DamageRequest;
+use crate::systems::damage::{to_base_attack, DamageRequest};
 
 /// Observability seam for the FX cards (FX2 spawns its impact feedback from
 /// these) and for tests: one event per resolved projectile impact.
@@ -57,9 +57,9 @@ pub fn fly_projectiles(
                     proj.pierced.push(ven);
                     hit_any = true;
                     requests.write(DamageRequest {
-                        victim: ven,
+                        target: ven,
                         amount: proj.damage,
-                        attack_type: proj.attack_type,
+                        attack_type: to_base_attack(proj.attack_type),
                         source: proj.source,
                         crit: proj.crit,
                     });
@@ -165,9 +165,9 @@ fn resolve_impact(
                 continue; // resolve_damage would skip it anyway
             }
             requests.write(DamageRequest {
-                victim: ven,
+                target: ven,
                 amount: proj.damage,
-                attack_type: proj.attack_type,
+                attack_type: to_base_attack(proj.attack_type),
                 source: proj.source,
                 crit: proj.crit,
             });

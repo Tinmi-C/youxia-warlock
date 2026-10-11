@@ -33,7 +33,7 @@ use warden::states::GameState;
 use warden::systems::archer_skills::{
     archer_skill_caster, SKILL_FIRE_ARROWS, SKILL_MULTISHOT,
 };
-use warden::systems::damage::{DamageDealt, DamageSource};
+use warden::systems::damage::{DamageDealt, DamageOrigin};
 use warden::systems::fusion_skills::SKILL_DEADEYE;
 use warden::systems::skills::{CastSkill, SKILL_METEOR_RAIN, SKILL_WAR_FRENZY};
 
@@ -413,6 +413,12 @@ fn run_waves(
             .press(KeyCode::Space);
         let mut updates = 0u32;
         let mut resolved = false;
+        let cmd = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<Entity, With<Commander>>();
+            q.single(app.world()).ok()
+        };
         let mut casts = MessageCursor::<DamageDealt>::default();
         while updates < cap {
             // ~3s into the wave: the pack is on the board — fire every
@@ -427,11 +433,15 @@ fn run_waves(
             {
                 let msgs = app.world().resource::<Messages<DamageDealt>>();
                 for d in casts.read(msgs) {
-                    match d.source {
-                        DamageSource::Tower(_) => ledger.tower += d.amount,
-                        DamageSource::TowerSkill { .. } => ledger.tower_skill += d.amount,
-                        DamageSource::CommanderSkill(_) => ledger.commander += d.amount,
-                        DamageSource::System => {}
+                    // WX6-4b: base origins — Attack is the tower column;
+                    // skills split by caster (commander vs tower).
+                    match (d.source, cmd) {
+                        (DamageOrigin::Attack(_), _) => ledger.tower += d.amount,
+                        (DamageOrigin::Skill { caster, .. }, Some(cmd)) if caster == cmd => {
+                            ledger.commander += d.amount
+                        }
+                        (DamageOrigin::Skill { .. }, _) => ledger.tower_skill += d.amount,
+                        (DamageOrigin::System, _) => {}
                     }
                 }
             }
