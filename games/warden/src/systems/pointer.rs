@@ -445,6 +445,7 @@ pub fn handle_lang_button(
 pub struct PlaceGate<'w> {
     pub selected: Res<'w, SelectedTower>,
     pub defs: Res<'w, TowerDefs>,
+    pub registry: Res<'w, warbase::prelude::UnitRegistry>,
     pub wave: Res<'w, WaveState>,
     pub hand: Res<'w, Hand>,
     pub build: Res<'w, BuildMode>,
@@ -486,8 +487,9 @@ pub fn mouse_place_system(
     let Some(def) = place.defs.list.get(place.selected.tower_index) else {
         return;
     };
+    let cost = crate::systems::tower::tower_cost(&place.registry, def);
     if !place.hand.owned_towers.contains(&place.selected.tower_index)
-        || place.economy.gold < def.cost
+        || place.economy.gold < cost
     {
         return;
     }
@@ -496,7 +498,7 @@ pub fn mouse_place_system(
         if place.grid.check(cell).is_err() {
             return; // occupied (or invalid) — the grid is the authority
         }
-        place.economy.gold -= def.cost;
+        place.economy.gold -= cost;
         let tower = crate::systems::tower::spawn_base_tower(
             &mut commands,
             def,

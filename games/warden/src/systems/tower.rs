@@ -213,6 +213,14 @@ pub fn tick_fire_recoil(
 }
 
 
+/// The tower's build cost as shipped in its registry row (the RON's number
+/// — WX3b: the command card displays and the build/buy flows charge the
+/// same source). Falls back to the presentation table when no row matches.
+pub fn tower_cost(registry: &warbase::prelude::UnitRegistry, def: &TowerDef) -> u32 {
+    let row_id = if def.name == "shield" { "shield_tower" } else { def.name };
+    registry.get(row_id).map(|d| d.cost_gold).unwrap_or(def.cost)
+}
+
 /// The warden tower defs as BASE UnitDef rows (WX6-6c bridge, code-built
 /// now — the same rows ship in warden.ron with WX6-6f): attack numbers in
 /// the base's `AttackDef` (damage / interval = 1/attack_speed / range /

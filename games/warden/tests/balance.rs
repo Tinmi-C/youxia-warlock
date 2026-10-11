@@ -174,11 +174,15 @@ fn auto_choose(app: &mut App) {
 
 /// SK11: damage by source — the skill-contribution readout (BAL anchor
 /// 「塔技能占比」and the commander ≤20% review both read these columns).
+/// WX5b: `by_origin` carries the BASE harness's vocabulary (attack/skill/
+/// system — the same three keys `run_headless` reports), so warden anchor
+/// rows and base-kit readings stay comparable column-for-column.
 #[derive(Default)]
 struct DamageLedger {
     tower: f32,
     tower_skill: f32,
     commander: f32,
+    by_origin: std::collections::BTreeMap<String, f32>,
 }
 
 /// SK11: arm the harness archers like a player would — fire-arrow autocast
@@ -434,7 +438,14 @@ fn run_waves(
                 let msgs = app.world().resource::<Messages<DamageDealt>>();
                 for d in casts.read(msgs) {
                     // WX6-4b: base origins — Attack is the tower column;
-                    // skills split by caster (commander vs tower).
+                    // skills split by caster (commander vs tower). The
+                    // by_origin tally uses the base harness's three keys.
+                    let origin_key = match d.source {
+                        DamageOrigin::Attack(_) => "attack",
+                        DamageOrigin::Skill { .. } => "skill",
+                        DamageOrigin::System => "system",
+                    };
+                    *ledger.by_origin.entry(origin_key.into()).or_default() += d.amount;
                     match (d.source, cmd) {
                         (DamageOrigin::Attack(_), _) => ledger.tower += d.amount,
                         (DamageOrigin::Skill { caster, .. }, Some(cmd)) if caster == cmd => {
@@ -542,6 +553,15 @@ fn full_run_difficulty_curve() {
         ledger.commander,
         pct(ledger.commander),
         total
+    );
+    // WX5b: the base-harness-aligned three columns (same keys as
+    // warbase::harness::run_headless's damage_by_origin report).
+    let origin = |k: &str| *ledger.by_origin.get(k).unwrap_or(&0.0);
+    println!(
+        "damage_by_origin: attack={:.0} skill={:.0} system={:.0}",
+        origin("attack"),
+        origin("skill"),
+        origin("system")
     );
     // SK11 acceptance: with archers on the board and skills driven, both
     // the normal-attack and tower-skill columns are non-zero.

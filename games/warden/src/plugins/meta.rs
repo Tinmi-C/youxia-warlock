@@ -23,7 +23,11 @@ impl Plugin for MetaPlugin {
                     systems::meta::load_meta,
                     systems::meta::apply_meta_on_run_start,
                 )
-                    .chain(),
+                    .chain()
+                    // WX6-6f: the map's assemble lands econ_start in the
+                    // shared Resources; the +20 must land AFTER it (the pair
+                    // is otherwise ambiguous and the executor may flip it).
+                    .after(systems::map::load_map),
             )
             .add_systems(OnEnter(GameState::GameOver), systems::meta::award_on_death)
             .add_systems(OnEnter(GameState::Win), systems::meta::award_on_win)

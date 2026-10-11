@@ -8,4 +8,4 @@
 | ART9 | 分件手术 v3 | ▶ 待实现（排在 WX 系列之后上 warbase 底座） |
 | ART10 | 弦箭动画 | ▶ 待实现（同上） |
 | BAL2 | 锚点表数值收敛（驱动策略已落地；数值收敛按负责人意见暂缓） | 🟡 |
-| WX1–WX6 | 回迁 warbase 基底（成对增量，见 `engine/warbase/docs/roadmap.md`；完成后 ART9/10 在新底座上做）。WX1 归因桥接 ✅ · WX2 技能框架切基底 ✅ · WX3a 基底命令卡渲染层 ✅（GRID_KEYS/grid_badge 已上收基底；本作卡切换 WX3b 依赖 WX6 数据化）· WX4 FX 切基底 ✅（闪白/爆炸环/死亡壳走基底；血条待 WX6 Enemy 拆解，FX3 状态色留游戏侧）· WX6-1 敌人行走切基底路径 ✅（PathFollower/advance_followers，漏怪走 Arrived） | 🟡 3/6 + 切片 1/6 |
+| WX1–WX6 | 回迁 warbase 基底（成对增量，见 `engine/warbase/docs/roadmap.md`；完成后 ART9/10 在新底座上做）。WX1 ✅ · WX2 ✅ · WX3a/WX3b ✅（渲染层上收基底；建造/购买行费用读注册表行=RON 权威——8 动作双语卡保持游戏侧语义，`build_card_from_registry` 全生成形态属基底 kit 游戏）· WX4 ✅ · WX5a/WX5b ✅（harness 词表对齐 damage_by_origin 三列；真局驱动保持 warden 侧——基底 `run_headless` 服务基底 kit 对局）· WX6 全切片 ✅（1 行走/2 血量/4 攻甲+伤害/5 经济/6a per-unit leak/6b 敌人 def 驱动网关/6c 塔+建造域 BuildGrid/6d 波次 director/6e 规则 MatchEnded/6f `maps/warden.ron` 全量落地+代码表退役） | ✅ |

@@ -550,6 +550,17 @@ type CardKey = (Selection, bool, Lang, usize, u32, u32);
 /// changes (五态, §16.2). During combat every action button greys out but
 /// stays visible (信息查看不受限).
 #[allow(clippy::too_many_arguments)]
+/// The def tables the card reads (param-wall bundle; same pattern as
+/// CardParams).
+#[derive(SystemParam)]
+pub struct CardTables<'w> {
+    pub defs: Res<'w, TowerDefs>,
+    pub registry: Res<'w, warbase::prelude::UnitRegistry>,
+    pub fusion_defs: Res<'w, FusionDefs>,
+    pub skill_defs: Res<'w, SkillDefs>,
+    pub balance: Res<'w, SkillBalance>,
+}
+
 pub fn refresh_command_card(
     mut commands: Commands,
     font: Res<UiFont>,
@@ -559,10 +570,7 @@ pub fn refresh_command_card(
     hand: Res<Hand>,
     offers: Res<ShopOffers>,
     economy: Res<Economy>,
-    defs: Res<TowerDefs>,
-    fusion_defs: Res<FusionDefs>,
-    skill_defs: Res<SkillDefs>,
-    balance: Res<SkillBalance>,
+    tables: CardTables<'_>,
     towers: Query<(Entity, &Tower, Option<&SkillCaster>)>,
     bars: Query<Entity, With<CommandBarRoot>>,
     cards: Query<Entity, With<CommandCardRoot>>,
@@ -650,7 +658,7 @@ pub fn refresh_command_card(
                 let pairable = match towers.get(e).ok().map(|(_, t, _)| t.kind) {
                     Some(TowerKind::Base(ka)) => towers.iter().any(|(eid2, t, _)| {
                         eid2 != e
-                            && matches!(t.kind, TowerKind::Base(kb) if recipe_matches(&fusion_defs, ka, kb).is_some())
+                            && matches!(t.kind, TowerKind::Base(kb) if recipe_matches(&tables.fusion_defs, ka, kb).is_some())
                     }),
                     _ => false,
                 };
@@ -670,9 +678,9 @@ pub fn refresh_command_card(
                 // the autocast marker are live-refreshed by
                 // `refresh_tower_skill_buttons` (no card rebuild per frame).
                 let min_level = slots.iter().map(|s| s.level).min().unwrap_or(1);
-                let cost = balance.skill_upgrade_cost(min_level);
+                let cost = tables.balance.skill_upgrade_cost(min_level);
                 let maxed = slots.iter().all(|s| {
-                    s.level >= skill_defs.get(&s.skill).expect("skill def registered").max_level
+                    s.level >= tables.skill_defs.get(&s.skill).expect("skill def registered").max_level
                 });
                 let upgradable = !maxed && economy.gold >= cost as u32;
                 command_button(
@@ -685,7 +693,7 @@ pub fn refresh_command_card(
                 );
                 let mut grid = 3u8;
                 for (slot_idx, slot) in slots.iter().enumerate() {
-                    let def = skill_defs.get(&slot.skill).expect("skill def registered");
+                    let def = tables.skill_defs.get(&slot.skill).expect("skill def registered");
                     if def.kind == SkillKind::Passive {
                         continue; // chips after the castables (grid below)
                     }
@@ -699,7 +707,7 @@ pub fn refresh_command_card(
                     grid += 1;
                 }
                 for slot in slots.iter() {
-                    let def = skill_defs.get(&slot.skill).expect("skill def registered");
+                    let def = tables.skill_defs.get(&slot.skill).expect("skill def registered");
                     if def.kind != SkillKind::Passive {
                         continue;
                     }
@@ -739,21 +747,25 @@ pub fn refresh_command_card(
                 .collect();
             let mut grid: u8 = 0;
             for i in owned {
-                let Some(def) = defs.list.get(i) else { continue };
-                let afford = economy.gold >= def.cost;
+                let Some(def) = tables.defs.list.get(i) else { continue };
+                // WX3b: the displayed cost is the registry row's (the RON's
+                // number) — the flows charge the same source.
+                let cost = crate::systems::tower::tower_cost(&tables.registry, def);
+                let afford = economy.gold >= cost;
                 command_button(
                     card,
                     &font,
                     CommandAction::Build(i),
-                    l10n::card_cost(*lang, l10n::tower_label(def, *lang), def.cost),
+                    l10n::card_cost(*lang, l10n::tower_label(def, *lang), cost),
                     !combat && afford,
                     grid,
                 );
                 grid = grid.saturating_add(1);
             }
             for &i in &offers.offers {
-                let Some(def) = defs.list.get(i) else { continue };
-                let afford = economy.gold >= def.cost && !hand.owned_towers.contains(&i);
+                let Some(def) = tables.defs.list.get(i) else { continue };
+                let cost = crate::systems::tower::tower_cost(&tables.registry, def);
+                let afford = economy.gold >= cost && !hand.owned_towers.contains(&i);
                 if grid >= GRID_KEYS.len() as u8 {
                     break; // the 2x4 grid is full
                 }
@@ -761,7 +773,7 @@ pub fn refresh_command_card(
                     card,
                     &font,
                     CommandAction::Buy(i),
-                    l10n::offer_cost(*lang, l10n::tower_label(def, *lang), def.cost),
+                    l10n::offer_cost(*lang, l10n::tower_label(def, *lang), cost),
                     !combat && afford,
                     grid,
                 );
@@ -1118,6 +1130,8 @@ pub struct CardParams<'w> {
     pub cast_requests: MessageWriter<'w, CastSkill>,
     /// WX6-6c: occupancy authority (slot state moved off TowerSlot).
     pub grid: ResMut<'w, warbase::prelude::BuildGrid>,
+    /// WX3b: the live unit registry (RON rows — cost source of truth).
+    pub registry: Res<'w, warbase::prelude::UnitRegistry>,
 }
 
 pub fn handle_command_buttons(
@@ -1150,7 +1164,8 @@ pub fn handle_command_buttons(
                     continue;
                 }
                 let Some(def) = card.towers.list.get(i) else { continue };
-                if !hand.owned_towers.contains(&i) || economy.gold < def.cost {
+                let cost = crate::systems::tower::tower_cost(&card.registry, def);
+                if !hand.owned_towers.contains(&i) || economy.gold < cost {
                     continue;
                 }
                 match *selection {
@@ -1162,7 +1177,7 @@ pub fn handle_command_buttons(
                             if grid.check(cell).is_err() {
                                 continue;
                             }
-                            economy.gold -= def.cost;
+                            economy.gold -= cost;
                             let e = crate::systems::tower::spawn_base_tower(
                                 &mut commands,
                                 def,
@@ -1192,10 +1207,11 @@ pub fn handle_command_buttons(
                     continue;
                 }
                 let Some(def) = card.towers.list.get(i) else { continue };
-                if economy.gold < def.cost {
+                let cost = crate::systems::tower::tower_cost(&card.registry, def);
+                if economy.gold < cost {
                     continue;
                 }
-                economy.gold -= def.cost;
+                economy.gold -= cost;
                 hand.owned_towers.push(i);
                 info!("[ui10] bought {} for {} (hand {:?})", def.name, def.cost, hand.owned_towers);
             }
