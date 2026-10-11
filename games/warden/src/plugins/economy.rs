@@ -4,12 +4,14 @@
 
 use bevy::prelude::*;
 
-use crate::resources::Economy;
-
 pub struct EconomyPlugin;
 
 impl Plugin for EconomyPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(crate::resources::starting_economy());
+        // WX6-6f: the starting pool ships in warden.ron (econ_start);
+        // assemble lands it in the shared Resources. The empty pool is
+        // registered here so assemble (and pre-update readers) always find
+        // it. Earning and spending live in the domain systems.
+        app.init_resource::<warbase::prelude::Resources>();
     }
 }

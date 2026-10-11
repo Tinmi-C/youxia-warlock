@@ -219,6 +219,12 @@ MVP 只做「物理 vs 魔法」一条线。不做魔抗/穿刺/飞行等多套�
 
 ## 14. 完整数值速查表（调参总入口）
 
+> **数值出处（WX6-6f 起）**：机制数值（单位/波次/规则/开局经济/攻甲表/塔位）的唯一权威是
+> `games/warden/maps/warden.ron`（MapBundle）。本表是设计语义的速查镜像；改动以 RON 为准，
+> 由 `cargo test -p warden --test map_bundle` 守卫两者不漂移。技能与展现层数值仍在
+> `resources.rs`（SkillBalance 等）。重新生成 RON：
+> `cargo test -p warden --test map_bundle -- --ignored`。
+
 | 变量 | 起点值 | 调大 → | 调小 → |
 |------|--------|--------|--------|
 | 基地血量 | 10 | 更简单 | 更挫败 |

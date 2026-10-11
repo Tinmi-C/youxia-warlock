@@ -29,29 +29,36 @@ use crate::systems::enemy::RangeDummy;
 /// (granted by the director via EconCommand). Manual advance: waves wait
 /// for StartWave, exactly warden's dual-speed rhythm.
 pub fn base_wave_table(schedule: &WaveSchedule, defs: &EnemyDefs) -> warbase::prelude::WaveTable {
+    const SPAWN_INTERVAL: f32 = 0.5;
     warbase::prelude::WaveTable {
         waves: schedule
             .waves
             .iter()
-            .map(|w| warbase::prelude::WaveEntry {
-                spawns: w
+            .map(|w| {
+                let mut delay = 0.0;
+                let spawns = w
                     .entries
                     .iter()
                     .filter_map(|e| {
                         let name = defs.list.get(e.enemy_index).map(|d| d.name)?;
-                        Some(warbase::prelude::SpawnSpec {
+                        let spec = warbase::prelude::SpawnSpec {
                             unit: name.to_string(),
                             count: e.count,
-                            interval: 0.5,
+                            interval: SPAWN_INTERVAL,
                             path: 0,
-                            delay: 0.0,
+                            delay,
                             hp_scale: 1.0,
-                        })
+                        };
+                        delay += e.count as f32 * SPAWN_INTERVAL;
+                        Some(spec)
                     })
-                    .collect(),
-                boss_timeout: None,
-                preview: String::new(),
-                reward_gold: w.reward,
+                    .collect();
+                warbase::prelude::WaveEntry {
+                    spawns,
+                    boss_timeout: None,
+                    preview: String::new(),
+                    reward_gold: w.reward,
+                }
             })
             .collect(),
         advance: warbase::prelude::Advance::Manual,

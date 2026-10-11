@@ -693,6 +693,7 @@ fn leaked_enemy_deducts_base_hp() {
 #[test]
 fn wave_resolve_awards_reward_and_returns_intermission() {
     let mut app = test_app();
+    app.update(); // startup assembles the RON map first
     force_begin_wave(&mut app);
     let before = app.world().resource::<Economy>().gold; // 100
     app.update();
@@ -786,6 +787,7 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
 #[test]
 fn fusing_two_archers_creates_marksman_and_costs_fee() {
     let mut app = test_app();
+    app.update(); // startup assembles the RON map (grid/econ land here)
     app.world_mut().resource_mut::<Economy>().gold = 200;
     let positions = [Vec3::new(-11.5, 0.6, 11.0), Vec3::new(-7.5, 0.6, 11.0)];
     let mut tower_ids = Vec::new();
@@ -908,6 +910,7 @@ fn fusing_two_archers_creates_marksman_and_costs_fee() {
 #[test]
 fn wave_resolve_surfaces_three_options() {
     let mut app = test_app();
+    app.update(); // startup assembles the RON map first
     force_begin_wave(&mut app);
     app.update();
     app.update();
@@ -6335,6 +6338,7 @@ mod damage_pipeline {
     #[test]
     fn same_frame_overkill_kills_once() {
         let mut app = test_app();
+        app.update(); // startup assembles the RON map (econ_start lands here)
         let e = spawn_enemy_at(&mut app, Vec3::new(2.0, 0.0, 0.0), 50.0, false);
         let gold_before = app.world().resource::<Economy>().gold;
         let mut dealt = MessageCursor::<DamageDealt>::default();

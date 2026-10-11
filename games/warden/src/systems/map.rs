@@ -38,6 +38,61 @@ pub fn slot_cell(index: usize) -> warbase::prelude::Cell {
     warbase::prelude::Cell(index as i32, 0)
 }
 
+/// The game's map file (WX6-6f): mechanics + numbers live in the RON —
+/// units (enemies + tower rows), waves, rules, econ start, attack-x-armor
+/// table, path, and the fixed slots. Override for dev forks with
+/// `WARDEN_MAP` or `--map <path>`.
+pub fn default_map_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("WARDEN_MAP") {
+        return p.into();
+    }
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--map" {
+            if let Some(p) = args.next() {
+                return p.into();
+            }
+        }
+    }
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/maps/warden.ron"))
+}
+
+/// Exclusive startup: load + validate + assemble the bundle, then derive the
+/// warden views on top (PathInfo from the polyline, the build grid from the
+/// bundle's world def, eager LivesLeft for frame-1 readers).
+pub fn load_map(world: &mut World) {
+    let path = default_map_path();
+    let bundle = match warbase::bundle::load_bundle(&path) {
+        Ok(b) => b,
+        Err(e) => panic!("[warden] failed to load map {}: {e}", path.display()),
+    };
+    warbase::bundle::assemble(world, &bundle);
+    world.insert_resource(warbase::bundle::build_grid(&bundle.world));
+    let waypoints = bundle
+        .world
+        .paths
+        .first()
+        .map(|p| {
+            p.points
+                .iter()
+                .map(|p| Vec3::new(p[0], 0.0, p[1]))
+                .collect()
+        })
+        .unwrap_or_default();
+    world.insert_resource(crate::resources::PathInfo { waypoints });
+    // rules_tick inserts this lazily, but Input-set readers want it frame 1.
+    let lives = match &bundle.rules.leak {
+        warbase::prelude::LeakPolicy::Lives { lives } => *lives,
+        _ => 10,
+    };
+    world.insert_resource(warbase::prelude::LivesLeft(lives));
+    world.insert_resource(CurrentMapPath(path));
+}
+
+/// The loaded map's path (debug surface / future re-assembly).
+#[derive(Resource, Debug)]
+pub struct CurrentMapPath(pub std::path::PathBuf);
+
 /// ART3 arena diorama (direction B style preview): a 31 x 25.5 top face
 /// centered on the play area with a 2.5-unit cliff skirt below. Purely
 /// visual — nothing in gameplay reads these meshes (picking projects slot
@@ -226,17 +281,20 @@ pub fn spawn_structures(
 
 pub fn spawn_slots(
     mut commands: Commands,
+    grid: Res<warbase::prelude::BuildGrid>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // ART3: B-palette pale stone pads (docs/art-direction.md).
+    // ART3: B-palette pale stone pads (docs/art-direction.md). Slot centers
+    // come from the assembled grid (the RON's FixedSlots, WX6-6f).
     let mat = flat_mat(&mut materials, Color::srgb(0.48, 0.44, 0.39));
-    for (i, (x, z)) in SLOT_POSITIONS.iter().enumerate() {
+    for (i, pos) in grid.slots.iter().enumerate() {
+        let (x, z) = (pos.x, pos.y);
         commands.spawn((
             TowerSlot { index: i },
             Mesh3d(meshes.add(Cuboid::new(1.25, 0.2, 1.25))),
             MeshMaterial3d(mat.clone()),
-            Transform::from_xyz(*x, 0.1, *z),
+            Transform::from_xyz(x, 0.1, z),
         ));
     }
 }

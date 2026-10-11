@@ -5647,6 +5647,7 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "rand",
+ "ron",
  "serde_json",
  "showroom-viewer",
  "warbase",

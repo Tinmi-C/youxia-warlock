@@ -267,11 +267,15 @@ pub fn tower_unit_registry(
     }
     let mut out = std::collections::HashMap::new();
     for def in &towers.list {
+        // Registry id: the shield TOWER row must not collide with the shield
+        // ENEMY row (one keyed registry) — "shield_tower" disambiguates;
+        // TowerDef.name stays the display/log id.
+        let row_id = if def.name == "shield" { "shield_tower" } else { def.name };
         // The shield tower is the melee exception (§5.1): no projectile.
         let ranged = def.name != "shield";
         out.insert(
-            def.name.to_string(),
-            row(def.name, def.damage, def.attack_speed, def.range, def.attack_type, def.cost, ranged),
+            row_id.to_string(),
+            row(row_id, def.damage, def.attack_speed, def.range, def.attack_type, def.cost, ranged),
         );
     }
     for f in &fusions.list {

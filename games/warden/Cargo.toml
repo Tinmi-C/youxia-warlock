@@ -35,6 +35,8 @@ serde_json = { workspace = true }
 # Art asset gates (tests/art_assets.rs): parse the GLB JSON chunk offline
 # (bbox/counts/animation facts) — already in the dependency tree via Bevy.
 serde_json = { workspace = true }
+# Map authoring seam (tests/map_bundle.rs): regenerate/verify maps/warden.ron.
+ron = { workspace = true }
 
 # NOTE: profiles (dev opt-level / release thin-LTO / release-check) moved to
 # the root workspace Cargo.toml — member profiles are ignored in a workspace.
