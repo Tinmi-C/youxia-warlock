@@ -18,6 +18,9 @@ tags: [art-pipeline, cross-game]
 - [[topics/art/art-pipeline-overview|管线总纲]]（reference：八环节合同 + 产出三线 + 文档地图）
 - [[topics/art/visual-acceptance-methods|视觉验收取证规范]]（reference：四手段适用矩阵 + ART11 教训）
 - [[topics/art/surgery-workflow|分件手术流程]]（howto：AI 主刀纪律，Blender 无头脚本规范）
+- [[topics/art/art9-ballista-surgery-record|ART9 弩分件手术记录]]（howto：首例 v2→v3 全程，弦认定/零漂移证据/四坑）
+- [[topics/art/generated-mesh-coincident-vertex-blob|图生网格重合顶点 blob]]（pitfall：位置焊接/空间选择全失效，边连通岛+bbox 种子）
+- [[topics/art/blender-workbench-headless-color-pitfall|WORKBENCH 无头吃不到 shading]]（pitfall：彩色取证渲染改 Cycles+纯发光）
 - [[topics/art/ui-asset-spec|UI 2D 资产规范]]（reference：图标/九宫格线）
 
 ## 关联

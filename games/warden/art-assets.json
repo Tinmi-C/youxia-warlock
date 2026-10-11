@@ -15,10 +15,10 @@
     {
       "id": "d04b98c044fc4a3580962efe677566bf",
       "name": "weapon_ballista",
-      "version": 2,
-      "license": "自有资产（混元 Pro 图生 3D，WorkBuddy 交接）；v2=游戏侧贴图压缩回流（4096→2048 PNG，35.2MB→8.9MB，几何零改动）",
+      "version": 3,
+      "license": "自有资产（混元 Pro 图生 3D，WorkBuddy 交接）；v2=游戏侧贴图压缩回流；v3=ART9 分件手术（body+string 节点，弦独立轴心，零视觉漂移，tools/art/surgery_ballista.py）",
       "files": {
-        "weapon_ballista_v2.glb": "models/weapon_ballista.glb"
+        "weapon_ballista.glb": "models/weapon_ballista.glb"
       }
     },
     {

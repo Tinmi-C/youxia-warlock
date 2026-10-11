@@ -189,6 +189,162 @@ fn ballista_geometry_facts() {
     assert!(tris > 0, "indexed geometry expected");
 }
 
+/// Per-node root-space bboxes: accessor min/max, corners through the node's
+/// rotation (parts carry v2's axis-aligned Rx(90°) on the node itself — v2's
+/// own convention — so corner transforms stay exact) plus the translation.
+/// (name, min, max) for every node that references a mesh.
+fn node_bboxes(glb: &Glb) -> Vec<(String, [f64; 3], [f64; 3])> {
+    let nodes = glb.json["nodes"].as_array().expect("nodes array");
+    let mut out = Vec::new();
+    for node in nodes {
+        let Some(mesh_idx) = node["mesh"].as_u64() else {
+            continue;
+        };
+        assert!(
+            node["scale"].is_null(),
+            "surgery parts must stay unscaled: {}",
+            node["name"].as_str().unwrap_or("?")
+        );
+        let mut min = [f64::MAX; 3];
+        let mut max = [f64::MIN; 3];
+        for prim in glb.json["meshes"][mesh_idx as usize]["primitives"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let acc = &glb.json["accessors"][prim["attributes"]["POSITION"].as_u64().expect("POSITION") as usize];
+            for i in 0..3 {
+                min[i] = min[i].min(acc["min"][i].as_f64().expect("min"));
+                max[i] = max[i].max(acc["max"][i].as_f64().expect("max"));
+            }
+        }
+        // Quaternion (x, y, z, w) -> rotation matrix; require axis alignment
+        // (each column one-hot) so the corner-transformed bbox stays tight.
+        let q = match node["rotation"].as_array() {
+            Some(r) => [
+                r[0].as_f64().unwrap_or(0.0),
+                r[1].as_f64().unwrap_or(0.0),
+                r[2].as_f64().unwrap_or(0.0),
+                r[3].as_f64().unwrap_or(1.0),
+            ],
+            None => [0.0, 0.0, 0.0, 1.0],
+        };
+        let (x, y, z, w) = (q[0], q[1], q[2], q[3]);
+        let m = [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ];
+        for col in 0..3 {
+            let sum: f64 = (0..3).map(|r| m[r][col].abs()).sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-3,
+                "node rotation must be axis-aligned (tight bbox math): {}",
+                node["name"].as_str().unwrap_or("?")
+            );
+        }
+        let mut rmin = [f64::MAX; 3];
+        let mut rmax = [f64::MIN; 3];
+        for cx in [min[0], max[0]] {
+            for cy in [min[1], max[1]] {
+                for cz in [min[2], max[2]] {
+                    let c = [cx, cy, cz];
+                    for i in 0..3 {
+                        let v = (0..3).map(|j| m[i][j] * c[j]).sum::<f64>();
+                        rmin[i] = rmin[i].min(v);
+                        rmax[i] = rmax[i].max(v);
+                    }
+                }
+            }
+        }
+        if let Some(t) = node["translation"].as_array() {
+            for i in 0..3 {
+                let t = t[i].as_f64().expect("translation f64");
+                rmin[i] += t;
+                rmax[i] += t;
+            }
+        }
+        out.push((node["name"].as_str().unwrap_or("").to_string(), rmin, rmax));
+    }
+    out
+}
+
+/// L2 (ART9): the v3 surgery split — the ballista ships as `body` + `string`
+/// nodes (the string is the rod riding the rail that ART10 animates along X;
+/// the model has no bolt, that part is authored separately). Zero visual
+/// drift is pinned hard: the union of the parts must reproduce the exact v2
+/// whole-model bbox in world space (v2's node rotation applied), and
+/// triangle count is conserved. Constants are v2's measured values — an
+/// asset that moves a vertex fails here.
+#[test]
+fn ballista_surgery_parts_v3() {
+    let glb = load_glb(&models_dir().join("weapon_ballista.glb"));
+    let anims = glb.json["animations"].as_array().map(Vec::len).unwrap_or(0);
+    assert_eq!(anims, 0, "surgery adds no animations, got {anims}");
+
+    let parts = node_bboxes(&glb);
+    let by_name = |n: &str| parts.iter().find(|(name, _, _)| name == n);
+    assert!(
+        by_name("body").is_some() && by_name("string").is_some(),
+        "v3 must expose body + string nodes, got {parts:?}"
+    );
+
+    // v2 baseline in glTF world space (its node_0 rotation Rx(90°) applied).
+    let v2_min = [-0.5776, 0.0, -0.3047];
+    let v2_max = [0.5814, 0.4634, 0.2738];
+    let mut union_min = [f64::MAX; 3];
+    let mut union_max = [f64::MIN; 3];
+    for (_, lo, hi) in &parts {
+        for i in 0..3 {
+            union_min[i] = union_min[i].min(lo[i]);
+            union_max[i] = union_max[i].max(hi[i]);
+        }
+    }
+    for i in 0..3 {
+        assert!(
+            (union_min[i] - v2_min[i]).abs() < 2e-3 && (union_max[i] - v2_max[i]).abs() < 2e-3,
+            "union of parts must equal the v2 whole bbox (zero drift): \
+             axis {i} got [{:.4},{:.4}] want [{:.4},{:.4}]",
+            union_min[i], union_max[i], v2_min[i], v2_max[i]
+        );
+    }
+
+    // The string part sits where v2's string rod sat: riding the rail,
+    // transversely centered, drawn back (x -0.204..+0.323, overhanging the
+    // rail top bar's front end — a rail bar would not overhang).
+    let (_, s_min, s_max) = by_name("string").unwrap();
+    let want_min = [-0.204, 0.334, -0.107];
+    let want_max = [0.323, 0.353, -0.032];
+    for i in 0..3 {
+        assert!(
+            (s_min[i] - want_min[i]).abs() < 5e-3 && (s_max[i] - want_max[i]).abs() < 5e-3,
+            "string part must sit at v2's string position: axis {i} got [{:.4},{:.4}] want [{:.4},{:.4}]",
+            s_min[i], s_max[i], want_min[i], want_max[i]
+        );
+    }
+
+    // Triangle conservation: splitting must not create or lose faces.
+    let total_indices: u64 = glb.json["meshes"]
+        .as_array()
+        .expect("meshes")
+        .iter()
+        .map(|m| {
+            m["primitives"]
+                .as_array()
+                .expect("primitives")
+                .iter()
+                .map(|p| {
+                    glb.json["accessors"][p["indices"].as_u64().expect("indexed") as usize]
+                        ["count"]
+                        .as_u64()
+                        .unwrap_or(0)
+                })
+                .sum::<u64>()
+        })
+        .sum();
+    assert_eq!(total_indices, 30_000, "v2 index count must be conserved");
+}
+
 fn textures_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/textures")
 }
