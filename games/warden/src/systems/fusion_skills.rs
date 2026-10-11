@@ -113,7 +113,7 @@ pub fn fusion_skill_effects(
     towers: Query<(&Tower, &Transform, &EffectiveStats)>,
     // Without<Projectile> keeps this enemies read disjoint from the flight
     // system's projectile query writes (B0001).
-    enemies: Query<(Entity, &Transform, &Enemy), Without<Projectile>>,
+    enemies: Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp), Without<Projectile>>,
 ) {
     for cast in casts.read() {
         match cast.skill.as_str() {
@@ -125,13 +125,13 @@ pub fn fusion_skill_effects(
                 // identity, not the nearest-first default.
                 let pick = enemies
                     .iter()
-                    .filter(|(_, etf, en)| {
-                        en.hp > 0.0 && ttf.translation.distance(etf.translation) <= estats.range
+                    .filter(|(_, etf, _, hp)| {
+                        hp.0 > 0.0 && ttf.translation.distance(etf.translation) <= estats.range
                     })
-                    .max_by(|(_, _, a), (_, _, b)| {
-                        a.hp.partial_cmp(&b.hp).unwrap_or(std::cmp::Ordering::Equal)
+                    .max_by(|(_, _, _, a), (_, _, _, b)| {
+                        a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
                     });
-                let Some((target, tpos, _)) = pick else {
+                let Some((target, tpos, _, _)) = pick else {
                     continue;
                 };
                 let mult = balance.deadeye_mult(SKILL_DEADEYE, cast.level);
@@ -272,7 +272,7 @@ pub fn fusion_skill_effects(
 fn blast(
     requests: &mut MessageWriter<DamageRequest>,
     impacts: &mut MessageWriter<crate::systems::projectiles::ProjectileImpact>,
-    enemies: &Query<(Entity, &Transform, &Enemy), Without<Projectile>>,
+    enemies: &Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp), Without<Projectile>>,
     point: Vec3,
     radius: f32,
     damage: f32,
@@ -281,10 +281,11 @@ fn blast(
     skill: &'static str,
 ) -> Vec<Entity> {
     let mut victims = Vec::new();
-    for (ven, vtf, venemy) in enemies.iter() {
+    for (ven, vtf, venemy, vhp) in enemies.iter() {
         let dx = vtf.translation.x - point.x;
         let dz = vtf.translation.z - point.z;
-        if venemy.hp > 0.0 && dx * dx + dz * dz <= radius * radius {
+        let _ = venemy;
+        if vhp.0 > 0.0 && dx * dx + dz * dz <= radius * radius {
             requests.write(DamageRequest {
                 victim: ven,
                 amount: damage,

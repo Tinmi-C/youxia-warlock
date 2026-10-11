@@ -136,7 +136,7 @@ pub fn archer_skill_effects(
     mut fired: MessageWriter<TowerFired>,
     towers: Query<(&Tower, &Transform, &EffectiveStats)>,
     mut mods: Query<&mut StatMods>,
-    enemies: Query<(Entity, &Transform, &Enemy)>,
+    enemies: Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp)>,
     balance: Res<SkillBalance>,
 ) {
     for cast in casts.read() {
@@ -148,10 +148,10 @@ pub fn archer_skill_effects(
                 // Nearest-first, distinct, living targets within range.
                 let mut candidates: Vec<(f32, Entity, Vec3)> = enemies
                     .iter()
-                    .filter(|(_, etf, en)| {
-                        en.hp > 0.0 && ttf.translation.distance(etf.translation) <= estats.range
+                    .filter(|(_, etf, _, hp)| {
+                        hp.0 > 0.0 && ttf.translation.distance(etf.translation) <= estats.range
                     })
-                    .map(|(e, etf, _)| (ttf.translation.distance(etf.translation), e, etf.translation))
+                    .map(|(e, etf, _, _)| (ttf.translation.distance(etf.translation), e, etf.translation))
                     .collect();
                 candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                 let want = balance.multishot_targets(SKILL_MULTISHOT, cast.level) as usize;

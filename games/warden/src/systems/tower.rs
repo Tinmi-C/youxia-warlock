@@ -527,7 +527,7 @@ pub fn tower_fire(
     // EffectiveStats (SK6) carries the folded numbers: base fields × Boosts
     // × Frenzy × StatMods. This system no longer reads Boosts/WarFrenzy.
     mut towers: Query<(Entity, &mut Tower, &Transform, Option<&Children>, &EffectiveStats)>,
-    enemies: Query<(Entity, &Transform, &Enemy)>,
+    enemies: Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp)>,
     mounts: Query<(&Transform, &AimTracker), With<BallistaMount>>,
 ) {
     // `tower_eid` feeds the ART8 fire-moment message.
@@ -539,8 +539,8 @@ pub fn tower_fire(
 
         // Pick target: nearest, or highest-HP for the Marksman.
         let mut best: Option<(Entity, f32, f32)> = None; // (eid, dist, hp)
-        for (eid, etf, en) in &enemies {
-            if en.hp <= 0.0 {
+        for (eid, etf, _en, hp) in &enemies {
+            if hp.0 <= 0.0 {
                 continue;
             }
             let d = ttf.translation.distance(etf.translation);
@@ -551,14 +551,14 @@ pub fn tower_fire(
                 None => true,
                 Some((_, bd, bhp)) => {
                     if marksman {
-                        en.hp > bhp
+                        hp.0 > bhp
                     } else {
                         d < bd
                     }
                 }
             };
             if better {
-                best = Some((eid, d, en.hp));
+                best = Some((eid, d, hp.0));
             }
         }
         // ART7: persist the acquisition so the presentation layer (mount
@@ -577,8 +577,8 @@ pub fn tower_fire(
             // the unified pipeline (SK7; armor/flash/kill credit resolve in
             // resolve_damage like every other hit), the slow goes through
             // the shared merge path (SK3 semantics).
-            if let Ok((_, _, en)) = enemies.get(target) {
-                if en.hp > 0.0 {
+            if let Ok((_, _, _, hp)) = enemies.get(target) {
+                if hp.0 > 0.0 {
                     // SK9: crit rolls once per shot (melee included).
                     let (crit, dmg) =
                         crate::systems::archer_skills::roll_crit(&mut rng, estats);
@@ -635,7 +635,7 @@ pub fn tower_fire(
                     speed: PROJECTILE_SPEED,
                     last_target_pos: enemies
                         .get(target)
-                        .map(|(_, etf, _)| etf.translation)
+                        .map(|(_, etf, _, _)| etf.translation)
                         .unwrap_or(start),
                     pierced: vec![],
                 },

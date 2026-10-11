@@ -34,16 +34,14 @@ pub enum TowerKind {
     Fused(FusionKind),
 }
 
-/// A live enemy instance walking the path. Values come from `EnemyDefs`
-/// (resources.rs) at spawn; this is the mutable runtime copy. Movement is
-/// the base's since WX6-1: the entity carries a `PathFollower` + `MoveSpeed`
-/// and `warbase::prelude::advance_followers` drives it (`speed` here is the
-/// pre-slow BASE speed; the sync system folds the `Slow` factor into
-/// `MoveSpeed`).
+/// A live enemy instance walking the path. Movement is the base's since
+/// WX6-1 (`PathFollower` + `MoveSpeed`; `speed` here is the pre-slow BASE
+/// speed, the sync system folds the `Slow` factor in). HP lives in the
+/// base's `Hp`/`MaxHp` components since WX6-2 (the base's health bars and
+/// damage pipeline read them); what stays here is the warden economy/rule
+/// payload (bounty, leak, armor flag, archetype index).
 #[derive(Component)]
 pub struct Enemy {
-    pub hp: f32,
-    pub max_hp: f32,
     /// Base speed (world units/s, before slow effects).
     pub speed: f32,
     pub leak: u32,          // base HP lost when this enemy reaches the base

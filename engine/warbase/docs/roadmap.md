@@ -31,6 +31,7 @@
 | WX4 | 基底 fx 空壳变实模块：HealthBar（Hp/MaxHp 数据源 + HealthBarStyle 游戏侧样式）/HitFlash/FxBlast 消息/BlastRing/DeathShell + 五系统（FxPlugin 注册，headless 下 init Assets 兼容）；warden 切换消费：HitFlash/BlastRing/DeathShell/spawn_death_shell 走基底（历史路径重导出），ProjectileImpact→FxBlast 转发桥，血条留 warden（Enemy 神组件数据源，WX6 拆解后一行切换），FX3 状态色/徽章留游戏侧（设计决定：游戏身份视觉不进基底）。warden 160 断言零漂移 | d8b3220 |
 | WX5a | 基底 harness 词表与读数补全：DriverAction += Upgrade/CallWave/Cast/SpendPoint（设计文档 §3.11 词表），执行统一收口 apply_driver_action（run_headless 与直测共用）；HarnessReport += damage_by_origin（attack/skill/system 三列，warden BAL 三列读数的基底对位）+ wave_times/leaks_per_wave（按波采样）+ skills_cast/skill_levels（施放与加点读数） | 62c84ed |
 | WX6-1 | warden 敌人行走切基底路径（垂直切片 1/6）：Enemy 删 next_wp，实体挂基底 PathFollower/MoveSpeed，move_enemy 删除改调度 warbase::path::advance_followers；warden 三薄系统桥接——sync_move_speed（Slow 因子折进 MoveSpeed）/face_movement（ART11 朝向走路径切线）/leak_arrived（Arrived 消息消费漏怪）；MapPlugin 派生 PathDef 实体 + Paths 资源（PathInfo 仍为 warden 视图）；spawn 链路传 path 实体，waypoint_progress/nearest_path_progress 桥接旧 next_wp 语义；RangeDummy 摘 PathFollower 站桩。20s 锚点、漏怪、减速全零漂移 | 本笔 |
+| WX6-2 | warden Enemy 神组件拆 Hp/MaxHp（基底组件，spawn/伤害单写者/治疗光环/索敌/投射物/技能过滤/debug 面板/测试构造全迁移）；血条收口：删 warden 本地 refresh_health_bars 改调度基底系统，精英/BOSS 经 HealthBarStyle 注样式（宽 1.4 金条）。160 断言零漂移 | 本笔 |
 
 ## 待做（warden 回迁，建议每对单独会话）
 

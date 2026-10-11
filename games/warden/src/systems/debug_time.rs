@@ -228,7 +228,7 @@ pub struct DebugEnemyStats {
 pub fn debug_enemy_stats(
     mut commands: Commands,
     overlays: Res<DebugOverlays>,
-    enemies: Query<(Entity, &Enemy)>,
+    enemies: Query<(Entity, &Enemy, &warbase::prelude::Hp, &warbase::prelude::MaxHp)>,
     slows: Query<&Slow>,
     mut plates: Query<(Entity, &DebugEnemyStats, &mut Text2d, &mut Visibility)>,
 ) {
@@ -240,9 +240,9 @@ pub fn debug_enemy_stats(
     }
     // Ensure every enemy has a plate (spawned with its first text already
     // filled — the query above can't see this frame's deferred spawns).
-    for (eid, enemy) in &enemies {
+    for (eid, enemy, hp, max) in &enemies {
         if !plates.iter().any(|(_, plate, _, _)| plate.enemy == eid) {
-            let line = stat_line(enemy, slows.get(eid).ok());
+            let line = stat_line(enemy, hp, max, slows.get(eid).ok());
             commands.entity(eid).with_children(|parent| {
                 parent.spawn((
                     DebugEnemyStats { enemy: eid },
@@ -262,10 +262,10 @@ pub fn debug_enemy_stats(
     }
     // Keep the text live.
     for (_, plate, mut text, mut vis) in &mut plates {
-        let Ok((_, enemy)) = enemies.get(plate.enemy) else {
+        let Ok((_, enemy, hp, max)) = enemies.get(plate.enemy) else {
             continue;
         };
-        let line = stat_line(enemy, slows.get(plate.enemy).ok());
+        let line = stat_line(enemy, hp, max, slows.get(plate.enemy).ok());
         if text.0 != line {
             text.0 = line;
         }
@@ -274,13 +274,18 @@ pub fn debug_enemy_stats(
 }
 
 /// One plate's line: `hp cur/max · v <world speed> · slow`.
-fn stat_line(enemy: &Enemy, slow: Option<&Slow>) -> String {
+fn stat_line(
+    enemy: &Enemy,
+    hp: &warbase::prelude::Hp,
+    max: &warbase::prelude::MaxHp,
+    slow: Option<&Slow>,
+) -> String {
     let slow_line = slow
         .map(|s| format!(" slow x{:.2} {:.1}s", s.factor, s.timer))
         .unwrap_or_default();
     format!(
         "hp {:.0}/{:.0} v {:.2}{}",
-        enemy.hp, enemy.max_hp, enemy.speed, slow_line
+        hp.0, max.0, enemy.speed, slow_line
     )
 }
 

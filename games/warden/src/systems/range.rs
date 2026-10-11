@@ -312,30 +312,30 @@ fn spawn_dummy(
 pub fn range_ledger(
     time: Res<Time>,
     ledger: Option<ResMut<RangeLedger>>,
-    dummies: Query<(Entity, &Enemy), With<RangeDummy>>,
+    dummies: Query<(Entity, &Enemy, &warbase::prelude::Hp), With<RangeDummy>>,
 ) {
     let Some(mut ledger) = ledger else {
         return; // range not active
     };
     ledger.elapsed += time.delta_secs();
-    for (e, enemy) in &dummies {
+    for (e, _enemy, hp) in &dummies {
         let prev = {
             let entry = ledger.last_hp.iter_mut().find(|(le, _)| *le == e);
             match entry {
-                Some((_, lp)) => Some(std::mem::replace(lp, enemy.hp)),
+                Some((_, lp)) => Some(std::mem::replace(lp, hp.0)),
                 None => None,
             }
         };
         match prev {
             Some(p) => {
-                let dmg = p - enemy.hp;
+                let dmg = p - hp.0;
                 if dmg > 0.0 {
                     ledger.total += dmg;
                     ledger.hits += 1;
                     ledger.last = dmg;
                 }
             }
-            None => ledger.last_hp.push((e, enemy.hp)),
+            None => ledger.last_hp.push((e, hp.0)),
         }
     }
     ledger.last_hp.retain(|(e, _)| dummies.get(*e).is_ok());

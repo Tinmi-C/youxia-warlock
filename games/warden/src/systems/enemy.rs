@@ -162,14 +162,17 @@ pub fn spawn_enemy_at(
     let eid = commands
         .spawn((
             Enemy {
-                hp,
-                max_hp: def.hp,
                 speed: def.speed * units_per_point,
                 leak: def.leak,
                 kill_gold: def.kill_gold,
                 physical_armor: def.physical_armor,
                 def_index: index,
             },
+            // WX6-2: HP rides the base's components (bars/pipeline read
+            // them); elites (4) and bosses (5) style the base's bar wide +
+            // golden (the FX1 big-bar convention).
+            warbase::prelude::Hp(hp),
+            warbase::prelude::MaxHp(def.hp),
             // WX6-1: the base's path movement (advance_followers writes the
             // XZ translation; the spawn Y survives — models are feet-origin).
             warbase::prelude::PathFollower {
@@ -179,6 +182,14 @@ pub fn spawn_enemy_at(
                 finished: false,
             },
             warbase::prelude::MoveSpeed(def.speed * units_per_point),
+            warbase::fx::HealthBarStyle {
+                width: if matches!(index, 4 | 5) { 1.4 } else { 0.9 },
+                color: if matches!(index, 4 | 5) {
+                    Color::srgb(1.0, 0.8, 0.25)
+                } else {
+                    Color::srgb(0.3, 0.9, 0.35)
+                },
+            },
             // Explicit Visibility: the model path has no mesh on this entity,
             // so without it the scene child's InheritedVisibility breaks (B0004).
             Visibility::Visible,
@@ -395,11 +406,11 @@ pub fn resolve_death(
     mut wave: ResMut<WaveState>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    enemies: Query<(Entity, &Enemy)>,
+    enemies: Query<(Entity, &Enemy, &warbase::prelude::Hp)>,
     visuals: Query<(&Transform, &MeshMaterial3d<StandardMaterial>)>,
 ) {
-    for (eid, enemy) in &enemies {
-        if enemy.hp <= 0.0 {
+    for (eid, enemy, hp) in &enemies {
+        if hp.0 <= 0.0 {
             let gain = (enemy.kill_gold as f32 * boost.kill_mult).round() as u32;
             economy.gold += gain;
             wave.active = wave.active.saturating_sub(1);
@@ -421,7 +432,7 @@ pub fn resolve_death(
 pub fn heal_aura(
     time: Res<Time>,
     mut healers: Query<(Entity, &Transform, &mut Healer)>,
-    mut enemies: Query<(Entity, &mut Enemy, &Transform)>,
+    mut enemies: Query<(Entity, &mut warbase::prelude::Hp, &warbase::prelude::MaxHp, &Transform)>,
 ) {
     for (healer_e, htf, mut healer) in &mut healers {
         healer.tick_timer -= time.delta_secs();
@@ -429,13 +440,13 @@ pub fn heal_aura(
             continue;
         }
         healer.tick_timer = healer.period;
-        for (eid, mut enemy, etf) in &mut enemies {
-            if eid == healer_e || enemy.hp <= 0.0 || enemy.hp >= enemy.max_hp {
+        for (eid, mut hp, max, etf) in &mut enemies {
+            if eid == healer_e || hp.0 <= 0.0 || hp.0 >= max.0 {
                 continue;
             }
             if htf.translation.distance(etf.translation) <= healer.radius {
-                enemy.hp = (enemy.hp + healer.heal_per_tick).min(enemy.max_hp);
-                info!("[enemy] healer aura -> hp={:.0}", enemy.hp);
+                hp.0 = (hp.0 + healer.heal_per_tick).min(max.0);
+                info!("[enemy] healer aura -> hp={:.0}", hp.0);
             }
         }
     }

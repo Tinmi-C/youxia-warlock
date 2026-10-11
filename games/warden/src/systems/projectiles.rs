@@ -36,7 +36,7 @@ pub fn fly_projectiles(
     // Without<Enemy> keeps the Transform write (projectiles) disjoint from
     // the enemies' Transform read — B0001 otherwise.
     mut q: Query<(Entity, &mut Projectile, &mut Transform), Without<Enemy>>,
-    enemies: Query<(Entity, &Transform, &Enemy)>,
+    enemies: Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp)>,
 ) {
     for (eid, mut proj, mut tf) in &mut q {
         // SK12 贯穿箭: fly straight, pierce (damage once each) every enemy
@@ -47,8 +47,8 @@ pub fn fly_projectiles(
             let remaining = remaining - step;
             let expired = remaining <= 0.0;
             let mut hit_any = false;
-            for (ven, vtf, venemy) in enemies.iter() {
-                if venemy.hp <= 0.0 || proj.pierced.contains(&ven) {
+            for (ven, vtf, _venemy, vhp) in enemies.iter() {
+                if vhp.0 <= 0.0 || proj.pierced.contains(&ven) {
                     continue;
                 }
                 let dx = vtf.translation.x - tf.translation.x;
@@ -86,8 +86,8 @@ pub fn fly_projectiles(
             ProjectileOrigin::Homing { target } => enemies
                 .get(target)
                 .ok()
-                .filter(|(_, _, en)| en.hp > 0.0)
-                .map(|(_, etf, _)| etf.translation),
+                .filter(|(_, _, _, hp)| hp.0 > 0.0)
+                .map(|(_, etf, _, _)| etf.translation),
             ProjectileOrigin::Fixed { point } => Some(point),
             ProjectileOrigin::Linear { .. } => continue,
         };
@@ -135,7 +135,7 @@ pub fn fly_projectiles(
 /// the slow payload here (a status effect, not damage — it stays on the hit).
 fn resolve_impact(
     commands: &mut Commands,
-    enemies: &Query<(Entity, &Transform, &Enemy)>,
+    enemies: &Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp)>,
     impacts: &mut MessageWriter<ProjectileImpact>,
     requests: &mut MessageWriter<DamageRequest>,
     proj_eid: Entity,
@@ -150,7 +150,7 @@ fn resolve_impact(
     // resolve_damage later this frame).
     let mut victims: Vec<Entity> = Vec::new();
     if proj.aoe_radius > 0.0 {
-        for (ven, vtf, _) in enemies.iter() {
+        for (ven, vtf, _, _) in enemies.iter() {
             if vtf.translation.distance(pos) <= proj.aoe_radius {
                 victims.push(ven);
             }
@@ -160,8 +160,8 @@ fn resolve_impact(
         victims.push(target);
     }
     for ven in victims {
-        if let Ok((_, _, en)) = enemies.get(ven) {
-            if en.hp <= 0.0 {
+        if let Ok((_, _, _, hp)) = enemies.get(ven) {
+            if hp.0 <= 0.0 {
                 continue; // resolve_damage would skip it anyway
             }
             requests.write(DamageRequest {

@@ -78,8 +78,8 @@ fn test_app() -> App {
 }
 
 fn enemy_hp(app: &mut App) -> f32 {
-    let mut q = app.world_mut().query::<&Enemy>();
-    q.single(app.world()).map(|e| e.hp).expect("one enemy exists")
+    let mut q = app.world_mut().query::<&warbase::prelude::Hp>();
+    q.single(app.world()).map(|h| h.0).expect("one enemy exists")
 }
 
 fn count_towers(app: &mut App) -> usize {
@@ -189,14 +189,14 @@ fn ordinary_enemy_crosses_path_in_about_twenty_seconds() {
 fn spawn_dead_normal(app: &mut App) {
     app.world_mut().spawn((
         Enemy {
-            hp: 0.0,
-            max_hp: 30.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(0.0),
+        warbase::prelude::MaxHp(30.0),
         Transform::from_xyz(0.0, 0.4, 0.0),
     ));
 }
@@ -211,14 +211,14 @@ fn elite_kill_always_drops_tower_card() {
         let before = app.world().resource::<Hand>().owned_towers.len();
         app.world_mut().spawn((
             Enemy {
-                hp: 0.0,
-                max_hp: 200.0,
                 speed: 0.0,
                 leak: 0,
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 4, // elite
             },
+            warbase::prelude::Hp(0.0),
+            warbase::prelude::MaxHp(200.0),
             Transform::from_xyz(0.0, 0.4, 0.0),
         ));
         app.update(); // roll_drops sees the corpse, then resolve_death cleans it
@@ -313,14 +313,14 @@ fn tower_fires_at_enemy_in_range() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 50.0,
-            max_hp: 50.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(50.0),
+        warbase::prelude::MaxHp(50.0),
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
     app.update(); // launch frame
@@ -439,14 +439,14 @@ fn fused_tower_receives_tower_index_damage_boost() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 60.0,
-            max_hp: 60.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(60.0),
+        warbase::prelude::MaxHp(60.0),
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
     app.update(); // launch frame
@@ -484,14 +484,14 @@ fn range_boost_extends_reach() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 20.0,
-            max_hp: 20.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(20.0),
+        warbase::prelude::MaxHp(20.0),
         Transform::from_xyz(13.0, 0.5, 0.0),
     ));
     app.update(); // launch frame
@@ -530,14 +530,14 @@ fn attack_speed_boost_shortens_cooldown() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 200.0,
-            max_hp: 200.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(200.0),
+        warbase::prelude::MaxHp(200.0),
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
     app.update();
@@ -664,14 +664,14 @@ fn leaked_enemy_deducts_base_hp() {
         .world_mut()
         .spawn((
             Enemy {
-                hp: 10.0,
-                max_hp: 10.0,
                 speed: 0.0,
                 leak: 1,
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 0,
             },
+            warbase::prelude::Hp(10.0),
+            warbase::prelude::MaxHp(10.0),
             Transform::from_xyz(12.0, 0.4, -9.0),
         ))
         .id();
@@ -726,8 +726,10 @@ fn fused_kind(app: &mut App) -> Option<TowerKind> {
 
 /// HP of the single non-healer enemy (filters the healer out).
 fn non_healer_hp(app: &mut App) -> f32 {
-    let mut q = app.world_mut().query_filtered::<&Enemy, Without<Healer>>();
-    q.single(app.world()).expect("one non-healer enemy").hp
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&warbase::prelude::Hp, Without<Healer>>();
+    q.single(app.world()).expect("one non-healer enemy").0
 }
 
 /// Capability card EN5 — acceptance: a living healer restores nearby damaged
@@ -739,14 +741,14 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
         .world_mut()
         .spawn((
             Enemy {
-                hp: 45.0,
-                max_hp: 45.0,
                 speed: 0.0,
                 leak: 0,
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 3,
             },
+            warbase::prelude::Hp(45.0),
+            warbase::prelude::MaxHp(45.0),
             Healer {
                 radius: 6.0,
                 period: 1.0,
@@ -758,14 +760,14 @@ fn healer_restores_nearby_enemies_and_stops_when_gone() {
         .id();
     app.world_mut().spawn((
         Enemy {
-            hp: 10.0,
-            max_hp: 30.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(10.0),
+        warbase::prelude::MaxHp(30.0),
         Transform::from_xyz(2.0, 0.4, 0.0),
     ));
     // ~1.17s: exactly one heal tick (period 1s) reaches the damaged ally.
@@ -1045,14 +1047,14 @@ fn physical_damage_halved_vs_armored_enemy() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 90.0,
-            max_hp: 90.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: true,
             def_index: 2,
         },
+        warbase::prelude::Hp(90.0),
+        warbase::prelude::MaxHp(90.0),
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
     app.update(); // launch frame
@@ -1090,14 +1092,14 @@ fn magic_damage_ignores_armor() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 90.0,
-            max_hp: 90.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: true,
             def_index: 2,
         },
+        warbase::prelude::Hp(90.0),
+        warbase::prelude::MaxHp(90.0),
         Transform::from_xyz(2.0, 0.5, 0.0),
     ));
     app.update(); // launch frame
@@ -2287,14 +2289,14 @@ fn projectile_flies_tracks_and_lands_on_time() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 30.0,
-            max_hp: 30.0,
             speed: 1.0, // moving target: the round must track it
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(30.0),
+        warbase::prelude::MaxHp(30.0),
         Transform::from_xyz(8.0, 0.4, 0.0),
     ));
 
@@ -2303,8 +2305,8 @@ fn projectile_flies_tracks_and_lands_on_time() {
         q.iter(app.world()).count()
     };
     let hp_now = |app: &mut App| -> f32 {
-        let mut q = app.world_mut().query::<&Enemy>();
-        q.iter(app.world()).next().map(|e| e.hp).unwrap_or(f32::MAX)
+        let mut q = app.world_mut().query::<&warbase::prelude::Hp>();
+        q.iter(app.world()).next().map(|h| h.0).unwrap_or(f32::MAX)
     };
     let gap_now = |app: &mut App| -> f32 {
         let mut q = app.world_mut().query::<(&Projectile, &Transform)>();
@@ -2367,14 +2369,14 @@ fn shield_tower_melee_hits_instantly_and_slows_target() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 30.0,
-            max_hp: 30.0,
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(30.0),
+        warbase::prelude::MaxHp(30.0),
         Transform::from_xyz(2.0, 0.4, 0.0),
     ));
     app.update();
@@ -2400,14 +2402,14 @@ fn single_target_round_dissipates_when_target_dies() {
         .world_mut()
         .spawn((
             Enemy {
-                hp: 30.0,
-                max_hp: 30.0,
                 speed: 0.0,
                 leak: 0,
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 0,
             },
+            warbase::prelude::Hp(30.0),
+            warbase::prelude::MaxHp(30.0),
             Transform::from_xyz(12.0, 0.4, 12.0),
         ))
         .id();
@@ -2430,19 +2432,20 @@ fn single_target_round_dissipates_when_target_dies() {
     ));
     app.world_mut().spawn((
         Enemy {
-            hp: 1.0, // dies to any touch
-            max_hp: 1.0,
+            // dies to any touch (HP in the base components below)
             speed: 0.0,
             leak: 0,
             kill_gold: 0,
             physical_armor: false,
             def_index: 0,
         },
+        warbase::prelude::Hp(1.0),
+        warbase::prelude::MaxHp(1.0),
         Transform::from_xyz(9.0, 0.4, 0.0),
     ));
     app.update(); // launch
     // The round is mid-flight: kill the target out-of-band.
-    app.world_mut().get_mut::<Enemy>(bystander).unwrap().hp = 30.0; // untouched baseline
+    app.world_mut().get_mut::<warbase::prelude::Hp>(bystander).unwrap().0 = 30.0; // untouched baseline
     let mut q = app.world_mut().query::<&Projectile>();
     let target = q
         .iter(app.world())
@@ -2457,12 +2460,12 @@ fn single_target_round_dissipates_when_target_dies() {
             }
         })
         .expect("round in flight");
-    app.world_mut().get_mut::<Enemy>(target).unwrap().hp = 0.0; // dies mid-flight
+    app.world_mut().get_mut::<warbase::prelude::Hp>(target).unwrap().0 = 0.0; // dies mid-flight
     app.update(); // resolve_death may not have run yet; the round sees hp<=0
     for _ in 0..30 {
         app.update();
     }
-    let hp = app.world().get::<Enemy>(bystander).unwrap().hp;
+    let hp = app.world().get::<warbase::prelude::Hp>(bystander).unwrap().0;
     assert_eq!(hp, 30.0, "the dissipated round must deal no damage");
     let mut q = app.world_mut().query_filtered::<&Projectile, ()>();
     assert_eq!(q.iter(app.world()).count(), 0, "the round despawns on target loss");
@@ -2484,14 +2487,14 @@ fn wave_end_clears_in_flight_projectiles() {
         .world_mut()
         .spawn((
             Enemy {
-                hp: 100.0,
-                max_hp: 100.0,
                 speed: 0.0,
                 leak: 0,
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 0,
             },
+            warbase::prelude::Hp(100.0),
+            warbase::prelude::MaxHp(100.0),
             Transform::from_xyz(90.0, 0.4, 90.0),
         ))
         .id();
@@ -2532,7 +2535,8 @@ fn wave_end_clears_in_flight_projectiles() {
 
 // --- FX1-FX3: combat presentation ---------------------------------------------
 
-use warden::systems::fx::{BlastRing, DeathShell, HealthBar, HitFlash, ShieldBadge};
+use warbase::fx::{BlastRing, DeathShell, HealthBar, HitFlash};
+use warden::systems::fx::ShieldBadge;
 
 /// Spawn a fully-visual enemy (mesh + own material handle) at a position.
 fn spawn_visual_enemy(app: &mut App, def_index: usize, hp: f32, max_hp: f32, pos: Vec3) -> Entity {
@@ -2552,14 +2556,14 @@ fn spawn_visual_enemy(app: &mut App, def_index: usize, hp: f32, max_hp: f32, pos
     app.world_mut()
         .spawn((
             Enemy {
-                hp,
-                max_hp,
                 speed: 0.0,
                 leak: 0,
                 kill_gold: 6,
                 physical_armor: def_index == 2,
                 def_index,
             }, // no PathFollower: FX units stand still (speed 0 anyway)
+            warbase::prelude::Hp(hp),
+            warbase::prelude::MaxHp(max_hp),
             Mesh3d(mesh_handle),
             MeshMaterial3d(mat_handle),
             Transform::from_xyz(pos.x, 0.4, pos.z),
@@ -2597,7 +2601,7 @@ fn health_bar_shows_only_when_damaged() {
             .collect()
     };
     assert!(bars(&mut app).is_empty(), "full-health enemy has no bar");
-    app.world_mut().get_mut::<Enemy>(e).unwrap().hp = 15.0;
+    app.world_mut().get_mut::<warbase::prelude::Hp>(e).unwrap().0 = 15.0;
     app.update();
     app.update(); // bar spawns via commands
     let shown = bars(&mut app);
@@ -2609,7 +2613,7 @@ fn health_bar_shows_only_when_damaged() {
         shown[0].0
     );
 
-    app.world_mut().get_mut::<Enemy>(e).unwrap().hp = 30.0;
+    app.world_mut().get_mut::<warbase::prelude::Hp>(e).unwrap().0 = 30.0;
     app.update();
     let shown = bars(&mut app);
     assert!(!shown[0].1, "healed back to full => bar hidden");
@@ -3189,10 +3193,10 @@ mod debug_scenarios {
         let mut app = debug_app();
         queue_scenario(&mut app, Scenario::Fx);
         app.update();
-        let mut enemies = app.world_mut().query::<&Enemy>();
+        let mut enemies = app.world_mut().query::<&warbase::prelude::Hp>();
         let all = enemies
             .iter(app.world())
-            .map(|e| e.hp)
+            .map(|e| e.0)
             .collect::<Vec<_>>();
         assert_eq!(all.len(), 5, "four wounded + one healer");
         assert_eq!(
@@ -3326,10 +3330,12 @@ mod debug_db3 {
 
     /// The first live enemy's (position, speed).
     fn first_enemy(app: &mut App) -> Option<(Vec3, f32)> {
-        let mut q = app.world_mut().query::<(&Transform, &Enemy)>();
+        let mut q = app
+            .world_mut()
+            .query::<(&Transform, &Enemy, &warbase::prelude::Hp)>();
         q.iter(app.world())
-            .find(|(_, e)| e.hp > 0.0)
-            .map(|(tf, e)| (tf.translation, e.speed))
+            .find(|(_, _, h)| h.0 > 0.0)
+            .map(|(tf, e, _)| (tf.translation, e.speed))
     }
 
     /// DB3 acceptance: after the debug pause, the world freezes (enemy holds
@@ -3489,9 +3495,9 @@ mod debug_db3 {
         );
         // Wound one enemy; its plate must follow.
         {
-            let mut q = app.world_mut().query::<&mut Enemy>();
+            let mut q = app.world_mut().query::<&mut warbase::prelude::Hp>();
             if let Some(mut e) = q.iter_mut(app.world_mut()).next() {
-                e.hp = 12.0;
+                e.0 = 12.0;
             }
         }
         app.update();
@@ -3739,14 +3745,14 @@ mod skills_sk2 {
         app.world_mut()
             .spawn((
                 Enemy {
-                    hp,
-                    max_hp: hp,
                     speed: 0.0,
                     leak: 0,
                     kill_gold: 6,
                     physical_armor: armor,
                     def_index: 0,
                 },
+                warbase::prelude::Hp(hp),
+                warbase::prelude::MaxHp(hp),
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
             .id()
@@ -3880,8 +3886,8 @@ mod skills_sk2 {
         for _ in 0..66 {
             app.update();
         }
-        let mut q = app.world_mut().query::<&Enemy>();
-        let hp = q.iter(app.world()).next().map(|e| e.hp).expect("alive");
+        let mut q = app.world_mut().query::<&warbase::prelude::Hp>();
+        let hp = q.iter(app.world()).next().map(|h| h.0).expect("alive");
         assert!(
             (hp - 50.0).abs() < 0.01,
             "magic pierces armor: 90 - 40 = 50 (got {hp})"
@@ -3955,14 +3961,14 @@ mod skills_sk3 {
         app.world_mut()
             .spawn((
                 Enemy {
-                    hp: 100.0,
-                    max_hp: 100.0,
                     speed,
                     leak: 0,
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
                 },
+                warbase::prelude::Hp(100.0),
+                warbase::prelude::MaxHp(100.0),
                 warbase::prelude::PathFollower {
                     path: path_e,
                     progress,
@@ -4164,14 +4170,14 @@ mod skills_sk4 {
         app.world_mut()
             .spawn((
                 Enemy {
-                    hp: 100_000.0,
-                    max_hp: 100_000.0,
                     speed: 0.0,
                     leak: 0,
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
                 },
+                warbase::prelude::Hp(100_000.0),
+                warbase::prelude::MaxHp(100_000.0),
                 Transform::from_xyz(pos.x + 3.0, 0.4, pos.z),
             ))
             .id()
@@ -4818,14 +4824,14 @@ fn static_enemy(app: &mut App, pos: Vec3) -> bevy::ecs::entity::Entity {
     app.world_mut()
         .spawn((
             Enemy {
-                hp: 500.0,
-                max_hp: 500.0,
                 speed: 0.0,
                 leak: 0,
                 kill_gold: 0,
                 physical_armor: false,
                 def_index: 0,
             },
+            warbase::prelude::Hp(500.0),
+            warbase::prelude::MaxHp(500.0),
             Transform::from_translation(pos),
         ))
         .id()
@@ -5709,11 +5715,11 @@ mod range_tests {
         {
             let mut q = app
                 .world_mut()
-                .query_filtered::<&mut Enemy, With<RangeDummy>>();
+                .query_filtered::<&mut warbase::prelude::Hp, With<RangeDummy>>();
             let Some(mut first) = q.iter_mut(app.world_mut()).next() else {
                 panic!("dummies on the board");
             };
-            first.hp = 0.0;
+            first.0 = 0.0;
         }
         app.update(); // death settles
         app.update(); // maintenance refills
@@ -6239,14 +6245,14 @@ mod damage_pipeline {
         app.world_mut()
             .spawn((
                 Enemy {
-                    hp,
-                    max_hp: hp,
                     speed: 0.0,
                     leak: 0,
                     kill_gold: 6,
                     physical_armor: armor,
                     def_index: 0,
                 },
+                warbase::prelude::Hp(hp),
+                warbase::prelude::MaxHp(hp),
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
             .id()
@@ -6305,7 +6311,7 @@ mod damage_pipeline {
             dealt.read(msgs).cloned().collect()
         };
         assert_eq!(events.len(), 3, "all requests resolved the same frame");
-        let hp = |e: Entity| app.world().get::<Enemy>(e).unwrap().hp;
+        let hp = |e: Entity| app.world().get::<warbase::prelude::Hp>(e).unwrap().0;
         assert_eq!(hp(armored), 40.0, "40 phys halved + 40 magic full vs armor");
         assert_eq!(hp(unarmored), 60.0, "40 phys full vs no armor");
         let amounts: Vec<f32> = events.iter().map(|e| e.amount).collect();
@@ -6358,7 +6364,7 @@ mod damage_pipeline {
             events.iter().any(|e| e.source == DamageSource::Tower(tower)),
             "melee hit attributed to its tower"
         );
-        assert!(app.world().get::<Enemy>(enemy).unwrap().hp < 100.0);
+        assert!(app.world().get::<warbase::prelude::Hp>(enemy).unwrap().0 < 100.0);
     }
 
     /// SK7 acceptance: a ranged tower's hit carries the attribution through
@@ -6385,7 +6391,7 @@ mod damage_pipeline {
                 .any(|e| e.source == DamageSource::Tower(tower) && e.amount == 10.0),
             "ranged hit attributed with the snapshot damage"
         );
-        assert!(app.world().get::<Enemy>(enemy).unwrap().hp < 500.0);
+        assert!(app.world().get::<warbase::prelude::Hp>(enemy).unwrap().0 < 500.0);
     }
 
     /// SK7 acceptance: the commander skill path (meteor rain through the
@@ -6495,14 +6501,14 @@ mod skills_archer {
         app.world_mut()
             .spawn((
                 Enemy {
-                    hp,
-                    max_hp: hp,
                     speed: 0.0,
                     leak: 0,
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
                 },
+                warbase::prelude::Hp(hp),
+                warbase::prelude::MaxHp(hp),
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
             .id()
@@ -6675,8 +6681,8 @@ mod skills_archer {
         // The 4th-nearest in-range dummy (lv1 = 3 arrows) and the faraway
         // one are both untouched by the volley.
         let full = {
-            let mut q = app.world_mut().query::<&Enemy>();
-            q.iter(app.world()).filter(|e| e.hp == 10_000.0).count()
+            let mut q = app.world_mut().query::<&warbase::prelude::Hp>();
+            q.iter(app.world()).filter(|e| e.0 == 10_000.0).count()
         };
         assert_eq!(full, 2, "only the 4th-nearest and the far dummy are unharmed");
     }
@@ -6827,14 +6833,14 @@ mod skills_fusion {
         app.world_mut()
             .spawn((
                 Enemy {
-                    hp,
-                    max_hp: hp,
                     speed: 0.0,
                     leak: 0,
                     kill_gold: 0,
                     physical_armor: false,
                     def_index: 0,
                 },
+                warbase::prelude::Hp(hp),
+                warbase::prelude::MaxHp(hp),
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
             .id()
@@ -6997,10 +7003,10 @@ mod skills_fusion {
             .resource::<warden::resources::SkillBalance>()
             .arcane_damage(SKILL_ARCANE_BLAST, 1);
         for victim in [inside_a, inside_b] {
-            let hp = app.world().get::<Enemy>(victim).unwrap().hp;
+            let hp = app.world().get::<warbase::prelude::Hp>(victim).unwrap().0;
             assert_eq!(hp, 100.0 - damage, "radius victim blasted");
         }
-        let hp = app.world().get::<Enemy>(outside).unwrap().hp;
+        let hp = app.world().get::<warbase::prelude::Hp>(outside).unwrap().0;
         assert_eq!(hp, 100.0, "radius-excluded enemy untouched");
         // Attribution: the DamageDealt sources name this tower's skill.
         let mut credited = 0;
@@ -7057,7 +7063,7 @@ mod skills_fusion {
             assert_eq!(*dmg, damage, "pierced exactly once (no double dip)");
         }
         assert!(!ledger.contains_key(&off_line), "off-line enemy untouched");
-        let hp = app.world().get::<Enemy>(off_line).unwrap().hp;
+        let hp = app.world().get::<warbase::prelude::Hp>(off_line).unwrap().0;
         assert_eq!(hp, 200.0);
     }
 
@@ -7106,7 +7112,7 @@ mod skills_fusion {
             .world()
             .resource::<warden::resources::SkillBalance>()
             .concussion_slow_factor;
-        let hp = app.world().get::<Enemy>(victim).unwrap().hp;
+        let hp = app.world().get::<warbase::prelude::Hp>(victim).unwrap().0;
         assert_eq!(hp, 100.0 - damage, "victim damaged");
         let slow = app.world().get::<Slow>(victim).expect("victim slowed");
         assert_eq!(slow.factor, factor);
@@ -7360,3 +7366,4 @@ mod skills_ui {
         assert_eq!(cds, 0.0, "E did nothing without a selected skilled tower");
     }
 }
+

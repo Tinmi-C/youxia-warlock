@@ -17,9 +17,9 @@ impl Plugin for FxPlugin {
         app.add_message::<warbase::fx::FxBlast>().add_systems(
             Update,
             (
-                // FX1: warden-local bars (Enemy god-component data source;
-                // swaps to the base's with the WX6 component split).
-                systems::fx::refresh_health_bars,
+                // FX1: the base's bars (Hp/MaxHp source; warden styles
+                // elites via HealthBarStyle at spawn — WX6-2).
+                warbase::fx::refresh_health_bars,
                 // FX2: base primitives — flash, rings (via the warden
                 // impact bridge), shells.
                 warbase::fx::tick_hit_flash,

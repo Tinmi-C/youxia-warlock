@@ -94,12 +94,12 @@ pub fn refresh_shop_on_intermission(
 /// gaps (fusion-result towers stay fusion-only per requirements §7.1, which is
 /// more specific than §8's "全塔池" wording; flag for the design owner).
 pub fn roll_drops(
-    enemies: Query<&Enemy>,
+    enemies: Query<(&Enemy, &warbase::prelude::Hp)>,
     mut hand: ResMut<Hand>,
     mut rng: ResMut<RunRng>,
 ) {
-    for enemy in &enemies {
-        if enemy.hp > 0.0 {
+    for (enemy, hp) in &enemies {
+        if hp.0 > 0.0 {
             continue; // alive; corpses are despawned by resolve_death after this
         }
         let guaranteed = matches!(enemy.def_index, 4 | 5);

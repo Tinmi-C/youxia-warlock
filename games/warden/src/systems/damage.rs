@@ -105,26 +105,27 @@ pub fn effective_damage(attack_type: AttackType, physical_armor: bool, base: f32
     }
 }
 
-/// THE sole writer of `Enemy.hp` (SK7). Drains the frame's DamageRequests:
-/// skips the already-dead (no double-taps on corpses, no double kill
-/// messages), resolves armor, subtracts, flashes, publishes DamageDealt.
-/// Kill rewards/despawn stay where they were (`resolve_death`, Cleanup).
+/// THE sole writer of enemy `Hp` (SK7; the component is the base's since
+/// WX6-2). Drains the frame's DamageRequests: skips the already-dead (no
+/// double-taps on corpses, no double kill messages), resolves armor,
+/// subtracts, flashes, publishes DamageDealt. Kill rewards/despawn stay
+/// where they were (`resolve_death`, Cleanup).
 pub fn resolve_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageRequest>,
     mut dealt: MessageWriter<DamageDealt>,
-    mut enemies: Query<(Entity, &mut Enemy)>,
+    mut enemies: Query<(&mut warbase::prelude::Hp, &Enemy)>,
 ) {
     for req in requests.read() {
-        let Ok((_, mut en)) = enemies.get_mut(req.victim) else {
+        let Ok((mut hp, en)) = enemies.get_mut(req.victim) else {
             continue; // despawned between request and resolution
         };
-        if en.hp <= 0.0 {
+        if hp.0 <= 0.0 {
             continue; // corpse: another request this frame already killed it
         }
         let applied = effective_damage(req.attack_type, en.physical_armor, req.amount);
-        let killed = en.hp - applied <= 0.0;
-        en.hp -= applied;
+        let killed = hp.0 - applied <= 0.0;
+        hp.0 -= applied;
         commands.entity(req.victim).insert(HitFlash {
             timer: HIT_FLASH_SECS,
             original: None,

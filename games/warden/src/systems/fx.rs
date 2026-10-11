@@ -25,70 +25,11 @@ use crate::systems::projectiles::ProjectileImpact;
 pub use warbase::fx::spawn_death_shell;
 pub use warbase::fx::{BlastRing, DeathShell, HitFlash, HIT_FLASH_SECS};
 
-// --- FX1: health bars (warden-local until the WX6 Enemy split) -------------------
-
-/// Marker on an enemy's health bar (a child entity of the enemy).
-#[derive(Component)]
-pub struct HealthBar {
-    pub enemy: Entity,
-}
-
-/// Bar width (world units) for ordinary enemies; elites/bosses are wider.
-const BAR_WIDTH: f32 = 0.9;
-const BAR_WIDTH_BIG: f32 = 1.4;
-
-/// Maintain health bars: hidden at full hp, width == ratio, wider + golden
-/// for elites (4) and bosses (5).
-pub fn refresh_health_bars(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    enemies: Query<(Entity, &Enemy)>,
-    mut bars: Query<(&HealthBar, &mut Transform, &mut Visibility)>,
-) {
-    // Ensure every damaged enemy has a bar.
-    for (eid, enemy) in &enemies {
-        if enemy.hp >= enemy.max_hp || enemy.hp <= 0.0 {
-            continue;
-        }
-        if !bars.iter().any(|(b, _, _)| b.enemy == eid) {
-            let big = matches!(enemy.def_index, 4 | 5);
-            commands.entity(eid).with_children(|p| {
-                p.spawn((
-                    HealthBar { enemy: eid },
-                    Mesh3d(meshes.add(Cuboid::new(1.0, 0.07, 0.05))),
-                    MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color: if big {
-                            Color::srgb(1.0, 0.8, 0.25)
-                        } else {
-                            Color::srgb(0.3, 0.9, 0.35)
-                        },
-                        unlit: true,
-                        ..default()
-                    })),
-                    Visibility::Hidden,
-                    Transform::from_xyz(0.0, 0.9, 0.0),
-                ));
-            });
-        }
-    }
-    // Sync visibility + width.
-    for (bar, mut tf, mut vis) in &mut bars {
-        let Ok((_, enemy)) = enemies.get(bar.enemy) else {
-            continue;
-        };
-        let damaged = enemy.hp < enemy.max_hp && enemy.hp > 0.0;
-        *vis = if damaged { Visibility::Visible } else { Visibility::Hidden };
-        if damaged {
-            let base = if matches!(enemy.def_index, 4 | 5) {
-                BAR_WIDTH_BIG
-            } else {
-                BAR_WIDTH
-            };
-            tf.scale.x = (enemy.hp / enemy.max_hp).max(0.01) * base;
-        }
-    }
-}
+// --- FX1: health bars (the base's since WX6-2) ------------------------------------
+//
+// `warbase::fx::refresh_health_bars` renders them off the base's Hp/MaxHp
+// components; warden styles elites/bosses via `HealthBarStyle` inserted at
+// spawn (see enemy.rs). No warden-side system remains.
 
 // --- FX2 bridge: warden impacts -> base blast rings (WX4) ------------------------
 
