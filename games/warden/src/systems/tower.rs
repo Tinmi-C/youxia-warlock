@@ -213,6 +213,76 @@ pub fn tick_fire_recoil(
 }
 
 
+/// The warden tower defs as BASE UnitDef rows (WX6-6c bridge, code-built
+/// now — the same rows ship in warden.ron with WX6-6f): attack numbers in
+/// the base's `AttackDef` (damage / interval = 1/attack_speed / range /
+/// attack type through the one-axis mapping), build cost for the command
+/// card. Fused towers list as non-buildable rows (cost 0 — fusion is their
+/// only door). The warden `Tower` component stays the runtime kit (its
+/// firing/skills are far past the base's generic AttackKit); these rows are
+/// the DATA layer the card, the balance driver and the RON read.
+pub fn tower_unit_registry(
+    towers: &crate::resources::TowerDefs,
+    fusions: &crate::resources::FusionDefs,
+) -> warbase::prelude::UnitRegistry {
+    fn row(
+        name: &str,
+        damage: f32,
+        attack_speed: f32,
+        range: f32,
+        at: crate::components::AttackType,
+        cost: u32,
+        projectile: bool,
+    ) -> warbase::prelude::UnitDef {
+        warbase::prelude::UnitDef {
+            id: name.to_string(),
+            attrs: warbase::prelude::BaseAttributes {
+                hp: 0.0,
+                move_speed: 0.0,
+                body_radius: 0.5,
+            },
+            attack: Some(warbase::prelude::AttackDef {
+                damage,
+                interval: 1.0 / attack_speed,
+                range,
+                attack_type: crate::systems::damage::to_base_attack(at),
+                targets: warbase::prelude::TargetDomain::Ground,
+                projectile: projectile
+                    .then(|| warbase::prelude::ProjDef { speed: crate::resources::PROJECTILE_SPEED }),
+            }),
+            armor_type: warbase::prelude::ArmorType::Fortified,
+            cost_gold: cost,
+            cost_wood: 0,
+            bounty_gold: 0,
+            bounty_wood: 0,
+            grant_xp: 0,
+            traits: vec![],
+            auras: vec![],
+            hero: false,
+            skills: vec![],
+            upgrade_to: None,
+            heal: None,
+            leak: 1,
+        }
+    }
+    let mut out = std::collections::HashMap::new();
+    for def in &towers.list {
+        // The shield tower is the melee exception (§5.1): no projectile.
+        let ranged = def.name != "shield";
+        out.insert(
+            def.name.to_string(),
+            row(def.name, def.damage, def.attack_speed, def.range, def.attack_type, def.cost, ranged),
+        );
+    }
+    for f in &fusions.list {
+        out.insert(
+            f.name.to_string(),
+            row(f.name, f.damage, f.attack_speed, f.range, f.attack_type, 0, true),
+        );
+    }
+    warbase::prelude::UnitRegistry { defs: out }
+}
+
 /// Spawn a placed base tower of archetype `def` at world position `pos`
 /// (shared by the player flows and the DB debug scenarios). Returns the
 /// spawned entity.

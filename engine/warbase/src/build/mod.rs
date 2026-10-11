@@ -86,7 +86,9 @@ impl BuildGrid {
                 Ok(())
             }
             BuildMode::FixedSlots => {
-                if self.occupancy.contains_key(&cell) {
+                if cell.1 != 0 || cell.0 < 0 || cell.0 as usize >= self.slots.len() {
+                    Err(BuildReject::OutOfBounds)
+                } else if self.occupancy.contains_key(&cell) {
                     Err(BuildReject::Occupied)
                 } else {
                     Ok(())
@@ -121,11 +123,15 @@ impl BuildGrid {
     }
 
     pub fn cell_center(&self, cell: Cell) -> Vec2 {
-        self.origin
-            + Vec2::new(
-                (cell.0 as f32 + 0.5) * self.cell_size,
-                (cell.1 as f32 + 0.5) * self.cell_size,
-            )
+        match self.mode {
+            // FixedSlots: the slot's own world position IS the center.
+            BuildMode::FixedSlots => self.slot_center(cell).unwrap_or(self.origin),
+            BuildMode::FreeGrid => self.origin
+                + Vec2::new(
+                    (cell.0 as f32 + 0.5) * self.cell_size,
+                    (cell.1 as f32 + 0.5) * self.cell_size,
+                ),
+        }
     }
 
     pub fn used(&self) -> usize {

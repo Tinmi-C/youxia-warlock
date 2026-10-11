@@ -743,6 +743,7 @@ pub fn skill_card_shots(
     fusion_defs: Res<FusionDefs>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut grid: ResMut<warbase::prelude::BuildGrid>,
     mut slots_q: Query<(Entity, &mut TowerSlot, &Transform)>,
 ) {
     let Some(mut state) = state else {
@@ -840,12 +841,14 @@ pub fn skill_card_shots(
                 .find(|r| r.kind == crate::components::FusionKind::Bastion)
                 .expect("bastion recipe")
                 .clone();
-            let free: Option<(Entity, Vec3)> = slots_q
+            let free: Option<(usize, Vec3)> = slots_q
                 .iter()
-                .filter(|(_, slot, _)| !slot.occupied)
-                .map(|(eid, _, tf)| (eid, tf.translation))
+                .filter(|(_, slot, _)| {
+                    grid.check(crate::systems::map::slot_cell(slot.index)).is_ok()
+                })
+                .map(|(_, slot, tf)| (slot.index, tf.translation))
                 .next();
-            if let Some((slot_eid, pos)) = free {
+            if let Some((slot_index, pos)) = free {
                 let bastion = crate::systems::tower::spawn_fused_tower(
                     &mut commands,
                     &recipe,
@@ -854,11 +857,7 @@ pub fn skill_card_shots(
                     &mut meshes,
                     &mut materials,
                 );
-                for (eid, mut slot, _) in slots_q.iter_mut() {
-                    if eid == slot_eid {
-                        slot.occupied = true;
-                    }
-                }
+                grid.place(crate::systems::map::slot_cell(slot_index), bastion);
                 *selection = Selection::Tower(bastion);
                 // The kit is single-slot (the signature); the spawn itself is
                 // deferred via Commands, so don't query it this frame.
@@ -936,15 +935,8 @@ fn clear_board(world: &mut World) {
             *vis = Visibility::Hidden;
         }
     }
-    let slots: Vec<Entity> = {
-        let mut q = world.query_filtered::<Entity, With<TowerSlot>>();
-        q.iter(world).collect()
-    };
-    for e in slots {
-        if let Some(mut slot) = world.get_mut::<TowerSlot>(e) {
-            slot.occupied = false;
-        }
-    }
+    // Occupancy lives in the base's grid (WX6-6c): a fresh one is the reset.
+    world.insert_resource(crate::systems::map::slot_grid());
     *world.resource_mut::<WaveState>() = WaveState::default();
     world.resource_mut::<WaveChoice>().pending = false;
     *world.resource_mut::<Selection>() = Selection::None;
@@ -954,22 +946,32 @@ fn clear_board(world: &mut World) {
 /// Free tower slots in map order, as (slot entity, world position).
 fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
     let mut q = world.query::<(Entity, &TowerSlot, &Transform)>();
+    let grid = world.resource::<warbase::prelude::BuildGrid>().clone();
     let mut slots: Vec<_> = q
         .iter(world)
-        .filter(|(_, slot, _)| !slot.occupied)
+        .filter(|(_, slot, _)| {
+            grid.check(crate::systems::map::slot_cell(slot.index)).is_ok()
+        })
         .map(|(e, slot, tf)| (slot.index, e, tf.translation))
         .collect();
     slots.sort_by_key(|(index, _, _)| *index);
     slots.into_iter().map(|(_, e, pos)| (e, pos)).collect()
 }
 
-/// Spawn base towers of type `ty` at the given free slots and mark the slots
-/// occupied (DB2 scenarios; same construction as a player placement).
+/// Spawn base towers of type `ty` at the given free slots and mark the
+/// slots occupied in the base's grid (DB2 scenarios; same construction as a
+/// player placement). Commands reserve entity ids up front, so occupancy is
+/// placed with the real tower entities after the queue applies.
 fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
     let Some(def) = world.resource::<TowerDefs>().list.get(ty).cloned() else {
         warn!("[debug] tower def {ty} missing; scenario towers skipped");
         return;
     };
+    let indices: Vec<usize> = slots
+        .iter()
+        .map(|(slot_e, _)| world.get::<TowerSlot>(*slot_e).map(|s| s.index).unwrap_or(0))
+        .collect();
+    let mut spawned: Vec<bevy::ecs::entity::Entity> = Vec::new();
     let mut queue = CommandQueue::default();
     world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
         world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
@@ -977,8 +979,8 @@ fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
                 .get_resource::<AssetServer>()
                 .map(|s| s.clone());
             let mut cmds = Commands::new(&mut queue, world);
-            for (_slot_e, pos) in slots {
-                spawn_base_tower(
+            for (_, pos) in slots {
+                spawned.push(spawn_base_tower(
                     &mut cmds,
                     &def,
                     ty,
@@ -986,17 +988,16 @@ fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
                     &mut meshes,
                     &mut materials,
                     server.as_ref(),
-                );
+                ));
             }
         });
     });
-    // Slot flags flip only after the Commands borrow of the world is over.
-    for (slot_e, _) in slots {
-        if let Some(mut slot) = world.get_mut::<TowerSlot>(*slot_e) {
-            slot.occupied = true;
-        }
-    }
     queue.apply(world);
+    for (idx, tower) in indices.into_iter().zip(spawned) {
+        world
+            .resource_mut::<warbase::prelude::BuildGrid>()
+            .place(crate::systems::map::slot_cell(idx), tower);
+    }
 }
 
 /// Spawn one enemy for a scenario (DB2): def index, explicit position and

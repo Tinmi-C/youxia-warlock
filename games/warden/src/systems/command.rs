@@ -879,6 +879,7 @@ pub fn select_object(
     state: Res<State<GameState>>,
     mut selection: ResMut<Selection>,
     towers: Query<(Entity, &Tower, &Transform)>,
+    grid: Res<warbase::prelude::BuildGrid>,
     slots: Query<(Entity, &TowerSlot, &Transform)>,
 ) {
     if build.armed
@@ -922,7 +923,11 @@ pub fn select_object(
         if let Ok(sp) = cam.world_to_viewport(cam_tf, stf.translation) {
             let d = sp.distance(cursor);
             if d <= 45.0 && best_slot.map_or(true, |(_, bd, _)| d < bd) {
-                best_slot = Some((eid, d, slot.occupied));
+                // Occupancy verdict from the grid (WX6-6c).
+                let occupied = grid
+                    .check(crate::systems::map::slot_cell(slot.index))
+                    .is_err();
+                best_slot = Some((eid, d, occupied));
             }
         }
     }
@@ -958,6 +963,7 @@ pub fn apply_pending_fusion(
     defs: Res<TowerDefs>,
     towers: Query<(Entity, &Tower, &Transform)>,
     mut economy: ResMut<Economy>,
+    mut grid: ResMut<warbase::prelude::BuildGrid>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
@@ -977,6 +983,7 @@ pub fn apply_pending_fusion(
         &mut commands,
         &mut meshes,
         &mut materials,
+        &mut grid,
         &mut slots,
     )
     .is_none()
@@ -1109,6 +1116,8 @@ pub struct CardParams<'w> {
     pub skills: Res<'w, SkillDefs>,
     pub balance: Res<'w, SkillBalance>,
     pub cast_requests: MessageWriter<'w, CastSkill>,
+    /// WX6-6c: occupancy authority (slot state moved off TowerSlot).
+    pub grid: ResMut<'w, warbase::prelude::BuildGrid>,
 }
 
 pub fn handle_command_buttons(
@@ -1130,6 +1139,7 @@ pub fn handle_command_buttons(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let intermission = wave.phase == WavePhase::Intermission && *state.get() == GameState::Playing;
+    let mut grid = card.grid;
     for (inter, btn) in &mut q {
         if *inter != Interaction::Pressed || !btn.enabled {
             continue;
@@ -1147,11 +1157,11 @@ pub fn handle_command_buttons(
                     // Second entry (§16.4): an empty slot is selected, so the
                     // button builds directly on that slot.
                     Selection::EmptySlot(slot_e) => {
-                        if let Ok((_, mut slot, stf)) = slots.get_mut(slot_e) {
-                            if slot.occupied {
+                        if let Ok((_, slot, stf)) = slots.get(slot_e) {
+                            let cell = crate::systems::map::slot_cell(slot.index);
+                            if grid.check(cell).is_err() {
                                 continue;
                             }
-                            slot.occupied = true;
                             economy.gold -= def.cost;
                             let e = crate::systems::tower::spawn_base_tower(
                                 &mut commands,
@@ -1162,6 +1172,7 @@ pub fn handle_command_buttons(
                                 &mut materials,
                                 server.as_deref(),
                             );
+                            grid.place(cell, e);
                             *selection = Selection::Tower(e);
                             info!("[ui10] built {} on selected slot, gold={}", def.name, economy.gold);
                         }
@@ -1198,8 +1209,8 @@ pub fn handle_command_buttons(
                 let refund = (tower.invested as f32 * SELL_REFUND_RATIO).floor() as u32;
                 economy.gold += refund;
                 if let Some((slot_e, _)) = nearest_slot_world(&slots, tf.translation) {
-                    if let Ok((_, mut slot, _)) = slots.get_mut(slot_e) {
-                        slot.occupied = false;
+                    if let Ok((_, slot, _)) = slots.get(slot_e) {
+                        grid.free(crate::systems::map::slot_cell(slot.index));
                     }
                 }
                 commands.entity(e).despawn();
@@ -1303,6 +1314,7 @@ pub fn confirm_fusion_target(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    grid: &mut warbase::prelude::BuildGrid,
     slots: &mut Query<(Entity, &mut TowerSlot, &Transform)>,
 ) -> Option<Entity> {
     let a = match *selection {
@@ -1328,16 +1340,18 @@ pub fn confirm_fusion_target(
 
     commands.entity(a).despawn();
     commands.entity(b).despawn();
-    // Free A's slot, then land the result on B's slot (§16.6 落位规则).
+    // Free A's slot, then land the result on B's slot (§16.6 落位规则);
+    // occupancy flips in the base's grid (WX6-6c).
     if let Some((sa, _)) = nearest_slot_world(slots, pos_a) {
-        if let Ok((_, mut slot, _)) = slots.get_mut(sa) {
-            slot.occupied = false;
+        if let Ok((_, slot, _)) = slots.get(sa) {
+            grid.free(crate::systems::map::slot_cell(slot.index));
         }
     }
     let result_slot = nearest_slot_world(slots, pos_b)?;
-    if let Ok((_, mut slot, _)) = slots.get_mut(result_slot.0) {
-        slot.occupied = true;
-    }
+    let result_cell = slots
+        .get(result_slot.0)
+        .ok()
+        .map(|(_, slot, _)| crate::systems::map::slot_cell(slot.index))?;
     // SK12: the shared fusion spawn gateway (stats + the signature skill kit).
     let result = crate::systems::tower::spawn_fused_tower(
         commands,
@@ -1347,6 +1361,7 @@ pub fn confirm_fusion_target(
         meshes,
         materials,
     );
+    grid.place(result_cell, result);
     *selection = Selection::Tower(result);
     info!("[ui11] fused {} (fee {fee}), result on B slot", recipe.name);
     Some(result)
@@ -1433,6 +1448,7 @@ pub fn hover_build_preview(
     defs: Res<TowerDefs>,
     wave: Res<WaveState>,
     state: Res<State<GameState>>,
+    grid: Res<warbase::prelude::BuildGrid>,
     slots: Query<(&TowerSlot, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -1452,7 +1468,9 @@ pub fn hover_build_preview(
         (Selection::EmptySlot(e), Some(i)) if active => slots
             .get(e)
             .ok()
-            .filter(|(slot, _)| !slot.occupied)
+            .filter(|(slot, _)| {
+                grid.check(crate::systems::map::slot_cell(slot.index)).is_ok()
+            })
             .map(|(_, t)| (i, t.translation)),
         _ => None,
     };

@@ -189,11 +189,13 @@ pub struct Projectile {
     pub pierced: Vec<Entity>,
 }
 
-/// One of the 8 buildable cells beside the path.
+/// One of the 8 buildable cells beside the path (the visual/picking entity).
+/// Occupancy state lives in the BASE's `BuildGrid` since WX6-6c (FixedSlots
+/// mode; slot index -> `Cell(index, 0)`) — this component is the mesh +
+/// click target, not the bookkeeping.
 #[derive(Component)]
 pub struct TowerSlot {
     pub index: usize,
-    pub occupied: bool,
 }
 
 /// Marks the base entity (the path endpoint; HP lives in the `BaseHp` resource).

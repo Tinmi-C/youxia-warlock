@@ -36,6 +36,9 @@ impl Plugin for MapPlugin {
             .id();
         app.insert_resource(PathInfo { waypoints })
             .insert_resource(warbase::prelude::Paths(vec![path_e]))
+            // WX6-6c: the build state is the base's FixedSlots BuildGrid
+            // (occupancy authority); TowerSlot entities are the visuals.
+            .insert_resource(systems::map::slot_grid())
             .add_message::<warbase::prelude::Arrived>()
             .add_message::<warbase::prelude::LapCompleted>()
             .init_resource::<BaseHp>()

@@ -797,7 +797,8 @@ fn fusing_two_archers_creates_marksman_and_costs_fee() {
             .id();
         tower_ids.push(id);
     }
-    // Mark both slots under the towers as occupied (as placement would).
+    // Mark both slots under the towers as occupied (as placement would);
+    // occupancy lives in the base's grid (WX6-6c).
     {
         let mut occupied = vec![];
         {
@@ -808,11 +809,14 @@ fn fusing_two_archers_creates_marksman_and_costs_fee() {
                 }
             }
         }
-        let mut q = app.world_mut().query::<&mut TowerSlot>();
-        for mut slot in q.iter_mut(app.world_mut()) {
-            if occupied.contains(&slot.index) {
-                slot.occupied = true;
-            }
+        let mut grid = app
+            .world_mut()
+            .resource_mut::<warbase::prelude::BuildGrid>();
+        for idx in occupied {
+            grid.place(
+                warden::systems::map::slot_cell(idx),
+                bevy::ecs::entity::Entity::PLACEHOLDER,
+            );
         }
     }
     // Step 1+2: select A, press the Fuse command -> FusionTarget picking.
@@ -861,13 +865,15 @@ fn fusing_two_archers_creates_marksman_and_costs_fee() {
     // §16.6 落位规则: the result lands on B's slot; A's slot is free.
     let (a_slot_free, b_slot_taken) = {
         let mut q = app.world_mut().query::<(&TowerSlot, &Transform)>();
+        let grid = app.world().resource::<warbase::prelude::BuildGrid>().clone();
         let mut out = (true, false);
         for (slot, stf) in q.iter(app.world()) {
+            let taken = grid.check(warden::systems::map::slot_cell(slot.index)).is_err();
             if stf.translation.xz().distance(positions[0].xz()) < 1.0 {
-                out.0 = !slot.occupied;
+                out.0 = !taken;
             }
             if stf.translation.xz().distance(positions[1].xz()) < 1.0 {
-                out.1 = slot.occupied;
+                out.1 = taken;
             }
         }
         out
@@ -1421,11 +1427,16 @@ fn command_card_build_button_places_on_selected_slot() {
         "direct build must deduct exactly the tower cost"
     );
     assert_eq!(count_towers(&mut app), 1, "one tower placed on the slot");
-    let occupied = app
+    let slot_index = app
         .world()
         .get::<TowerSlot>(slot)
         .expect("slot alive")
-        .occupied;
+        .index;
+    let occupied = app
+        .world()
+        .resource::<warbase::prelude::BuildGrid>()
+        .check(warden::systems::map::slot_cell(slot_index))
+        .is_err();
     assert!(occupied, "the selected slot must be occupied after the build");
     assert!(
         matches!(
@@ -1573,17 +1584,20 @@ fn hovering_build_button_previews_on_selected_slot() {
 /// Place a tower on a free slot manually and select it (test fixture).
 fn place_and_select(app: &mut App, tower_index: usize, invested: u32, fused: Option<FusionKind>) -> Entity {
     let slot = {
+        let grid = app.world().resource::<warbase::prelude::BuildGrid>().clone();
         let mut q = app
             .world_mut()
             .query_filtered::<(Entity, &TowerSlot), ()>();
         let mut free = q
             .iter(app.world())
-            .filter(|(_, s)| !s.occupied)
+            .filter(|(_, s)| {
+                grid.check(warden::systems::map::slot_cell(s.index)).is_ok()
+            })
             .map(|(e, _)| e);
         free.next().expect("a free slot")
     };
+    let slot_index = app.world().get::<TowerSlot>(slot).unwrap().index;
     let pos = *app.world().get::<Transform>(slot).expect("slot tf");
-    app.world_mut().get_mut::<TowerSlot>(slot).unwrap().occupied = true;
     let def = app.world().resource::<TowerDefs>().list[tower_index].clone();
     let e = app
         .world_mut()
@@ -1608,6 +1622,9 @@ fn place_and_select(app: &mut App, tower_index: usize, invested: u32, fused: Opt
             Transform::from_xyz(pos.translation.x, 0.6, pos.translation.z),
         ))
         .id();
+    app.world_mut()
+        .resource_mut::<warbase::prelude::BuildGrid>()
+        .place(warden::systems::map::slot_cell(slot_index), e);
     app.world_mut()
         .insert_resource(warden::resources::Selection::Tower(e));
     e
@@ -1637,7 +1654,12 @@ fn sell_refunds_seventy_percent_and_frees_slot() {
     );
     assert_eq!(count_towers(&mut app), 0, "the sold tower must despawn");
     assert!(
-        !app.world().get::<TowerSlot>(slot).unwrap().occupied,
+        app.world()
+            .resource::<warbase::prelude::BuildGrid>()
+            .check(warden::systems::map::slot_cell(
+                app.world().get::<TowerSlot>(slot).unwrap().index
+            ))
+            .is_ok(),
         "selling must free the slot"
     );
     assert_eq!(
@@ -3102,11 +3124,10 @@ mod debug_scenarios {
             .filter(|t| t.kind == TowerKind::Base(0))
             .count();
         assert_eq!(archers, 2, "exactly two archer towers on the board");
-        let mut slots = app.world_mut().query::<&TowerSlot>();
-        let occupied = slots
-            .iter(app.world())
-            .filter(|s| s.occupied)
-            .count();
+        let occupied = app
+            .world()
+            .resource::<warbase::prelude::BuildGrid>()
+            .used();
         assert_eq!(occupied, 2, "the two archers sit on occupied slots");
     }
 
@@ -3220,9 +3241,10 @@ mod debug_scenarios {
         queue_scenario(&mut app, Scenario::FullBoard);
         app.update();
         assert_eq!(count_towers(&mut app), 8, "all 8 slots have towers");
-        let mut slots = app.world_mut().query::<&TowerSlot>();
         assert_eq!(
-            slots.iter(app.world()).filter(|s| s.occupied).count(),
+            app.world()
+                .resource::<warbase::prelude::BuildGrid>()
+                .used(),
             8,
             "every slot is marked occupied"
         );

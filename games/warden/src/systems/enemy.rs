@@ -131,6 +131,21 @@ pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
     warbase::prelude::UnitRegistry { defs: out }
 }
 
+/// The full warden registry (WX6-6c): enemy rows + tower rows (base +
+/// fusion) in ONE base `UnitRegistry` — the single content source the
+/// command card (WX3b), the balance driver (WX5b) and warden.ron (WX6-6f)
+/// read. Enemy lookups are unchanged (rows keyed by def name).
+pub fn warden_registry(
+    enemies: &EnemyDefs,
+    towers: &crate::resources::TowerDefs,
+    fusions: &crate::resources::FusionDefs,
+) -> warbase::prelude::UnitRegistry {
+    let mut reg = enemy_unit_registry(enemies);
+    reg.defs
+        .extend(crate::systems::tower::tower_unit_registry(towers, fusions).defs);
+    reg
+}
+
 /// World units per speed point for this path (§9 anchor: speed 1.0 crosses
 /// the whole path in ~20 s, derived from the actual path length at spawn).
 pub fn path_units_per_point(path: &PathInfo) -> f32 {

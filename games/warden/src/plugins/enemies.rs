@@ -17,7 +17,13 @@ impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         let defs = EnemyDefs::palette();
         app.insert_resource(systems::damage::warden_armor_table())
-        .insert_resource(systems::enemy::enemy_unit_registry(&defs))
+        // WX6-6c: ONE registry for the whole game — enemy rows (spawn +
+        // attribution) plus tower rows (card / balance / RON data layer).
+        .insert_resource(systems::enemy::warden_registry(
+            &defs,
+            &crate::resources::TowerDefs::palette(),
+            &crate::resources::FusionDefs::palette(),
+        ))
         .insert_resource(defs)
             .add_systems(
                 Update,

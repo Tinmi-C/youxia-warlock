@@ -11,7 +11,9 @@ use crate::resources::PathInfo;
 
 /// Tower slot positions (XZ), placed beside the path. The path is an L:
 /// entry (-13,9) -> (-4,9) -> (-4,-9) -> base (12,-9).
-const SLOT_POSITIONS: [(f32, f32); 8] = [
+/// WX6-6c: the single source for BOTH the slot entities and the base's
+/// FixedSlots BuildGrid (warden.ron takes this over with WX6-6f).
+pub const SLOT_POSITIONS: [(f32, f32); 8] = [
     (-11.5, 11.0),
     (-7.5, 11.0),
     (-6.0, 6.0),
@@ -21,6 +23,20 @@ const SLOT_POSITIONS: [(f32, f32); 8] = [
     (4.0, -11.0),
     (9.0, -11.0),
 ];
+
+/// The map's build state as the base's FixedSlots grid (WX6-6c): slot i
+/// maps to `Cell(i, 0)`; occupancy/validation live there (same-source
+/// rule for ghost preview and commit).
+pub fn slot_grid() -> warbase::prelude::BuildGrid {
+    warbase::prelude::BuildGrid::fixed_slots(
+        SLOT_POSITIONS.iter().map(|(x, z)| Vec2::new(*x, *z)).collect(),
+    )
+}
+
+/// Grid cell of tower slot `index`.
+pub fn slot_cell(index: usize) -> warbase::prelude::Cell {
+    warbase::prelude::Cell(index as i32, 0)
+}
 
 /// ART3 arena diorama (direction B style preview): a 31 x 25.5 top face
 /// centered on the play area with a 2.5-unit cliff skirt below. Purely
@@ -217,10 +233,7 @@ pub fn spawn_slots(
     let mat = flat_mat(&mut materials, Color::srgb(0.48, 0.44, 0.39));
     for (i, (x, z)) in SLOT_POSITIONS.iter().enumerate() {
         commands.spawn((
-            TowerSlot {
-                index: i,
-                occupied: false,
-            },
+            TowerSlot { index: i },
             Mesh3d(meshes.add(Cuboid::new(1.25, 0.2, 1.25))),
             MeshMaterial3d(mat.clone()),
             Transform::from_xyz(*x, 0.1, *z),

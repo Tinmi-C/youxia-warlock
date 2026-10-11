@@ -75,6 +75,20 @@ fn fixed_slots_hand_out_in_order_then_reject() {
     assert!(g.first_free_slot().is_ok());
 }
 
+/// UT-BLD-05 (WX6-6c): FixedSlots validation rejects cells that are not a
+/// real slot, and `cell_center` resolves the slot's own world position (the
+/// spawn position of try_place/try_upgrade rides on it).
+#[test]
+fn fixed_slots_check_bounds_and_center() {
+    let g = BuildGrid::fixed_slots(vec![Vec2::new(3.0, -1.0), Vec2::new(7.0, 2.0)]);
+    assert_eq!(g.check(Cell(0, 0)), Ok(()));
+    assert_eq!(g.check(Cell(1, 0)), Ok(()));
+    assert_eq!(g.check(Cell(2, 0)), Err(BuildReject::OutOfBounds));
+    assert_eq!(g.check(Cell(-1, 0)), Err(BuildReject::OutOfBounds));
+    assert_eq!(g.check(Cell(0, 1)), Err(BuildReject::OutOfBounds));
+    assert_eq!(g.cell_center(Cell(1, 0)), Vec2::new(7.0, 2.0));
+}
+
 /// TO3: upgrade swaps the tier in place — pays the target def's cost,
 /// keeps cell + population, changes the def; max tier rejects.
 #[test]

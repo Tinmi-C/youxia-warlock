@@ -185,6 +185,7 @@ pub fn update_hover_ghost(
     defs: Res<TowerDefs>,
     wave: Res<WaveState>,
     state: Res<State<GameState>>,
+    grid: Res<warbase::prelude::BuildGrid>,
     slots: Query<(Entity, &mut TowerSlot, &Transform)>,
     mut cache: Local<(usize, Option<Entity>)>, // (last tower type, ghost entity)
     mut meshes: ResMut<Assets<Mesh>>,
@@ -202,7 +203,8 @@ pub fn update_hover_ghost(
         if let (Some((cam, cam_tf)), Some(cursor)) = (cam, cursor) {
             if let Some((slot_e, pos)) = nearest_slot_screen(&slots, cursor, cam, cam_tf) {
                 if let Ok((_, slot, _)) = slots.get(slot_e) {
-                    if !slot.occupied {
+                    // WX6-6c: same-source occupancy verdict from the grid.
+                    if grid.check(crate::systems::map::slot_cell(slot.index)).is_ok() {
                         target = Some(pos);
                     }
                 }
@@ -436,6 +438,19 @@ pub fn handle_lang_button(
 }
 
 /// Left click in build mode places the armed tower at the nearest slot.
+/// Bundled placement-gate params (mouse_place_system sat at the 16-tuple
+/// wall once the grid joined; same pattern as command.rs's CardParams).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct PlaceGate<'w> {
+    pub selected: Res<'w, SelectedTower>,
+    pub defs: Res<'w, TowerDefs>,
+    pub wave: Res<'w, WaveState>,
+    pub hand: Res<'w, Hand>,
+    pub build: Res<'w, BuildMode>,
+    pub economy: ResMut<'w, Economy>,
+    pub grid: ResMut<'w, warbase::prelude::BuildGrid>,
+}
+
 pub fn mouse_place_system(
     buttons: Res<ButtonInput<MouseButton>>,
     server: Option<Res<AssetServer>>,
@@ -443,18 +458,15 @@ pub fn mouse_place_system(
     camera: Query<(&Camera, &GlobalTransform)>,
     blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
     panel: Res<crate::resources::DebugPanelCapture>,
-    selected: Res<SelectedTower>,
-    defs: Res<TowerDefs>,
-    wave: Res<WaveState>,
-    hand: Res<Hand>,
-    build: Res<BuildMode>,
-    mut economy: ResMut<Economy>,
+    mut place: PlaceGate<'_>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
 ) {
-    if !build.armed || !buttons.just_pressed(MouseButton::Left) || wave.phase != WavePhase::Intermission
+    if !place.build.armed
+        || !buttons.just_pressed(MouseButton::Left)
+        || place.wave.phase != WavePhase::Intermission
     {
         return;
     }
@@ -470,28 +482,31 @@ pub fn mouse_place_system(
     let Some((slot_e, _)) = nearest_slot_screen(&slots, cursor, cam_comp, cam_tf) else {
         return;
     };
-    let Some(def) = defs.list.get(selected.tower_index) else {
+    let Some(def) = place.defs.list.get(place.selected.tower_index) else {
         return;
     };
-    if !hand.owned_towers.contains(&selected.tower_index) || economy.gold < def.cost {
+    if !place.hand.owned_towers.contains(&place.selected.tower_index)
+        || place.economy.gold < def.cost
+    {
         return;
     }
-    if let Ok((_, mut slot, stf)) = slots.get_mut(slot_e) {
-        if slot.occupied {
-            return;
+    if let Ok((_, slot, stf)) = slots.get(slot_e) {
+        let cell = crate::systems::map::slot_cell(slot.index);
+        if place.grid.check(cell).is_err() {
+            return; // occupied (or invalid) — the grid is the authority
         }
-        slot.occupied = true;
-        economy.gold -= def.cost;
-        crate::systems::tower::spawn_base_tower(
+        place.economy.gold -= def.cost;
+        let tower = crate::systems::tower::spawn_base_tower(
             &mut commands,
             def,
-            selected.tower_index,
+            place.selected.tower_index,
             stf.translation,
             &mut meshes,
             &mut materials,
             server.as_deref(),
         );
-        info!("[mouse] placed {} at slot, gold={}", def.name, economy.gold);
+        place.grid.place(cell, tower);
+        info!("[mouse] placed {} at slot, gold={}", def.name, place.economy.gold);
     }
 }
 
