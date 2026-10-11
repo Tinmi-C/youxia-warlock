@@ -6234,6 +6234,45 @@ mod stats_pipeline {
     }
 }
 
+// --- WX6-4a: one-axis armor rides the base's matrix ------------------------------
+
+mod armor_table {
+    use super::*;
+
+    /// The warden semantics as a base table: exactly one 0.5 cell
+    /// (physical x armored), everything else full damage.
+    #[test]
+    fn warden_table_is_the_one_axis_semantics() {
+        let t = warden::systems::damage::warden_armor_table();
+        use warbase::prelude::{ArmorType, AttackType};
+        let m = |a: AttackType, ar: ArmorType| t.multiplier(a, ar);
+        assert_eq!(
+            m(warden::systems::damage::to_base_attack(warden::components::AttackType::Physical), ArmorType::Fortified),
+            0.5,
+            "physical vs armored halves"
+        );
+        assert_eq!(
+            m(warden::systems::damage::to_base_attack(warden::components::AttackType::Magic), ArmorType::Fortified),
+            1.0,
+            "magic bypasses"
+        );
+        assert_eq!(
+            m(warden::systems::damage::to_base_attack(warden::components::AttackType::Mixed), ArmorType::Fortified),
+            1.0,
+            "mixed (piercing row) bypasses"
+        );
+        for a in AttackType::ALL {
+            for ar in ArmorType::ALL {
+                let v = m(a, ar);
+                assert!(
+                    v == 1.0 || (a == AttackType::Normal && ar == ArmorType::Fortified),
+                    "no stray cells: {a:?} x {ar:?} = {v}"
+                );
+            }
+        }
+    }
+}
+
 // --- SK7: unified damage pipeline (ADR-0011) ----------------------------------------
 
 mod damage_pipeline {

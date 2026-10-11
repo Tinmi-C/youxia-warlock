@@ -94,15 +94,47 @@ pub struct DamageDealt {
     pub killed: bool,
 }
 
-/// One-axis armor (§6): physical is halved vs armored enemies; magic and
-/// mixed (穿甲) bypass it. Lives here since SK7 — the single resolution
-/// point of every damage request.
-pub fn effective_damage(attack_type: AttackType, physical_armor: bool, base: f32) -> f32 {
-    if physical_armor && attack_type == AttackType::Physical {
-        base * 0.5
-    } else {
-        base
+/// One-axis armor (§6), table-driven since WX6-4a: the warden semantics
+/// (physical halved vs armored; magic/mixed bypass) ride the BASE's
+/// attack-x-armor matrix — Normal/Fortified is the only 0.5 cell, every
+/// other combo 1.0. The table becomes map data with warden.ron (WX6-6).
+pub fn warden_armor_table() -> warbase::prelude::AttackArmorTable {
+    let mut table = warbase::prelude::AttackArmorTable::default();
+    table.mult[warbase::prelude::AttackType::Normal as usize]
+        [warbase::prelude::ArmorType::Fortified as usize] = 0.5;
+    table
+}
+
+/// Map warden's three attack channels onto base attack types (distinct rows
+/// so readings/UI keep the three identities; only Normal meets the 0.5 cell).
+pub fn to_base_attack(attack: AttackType) -> warbase::prelude::AttackType {
+    match attack {
+        AttackType::Physical => warbase::prelude::AttackType::Normal,
+        AttackType::Magic => warbase::prelude::AttackType::Magic,
+        AttackType::Mixed => warbase::prelude::AttackType::Piercing,
     }
+}
+
+/// Armor component for an enemy (physical armor => Fortified, else Light).
+pub fn base_armor(physical_armor: bool) -> warbase::prelude::ArmorType {
+    if physical_armor {
+        warbase::prelude::ArmorType::Fortified
+    } else {
+        warbase::prelude::ArmorType::Light
+    }
+}
+
+/// The single resolution point of every damage request (table-driven).
+pub fn effective_damage(
+    table: &warbase::prelude::AttackArmorTable,
+    attack_type: AttackType,
+    physical_armor: bool,
+    base: f32,
+) -> f32 {
+    base * table.multiplier(
+        to_base_attack(attack_type),
+        base_armor(physical_armor),
+    )
 }
 
 /// THE sole writer of enemy `Hp` (SK7; the component is the base's since
@@ -114,6 +146,7 @@ pub fn resolve_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageRequest>,
     mut dealt: MessageWriter<DamageDealt>,
+    table: Res<warbase::prelude::AttackArmorTable>,
     mut enemies: Query<(&mut warbase::prelude::Hp, &Enemy)>,
 ) {
     for req in requests.read() {
@@ -123,7 +156,7 @@ pub fn resolve_damage(
         if hp.0 <= 0.0 {
             continue; // corpse: another request this frame already killed it
         }
-        let applied = effective_damage(req.attack_type, en.physical_armor, req.amount);
+        let applied = effective_damage(&table, req.attack_type, en.physical_armor, req.amount);
         let killed = hp.0 - applied <= 0.0;
         hp.0 -= applied;
         commands.entity(req.victim).insert(HitFlash {

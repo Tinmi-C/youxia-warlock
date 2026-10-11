@@ -88,6 +88,41 @@ pub fn spawn_enemy(
     );
 }
 
+/// The warden enemy defs as a BASE UnitRegistry (WX6-4a bridge, code-built
+/// now — the same rows ship as warden.ron data with WX6-6): name-keyed,
+/// armor mapped through the one-axis flag, bounty = kill gold. Lets the
+/// base's damage/death pipeline attribute by def id.
+pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
+    let mut out = std::collections::HashMap::new();
+    for def in &defs.list {
+        out.insert(
+            def.name.to_string(),
+            warbase::prelude::UnitDef {
+                id: def.name.to_string(),
+                attrs: warbase::prelude::BaseAttributes {
+                    hp: def.hp,
+                    move_speed: def.speed,
+                    body_radius: 0.35,
+                },
+                attack: None,
+                armor_type: crate::systems::damage::base_armor(def.physical_armor),
+                cost_gold: 0,
+                cost_wood: 0,
+                bounty_gold: def.kill_gold,
+                bounty_wood: 0,
+                grant_xp: 0,
+                traits: vec![],
+                auras: vec![],
+                hero: false,
+                skills: vec![],
+                upgrade_to: None,
+                heal: None,
+            },
+        );
+    }
+    warbase::prelude::UnitRegistry { defs: out }
+}
+
 /// World units per speed point for this path (§9 anchor: speed 1.0 crosses
 /// the whole path in ~20 s, derived from the actual path length at spawn).
 pub fn path_units_per_point(path: &PathInfo) -> f32 {
@@ -173,6 +208,10 @@ pub fn spawn_enemy_at(
             // golden (the FX1 big-bar convention).
             warbase::prelude::Hp(hp),
             warbase::prelude::MaxHp(def.hp),
+            warbase::prelude::Armor(crate::systems::damage::base_armor(
+                def.physical_armor,
+            )),
+            warbase::prelude::UnitInstance { def: def.name.to_string(), level: 1 },
             // WX6-1: the base's path movement (advance_followers writes the
             // XZ translation; the spawn Y survives — models are feet-origin).
             warbase::prelude::PathFollower {

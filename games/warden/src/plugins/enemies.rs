@@ -15,7 +15,10 @@ pub struct EnemiesPlugin;
 
 impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(EnemyDefs::palette())
+        let defs = EnemyDefs::palette();
+        app.insert_resource(systems::damage::warden_armor_table())
+        .insert_resource(systems::enemy::enemy_unit_registry(&defs))
+        .insert_resource(defs)
             .add_systems(
                 Update,
                 (
