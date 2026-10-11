@@ -1,0 +1,3 @@
+coins=15
+upgrade1=0
+upgrade2=0

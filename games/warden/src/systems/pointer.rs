@@ -127,30 +127,40 @@ pub fn refresh_choice_cards(
                     ChoiceCardButton { index: i },
                     Interaction::None,
                     Node {
-                        width: Val::Px(230.0),
-                        height: Val::Px(64.0),
+                        width: Val::Px(crate::systems::theme::CARD_W),
+                        height: Val::Px(crate::systems::theme::CARD_H),
+                        flex_direction: FlexDirection::Column,
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
+                        row_gap: Val::Px(4.0),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(3.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.25, 0.22, 0.45)),
+                    BackgroundColor(crate::systems::theme::PARCHMENT),
+                    BorderColor::all(crate::systems::theme::GOLD),
                 ))
                 .with_children(|p| {
                     p.spawn((
-                        Text::new(format!(
-                            "[{}] {}",
-                            i + 1,
-                            match *lang {
-                                Lang::Zh => opt.label.as_str(),
-                                Lang::En => opt.label_en.as_str(),
-                            }
-                        )),
+                        Text::new(format!("[{}", i + 1)),
                         TextFont {
                             font: font.0.clone(),
-                            font_size: FontSize::Px(14.0),
+                            font_size: FontSize::Px(crate::systems::theme::FONT_LABEL),
                             ..default()
                         },
-                        TextColor(Color::WHITE),
+                        TextColor(crate::systems::theme::GOLD_DARK),
+                    ));
+                    p.spawn((
+                        Text::new(match *lang {
+                            Lang::Zh => opt.label.as_str(),
+                            Lang::En => opt.label_en.as_str(),
+                        }),
+                        TextFont {
+                            font: font.0.clone(),
+                            font_size: FontSize::Px(crate::systems::theme::FONT_TITLE),
+                            ..default()
+                        },
+                        TextColor(crate::systems::theme::INK),
                     ));
                 });
             }
@@ -289,16 +299,16 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
                     font_size: FontSize::Px(34.0),
                     ..default()
                 },
-                TextColor(Color::srgb(1.0, 0.85, 0.4)),
+                TextColor(crate::systems::theme::GOLD),
             ));
             root.spawn((
                 Text::new(l10n::END_HINT.pick(lang)),
                 TextFont {
                     font: font.0.clone(),
-                    font_size: FontSize::Px(14.0),
+                    font_size: FontSize::Px(crate::systems::theme::FONT_BUTTON),
                     ..default()
                 },
-                TextColor(Color::WHITE),
+                TextColor(crate::systems::theme::STONE_LIP),
             ));
             root.spawn(Node {
                 flex_direction: FlexDirection::Row,
@@ -319,19 +329,21 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
                             height: Val::Px(44.0),
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
+                            border: UiRect::all(Val::Px(1.0)),
                             ..default()
                         },
-                        BackgroundColor(Color::srgb(0.2, 0.35, 0.5)),
+                        BackgroundColor(crate::systems::theme::STONE),
+                        BorderColor::all(crate::systems::theme::GOLD),
                     ))
                     .with_children(|p| {
                         p.spawn((
                             Text::new(label),
                             TextFont {
                                 font: font.0.clone(),
-                                font_size: FontSize::Px(13.0),
+                                font_size: FontSize::Px(crate::systems::theme::FONT_BUTTON),
                                 ..default()
                             },
-                            TextColor(Color::WHITE),
+                            TextColor(crate::systems::theme::INK),
                         ));
                     });
                 }
@@ -344,19 +356,21 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
                         height: Val::Px(44.0),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.15, 0.5, 0.25)),
+                    BackgroundColor(crate::systems::theme::GOLD),
+                    BorderColor::all(crate::systems::theme::GOLD_DARK),
                 ))
                 .with_children(|p| {
                     p.spawn((
                         Text::new(l10n::RETRY.pick(lang)),
                         TextFont {
                             font: font.0.clone(),
-                            font_size: FontSize::Px(15.0),
+                            font_size: FontSize::Px(crate::systems::theme::FONT_TITLE),
                             ..default()
                         },
-                        TextColor(Color::WHITE),
+                        TextColor(crate::systems::theme::GOLD_DARK),
                     ));
                 });
             });

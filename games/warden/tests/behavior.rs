@@ -1160,16 +1160,23 @@ fn lang_toggle_switches_hud_and_shop_copy() {
     app.world_mut().insert_resource(UiPrefsPath(path.clone()));
     app.update(); // startup + first frame: shop bar built (Chinese)
 
-    assert!(hud_text(&mut app).contains("金币"), "default lang is Chinese");
+    // ui-polish 后金币数字住在顶匾（GoldValue 格）而非军报行（HudText）。
+    let ui_texts = |app: &mut App| -> Vec<String> {
+        let mut q = app.world_mut().query::<&Text>();
+        q.iter(app.world()).map(|t| t.0.clone()).collect()
+    };
+    assert!(
+        ui_texts(&mut app).iter().any(|t| t.contains("金币")),
+        "default lang is Chinese"
+    );
 
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::KeyL);
     app.update();
-    let text = hud_text(&mut app);
     assert!(
-        text.contains("Gold="),
-        "L must switch the HUD to English, got: {text}"
+        ui_texts(&mut app).iter().any(|t| t.contains("Gold=")),
+        "L must switch the HUD plaque to English"
     );
     // The shop bar rebuilds in English (offer cards carry the [Shop] prefix).
     let mut q = app.world_mut().query::<&Text>();

@@ -33,5 +33,6 @@ pub mod archer_skills;
 pub mod fusion_skills;
 // Stat modification pipeline (SK6): StatMods -> EffectiveStats aggregation.
 pub mod stats;
+pub mod theme;
 pub mod tower;
 pub mod wave;

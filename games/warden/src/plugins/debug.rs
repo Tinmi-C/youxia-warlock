@@ -118,7 +118,7 @@ fn build_debug(app: &mut App) {
         .add_systems(PreUpdate, dbg::skill_card_cursor_pin)
         .add_systems(
             Update,
-            (log_dashboard, screenshot_on_f12, dbg::skill_card_shots, dbg::debug_panel_toggle),
+            (log_dashboard, screenshot_on_f12, env_auto_shots, dbg::skill_card_shots, dbg::debug_panel_toggle),
         )
         // SM4: the showroom baseline sweep (no-ops outside baseline mode).
         .add_systems(Update, crate::systems::showroom::showroom_baseline_sweep)
@@ -418,6 +418,43 @@ fn screenshot_on_f12(keys: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
             .spawn(Screenshot::primary_window())
             .observe(save_to_disk("screenshot.png"));
         info!("[dash] screenshot saved to screenshot.png");
+    }
+}
+
+/// WARDEN_SHOTS="30,120,300"（debug 构建）：在指定帧自动 GPU 截图到
+/// /tmp/ui-polish/warden_f<N>.png。窗口可被遮挡——截图走渲染面而非屏幕
+/// 抓取，是 UI 视觉自检闭环的无人工通道（ui-polish 期间加入）。
+#[cfg(debug_assertions)]
+fn env_auto_shots(
+    mut shot: Local<Vec<u64>>,
+    mut frame: Local<u64>,
+    mut commands: Commands,
+) {
+    if shot.is_empty() && *frame == 0 {
+        *shot = std::env::var("WARDEN_SHOTS")
+            .ok()
+            .map(|v| {
+                v.split(',')
+                    .filter_map(|s| s.trim().parse::<u64>().ok())
+                    .collect::<Vec<u64>>()
+            })
+            .unwrap_or_default();
+        if !shot.is_empty() {
+            info!("[dash] env auto-shots armed at frames {:?}", *shot);
+        }
+    }
+    *frame += 1;
+    if shot.is_empty() {
+        return;
+    }
+    if *frame >= shot[0] {
+        let at = shot.remove(0);
+        let path = format!("/tmp/ui-polish/warden_f{at}.png");
+        std::fs::create_dir_all("/tmp/ui-polish").ok();
+        commands
+            .spawn(Screenshot::primary_window())
+            .observe(save_to_disk(path));
+        info!("[dash] auto shot at frame {at}");
     }
 }
 

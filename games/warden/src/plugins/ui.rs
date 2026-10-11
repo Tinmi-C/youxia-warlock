@@ -32,6 +32,7 @@ impl Plugin for UiPlugin {
                 Update,
                 (
                     systems::hud::update_hud,
+                    systems::hud::update_plaque_labels,
                     systems::pointer::refresh_choice_cards,
                     systems::pointer::update_hover_ghost,
                     systems::pointer::refresh_end_screen,

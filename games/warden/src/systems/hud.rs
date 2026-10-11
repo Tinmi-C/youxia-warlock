@@ -1,25 +1,53 @@
-//! HUD: a Chinese status line + a static help line (UI2). Dynamic UI is the
-//! observation channel for the closed loop. The status line also shows the
-//! meta purchase hints on the GameOver/Win screens (ME1).
-//! Capability cards: UI4 (HUD), UI2 (panel + Chinese copy), UI6 (bundled font).
+//! HUD（ui-polish 改版）：晴昼要塞的「指挥甲板」——
+//!   顶匾（白灰石）：金币 / 基地 / 波次 三格，标签小字 + 大数字，瞄一眼就够；
+//!   军报（羊皮纸）：备战期的下一波军情（高光时刻，开波即收起）、
+//!     技能瞄准提示、三选一提示、终局结算文案——`HudText` 的现代身份。
+//! 数值写入只在变化时落笔（icu 重排教训）。设计基线见 docs/design.md。
+//! Capability cards: UI4 (HUD), UI2 (中文文案), UI6 (bundled font),
+//! UI8 (next-wave preview), ME1 (settle hints)。
 
 use bevy::prelude::*;
 use bevy::text::FontSource;
 
 use crate::resources::{
-    Economy, EnemyDefs, Hand, Lang, MetaState, SelectedTower, TowerDefs, UPGRADE1_COST,
-    UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule, WaveState,
+    Economy, EnemyDefs, Lang, WaveChoice, WavePhase, WaveSchedule, WaveState, UPGRADE1_COST,
+    UPGRADE2_COST,
 };
 use crate::states::GameState;
 use crate::systems::l10n;
+use crate::systems::theme;
 
-/// Marker on the live status line (updated every frame by `update_hud`).
+/// 顶匾金币格标签（随语言切换重写）。
+#[derive(Component)]
+pub struct GoldLabel;
+
+/// 顶匾金币数值（update_hud 对表改写）。
+#[derive(Component)]
+pub struct GoldValue;
+
+/// 顶匾基地格标签。
+#[derive(Component)]
+pub struct ShieldLabel;
+
+/// 顶匾基地血量数值。
+#[derive(Component)]
+pub struct ShieldValue;
+
+/// 顶匾波次格数值。
+#[derive(Component)]
+pub struct WaveValue;
+
+/// 军报羊皮纸的正文（历史名 HudText——测试与 l10n 的契约点）。
 #[derive(Component)]
 pub struct HudText;
 
-/// Marker on the static help line (rewritten only when the language changes).
+/// 军报眉题（随语言切换重写）。
 #[derive(Component)]
-pub struct HelpText;
+pub struct ReportHeader;
+
+/// 军报面板根（可见性开关在面板上）。
+#[derive(Component)]
+pub struct FieldReport;
 
 /// The bundled open-source CJK font (UI6): Noto Sans SC under SIL OFL 1.1
 /// (license at `assets/fonts/OFL.txt`). Shipping the file makes rendering
@@ -45,166 +73,305 @@ pub fn setup_ui_font(mut commands: Commands, server: Option<Res<AssetServer>>) {
     );
 }
 
+/// 顶匾的一格：小标签在上、大数字在下。
+fn plaque_cell(
+    parent: &mut ChildSpawnerCommands,
+    font: &UiFont,
+    label: &str,
+    label_marker: Option<impl Component>,
+    value_marker: impl Component,
+    value_color: Color,
+) {
+    parent
+        .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: Val::Px(2.0),
+            padding: UiRect::px(12.0, 16.0, 6.0, 6.0),
+            ..default()
+        })
+        .with_children(|cell| {
+            // 标签实体：带语言刷新标记（None = 静态标签）。
+            if let Some(m) = label_marker {
+                cell.spawn((
+                    m,
+                    Text::new(label.to_string()),
+                    TextFont {
+                        font: font.0.clone(),
+                        font_size: FontSize::Px(theme::FONT_LABEL),
+                        ..default()
+                    },
+                    TextColor(theme::INK_SOFT),
+                ));
+            } else {
+                cell.spawn((
+                    Text::new(label.to_string()),
+                    TextFont {
+                        font: font.0.clone(),
+                        font_size: FontSize::Px(theme::FONT_LABEL),
+                        ..default()
+                    },
+                    TextColor(theme::INK_SOFT),
+                ));
+            }
+            cell.spawn((
+                value_marker,
+                Text::new(String::new()),
+                TextFont {
+                    font: font.0.clone(),
+                    font_size: FontSize::Px(theme::FONT_NUM),
+                    ..default()
+                },
+                TextColor(value_color),
+            ));
+        });
+}
+
+/// 全宽透明锚条：内容水平居中的载体（position absolute 的居中容器）。
+fn center_strip(extra: Node) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(0.0),
+        right: Val::Px(0.0),
+        justify_content: JustifyContent::Center,
+        ..extra
+    }
+}
+
+/// Spawn the top plaque (three cells) and the field-report parchment.
 pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>, lang: Res<Lang>) {
-    commands.spawn((
-        HudText,
-        Text::new(""),
-        TextFont {
-            font: font.0.clone(),
-            font_size: FontSize::Px(14.0),
+    use theme::*;
+    // --- 顶匾：一块白灰石，三格并排，悬于屏幕顶部居中 ---
+    commands
+        .spawn(center_strip(Node {
+            top: Val::Px(8.0),
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Stretch,
             ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(10.0),
-            left: Val::Px(10.0),
+        }))
+        .with_children(|strip| {
+            strip
+                .spawn((
+                    BackgroundColor(STONE),
+                    BorderColor::all(STONE_SEAM),
+                    stone_node(),
+                ))
+                .with_children(|plaque| {
+                    // 顶缘阳光亮线：上午日打在甲板边沿（2px 石亮条）。
+                    plaque.spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            top: Val::Px(0.0),
+                            left: Val::Px(0.0),
+                            right: Val::Px(0.0),
+                            height: Val::Px(2.0),
+                            ..default()
+                        },
+                        BackgroundColor(STONE_LIP),
+                    ));
+                    plaque_cell(&mut plaque.reborrow(), &font, l10n::GOLD_EQ.pick(*lang), Some(GoldLabel), GoldValue, GOLD);
+                    plaque_cell(&mut plaque.reborrow(), &font, l10n::BASE_EQ.pick(*lang), Some(ShieldLabel), ShieldValue, INK);
+                    plaque_cell(&mut plaque.reborrow(), &font, "", None::<WaveValue>, WaveValue, INK);
+                });
+        });
+
+    // --- 军报羊皮纸：顶匾之下居中拉开一掌，备战期揭示，开波即收起 ---
+    commands
+        .spawn(center_strip(Node {
+            top: Val::Px(88.0),
             ..default()
-        },
-    ));
-    // Static operation help (UI2): pure-mouse flow first, keys as fallback.
-    // The text is re-picked in `update_hud` when the language toggles (UI7).
-    commands.spawn((
-        HelpText,
-        Text::new(l10n::HELP_LINE.pick(*lang)),
-        TextFont {
-            font: font.0.clone(),
-            font_size: FontSize::Px(12.0),
-            ..default()
-        },
-        TextColor(Color::srgb(0.75, 0.75, 0.75)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(32.0),
-            left: Val::Px(10.0),
-            ..default()
-        },
-    ));
+        }))
+        .with_children(|strip| {
+            strip
+                .spawn((
+                    FieldReport,
+                    Visibility::Hidden,
+                    BackgroundColor(PARCHMENT),
+                    BorderColor::all(PARCHMENT_SEAM),
+                    Node {
+                        padding: UiRect::px(28.0, 36.0, 12.0, 12.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: Val::Px(6.0),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(3.0)),
+                        ..default()
+                    },
+                ))
+                .with_children(|report| {
+                    // 眉题（哨卡的印章语言）：小字金压暗。
+                    report.spawn((
+                        ReportHeader,
+                        Text::new(l10n::REPORT_HEADER.pick(*lang).to_string()),
+                        TextFont {
+                            font: font.0.clone(),
+                            font_size: FontSize::Px(theme::FONT_LABEL),
+                            ..default()
+                        },
+                        TextColor(theme::GOLD_DARK),
+                    ));
+                    report.spawn((
+                        HudText,
+                        Text::new(String::new()),
+                        TextFont {
+                            font: font.0.clone(),
+                            font_size: FontSize::Px(theme::FONT_TITLE),
+                            ..default()
+                        },
+                        TextColor(theme::INK),
+                        TextLayout::justify(Justify::Center),
+                    ));
+                });
+        });
+}
+
+/// 顶匾标签随语言切换重写（独立小系统，免 update_hud 破参数墙）。
+pub fn update_plaque_labels(
+    mut gold_label: Query<&mut Text, (With<GoldLabel>, Without<ShieldLabel>, Without<ReportHeader>)>,
+    mut shield_label: Query<&mut Text, (With<ShieldLabel>, Without<GoldLabel>, Without<ReportHeader>)>,
+    mut report_header: Query<
+        &mut Text,
+        (
+            With<ReportHeader>,
+            Without<GoldLabel>,
+            Without<ShieldLabel>,
+            Without<HudText>,
+        ),
+    >,
+    lang: Res<Lang>,
+) {
+    let lang = *lang;
+    for mut t in &mut gold_label {
+        if t.0 != l10n::GOLD_EQ.pick(lang) {
+            t.0 = l10n::GOLD_EQ.pick(lang).to_string();
+        }
+    }
+    for mut t in &mut shield_label {
+        if t.0 != l10n::BASE_EQ.pick(lang) {
+            t.0 = l10n::BASE_EQ.pick(lang).to_string();
+        }
+    }
+    for mut t in &mut report_header {
+        if t.0 != l10n::REPORT_HEADER.pick(lang) {
+            t.0 = l10n::REPORT_HEADER.pick(lang).to_string();
+        }
+    }
 }
 
 pub fn update_hud(
-    mut q: Query<&mut Text, With<HudText>>,
+    mut gold: Query<&mut Text, With<GoldValue>>,
+    mut shield: Query<(&mut Text, &mut TextColor), (With<ShieldValue>, Without<GoldValue>)>,
+    mut wave: Query<
+        &mut Text,
+        (
+            With<WaveValue>,
+            Without<GoldValue>,
+            Without<ShieldValue>,
+        ),
+    >,
+    mut report_text: Query<
+        &mut Text,
+        (
+            With<HudText>,
+            Without<GoldValue>,
+            Without<ShieldValue>,
+            Without<WaveValue>,
+            Without<ReportHeader>,
+        ),
+    >,
+    mut report_vis: Query<&mut Visibility, With<FieldReport>>,
     economy: Res<Economy>,
     lives: Res<warbase::prelude::LivesLeft>,
     rules: Res<warbase::prelude::MatchRules>,
-    wave: Res<WaveState>,
-    selected: Res<SelectedTower>,
-    defs: Res<TowerDefs>,
-    hand: Res<Hand>,
-    choice: Res<WaveChoice>,
-    meta: Res<MetaState>,
+    wave_state: Res<WaveState>,
     schedule: Res<WaveSchedule>,
     enemy_defs: Res<EnemyDefs>,
+    choice: Res<WaveChoice>,
     state: Res<State<GameState>>,
     aiming: Res<crate::resources::SkillAiming>,
     lang: Res<Lang>,
-    mut help: Query<&mut Text, (With<HelpText>, Without<HudText>)>,
 ) {
     let lang = *lang;
-    let sel_name = defs
-        .list
-        .get(selected.tower_index)
-        .map(|d| l10n::tower_label(d, lang))
-        .unwrap_or("?");
-    let phase_label = match wave.phase {
+    // 顶匾数值：变化时才写（CJK 重排一帧一行的教训）。
+    let set = |t: &mut Text, want: String| {
+        if t.0 != want {
+            t.0 = want;
+        }
+    };
+    let max_lives = match &rules.leak {
+        warbase::prelude::LeakPolicy::Lives { lives } => *lives,
+        _ => 0,
+    };
+    let phase_label = match wave_state.phase {
         WavePhase::Intermission => l10n::PHASE_BUILD.pick(lang),
         WavePhase::Combat => l10n::PHASE_COMBAT.pick(lang),
     };
-    let wave_seg = l10n::hud_wave(
-        lang,
-        (wave.current + 1) as usize,
-        schedule.waves.len(),
-        phase_label,
-    );
-    let hand_seg = hand
-        .owned_towers
-        .iter()
-        .map(|i| l10n::tower_label(&defs.list[*i], lang))
-        .collect::<Vec<_>>()
-        .join(",");
-    let mut text = format!(
-        "{}{} · {}{}/{} · {} · {}{} · {}[{}] · {}{}",
-        l10n::GOLD_EQ.pick(lang),
-        economy.gold,
-        l10n::BASE_EQ.pick(lang),
-        lives.0,
-        match &rules.leak {
-            warbase::prelude::LeakPolicy::Lives { lives } => *lives,
-            _ => 0,
-        },
-        wave_seg,
-        l10n::SEL.pick(lang),
-        sel_name,
-        l10n::HAND.pick(lang),
-        hand_seg,
-        l10n::COINS_EQ.pick(lang),
-        meta.coins,
-    );
-    if choice.pending {
-        let opts = choice
-            .options
-            .iter()
-            .enumerate()
-            .map(|(i, o)| {
-                format!(
-                    "[{}]{}",
-                    i + 1,
-                    match lang {
-                        Lang::Zh => o.label.as_str(),
-                        Lang::En => o.label_en.as_str(),
-                    }
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("  ");
-        text.push_str(&format!("  | {}{opts}", l10n::CHOICE.pick(lang)));
+    for mut t in &mut gold {
+        set(&mut t, economy.gold.to_string());
     }
-    // SK5/SK8: while a point skill awaits its ground confirm, the status
-    // line carries the targeting hint (§17.3). Targeting REPLACES the wave
-    // preview rather than appending — the line otherwise grows long enough
-    // to collide with the corner overlays.
+    for (mut t, mut c) in &mut shield {
+        set(&mut t, format!("{}/{}", lives.0, max_lives));
+        // 低血量转警红（低于开局三成即亮红示警）。
+        let want = if max_lives > 0 && lives.0 * 3 <= max_lives {
+            theme::ALERT_RED
+        } else {
+            theme::INK
+        };
+        if c.0 != want {
+            c.0 = want;
+        }
+    }
+    for mut t in &mut wave {
+        set(
+            &mut t,
+            l10n::hud_wave(
+                lang,
+                (wave_state.current + 1) as usize,
+                schedule.waves.len(),
+                phase_label,
+            ),
+        );
+    }
+
+    // 军报：终局结算 > 瞄准提示 > 三选一 > 备战军情（UI8）。
     let targeting = aiming.0.is_some();
-    if targeting {
-        text.push_str(&format!("  | {}", l10n::SKILL_TARGET_HINT.pick(lang)));
-    }
-    // UI8: during the build window, preview the next wave's composition and
-    // reward so the slow-phase decisions are informed (requirements §3/§10).
-    if !targeting && *state.get() == GameState::Playing && wave.phase == WavePhase::Intermission {
-        if let Some(next) = schedule.waves.get(wave.current as usize) {
-            let composition = next
-                .entries
-                .iter()
-                .filter_map(|e| {
-                    enemy_defs
-                        .list
-                        .get(e.enemy_index)
-                        .map(|d| format!("{}×{}", l10n::enemy_label(d, lang), e.count))
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            text.push_str(&format!(
-                "  | {}",
-                l10n::next_wave_preview(lang, &composition, next.reward)
-            ));
-        }
-    }
+    let mut text = String::new();
+    let mut show = false;
     if matches!(state.get(), GameState::GameOver | GameState::Win) {
-        text.push_str("  | ");
         text.push_str(&l10n::hud_settle(lang, UPGRADE1_COST, UPGRADE2_COST));
-    }
-    // Skip the write when the line is unchanged: assigning `Text` every frame
-    // marks it changed and forces a full CJK re-layout (plus one icu_provider
-    // warn per run), which was ~1200 log lines/sec of pure CPU burn.
-    for mut t in &mut q {
-        if t.0 != text {
-            t.0 = text.clone();
+        show = true;
+    } else if *state.get() == GameState::Playing {
+        if targeting {
+            text.push_str(l10n::SKILL_TARGET_HINT.pick(lang));
+            show = true;
+        } else if choice.pending {
+            text.push_str(l10n::CHOICE.pick(lang));
+            show = true;
+        } else if wave_state.phase == WavePhase::Intermission {
+            if let Some(next) = schedule.waves.get(wave_state.current as usize) {
+                let composition = next
+                    .entries
+                    .iter()
+                    .filter_map(|e| {
+                        enemy_defs
+                            .list
+                            .get(e.enemy_index)
+                            .map(|d| format!("{}×{}", l10n::enemy_label(d, lang), e.count))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                text.push_str(&l10n::next_wave_preview(lang, &composition, next.reward));
+                show = true;
+            }
         }
     }
-    // The help line only rewrites when the language actually changed (UI7).
-    for mut h in &mut help {
-        let want = l10n::HELP_LINE.pick(lang);
-        if h.0 != want {
-            h.0 = want.to_string();
+    for mut t in &mut report_text {
+        set(&mut t, text.clone());
+    }
+    for mut v in &mut report_vis {
+        let want = if show { Visibility::Visible } else { Visibility::Hidden };
+        if *v != want {
+            *v = want;
         }
     }
 }

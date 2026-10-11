@@ -158,9 +158,12 @@ fn tower_skill_button(
                 height: Val::Px(42.0),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.2, 0.3, 0.4)),
+            BackgroundColor(crate::systems::theme::PARCHMENT),
+            BorderColor::all(crate::systems::theme::PARCHMENT_SEAM),
         ))
         .with_children(|p| {
             p.spawn((
@@ -171,7 +174,7 @@ fn tower_skill_button(
                     font_size: FontSize::Px(11.0),
                     ..default()
                 },
-                TextColor(Color::WHITE),
+                TextColor(crate::systems::theme::INK),
             ));
             p.spawn((
                 Text::new(grid_badge(grid).to_string()),
@@ -218,14 +221,10 @@ pub fn refresh_tower_skill_buttons(
         };
         let ready = slot.cooldown <= 0.0;
         if let Ok(mut bg) = backgrounds.get_mut(eid) {
-            bg.0 = if ready {
-                Color::srgb(0.2, 0.3, 0.4)
-            } else {
-                Color::srgb(0.16, 0.16, 0.18)
-            };
+            bg.0 = if ready { crate::systems::theme::PARCHMENT } else { crate::systems::theme::STONE_DIM };
         }
         let (label, color) = if !ready {
-            (format!("{:.0}", slot.cooldown), Color::srgb(0.75, 0.75, 0.78))
+            (format!("{:.0}", slot.cooldown), crate::systems::theme::INK_SOFT)
         } else {
             // "»" marks a running autocast toggle (WC3-style indicator).
             let auto = if slot.autocast_on { " »" } else { "" };
@@ -291,20 +290,43 @@ pub fn spawn_command_bar(mut commands: Commands, font: Res<UiFont>) {
                 left: Val::Px(0.0),
                 right: Val::Px(0.0),
                 bottom: Val::Px(0.0),
-                height: Val::Px(120.0),
+                height: Val::Px(crate::systems::theme::BAR_HEIGHT),
                 flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(10.0),
-                padding: UiRect::all(Val::Px(10.0)),
+                column_gap: Val::Px(crate::systems::theme::GAP),
+                padding: UiRect::all(Val::Px(12.0)),
+                border: UiRect::all(Val::Px(1.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.08, 0.09, 0.12)),
+            BackgroundColor(crate::systems::theme::STONE),
+            BorderColor::all(crate::systems::theme::STONE_SEAM),
         ))
         .with_children(|bar| {
-            // Left: info zone (selected-object details / hints).
-            bar.spawn(Node {
-                flex_grow: 1.2,
-                ..default()
-            })
+            // 甲板顶缘的阳光亮线（design.md：石面深度 = 双层描边 + 顶缘亮线）。
+            bar.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(0.0),
+                    left: Val::Px(0.0),
+                    right: Val::Px(0.0),
+                    height: Val::Px(2.0),
+                    ..default()
+                },
+                BackgroundColor(crate::systems::theme::STONE_LIP),
+            ));
+            // Left: info zone — 一张羊皮纸镶进甲板（军情/待命提示/选中详情）。
+            bar.spawn(
+                (
+                    Node {
+                        flex_grow: 1.2,
+                        padding: UiRect::px(12.0, 12.0, 8.0, 8.0),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(3.0)),
+                        ..default()
+                    },
+                    BackgroundColor(crate::systems::theme::PARCHMENT),
+                    BorderColor::all(crate::systems::theme::PARCHMENT_SEAM),
+                ),
+            )
             .with_children(|zone| {
                 zone.spawn((
                     InfoZoneText,
@@ -314,7 +336,7 @@ pub fn spawn_command_bar(mut commands: Commands, font: Res<UiFont>) {
                         font_size: FontSize::Px(13.0),
                         ..default()
                     },
-                    TextColor(Color::srgb(0.85, 0.88, 0.92)),
+                    TextColor(crate::systems::theme::INK),
                 ));
             });
             // Center: command card (grid of buttons, content per state).
@@ -360,31 +382,26 @@ fn command_button(
             CommandButton { action, enabled, grid },
             Interaction::None,
             Node {
-                width: Val::Px(104.0),
-                height: Val::Px(42.0),
+                width: Val::Px(crate::systems::theme::BTN_W),
+                height: Val::Px(crate::systems::theme::BTN_H),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
+                border: UiRect::all(Val::Px(1.0)),
                 ..default()
             },
-            BackgroundColor(if enabled {
-                Color::srgb(0.2, 0.3, 0.4)
-            } else {
-                Color::srgb(0.16, 0.16, 0.18)
-            }),
+            // 石槽：可用 = 石面 + 金描边；不可用（战斗锁/买不起）= 石哑无金。
+            BackgroundColor(if enabled { crate::systems::theme::STONE } else { crate::systems::theme::STONE_DIM }),
+            BorderColor::all(if enabled { crate::systems::theme::GOLD } else { crate::systems::theme::STONE_SEAM }),
         ))
         .with_children(|p| {
             p.spawn((
                 Text::new(label),
                 TextFont {
                     font: font.0.clone(),
-                    font_size: FontSize::Px(12.0),
+                    font_size: FontSize::Px(crate::systems::theme::FONT_BUTTON),
                     ..default()
                 },
-                TextColor(if enabled {
-                    Color::WHITE
-                } else {
-                    Color::srgb(0.45, 0.45, 0.45)
-                }),
+                TextColor(crate::systems::theme::INK),
             ));
             // Hotkey corner badge (§16.7).
             p.spawn((
@@ -394,7 +411,7 @@ fn command_button(
                     font_size: FontSize::Px(9.0),
                     ..default()
                 },
-                TextColor(Color::srgb(0.6, 0.8, 1.0)),
+                TextColor(crate::systems::theme::GOLD_DARK),
                 Node {
                     position_type: PositionType::Absolute,
                     top: Val::Px(2.0),
@@ -443,14 +460,16 @@ pub fn refresh_control_zone(
                 Button,
                 SpeedPlaceholderButton,
                 Interaction::None,
+                BackgroundColor(crate::systems::theme::STONE_DIM),
+                BorderColor::all(crate::systems::theme::STONE_SEAM),
                 Node {
                     width: Val::Px(44.0),
                     height: Val::Px(36.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.18, 0.18, 0.2)),
             ))
             .with_children(|p| {
                 p.spawn((
@@ -460,7 +479,7 @@ pub fn refresh_control_zone(
                         font_size: FontSize::Px(13.0),
                         ..default()
                     },
-                    TextColor(Color::srgb(0.45, 0.45, 0.45)),
+                    TextColor(crate::systems::theme::INK_SOFT),
                 ));
             });
             // Pause (mirrors the P key).
@@ -473,9 +492,11 @@ pub fn refresh_control_zone(
                     height: Val::Px(36.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.25, 0.25, 0.32)),
+                BackgroundColor(crate::systems::theme::STONE),
+                BorderColor::all(crate::systems::theme::STONE_SEAM),
             ))
             .with_children(|p| {
                 p.spawn((
@@ -485,7 +506,7 @@ pub fn refresh_control_zone(
                         font_size: FontSize::Px(12.0),
                         ..default()
                     },
-                    TextColor(Color::WHITE),
+                    TextColor(crate::systems::theme::INK),
                 ));
             });
             // Language toggle (moved from the old top-right corner).
@@ -498,9 +519,11 @@ pub fn refresh_control_zone(
                     height: Val::Px(36.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.25, 0.25, 0.35)),
+                BackgroundColor(crate::systems::theme::STONE),
+                BorderColor::all(crate::systems::theme::STONE_SEAM),
             ))
             .with_children(|p| {
                 p.spawn((
@@ -510,7 +533,7 @@ pub fn refresh_control_zone(
                         font_size: FontSize::Px(12.0),
                         ..default()
                     },
-                    TextColor(Color::srgb(0.85, 0.9, 1.0)),
+                    TextColor(crate::systems::theme::INK),
                 ));
             });
             // Start wave (moved from the old corner control bar, UI2).
@@ -523,9 +546,11 @@ pub fn refresh_control_zone(
                     height: Val::Px(40.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.15, 0.5, 0.25)),
+                BackgroundColor(crate::systems::theme::GOLD),
+                BorderColor::all(crate::systems::theme::GOLD_DARK),
             ))
             .with_children(|p| {
                 p.spawn((
@@ -535,7 +560,7 @@ pub fn refresh_control_zone(
                         font_size: FontSize::Px(15.0),
                         ..default()
                     },
-                    TextColor(Color::WHITE),
+                    TextColor(crate::systems::theme::GOLD_DARK),
                 ));
             });
         });
@@ -801,7 +826,8 @@ pub fn refresh_info_zone(
         }
     }
     let text = match *selection {
-        Selection::None => l10n::INFO_NONE.pick(*lang).to_string(),
+        // 待命提示 = 操作说明（原顶部帮助行归位到甲板信息区）。
+        Selection::None => l10n::HELP_LINE.pick(*lang).to_string(),
         Selection::EmptySlot(_) => l10n::INFO_SLOT.pick(*lang).to_string(),
         Selection::FusionTarget(a) => {
             // §16.6: show the recipe (+fee) the picking would produce.
@@ -1748,15 +1774,18 @@ fn spawn_tooltip(commands: &mut Commands, font: &UiFont, text: String) {
             font_size: FontSize::Px(12.0),
             ..default()
         },
-        TextColor(Color::WHITE),
+        TextColor(crate::systems::theme::INK),
         Node {
             position_type: PositionType::Absolute,
-            bottom: Val::Px(128.0),
+            bottom: Val::Px(crate::systems::theme::BAR_HEIGHT + 8.0),
             left: Val::Px(240.0),
             width: Val::Px(360.0),
             padding: UiRect::all(Val::Px(8.0)),
+            border: UiRect::all(Val::Px(1.0)),
+            border_radius: BorderRadius::all(Val::Px(3.0)),
             ..default()
         },
-        BackgroundColor(Color::srgba(0.05, 0.06, 0.1, 0.92)),
+        BackgroundColor(crate::systems::theme::PARCHMENT),
+        BorderColor::all(crate::systems::theme::PARCHMENT_SEAM),
     ));
 }

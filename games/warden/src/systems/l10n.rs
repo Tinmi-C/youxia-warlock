@@ -76,6 +76,8 @@ pub const SEL: Bi = Bi("选中:", "Sel:");
 pub const HAND: Bi = Bi("手牌", "Hand");
 pub const COINS_EQ: Bi = Bi("仓库币=", "Coins=");
 pub const CHOICE: Bi = Bi("三选一：", "Choice: ");
+/// 军报眉题（哨卡的印章语言）。
+pub const REPORT_HEADER: Bi = Bi("— 军报 —", "— 军报 —");
 
 pub const END_BANNER: Bi = Bi("🏁 本局结束", "🏁 Run Over");
 pub const END_HINT: Bi = Bi(
