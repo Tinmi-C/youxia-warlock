@@ -16,12 +16,14 @@ updated: 2026-10-06
 | 图形学 | [[topics/graphics/_index|Graphics]] | wgpu、WGSL、光照 |
 | 引擎架构 | [[topics/engine/_index|Engine]] | ECS、场景图、资源管理 |
 | 游戏设计 | [[topics/game-design/_index|Game Design]] | 玩法、关卡、手感 |
+| 美术工程 | [[topics/art/_index|Art]] | 资产管线、验收取证、分件手术、UI 2D |
 
 ## 决策
 
 - [[decisions/_index|架构决策 ADR 列表]]
 - [[decisions/0008-numeric-data-in-code-not-external|ADR-0008 数值数据暂留代码内，不外部化]]（accepted：定义表/Balance/波次公式/锚点带留源码；「数据驱动」= 数据与逻辑分离而非外部化入库；定迁移门槛，条件合适再迁外部/数据库）
 - [[decisions/0009-art-vault-to-game-asset-flow|ADR-0009 岩库美术资产进入游戏仓库]]（accepted：清单锁定 + `tools/art-sync` 桥，人/AI 同门不手拷；GLB 暂直提交 git；`_library/` 落地后落点切 raw+intake）
+- [[topics/art/art-pipeline-overview|美术工程管线总纲]]（draft 2026-10-11：八环节合同 + 产出三线 + 文档地图；配套 [[topics/art/visual-acceptance-methods|视觉验收取证规范]]、[[topics/art/surgery-workflow|分件手术流程]]、[[topics/art/ui-asset-spec|UI 2D 资产规范]]）
 - [[decisions/0010-showroom-generic-asset-viewer|ADR-0010 展示场通用化——engine/showroom-viewer]]（accepted：中性影棚资产查看器机制全量上收引擎 crate；游戏只注册目录；crate 自带 asset-viewer bin 扫任意 GLB 目录零接入；engine 首例，双消费方判据成立）
 - [[decisions/0011-generic-per-entity-skill-framework|ADR-0011 技能系统通用化——按实体挂载技能框架 + 统一伤害结算]]（accepted：SkillCaster 挂任意实体；被动/主动/自动施法三分法；StatMods→EffectiveStats 属性聚合；DamageRequest 单写入者结算；效果=按 id 分发小系统不用脚本；SkillBalance 单源数值表）
 - [[decisions/0012-warbase-shared-runtime-and-map-architecture|ADR-0012 魔兽式游戏基底 warbase +「游戏=地图」分层架构]]（proposed v2：共享战斗 runtime crate + RON 地图 + warden 回迁消费方 #0 + 根 workspace；三通道演化；待评审）
