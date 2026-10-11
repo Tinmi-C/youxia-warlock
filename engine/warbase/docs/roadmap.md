@@ -51,4 +51,4 @@
 | 游戏 | 地图 | 状态 |
 |------|------|------|
 | loop-td | maps/loop.ron（30 波循环圈）+ maps/maze.ron（20 波迷宫）+ maps/maze-smoke.ron（5 波冒烟） | ✅ v1 完整可玩 |
-| warden | （待 WX6 后 maps/warden.ron） | 🟡 WX1/WX2/WX4 已切；WX6-1 敌人行走走基底路径 |
+| warden | maps/warden.ron（10 波 Manual + FixedSlots 8 塔位） | ✅ WX 全系列已切（2026-10-11，51776e0→5296ccb）：注册表/波次 director/规则 LivesLeft/装配全部走基底，161 原断言零漂移 |

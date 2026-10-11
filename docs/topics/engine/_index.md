@@ -46,3 +46,4 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[topics/engine/bevy-scene-rebuild-kills-anim-wiring-pitfall|Bevy 0.19 场景 Modified 重建全实例——一次性动画接线全灭（T-Pose）]]（high）：再次加载同一 GLB 触发 WorldAsset Modified → bevy 拆掉重建该资产全部实例 → 新播放器无人接线 → 场上角色全 T-pose；正解=接线标记常驻+每帧体检+图资产复用的自愈式接线；方法论=生命周期观察器抓死亡瞬间、探针目标要选对（根骨不动肢骨动）。
 - [[topics/engine/bevy-messages-double-buffer-drain-pitfall|Bevy Messages 双缓冲只留最近一帧——跨帧断言必须逐帧 drain]]（medium，待团队 review）：跨帧统一 read 拿 0 事件、`len()` 翻转后归零不能当累计器；正解=帧循环内 `MessageCursor` 逐帧 drain 累加（沉淀为测试文件级助手）。
 - [[topics/engine/bevy-system-param-limits-pitfall|Bevy 系统参数两堵墙——元组 16 上限与 SystemParam derive 不收 mut Query]]（medium，待团队 review）：19 参系统排序 API 消失（报错点≠病根）、derive 束含 mut Query 报 'static；正解=Res/MessageWriter 捆 SystemParam 束、可变查询留独立参数；参数超 ~12 先问系统是否管太多。
+- [[topics/engine/bevy-startup-ambiguity-flake|Bevy 同调度段系统无显式序=并行歧义=偶发闪挂]]（pitfall：数据顺序语义必须显式声明；单跑绿并发挂是指纹）

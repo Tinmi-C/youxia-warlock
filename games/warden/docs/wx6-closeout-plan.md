@@ -1,5 +1,8 @@
 # WX6 收口规格（warden-on-base 终态件）
 
+> ✅ **已完成归档（2026-10-11）**：七切片全部落地（51776e0→5296ccb），本文仅作历史规格存档。
+> as-built 见 `games/warden/docs/roadmap.md` WX 行与 `engine/warbase/docs/roadmap.md`。
+
 > 本文是 WX6 系列剩余工作的交接规格，由 2026-10-11 会话调研固化。新会话以此开场，
 > 配合 `engine/warbase/docs/roadmap.md`（as-built 表）与 `games/warden/docs/roadmap.md`。
 > 流程纪律：规格-测试-小步提交（ADR-0014），每片 warden 161 断言零漂移（允许构造适配，
