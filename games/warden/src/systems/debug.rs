@@ -386,7 +386,7 @@ fn apply_restart(core: &mut CheatsCore, board: &mut CheatsBoard) {
     }
     hide_ghosts(core, board);
 
-    *core.economy = Economy::default();
+    *core.economy = crate::resources::starting_economy();
     if board.meta.upgrade2 {
         core.economy.gold += 20; // same run-start effect as apply_meta_on_run_start
     }

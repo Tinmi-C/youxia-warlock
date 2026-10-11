@@ -10,6 +10,6 @@ pub struct EconomyPlugin;
 
 impl Plugin for EconomyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Economy>();
+        app.insert_resource(crate::resources::starting_economy());
     }
 }

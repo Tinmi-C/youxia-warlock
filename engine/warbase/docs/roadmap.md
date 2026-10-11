@@ -34,6 +34,7 @@
 | WX6-2 | warden Enemy 神组件拆 Hp/MaxHp（基底组件，spawn/伤害单写者/治疗光环/索敌/投射物/技能过滤/debug 面板/测试构造全迁移）；血条收口：删 warden 本地 refresh_health_bars 改调度基底系统，精英/BOSS 经 HealthBarStyle 注样式（宽 1.4 金条）。160 断言零漂移 | 本笔 |
 | WX6-4a | 伤害数值走基底攻甲矩阵：effective_damage 改查 AttackArmorTable（warden 语义 = 唯一 0.5 单元 Normal×Fortified，Physical/Magic/Mixed 映射 Normal/Magic/Piercing 三行）；敌人 spawn 挂基底 Armor+UnitInstance；EnemyDefs→UnitRegistry 代码桥（WX6-6 转 RON 前置）。160+1 断言零漂移 | 本笔 |
 | WX6-4b | 伤害消息切基底：DamageRequest/DamageDealt/DamageOrigin 替换 warden 三类型（DamageSource/to_origin 桥退役，Projectile.source 直接携带 DamageOrigin，meteor 发射带 commander caster）；基底 resolve_damage 接管（warden 删除本地解析器，HitFlash 改挂 DamageDealt 的 flash_hits 反应系统）；基底 resolve_damage 的 Armor/UnitInstance 查询放宽为 Option（裸测试实体全额伤害+零赏金，伤害不再因缺组件消失）；resolve_death 保持 hp<=0 扫尸（覆盖 debug 手搓尸体，UnitDied 留基底侧不消费）。161 断言零漂移 | 本笔 |
+| WX6-5a | 经济资源切基底：Economy 变为基底 Resources 的类型别名（warden 单币，wood 恒 0；历史路径全保留，.gold 读点零改动），初始 100 金经 starting_economy() 显式注入（基底默认 0）。161 断言零漂移 | 本笔 |
 
 ## 待做（warden 回迁，建议每对单独会话）
 
@@ -41,7 +42,9 @@
 |------|------|------|
 | WX3b | warden 命令卡切基底（卡内容从基底 CommandCards 生成） | **依赖发现（WX3a 期间确认）**：warden 卡内容绑定塔索引 Build(usize)/双语 l10n/8 个 warden 动作/三区布局，需先 WX6 数据化（塔与技能走基底注册表）后才能像 loop-td 一样由 build_card_from_registry 生成；渲染层（WX3a）+ WX3-prep（SKILL_CARD/PanelState）已备齐 |
 | WX5b | warden BAL 切基底 harness | **依赖发现（调研确认）**：run_headless 装配基底世界（MapBundle/BuildGrid/Resources），warden 世界全异——完整切换随 WX6（warden.ron）落地，与设计文档 P1.5→P2 顺序一致；基底侧词表/读数缺口已由 WX5a 补齐，届时 warden 锚点策略改写为 DriverStrategy 即收口 |
-| WX6-2..6 | warden 参数化续切片（建议顺序）：2 敌人域 Hp/MaxHp/Armor 拆神组件（解锁 WX4 血条一行切换）；3 波次域 WaveDirector(Manual)；4 伤害管线切基底 resolve_damage/投射物；5 经济/规则/建造（Resources/StockCount/FixedSlots，基底 UnitDef 需补 per-unit leak 字段）；6 defs 全量迁 maps/warden.ron + assemble。完成后 WX3b/WX5b 随之收口 | 累进拆神组件，每片 160 断言零漂移 |
+| WX6-3b | 波次域切基底 WaveDirector(Manual)/WaveTable | **依赖发现（WX6-4 调研确认）**：基底 director 直接 spawn 基底单位（UnitDef 驱动），warden 敌人文（Enemy 组件/模型/血条样式/路径）走自有网关——先 WX6-6 单位数据化（spawn 由 UnitDef+模型表驱动），波次随后一行切换 |
+| WX6-5b | 规则域切基底（BaseHp→LivesLeft + 胜负 MatchFlow） | 同上依赖：基底 Lives 不支持 per-enemy leak（盾 2/精英 3/BOSS 5）需基底 UnitDef 补 leak 字段；胜利判定依赖基底 WaveCleared（波次未切）；建议并入 WX6-6 收口 |
+| WX6-6 | 单位数据化 + defs 全量迁 maps/warden.ron + assemble（敌人/塔 spawn 由 UnitDef+模型表驱动；SkillBalance/波次表/规则/econ_start 进 RON；波次/规则两域随后切换；WX3b/WX5b 收口） | 终态大件，建议独立会话 |
 
 ## 消费方
 

@@ -111,7 +111,7 @@ fn place_one(app: &mut App, tower_type: usize, occupied: &mut usize) -> bool {
     if gold < def.cost {
         return false;
     }
-    *app.world_mut().resource_mut::<Economy>() = Economy { gold: gold - def.cost };
+    *app.world_mut().resource_mut::<Economy>() = Economy { gold: gold - def.cost, wood: 0 };
     let pos = slots[*occupied];
     let tower = Tower {
         tower_index: tower_type,
@@ -254,7 +254,7 @@ fn fuse_archers(app: &mut App) -> bool {
     if gold < fee {
         return false;
     }
-    *app.world_mut().resource_mut::<Economy>() = Economy { gold: gold - fee };
+    *app.world_mut().resource_mut::<Economy>() = Economy { gold: gold - fee, wood: 0 };
     for e in ids {
         app.world_mut().despawn(e);
     }
@@ -473,7 +473,7 @@ fn run_waves(
 fn balance_readout_smoke() {
     let mut app = test_app();
     app.update();
-    *app.world_mut().resource_mut::<Economy>() = Economy { gold: 260 };
+    *app.world_mut().resource_mut::<Economy>() = Economy { gold: 260, wood: 0 };
     let mut occupied = 0usize;
     invest_build(&mut app, &mut occupied);
     assert!(occupied >= 3, "loadout must be affordable to exercise the readout");

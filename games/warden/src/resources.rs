@@ -73,17 +73,15 @@ impl Default for UiPrefsPath {
     }
 }
 
-/// Economic pool. No interest (requirements §11): gold only enters by kill /
-/// wave reward and leaves by buying towers / fusion fee.
-#[derive(Resource)]
-pub struct Economy {
-    pub gold: u32,
-}
+/// Economic pool — the BASE's Resources since WX6-5a (warden is single-
+/// currency: wood stays 0; the type alias keeps every historical path).
+/// No interest (requirements §11): gold only enters by kill / wave reward
+/// and leaves by buying towers / fusion fee.
+pub type Economy = warbase::prelude::Resources;
 
-impl Default for Economy {
-    fn default() -> Self {
-        Self { gold: 100 }
-    }
+/// The warden starting pool (requirements §11: 100 gold, single currency).
+pub fn starting_economy() -> Economy {
+    Economy { gold: 100, wood: 0 }
 }
 
 /// Base HP (the path endpoint). Lose when it reaches 0 (requirements §4).
