@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::text::FontSource;
 
 use crate::resources::{
-    BaseHp, Economy, EnemyDefs, Hand, Lang, MetaState, SelectedTower, TowerDefs, UPGRADE1_COST,
+    Economy, EnemyDefs, Hand, Lang, MetaState, SelectedTower, TowerDefs, UPGRADE1_COST,
     UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule, WaveState,
 };
 use crate::states::GameState;
@@ -85,7 +85,8 @@ pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>, lang: Res<Lang>) {
 pub fn update_hud(
     mut q: Query<&mut Text, With<HudText>>,
     economy: Res<Economy>,
-    base: Res<BaseHp>,
+    lives: Res<warbase::prelude::LivesLeft>,
+    rules: Res<warbase::prelude::MatchRules>,
     wave: Res<WaveState>,
     selected: Res<SelectedTower>,
     defs: Res<TowerDefs>,
@@ -126,8 +127,11 @@ pub fn update_hud(
         l10n::GOLD_EQ.pick(lang),
         economy.gold,
         l10n::BASE_EQ.pick(lang),
-        base.hp,
-        base.max_hp,
+        lives.0,
+        match &rules.leak {
+            warbase::prelude::LeakPolicy::Lives { lives } => *lives,
+            _ => 0,
+        },
         wave_seg,
         l10n::SEL.pick(lang),
         sel_name,

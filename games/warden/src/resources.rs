@@ -84,22 +84,6 @@ pub fn starting_economy() -> Economy {
     Economy { gold: 100, wood: 0 }
 }
 
-/// Base HP (the path endpoint). Lose when it reaches 0 (requirements §4).
-#[derive(Resource)]
-pub struct BaseHp {
-    pub hp: u32,
-    pub max_hp: u32,
-}
-
-impl Default for BaseHp {
-    fn default() -> Self {
-        Self {
-            hp: 10,
-            max_hp: 10,
-        }
-    }
-}
-
 /// Ordered waypoints from entry to base (XZ plane). Enemies follow these in
 /// order. Inserted by `MapPlugin`.
 #[derive(Resource)]

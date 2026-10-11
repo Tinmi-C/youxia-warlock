@@ -26,7 +26,7 @@ use warden::plugins::{
     skills::SkillsPlugin, towers::TowersPlugin, ui::UiPlugin, waves::WavesPlugin,
 };
 use warden::resources::{
-    BaseHp, Economy, FusionDefs, MetaSavePath, RunRng, SkillAiming, TowerDefs, WaveChoice,
+    Economy, FusionDefs, MetaSavePath, RunRng, SkillAiming, TowerDefs, WaveChoice,
     WavePhase, WaveState,
 };
 use warden::states::GameState;
@@ -404,7 +404,7 @@ fn run_waves(
         arm_archer_skills(app);
 
         let start = app.world().resource::<Time>().elapsed_secs();
-        let start_hp = app.world().resource::<BaseHp>().hp;
+        let start_hp = app.world().resource::<warbase::prelude::LivesLeft>().0;
         let start_gold = app.world().resource::<Economy>().gold;
         let start_wave = app.world().resource::<WaveState>().current;
 
@@ -452,7 +452,7 @@ fn run_waves(
             }
         }
         let end = app.world().resource::<Time>().elapsed_secs();
-        let hp = app.world().resource::<BaseHp>().hp;
+        let hp = app.world().resource::<warbase::prelude::LivesLeft>().0;
         let gold = app.world().resource::<Economy>().gold;
         samples.push(WaveSample {
             index: start_wave,
@@ -506,7 +506,7 @@ fn full_run_difficulty_curve() {
     invest_build(&mut app, &mut occupied); // spend the 100 starting gold
 
     let (samples, _alive) = run_waves(&mut app, 10, &mut occupied, 6000, &mut ledger);
-    let base = app.world().resource::<BaseHp>();
+    let base_lives = app.world().resource::<warbase::prelude::LivesLeft>().0;
     let gold = app.world().resource::<Economy>();
     let state = *app.world().resource::<State<GameState>>().get();
     println!("--- full run difficulty curve (auto-build, start 100g) ---");
@@ -520,8 +520,11 @@ fn full_run_difficulty_curve() {
     println!(
         "result: state={state:?} waves_cleared={} base_hp={}/{} gold={}",
         samples.len(),
-        base.hp,
-        base.max_hp,
+        base_lives,
+        match &app.world().resource::<warbase::prelude::MatchRules>().leak {
+            warbase::prelude::LeakPolicy::Lives { lives } => *lives,
+            _ => 0,
+        },
         gold.gold
     );
     // SK11 skill-contribution readout: damage share by source. The BAL2

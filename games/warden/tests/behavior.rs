@@ -21,7 +21,7 @@ use warden::{
         waves::WavesPlugin,
     },
     resources::{
-        BaseHp, Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, Lang, MetaSavePath,
+        Boosts, BuildMode, ChoiceKind, ChoiceOption, Economy, Hand, Lang, MetaSavePath,
         MetaState, RunRng, ShopOffers, StatKind, TowerDefs, UiPrefsPath,
         WaveChoice, WavePhase, WaveState,
     },
@@ -194,14 +194,14 @@ fn ordinary_enemy_crosses_path_in_about_twenty_seconds() {
         .write(warbase::prelude::StartWave);
     app.update(); // spawns the first enemy at the path entry
     let mut frames = 0;
-    while frames < 2400 && app.world().resource::<BaseHp>().hp == 10 {
+    while frames < 2400 && app.world().resource::<warbase::prelude::LivesLeft>().0 == 10 {
         app.update();
         frames += 1;
     }
     assert!(frames > 0, "the enemy should reach the base and leak");
     let elapsed = app.world().resource::<Time>().elapsed_secs();
     assert_eq!(
-        app.world().resource::<BaseHp>().hp,
+        app.world().resource::<warbase::prelude::LivesLeft>().0,
         9,
         "an ordinary leak costs exactly 1 base hp"
     );
@@ -680,7 +680,7 @@ fn leaked_enemy_deducts_base_hp() {
         .write(warbase::prelude::Arrived { unit: e });
     app.update();
     assert_eq!(
-        app.world().resource::<BaseHp>().hp,
+        app.world().resource::<warbase::prelude::LivesLeft>().0,
         9,
         "an ordinary leaked enemy should drop base hp 10 -> 9"
     );
@@ -1681,7 +1681,7 @@ fn sell_refunds_seventy_percent_and_frees_slot() {
 
     // Combat rejects the sale (locked button = no gold change, tower stays).
     let e2 = place_and_select(&mut app, 0, 50, None);
-    let blocker = hold_combat(&mut app);
+    let _blocker = hold_combat(&mut app);
     app.update(); // card rebuilds with Sell disabled in combat
     let pressed = {
         let mut q = app
@@ -5163,7 +5163,7 @@ mod showroom {
             let w = app.world().resource::<WaveState>();
             (
                 app.world().resource::<Economy>().gold,
-                app.world().resource::<BaseHp>().hp,
+                app.world().resource::<warbase::prelude::LivesLeft>().0,
                 w.current,
             )
         };
@@ -5178,7 +5178,7 @@ mod showroom {
             gold,
             "browsing must not touch the economy"
         );
-        assert_eq!(app.world().resource::<BaseHp>().hp, base);
+        assert_eq!(app.world().resource::<warbase::prelude::LivesLeft>().0, base);
         assert_eq!(w.current, wave, "waves must not advance in the showroom");
     }
 

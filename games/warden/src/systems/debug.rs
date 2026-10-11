@@ -18,7 +18,7 @@ use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 
 use crate::components::{Commander, Enemy, Projectile, SkillCaster, Tower, TowerSlot};
 use crate::resources::{
-    BaseHp, Boosts, BuildMode, DebugRun, Economy, EnemyDefs, FusionDefs, Hand, MetaState, PathInfo,
+    Boosts, BuildMode, DebugRun, Economy, EnemyDefs, FusionDefs, Hand, MetaState, PathInfo,
     RunRng, Selection, ShopOffers, SkillAiming, TowerDefs, WaveChoice, WavePhase, WaveSchedule,
     WaveState,
 };
@@ -151,7 +151,7 @@ pub struct CheatsCore<'w, 's> {
     pub queue: ResMut<'w, DebugQueue>,
     pub run: ResMut<'w, DebugRun>,
     pub economy: ResMut<'w, Economy>,
-    pub base: ResMut<'w, BaseHp>,
+    pub lives: ResMut<'w, warbase::prelude::LivesLeft>,
     pub wave: ResMut<'w, WaveState>,
     pub schedule: Res<'w, WaveSchedule>,
     pub hand: ResMut<'w, Hand>,
@@ -165,6 +165,7 @@ pub struct CheatsBoard<'w, 's> {
     pub defs: Res<'w, EnemyDefs>,
     pub registry: Res<'w, warbase::prelude::UnitRegistry>,
     pub director: ResMut<'w, warbase::prelude::WaveDirector>,
+    pub flow: ResMut<'w, warbase::prelude::MatchFlow>,
     pub path: Res<'w, PathInfo>,
     pub paths: Res<'w, warbase::prelude::Paths>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
@@ -226,11 +227,8 @@ pub fn debug_cheat_executor(
                 info!("[debug] gold = {n}");
             }
             DebugAction::BaseHpSet(n) => {
-                if n > core.base.max_hp {
-                    core.base.max_hp = n;
-                }
-                core.base.hp = n;
-                info!("[debug] base hp = {n}");
+                core.lives.0 = n;
+                info!("[debug] base hp (lives) = {n}");
             }
             DebugAction::JumpToWave(n) => jump_to_wave(&mut core, &mut board, n),
             DebugAction::ClearWave => clear_wave(&mut core, &mut board),
@@ -281,7 +279,7 @@ pub fn debug_cheat_executor(
                 info!("[debug] granted tower type {t} (hand {:?})", core.hand.owned_towers);
             }
             DebugAction::InstantLose => {
-                core.base.hp = 0;
+                core.lives.0 = 0;
                 if *core.state.get() == GameState::Playing {
                     core.next.set(GameState::GameOver);
                 }
@@ -407,9 +405,11 @@ fn apply_restart(core: &mut CheatsCore, board: &mut CheatsBoard) {
     if board.meta.upgrade2 {
         core.economy.gold += 20; // same run-start effect as apply_meta_on_run_start
     }
-    *core.base = BaseHp::default();
+    core.lives.0 = 10;
     *core.wave = WaveState::default();
     *board.director = warbase::prelude::WaveDirector::default();
+    // WX6-6e: the rules domain's flow resets with the run (won/lost stick).
+    *board.flow = warbase::prelude::MatchFlow::Running;
     *board.boosts = Boosts::default();
     *board.choice = WaveChoice::default();
     *board.selection = Selection::None;
@@ -641,7 +641,7 @@ fn apply_scenario(world: &mut World, scenario: Scenario) {
             spawn_debug_enemy(world, 3, Vec3::new(-4.0, 0.0, -1.2), 18.0 + (9.0 - (-1.2)), None);
         }
         Scenario::Meta => {
-            world.resource_mut::<BaseHp>().hp = 0;
+            world.resource_mut::<warbase::prelude::LivesLeft>().0 = 0;
             world
                 .resource_mut::<NextState<GameState>>()
                 .set(GameState::GameOver);

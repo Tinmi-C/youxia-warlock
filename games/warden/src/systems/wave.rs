@@ -17,8 +17,8 @@ use rand::RngExt;
 
 use crate::components::Enemy;
 use crate::resources::{
-    BaseHp, ChoiceKind, ChoiceOption, EnemyDefs, Hand, StatKind, TowerDefs, WaveChoice,
-    WavePhase, WaveSchedule, WaveState,
+    ChoiceKind, ChoiceOption, EnemyDefs, Hand, StatKind, TowerDefs, WaveChoice, WavePhase,
+    WaveSchedule, WaveState,
 };
 use crate::states::GameState;
 use crate::systems::enemy::RangeDummy;
@@ -90,7 +90,8 @@ pub fn sync_wave_state(
 
 /// Game hooks on the director's cleared path (WA2/AC4): the reward already
 /// landed through the director's EconCommand; warden adds the 三选一 after
-/// non-final waves and the Win transition after the final one.
+/// non-final waves. The Win transition itself is the base rules domain's
+/// (SurviveWaves -> MatchEnded -> `apply_match_ended`) since WX6-6e.
 pub fn on_wave_cleared(
     mut cleared: MessageReader<warbase::prelude::WaveCleared>,
     schedule: Res<WaveSchedule>,
@@ -98,14 +99,35 @@ pub fn on_wave_cleared(
     mut choice: ResMut<WaveChoice>,
     hand: Res<Hand>,
     mut rng: ResMut<crate::resources::RunRng>,
-    mut next: ResMut<NextState<GameState>>,
 ) {
     for c in cleared.read() {
-        if c.0 + 1 >= schedule.waves.len() {
-            next.set(GameState::Win);
-            info!("[wave] all waves cleared -> Win");
-        } else {
+        if c.0 + 1 < schedule.waves.len() {
             generate_choices(&mut *choice, &*defs, &*hand, &mut rng);
+        }
+    }
+}
+
+/// WA3 (WX6-6e): the base's MatchEnded drives the warden state machine —
+/// Won -> Win, Lost -> GameOver. The single outcome channel (rules_tick:
+/// lives out / survived all waves).
+pub fn apply_match_ended(
+    mut ended: MessageReader<warbase::prelude::MatchEnded>,
+    state: Res<State<GameState>>,
+    mut next: ResMut<NextState<GameState>>,
+) {
+    for e in ended.read() {
+        if *state.get() != GameState::Playing {
+            continue;
+        }
+        match &e.outcome {
+            Ok(reason) => {
+                next.set(GameState::Win);
+                info!("[rule] match won ({reason}) -> Win");
+            }
+            Err(reason) => {
+                next.set(GameState::GameOver);
+                info!("[rule] match lost ({reason}) -> GameOver");
+            }
         }
     }
 }
@@ -188,14 +210,3 @@ pub(crate) fn generate_choices(
     info!("[wave] three-choose-one ready (randomized)");
 }
 
-/// Lose condition: base HP reached 0 while playing.
-pub fn check_lose(
-    base: Res<BaseHp>,
-    state: Res<State<GameState>>,
-    mut next: ResMut<NextState<GameState>>,
-) {
-    if base.hp == 0 && *state.get() == GameState::Playing {
-        next.set(GameState::GameOver);
-        info!("[wave] base destroyed -> GameOver");
-    }
-}

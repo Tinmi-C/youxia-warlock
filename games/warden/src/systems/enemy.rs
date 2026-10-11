@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 
 use crate::components::{Enemy, EnemyAnim, Slow};
-use crate::resources::{BaseHp, Boosts, Economy, EnemyDefs, PathInfo, WaveState};
+use crate::resources::{Boosts, Economy, EnemyDefs, PathInfo};
 
 /// EN5 starting values (requirements §9 gives no numbers — tunable on the
 /// balance card): heal 3 hp every second within 6 world units.
@@ -507,30 +507,21 @@ pub fn face_movement(
     }
 }
 
-/// EN2 leak: an enemy that finished the open chain deducts its def's `leak`
-/// from the base and despawns (consumes the base's Arrived message). The
-/// number reads through the archetype index into `EnemyDefs` — the same
-/// content table the base registry is built from (WX6-6b: no copy on the
-/// entity).
+/// EN2 leak: an enemy that finished the open chain despawns (consumes the
+/// base's Arrived message). WX6-6e: the LIFE deduction is the base
+/// rules_tick's alone (Arrived -> UnitInstance -> registry leak row) — one
+/// deduction channel, no warden-side BaseHp write.
 pub fn leak_arrived(
     mut arrived: MessageReader<warbase::prelude::Arrived>,
-    mut base: ResMut<BaseHp>,
     mut commands: Commands,
     enemies: Query<&Enemy>,
-    defs: Res<EnemyDefs>,
 ) {
     for a in arrived.read() {
-        let Ok(enemy) = enemies.get(a.unit) else {
+        if enemies.get(a.unit).is_err() {
             continue; // already resolved between the message and here
-        };
-        let leak = defs
-            .list
-            .get(enemy.def_index)
-            .map(|d| d.leak)
-            .unwrap_or(1);
-        base.hp = base.hp.saturating_sub(leak);
+        }
         commands.entity(a.unit).despawn();
-        info!("[enemy] leaked, base hp={}", base.hp);
+        info!("[enemy] leaked");
     }
 }
 

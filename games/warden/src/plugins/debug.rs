@@ -16,7 +16,7 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 
 #[cfg(debug_assertions)]
-use crate::resources::{BaseHp, DebugPanelCapture, Economy, Hand, WaveState};
+use crate::resources::{DebugPanelCapture, Economy, Hand, WaveState};
 #[cfg(debug_assertions)]
 use crate::states::GameState;
 
@@ -176,8 +176,12 @@ fn log_dashboard(world: &mut World, mut log: Local<FpsLog>) {
         };
         let gold = world.resource::<Economy>().gold;
         let (hp, max_hp) = {
-            let b = world.resource::<BaseHp>();
-            (b.hp, b.max_hp)
+            let lives = world.resource::<warbase::prelude::LivesLeft>().0;
+            let max = match &world.resource::<warbase::prelude::MatchRules>().leak {
+                warbase::prelude::LeakPolicy::Lives { lives } => *lives,
+                _ => 0,
+            };
+            (lives, max)
         };
         let count = world.query::<Entity>().iter(world).count();
         info!(
@@ -439,7 +443,8 @@ fn debug_panel_ui(
     time: Res<crate::systems::debug_time::DebugTime>,
     overlays: Res<crate::systems::debug_time::DebugOverlays>,
     economy: Res<Economy>,
-    base: Res<BaseHp>,
+    lives: Res<warbase::prelude::LivesLeft>,
+    rules: Res<warbase::prelude::MatchRules>,
     wave: Res<WaveState>,
     hand: Res<Hand>,
     enemy_defs: Res<crate::resources::EnemyDefs>,
@@ -465,8 +470,11 @@ fn debug_panel_ui(
             wave.current + 1,
             wave.phase,
             economy.gold,
-            base.hp,
-            base.max_hp,
+            lives.0,
+            match &rules.leak {
+                warbase::prelude::LeakPolicy::Lives { lives } => *lives,
+                _ => 0,
+            },
             hand.owned_towers
         ));
         ui.separator();

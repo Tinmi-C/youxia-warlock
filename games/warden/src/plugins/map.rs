@@ -1,5 +1,6 @@
-//! MapPlugin: L-shaped path + base + 8 tower slots. Inserts the path geometry
-//! and the base HP resource, and spawns the map visuals.
+//! MapPlugin: L-shaped path + base + 8 tower slots. Inserts the path
+//! geometry and spawns the map visuals (base HP is the base's LivesLeft
+//! since WX6-6e, initialized by rules_tick from MatchRules).
 //! Capability cards: MA1 (path+base), MA2 (8 slots).
 //! WX6-1: the path also lives as a base `PathDef` entity (the `Paths`
 //! resource points at it) — enemy movement runs on the base's
@@ -8,7 +9,7 @@
 
 use bevy::prelude::*;
 
-use crate::resources::{BaseHp, PathInfo};
+use crate::resources::PathInfo;
 use crate::systems;
 
 pub struct MapPlugin;
@@ -41,7 +42,6 @@ impl Plugin for MapPlugin {
             .insert_resource(systems::map::slot_grid())
             .add_message::<warbase::prelude::Arrived>()
             .add_message::<warbase::prelude::LapCompleted>()
-            .init_resource::<BaseHp>()
             .add_systems(
                 Startup,
                 (
