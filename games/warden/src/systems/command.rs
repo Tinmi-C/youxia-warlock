@@ -1363,6 +1363,12 @@ pub fn confirm_fusion_target(
         Selection::FusionTarget(a) => a,
         _ => return None,
     };
+    // A tower can never be its own ingredient: same-type recipes match the
+    // type pair alone, so without this guard one archer could self-fuse into
+    // a marksman for a single build cost + fee (bug report 2026-10-11).
+    if b == a {
+        return None;
+    }
     let (ka, pos_a) = towers.get(a).ok().and_then(|(_, t, tf)| match t.kind {
         TowerKind::Base(i) => Some((i, tf.translation)),
         _ => None,

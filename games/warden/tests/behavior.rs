@@ -1650,6 +1650,49 @@ fn place_and_select(app: &mut App, tower_index: usize, invested: u32, fused: Opt
     e
 }
 
+/// UI11 regression (bug report 2026-10-11): clicking the SOURCE tower as
+/// the fusion target must never fuse — a tower cannot be its own ingredient
+/// (the old confirm path matched the recipe by type pair alone, letting one
+/// archer self-fuse into a marksman for a single build cost + fee).
+#[test]
+fn fusion_target_cannot_be_the_source_tower() {
+    let mut app = test_app();
+    app.update(); // startup assembles the RON map first
+    app.world_mut().resource_mut::<Economy>().gold = 200;
+    let e1 = place_and_select(&mut app, 0, 50, None);
+    let _e2 = place_and_select(&mut app, 0, 50, None);
+    app.world_mut()
+        .insert_resource(warden::resources::Selection::Tower(e1));
+    app.update(); // rebuild the card with the Fuse button
+    assert!(
+        press_command_button(&mut app, CommandAction::Fuse),
+        "with a real partner the Fuse command must appear"
+    );
+    app.update();
+    // "Confirm" on the source tower itself.
+    app.world_mut()
+        .insert_resource(warden::systems::command::PendingFusionConfirm(e1));
+    app.update();
+    assert_eq!(
+        count_towers(&mut app),
+        2,
+        "self-fusion must not consume any tower"
+    );
+    assert_eq!(
+        app.world().resource::<Economy>().gold,
+        200,
+        "self-fusion must not charge the fee"
+    );
+    assert!(
+        matches!(
+            app.world().resource::<warden::resources::Selection>(),
+            warden::resources::Selection::Tower(_)
+        ),
+        "the invalid target falls back to plain selection, not a fused tower"
+    );
+    assert_eq!(fused_kind(&mut app), None, "no marksman may appear");
+}
+
 /// Capability card TO7 — acceptance: selling refunds invested × 70% floored,
 /// frees the slot and despawns the tower; combat rejects the sale.
 #[test]
