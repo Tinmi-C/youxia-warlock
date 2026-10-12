@@ -4,7 +4,7 @@ type: howto
 topic: art
 date: 2026-10-11
 author: AI 起草（ART9 开工前置；首例实施后复核升 done）
-status: draft
+status: done
 tags: [art-pipeline, blender, surgery, gltf]
 related: ["topics/graphics/model-part-animation-prep-spec", "decisions/0009-art-vault-to-game-asset-flow", "topics/art/visual-acceptance-methods", "topics/art/art-pipeline-overview"]
 ---
@@ -16,7 +16,8 @@ related: ["topics/graphics/model-part-animation-prep-spec", "decisions/0009-art-
 图生 3D 资产要变成「可程序化动画」的机械件（弩/炮塔/门），必须做一次分件手术：
 按 [[topics/graphics/model-part-animation-prep-spec|分件规范]] 六条合同，用
 **Blender 无头 Python 脚本**由 AI 主刀、人验收，成品回流岩库存新版本。
-本流程是手术台的操作规程——第一次动刀（warden 弩 v3，ART9）之前立好。
+本流程是手术台的操作规程——第一次动刀（warden 弩 v3，ART9）之前立好；
+首例已全程走通并经人工验收（2026-10-11，[[topics/art/art9-ballista-surgery-record|记录]]），升 done。
 
 ## 正文
 

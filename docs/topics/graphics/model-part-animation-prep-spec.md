@@ -4,7 +4,7 @@ type: reference
 topic: graphics
 date: 2026-09-20
 author: AI + youxia
-status: draft
+status: done
 tags: [art-pipeline, blender, gltf, animation]
 related: ["decisions/0009-art-vault-to-game-asset-flow", "games/warden/docs/capability-cards.md"]
 ---
@@ -33,7 +33,7 @@ related: ["decisions/0009-art-vault-to-game-asset-flow", "games/warden/docs/capa
 ### 执行与升格路径
 
 - 手术工具：Blender 无头 Python 脚本（AI 可编写），成品经 [[decisions/0009-art-vault-to-game-asset-flow|ADR-0009]] 回流岩库存新版本；
-- **第 1 例**（warden 弩 v3，ART9）：定向脚本进 `tools/` + 操作记录（含踩坑）进知识库——**已实施（2026-10-11）**：条目 1-6 全部按合同执行成立，实证增补第 7 条（变换自带），记录见 [[topics/art/art9-ballista-surgery-record|ART9 手术记录]]；升 `done` 待用户人工验收后一并复核；
+- **第 1 例**（warden 弩 v3，ART9）：定向脚本进 `tools/` + 操作记录（含踩坑）进知识库——**已实施（2026-10-11）**：条目 1-6 全部按合同执行成立，实证增补第 7 条（变换自带），记录见 [[topics/art/art9-ballista-surgery-record|ART9 手术记录]]；人工验收通过，升 `done`；
 - **升格判据**：第 2 个模型手术成功 → 脚本泛化（通用参数化）+ 升格为**用户级 skill**（跨项目、跨 AI 客户端复用）；
 - 边界：角色/BOSS 等表现型资产走 K 帧动画线（绑骨+片段+引擎播放），不适用本规范；机械件优先本规范。
 
