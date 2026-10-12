@@ -5001,6 +5001,146 @@ fn ballista_projectile_spawns_at_muzzle() {
     );
 }
 
+/// ART10 helper: hang a synthetic `string` node (the v3 surgery part — the
+/// real weapon scene is not loadable headless) under the fixture's mount.
+fn attach_string_node(app: &mut App, mount: bevy::ecs::entity::Entity) -> bevy::ecs::entity::Entity {
+    let node = app
+        .world_mut()
+        .spawn((
+            bevy::prelude::Name::new(warden::systems::tower::BALLISTA_STRING_NODE),
+            Transform::from_xyz(0.05, 0.0, 0.0), // a non-zero rest pin
+        ))
+        .id();
+    app.world_mut().entity_mut(mount).add_child(node);
+    app.update(); // let wire_ballista_string run once
+    node
+}
+
+/// ART10 — wiring: a named `string` child under a `BallistaMount` gets the
+/// bolt hung on it and a `BallistaString` on the mount, exactly once across
+/// frames (health-check wiring must not stack bolts), starting Drawn with
+/// the bolt visible and the rest X recorded from the node.
+#[test]
+fn ballista_string_wires_once_and_starts_drawn() {
+    let (mut app, _tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
+    let node = attach_string_node(&mut app, mount);
+    for _ in 0..5 {
+        app.update(); // health-check re-runs; must not re-wire
+    }
+
+    let wired = app
+        .world()
+        .get::<warden::components::BallistaString>(mount)
+        .expect("the mount carries BallistaString after wiring");
+    assert_eq!(wired.string, node, "wired to the named string node");
+    assert_eq!(wired.rest_x, 0.05, "rest X recorded from the node transform");
+    assert_eq!(wired.phase, warden::components::StringPhase::Drawn);
+    assert_eq!(
+        wired.travel,
+        warden::systems::tower::STRING_TRAVEL,
+        "travel constant pin"
+    );
+    assert_eq!(
+        app.world().get::<Visibility>(wired.bolt),
+        Some(&Visibility::Visible),
+        "bolt nocked and visible at rest"
+    );
+    // Exactly one bolt under the string after repeated health-check frames.
+    let kids: Vec<_> = app
+        .world()
+        .get::<Children>(node)
+        .map(|c| c.iter().collect())
+        .unwrap_or_default();
+    assert_eq!(kids.len(), 1, "exactly one bolt child, re-wires never stack");
+    assert_eq!(kids[0], wired.bolt);
+    // The whole world holds exactly one BallistaString (one mount).
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(), With<warden::components::BallistaString>>();
+    assert_eq!(q.iter(app.world()).count(), 1);
+}
+
+/// ART10 — the fire cycle: on the fire frame the string starts snapping
+/// forward (local X below rest); when the snap completes the bolt HIDES (the
+/// real round flies as a projectile) and the string holds at the forward
+/// extreme; over the cooldown (interval − snap = 0.88s at attack speed 1.0)
+/// it draws back to rest, and the bolt REAPPEARS nocked. A second fire
+/// re-triggers from wherever the cycle stands.
+#[test]
+fn ballista_string_bolt_fire_cycle() {
+    let (mut app, _tower, mount) = ballista_app(Vec2::new(0.0, 0.0));
+    let node = attach_string_node(&mut app, mount);
+    static_enemy(&mut app, Vec3::new(6.0, 0.4, -6.0)); // in range, tanky
+
+    // Fire frame: cooldown starts at 0, so the first update after the enemy
+    // appears fires. The string must already be moving forward.
+    app.update();
+    let wired = app
+        .world()
+        .get::<warden::components::BallistaString>(mount)
+        .expect("wired");
+    let bolt = wired.bolt;
+    assert!(
+        matches!(wired.phase, warden::components::StringPhase::Snapping(_)),
+        "fire frame enters the snap, got {:?}",
+        wired.phase
+    );
+    let x_fire = app.world().get::<Transform>(node).unwrap().translation.x;
+    assert!(x_fire < 0.05, "string moving forward (x {x_fire} < rest 0.05)");
+    assert_eq!(
+        app.world().get::<Visibility>(bolt),
+        Some(&Visibility::Visible),
+        "the bolt rides the snap"
+    );
+
+    // Snap completes (0.12s ≈ 8 frames): bolt hidden, string at the forward
+    // extreme (rest − travel), phase drawing.
+    let mut snapped = false;
+    for _ in 0..20 {
+        app.update();
+        if let Some(w) = app.world().get::<warden::components::BallistaString>(mount) {
+            if matches!(w.phase, warden::components::StringPhase::Drawing(_)) {
+                snapped = true;
+                break;
+            }
+        }
+    }
+    assert!(snapped, "the snap must complete within 0.12s");
+    let x_forward = app.world().get::<Transform>(node).unwrap().translation.x;
+    assert!(
+        (x_forward - (0.05 - warden::systems::tower::STRING_TRAVEL)).abs() < 1e-4,
+        "string at the forward extreme rest−travel = -0.20, got {x_forward}"
+    );
+    assert_eq!(
+        app.world().get::<Visibility>(bolt),
+        Some(&Visibility::Hidden),
+        "the bolt hides once the round is flying"
+    );
+
+    // Redraw completes (0.88s more): string back at rest, bolt nocked again.
+    let mut drawn = false;
+    for _ in 0..80 {
+        app.update();
+        if let Some(w) = app.world().get::<warden::components::BallistaString>(mount) {
+            if w.phase == warden::components::StringPhase::Drawn {
+                drawn = true;
+                break;
+            }
+        }
+    }
+    assert!(drawn, "the redraw must complete within the cooldown window");
+    let x_rest = app.world().get::<Transform>(node).unwrap().translation.x;
+    assert!(
+        (x_rest - 0.05).abs() < 1e-4,
+        "string latched back at rest, got {x_rest}"
+    );
+    assert_eq!(
+        app.world().get::<Visibility>(bolt),
+        Some(&Visibility::Visible),
+        "the bolt reappears when drawn"
+    );
+}
+
 /// Capability card ART8 — acceptance: the kick appears on the fire frame,
 /// falls back under 10% of the peak within the 0.18s window; a re-trigger
 /// mid-recovery RESETS the cycle (never stacks — the peak stays under the

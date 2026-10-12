@@ -81,6 +81,43 @@ pub struct Tower {
 #[derive(Component)]
 pub struct BallistaMount;
 
+/// ART10: the string/bolt reload animation on a ballista mount (same
+/// message-driven family as `FireRecoil`; consumes `tower::TowerFired`).
+/// The v3 surgery exposed the `string` node with a centered pivot; this
+/// component hangs the authored bolt on it and drives the fire cycle:
+/// the string snaps forward along its local X (toward the muzzle), then
+/// draws back over the tower's cooldown; the bolt rides the string during
+/// the snap, hides while the string redraws (the real round already flies
+/// as a projectile), and reappears when drawn.
+#[derive(Component, Debug)]
+pub struct BallistaString {
+    /// The named `string` node inside the weapon scene (v3 surgery part).
+    pub string: Entity,
+    /// The bolt wrapper spawned as the string's child (ART10 bolt asset).
+    pub bolt: Entity,
+    /// The string node's rest local X (its authored pivot translation).
+    pub rest_x: f32,
+    /// Forward snap distance along local X (applied toward the muzzle).
+    pub travel: f32,
+    /// Snap duration in seconds.
+    pub snap_secs: f32,
+    /// Redraw duration; captured from the firing tower's interval.
+    pub draw_secs: f32,
+    /// Cycle state.
+    pub phase: StringPhase,
+}
+
+/// ART10 cycle: drawn → snapping (fire) → drawing (cooldown) → drawn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StringPhase {
+    /// Drawn and latched — bolt nocked, ready to fire.
+    Drawn,
+    /// Firing: string (bolt riding) travels forward; t counts into snap_secs.
+    Snapping(f32),
+    /// Redrawing: string pulls back to the latch; t counts into draw_secs.
+    Drawing(f32),
+}
+
 /// ART7: a generic smooth turn-to-track driver for any mounted 3D part
 /// (first user: the ballista; future weapon swaps reuse it as-is). Angular
 /// fields are in DEGREES (card language); the system converts to radians.

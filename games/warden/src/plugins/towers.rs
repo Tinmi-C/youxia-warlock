@@ -35,6 +35,9 @@ impl Plugin for TowersPlugin {
                     systems::tower::tick_aim_trackers,
                     systems::tower::tower_fire,
                     systems::tower::tick_fire_recoil,
+                    // ART10: string snap/draw rides the fire message right
+                    // after the recoil kick (same frame).
+                    systems::tower::tick_ballista_string,
                     systems::tower::tick_slow,
                 )
                     .chain()
@@ -44,9 +47,15 @@ impl Plugin for TowersPlugin {
             // ART12: the ranger defender — rig wiring is one-shot (marker
             // consumed), attack reacts to the fire message, recovery counts
             // back to idle, the body faces the current target.
+            // ART10: ballista string/bolt wiring health-checks every frame
+            // (scene re-instantiation swaps in a fresh string node).
             .add_systems(
                 Update,
-                systems::tower::wire_ranger.run_if(in_state(GameState::Playing)),
+                (
+                    systems::tower::wire_ranger,
+                    systems::tower::wire_ballista_string,
+                )
+                    .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
                 Update,

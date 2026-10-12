@@ -345,6 +345,47 @@ fn ballista_surgery_parts_v3() {
     assert_eq!(total_indices, 30_000, "v2 index count must be conserved");
 }
 
+/// L2 (ART10): the authored ballista bolt — the string-launched round the
+/// ART10 animation rides. Authored (not generated), so the facts are exact:
+/// 0.30 long along ±X (tip -X = the pinned muzzle direction), thin square
+/// cross-section, origin centered on the span (so parenting onto the string
+/// node's centered pivot needs no compensating offset).
+#[test]
+fn ballista_bolt_facts() {
+    let glb = load_glb(&models_dir().join("weapon_ballista_bolt.glb"));
+    let meshes = glb.json["meshes"].as_array().map(Vec::len).unwrap_or(0);
+    assert_eq!(meshes, 1, "one mesh, got {meshes}");
+    let anims = glb.json["animations"].as_array().map(Vec::len).unwrap_or(0);
+    assert_eq!(anims, 0, "no baked animations, got {anims}");
+    assert!(
+        glb.json["nodes"].as_array().is_some_and(|n| n
+            .iter()
+            .any(|n| n["name"] == "bolt" && n["mesh"].is_number())),
+        "single named 'bolt' mesh node expected"
+    );
+    let (min, max) = position_bbox(&glb);
+    let extent = |a: usize| max[a] - min[a];
+    assert!(
+        (0.28..=0.32).contains(&extent(0)),
+        "bolt length 0.30 along X, got {}",
+        extent(0)
+    );
+    assert!(
+        extent(1) <= 0.02 && extent(2) <= 0.02,
+        "thin cross-section, got y={} z={}",
+        extent(1),
+        extent(2)
+    );
+    assert!(
+        extent(0) > extent(1) * 4.0,
+        "long axis must be X (rides the string's travel axis)"
+    );
+    assert!(
+        (min[0] + max[0]).abs() < 1e-3,
+        "origin centered on the span, got min.x={min:?} max.x={max:?}"
+    );
+}
+
 fn textures_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/textures")
 }

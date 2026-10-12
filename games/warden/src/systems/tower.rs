@@ -11,7 +11,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimTracker, AttackType, BallistaMount, EffectiveStats, Enemy, FireRecoil, FusionKind,
+    AimTracker, AttackType, BallistaMount, BallistaString, EffectiveStats, Enemy, FireRecoil,
+    FusionKind, StringPhase,
     Projectile, ProjectileOrigin, Slow, Tower, TowerKind,
 };
 // ART12 ranger defender wiring shares the enemy rig machinery.
@@ -68,6 +69,23 @@ pub const BALLISTA_MOUNT_Y: f32 = 1.10;
 /// The ballista reads large against the tower — uniform shrink (handoff:
 /// 0.7–0.75; 0.72 chosen, tune on visual acceptance).
 pub const BALLISTA_SCALE: f32 = 0.72;
+
+// --- ART10: string/bolt reload animation --------------------------------------
+
+/// The v3 surgery's string part (own centered pivot; pinned by
+/// `tests/art_assets.rs::ballista_surgery_parts_v3`).
+pub const BALLISTA_STRING_NODE: &str = "string";
+/// The authored bolt (vault v1, `ballista_bolt_facts`) that rides the string.
+pub const BOLT_MODEL: &str = "models/weapon_ballista_bolt.glb";
+/// String travel toward the muzzle, weapon-local X. At full travel the rod's
+/// front edge (rest −0.204) reaches −0.454 — the arms' root region; staying
+/// under the frame arches keeps the read "sliding along the rail".
+pub const STRING_TRAVEL: f32 = 0.25;
+/// Forward snap duration (the release — fast).
+pub const STRING_SNAP_SECS: f32 = 0.12;
+/// Bolt offset on the string node: nock kisses the rod's front edge
+/// (rod half-length 0.263 + bolt half 0.15), tip ends just inside the muzzle.
+pub const BOLT_OFFSET_X: f32 = -(0.263 + 0.15);
 
 // --- ART7: aim tracking + muzzle launch --------------------------------------
 
@@ -209,6 +227,130 @@ pub fn tick_fire_recoil(
         // AimTracker turns mid-recovery).
         let backward = tf.rotation * -aim.forward_axis;
         tf.translation = recoil.rest_translation + backward * displacement;
+    }
+}
+
+/// ART10 wiring: any `BallistaMount` that carries a named `string` child
+/// (the v3 surgery node) but no live `BallistaString` gets wired — the bolt
+/// hangs on the string node and the animation component lands on the mount.
+/// Health-check, not consume-once (same rationale as `wire_ranger`): a World
+/// re-instantiation of the weapon scene swaps in a fresh string node; the
+/// recorded entity dying makes the wire re-run. Headless worlds without the
+/// scene simply never match and stay unwired.
+#[allow(clippy::type_complexity)]
+pub fn wire_ballista_string(
+    mut commands: Commands,
+    server: Option<Res<AssetServer>>,
+    mut mounts: Query<(Entity, &Children, Option<&BallistaString>), With<BallistaMount>>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    strings: Query<(Entity, &Name, &Transform)>,
+) {
+    for (mount, kids, wired) in &mut mounts {
+        let Some(node) = kids
+            .iter()
+            .find_map(|k| find_named(k, BALLISTA_STRING_NODE, &children, &names))
+        else {
+            continue;
+        };
+        if let Some(w) = wired {
+            if let Ok((_, n, _)) = strings.get(w.string) {
+                if n.as_str() == BALLISTA_STRING_NODE {
+                    continue; // healthy — bolt hangs, nothing to do
+                }
+            }
+            commands.entity(mount).remove::<BallistaString>();
+        }
+        let Ok((_, _, node_tf)) = strings.get(node) else {
+            continue;
+        };
+        let mut bolt = commands.spawn((
+            Visibility::Visible,
+            Transform::from_xyz(BOLT_OFFSET_X, 0.0, 0.0),
+        ));
+        if let Some(server) = server.as_deref() {
+            let scene =
+                server.load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(BOLT_MODEL));
+            bolt.insert(bevy::world_serialization::WorldAssetRoot(scene));
+        }
+        let bolt = bolt.id();
+        commands.entity(node).add_child(bolt);
+        commands.entity(mount).insert(BallistaString {
+            string: node,
+            bolt,
+            rest_x: node_tf.translation.x,
+            travel: STRING_TRAVEL,
+            snap_secs: STRING_SNAP_SECS,
+            draw_secs: 1.0,
+            phase: StringPhase::Drawn,
+        });
+    }
+}
+
+/// ART10 driver: on the owning tower's fire frame the string snaps forward
+/// (bolt riding), then redraws over the tower's cooldown (interval minus
+/// the snap); the bolt hides while redrawing and reappears when drawn.
+/// Runs right after `tick_fire_recoil` in the fire chain — the release and
+/// the recoil kick land on the same frame. Re-triggering mid-cycle resets
+/// to the snap (displacements never stack). Pure presentation: only the
+/// string node's TRANSLATION.x is written; the aim/recoil owners are never
+/// touched.
+pub fn tick_ballista_string(
+    time: Res<Time>,
+    mut fired: MessageReader<TowerFired>,
+    towers: Query<(&Children, &Tower)>,
+    mut mounts: Query<&mut BallistaString>,
+    mut strings: Query<&mut Transform>,
+    mut vis: Query<&mut Visibility>,
+) {
+    let dt = time.delta_secs();
+    for msg in fired.read() {
+        let Ok((kids, tower)) = towers.get(msg.tower) else {
+            continue;
+        };
+        let interval = 1.0 / tower.attack_speed.max(1e-3);
+        for k in kids.iter() {
+            if let Ok(mut s) = mounts.get_mut(k) {
+                s.phase = StringPhase::Snapping(0.0);
+                s.draw_secs = (interval - s.snap_secs).max(0.3);
+                if let Ok(mut v) = vis.get_mut(s.bolt) {
+                    *v = Visibility::Visible; // rides the snap
+                }
+            }
+        }
+    }
+    for mut s in &mut mounts {
+        match s.phase {
+            StringPhase::Drawn => {}
+            StringPhase::Snapping(t) => {
+                let t = (t + dt).min(s.snap_secs);
+                if let Ok(mut tf) = strings.get_mut(s.string) {
+                    tf.translation.x = s.rest_x - s.travel * (t / s.snap_secs);
+                }
+                if t >= s.snap_secs {
+                    s.phase = StringPhase::Drawing(0.0);
+                    if let Ok(mut v) = vis.get_mut(s.bolt) {
+                        *v = Visibility::Hidden; // the round is already flying
+                    }
+                } else {
+                    s.phase = StringPhase::Snapping(t);
+                }
+            }
+            StringPhase::Drawing(t) => {
+                let t = (t + dt).min(s.draw_secs);
+                if let Ok(mut tf) = strings.get_mut(s.string) {
+                    tf.translation.x = s.rest_x - s.travel * (1.0 - t / s.draw_secs);
+                }
+                if t >= s.draw_secs {
+                    s.phase = StringPhase::Drawn;
+                    if let Ok(mut v) = vis.get_mut(s.bolt) {
+                        *v = Visibility::Visible; // nocked again
+                    }
+                } else {
+                    s.phase = StringPhase::Drawing(t);
+                }
+            }
+        }
     }
 }
 
