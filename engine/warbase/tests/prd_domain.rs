@@ -24,6 +24,7 @@ fn unit_def(id: &str, cost_gold: u32) -> UnitDef {
         skills: vec![],
         upgrade_to: None,
         heal: None,
+        mana: None,
     }
 }
 

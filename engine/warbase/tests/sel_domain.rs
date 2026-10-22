@@ -27,6 +27,7 @@ fn def(id: &str, body_radius: f32) -> UnitDef {
         skills: vec!["bolt".to_string()],
         upgrade_to: None,
         heal: None,
+        mana: None,
     }
 }
 
