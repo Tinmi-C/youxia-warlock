@@ -52,3 +52,16 @@
 |------|------|------|
 | loop-td | maps/loop.ron（30 波循环圈）+ maps/maze.ron（20 波迷宫）+ maps/maze-smoke.ron（5 波冒烟） | ✅ v1 完整可玩 |
 | warden | maps/warden.ron（10 波 Manual + FixedSlots 8 塔位） | ✅ WX 全系列已切（2026-10-11，51776e0→5296ccb）：注册表/波次 director/规则 LivesLeft/装配全部走基底，161 原断言零漂移 |
+
+## WC3 扩域（ADR-0016/0017，总规格 docs/topics/engine/warbase-wc3-alignment-plan.md）
+
+| 增量 | 内容 | 状态 |
+|------|------|------|
+| SEAM0a | ADR-0016（九域扩域）+ ADR-0017（多玩家数据层）拍板 | ✅ be4b642 |
+| SEAM0b–e | Phase 0 接缝：七域模块骨架（类型/消息/资源/域插件一次接线，lib.rs 与 bundle/mod.rs 此后冻结）；Hostility 唯一敌我缝（combat 3 处+buff 2 处收口，默认零漂移）；MapBundle 五个可选段 + assemble 分发；replay 输入信封；testing helpers + tests/seam.rs 5 断言 | ✅ 33ad9f3 + 域插件修订（workspace 275 全绿 = 270 基线 + 5 seam，warden/loop-td 零漂移） |
+| Phase 1 | SPL1/2（法力/施法）· SEL1-3（拾取/选择/编队）· PRD1（生产队列）· FOG1（视野计算）· AUD1（音效通道）· RPL1（录像核心）——六线并行 | 🚧 派发中 |
+| Phase 2 | MP1（外交矩阵）· MOV1/2（移动+A*）· SEL4（智能命令） | ⬜ |
+| Phase 3 | MOV3-5 · SEL5 warden 拾取上收 · PRD2/3 · INV1-3 · FOG2/3 · MP2 · RPL2 | ⬜ |
+| Phase 4 | RL0-3 RTS 验收图 + H1 人工试玩 | ⬜ |
+
+> 注：上方「待做」表为 WX 中间态存档（WX6 已全量收口，见消费方表），不再作为待办依据。
