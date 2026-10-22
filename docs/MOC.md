@@ -40,6 +40,7 @@ updated: 2026-10-06
 
 ## 近期更新
 
+- [[topics/engine/warbase-wc3-alignment-plan|warbase 魔兽式底座补全方案 v0.1]]（新增，draft：WC3 交互模板扩域总规格——九域 ×27 增量（SEL 选择编队/MOV 移动寻路/SPL 法力施法/MP 阵营/PRD 生产科研/INV 物品/FOG 视野/AUD 音效/RPL 录像 + SEAM 接缝）；D1–D10 横切决策；Phase 0–4 并行批次图 + 子智能体任务包模板；待评审与 ADR-0016/0017 拍板）
 - [[topics/game-design/artvault-demand-board-proposal|岩库需求板块设计稿 v0.1]]（P1 已落地 2026-10-09：岩库 ADR-006 + 本仓库 ADR-0015/tools/art-needs；loop-td 16 需求已上板；四拍板项决议见 §8）
 - [[decisions/0014-deprecate-capability-card-workflow|ADR-0014 能力卡工作流退役]]（新增，accepted：youxia 拍板——卡的形式退役，纪律保留为规格-测试-小步提交；各项目以 docs/roadmap.md 平面表追踪进度；模板/根约定同步改写）
 - [[topics/engine/warbase-implementation-design|warbase 技术实现设计 v0.2]]（修订，draft：按「效果优先」反转三处妥协——根 workspace、warden 回迁成对卡（BX+WX 含参数化+warden.ron）、bundle RON 装载层 P0.5 先行；12 模块类型含建造窗口/双模式/fx/挂钩注册表）

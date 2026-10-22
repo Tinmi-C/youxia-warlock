@@ -22,6 +22,7 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 | [[topics/engine/warbase-architecture\|warbase 架构与演化协议——魔兽式游戏基底的分层、落位与三通道上收（暂名）]] | reference | draft | 基底=engine/warbase（根 workspace、UI/FX feature 门控）：机制归基底、内容归 RON 地图文件（ADR-0013）、特殊规则归挂钩+薄插件；**warden 回迁为消费方 #0**（160 断言全绿作抽取忠实性验收），loop-td 为消费方 #1；演化三通道（抽取+回迁/基底先行/游戏孵化）；验收五条（warden-on-base/薄游戏/harness/`--map` 换图/数据可 diff） |
 | [[topics/engine/warbase-implementation-design\|warbase 技术实现设计 v0.2——模块、类型、调度与抽取回迁方案]] | reference | draft | 12 模块设计级类型（unit 组件组合/rule 加建造窗口/build 双模式/fx 插件/bundle serde+RON 装载校验+挂钩注册表/harness 双 bundle）；WarbaseSet 六段调度；**BX+WX 成对卡**（抽取与 warden 回迁同卡收口，含 WX6 参数化+warden.ron）；P0→P0.5(RON 先行)→P1→P1.5(warden-on-base)→P2→P3；7 条已验证坑预埋 |
 | [[topics/engine/warbase-test-strategy\|warbase 测试策略 v0.2——测试用例全集 + AI 测试方案]] | howto | draft | 六层金字塔 + ~70 条用例（UT/G-LP/W-REG/BAL/VIS/SMK）按模块+门禁卡对齐；`cargo test --workspace` 一击门禁；W 系=warden-on-base 回归（断言语义不变+读数不漂移）；bundle 拒载用例；AI 方案=人机三关卡+红绿门禁+回归矩阵+失败纪律（2 次不过即复盘） |
+| [[topics/engine/warbase-wc3-alignment-plan\|warbase 魔兽式底座补全方案 v0.1——WC3 交互模板扩域总规格]] | reference | draft | 基底从 TD 品类扩到通用魔兽底子：选择/框选/编队、右键智能命令+A/H/S/P、A* 寻路与软碰撞、法力/施法时间、生产科研、物品商店、视野迷雾、多玩家数据层、录像、音效通道九域 ×27 增量（SEL/MOV/SPL/MP/PRD/INV/FOG/AUD/RPL + SEAM 接缝）；D1–D10 横切决策（lib/bundle 只 SEAM 动=并行硬前提）；Phase 0–4 批次图 + 子智能体任务包模板；美术不在此轮 |
 
 ## 相关决策
 
