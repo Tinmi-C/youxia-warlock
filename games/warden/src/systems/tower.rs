@@ -413,6 +413,7 @@ pub fn tower_unit_registry(
             upgrade_to: None,
             heal: None,
             leak: 1,
+            mana: None,
         }
     }
     let mut out = std::collections::HashMap::new();

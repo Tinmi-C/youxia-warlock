@@ -125,6 +125,7 @@ pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
                     radius: HEALER_RADIUS,
                 }),
                 leak: def.leak,
+                mana: None,
             },
         );
     }

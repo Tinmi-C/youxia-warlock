@@ -26,7 +26,7 @@ fn registry_with(ids: &[(&str, u32)]) -> UnitRegistry {
                 cost_wood: 0,
                 bounty_gold: 0, bounty_wood: 0, grant_xp: 0,
                 traits: vec![], auras: vec![], hero: false, skills: vec![],
-                upgrade_to: None, heal: None,
+                upgrade_to: None, heal: None, mana: None,
             },
         );
     }

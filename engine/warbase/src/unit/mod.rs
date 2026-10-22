@@ -149,6 +149,11 @@ pub struct UnitDef {
     /// creeps ship bigger numbers; default 1 keeps plain creeps terse.
     #[serde(default = "default_leak")]
     pub leak: u32,
+    /// Optional mana pool (SPL1, ADR-0016 §6). None = no mana bar — every
+    /// legacy tower/creep def stays exactly as before, and old RON bundles
+    /// load unchanged (`#[serde(default)]`).
+    #[serde(default)]
+    pub mana: Option<ManaDef>,
 }
 
 fn default_leak() -> u32 {
@@ -160,6 +165,14 @@ pub struct HealDef {
     pub amount: f32,
     pub interval: f32,
     pub radius: f32,
+}
+
+/// Mana pool numbers shipped per def (SPL1): `max` is the spawn pool and
+/// ceiling, `regen` the per-second refill (clamped at max).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ManaDef {
+    pub max: f32,
+    pub regen: f32,
 }
 
 #[derive(Resource, Debug, Default, Clone)]
@@ -183,6 +196,19 @@ pub struct Hp(pub f32);
 
 #[derive(Component, Debug)]
 pub struct MaxHp(pub f32);
+
+/// Current mana (SPL1). Spent at cast start by skill::process_casts; no
+/// refund on interrupt (pinned by ADR-0016 §6).
+#[derive(Component, Debug)]
+pub struct Mana(pub f32);
+
+/// Mana pool ceiling; regen clamps here (tick_skill_cooldowns).
+#[derive(Component, Debug)]
+pub struct MaxMana(pub f32);
+
+/// Mana per second (SPL1); 0 = no regen.
+#[derive(Component, Debug)]
+pub struct ManaRegen(pub f32);
 
 #[derive(Component, Debug)]
 pub struct Armor(pub ArmorType);
@@ -331,6 +357,9 @@ pub fn spawn_unit(
     if let Some(h) = def.heal {
         e.insert(crate::combat::Healer { amount: h.amount, interval: h.interval, radius: h.radius, timer: 0.0 });
     }
+    if let Some(m) = def.mana {
+        e.insert((Mana(m.max), MaxMana(m.max), ManaRegen(m.regen)));
+    }
     if !def.skills.is_empty() {
         let slots = def
             .skills
@@ -391,6 +420,9 @@ pub fn spawn_unit_deferred(
     }
     if let Some(h) = def.heal {
         ec.insert(crate::combat::Healer { amount: h.amount, interval: h.interval, radius: h.radius, timer: 0.0 });
+    }
+    if let Some(m) = def.mana {
+        ec.insert((Mana(m.max), MaxMana(m.max), ManaRegen(m.regen)));
     }
     // Skill slots stay exclusive to the World variant: assembling them needs
     // a SkillDefs read, which Commands cannot do mid-system.

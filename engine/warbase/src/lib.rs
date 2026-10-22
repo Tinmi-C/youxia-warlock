@@ -35,14 +35,14 @@ pub mod prelude {
     };
     pub use crate::skill::{
         distribute_xp, process_casts, run_autocast, spend_skill_point, tick_skill_cooldowns,
-        CastSkill, SkillCast, SkillCaster, SkillDef, SkillDefs, SkillKind, SkillSlot,
-        SkillTargeting,
+        CastSkill, Casting, Channeling, InterruptCast, SkillCast, SkillCaster, SkillDef, SkillDefs,
+        SkillKind, SkillSlot, SkillTargeting,
     };
     pub use crate::unit::{
         spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
-        AttackDef, AttackType, BaseAttributes, HealDef, Hp, Hostility, MatchDiplomacy, MaxHp,
-        Owner, PlayerId, ProjDef, TargetDomain, TeamId, TeamsDef, UnitDef, UnitId, UnitInstance,
-        UnitRegistry, UnitTrait, XpHolder,
+        AttackDef, AttackType, BaseAttributes, HealDef, Hp, Hostility, Mana, ManaDef, ManaRegen,
+        MatchDiplomacy, MaxHp, MaxMana, Owner, PlayerId, ProjDef, TargetDomain, TeamId, TeamsDef,
+        UnitDef, UnitId, UnitInstance, UnitRegistry, UnitTrait, XpHolder,
     };
     pub use crate::item::prelude::*;
     pub use crate::movement::prelude::*;

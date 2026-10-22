@@ -21,6 +21,7 @@ fn def(id: &str, hp: f32) -> UnitDef {
         skills: vec![],
         upgrade_to: None,
         heal: None,
+        mana: None,
     }
 }
 
@@ -38,7 +39,7 @@ fn cast_validation_and_cooldown() {
                 kind: SkillKind::Active,
                 targeting: SkillTargeting::None,
                 max_level: 3,
-                cooldown: 2.0, badge: None, hotkey: None,
+                cooldown: 2.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None,
             },
         );
         defs
@@ -78,7 +79,7 @@ fn autocast_fires_when_ready() {
         let mut defs = SkillDefs::default();
         defs.defs.insert(
             "harden".into(),
-            SkillDef { id: "harden".into(), kind: SkillKind::Autocast, targeting: SkillTargeting::None, max_level: 1, cooldown: 5.0, badge: None, hotkey: None },
+            SkillDef { id: "harden".into(), kind: SkillKind::Autocast, targeting: SkillTargeting::None, max_level: 1, cooldown: 5.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None },
         );
         defs
     });

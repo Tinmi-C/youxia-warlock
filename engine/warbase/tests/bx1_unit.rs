@@ -57,6 +57,7 @@ fn grunt_registry() -> UnitRegistry {
             skills: vec![],
             upgrade_to: None,
             heal: None,
+            mana: None,
         },
     );
     UnitRegistry { defs }
