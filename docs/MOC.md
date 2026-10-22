@@ -40,6 +40,8 @@ updated: 2026-10-06
 
 ## 近期更新
 
+- [[topics/engine/bevy-resource-registration-entity-shift-pitfall|Bevy 0.19 首次注册资源分配簿记实体→index 偏移]]（新增，pitfall done：录像指纹对账第 0 帧即差；正解=对账世界资源集与时序同构）
+- [[topics/engine/multi-worktree-shared-target-pitfall|同包多 worktree 共享 CARGO_TARGET_DIR 互踩]]（新增，pitfall done：并行批次两线踩中「源码完好却编译报错」假象；正解=每 worktree 私有 target）
 - [[topics/engine/warbase-wc3-alignment-plan|warbase 魔兽式底座补全方案 v0.1]]（新增，draft：WC3 交互模板扩域总规格——九域 ×27 增量（SEL 选择编队/MOV 移动寻路/SPL 法力施法/MP 阵营/PRD 生产科研/INV 物品/FOG 视野/AUD 音效/RPL 录像 + SEAM 接缝）；D1–D10 横切决策；Phase 0–4 并行批次图 + 子智能体任务包模板；待评审与 ADR-0016/0017 拍板）
 - [[topics/game-design/artvault-demand-board-proposal|岩库需求板块设计稿 v0.1]]（P1 已落地 2026-10-09：岩库 ADR-006 + 本仓库 ADR-0015/tools/art-needs；loop-td 16 需求已上板；四拍板项决议见 §8）
 - [[decisions/0014-deprecate-capability-card-workflow|ADR-0014 能力卡工作流退役]]（新增，accepted：youxia 拍板——卡的形式退役，纪律保留为规格-测试-小步提交；各项目以 docs/roadmap.md 平面表追踪进度；模板/根约定同步改写）
