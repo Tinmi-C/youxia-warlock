@@ -111,6 +111,7 @@ fn upgrade_swaps_tier_in_place() {
         traits: vec![], auras: vec![], hero: false, skills: vec![],
         upgrade_to: up,
         heal: None,
+        mana: None,
     };
     defs.insert("arrow".into(), tower_def("arrow", 50, Some("arrow2".into())));
     defs.insert("arrow2".into(), tower_def("arrow2", 90, None));

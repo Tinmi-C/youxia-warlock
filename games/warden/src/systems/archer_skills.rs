@@ -47,6 +47,7 @@ pub fn archer_skill_defs(balance: &SkillBalance) -> [SkillDef; 3] {
         cooldown: balance.cooldown(id, 1),
         badge: Some(badge),
         hotkey: None, // SK10 assigns the context hotkeys
+        mana_cost: 0.0,
     };
     [
         mk(

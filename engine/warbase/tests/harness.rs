@@ -40,6 +40,7 @@ fn unit(id: &str, hp: f32, armor: ArmorType, dmg: f32, cost: u32) -> UnitDef {
         skills: vec![],
         upgrade_to: None,
         heal: None,
+        mana: None,
     }
 }
 
@@ -233,6 +234,7 @@ fn driver_wordlist_executes() {
                 cooldown: 5.0,
                 badge: None,
                 hotkey: None,
+                mana_cost: 0.0,
             },
         );
         app.insert_resource(defs);

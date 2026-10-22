@@ -31,6 +31,7 @@ fn unit(id: &str, cost: u32, bounty: u32, upgrade_to: Option<&str>) -> UnitDef {
         skills: vec![],
         upgrade_to: upgrade_to.map(Into::into),
         heal: None,
+        mana: None,
     }
 }
 

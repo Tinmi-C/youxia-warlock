@@ -50,6 +50,7 @@ fn scenario_bundle(
         skills: vec![],
         upgrade_to: None,
         heal: None,
+        mana: None,
     };
     let mut units = std::collections::HashMap::new();
     units.insert("grunt".into(), unit("grunt", 40.0, ArmorType::Heavy, 0.0));
@@ -508,7 +509,7 @@ fn hero_snipe_autocasts_and_points_level_it() {
             kind: SkillKind::Autocast,
             targeting: SkillTargeting::None,
             max_level: 3,
-            cooldown: 6.0, badge: None, hotkey: None,
+            cooldown: 6.0, badge: None, hotkey: None, mana_cost: 0.0,
         },
     );
     app.insert_resource(defs);

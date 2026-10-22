@@ -10,7 +10,7 @@ use bevy::ecs::world::Mut;
 
 use crate::buff::{ModEntry, StatKind, StatMods};
 use crate::combat::UnitDied;
-use crate::unit::XpHolder;
+use crate::unit::{Mana, ManaRegen, MaxMana, XpHolder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SkillKind {
@@ -33,6 +33,10 @@ pub struct SkillDef {
     pub targeting: SkillTargeting,
     pub max_level: u8,
     pub cooldown: f32,
+    /// Mana spent at cast start (SPL1). Default semantics = 0 (free cast);
+    /// games authoring SkillDefs in Rust write `mana_cost: 0.0` for legacy
+    /// behavior (D8: zero drift for warden's cooldown-driven free casts).
+    pub mana_cost: f32,
     /// UI badge char (e.g. 'Z' for the hotkey label). Game-agnostic.
     pub badge: Option<char>,
     /// Global hotkey if the skill has one (commander Z/X/C style).
@@ -101,7 +105,11 @@ pub struct SkillCast {
     pub point: Option<Vec3>,
 }
 
-pub fn tick_skill_cooldowns(time: Res<Time>, mut q: Query<&mut SkillCaster>) {
+pub fn tick_skill_cooldowns(
+    time: Res<Time>,
+    mut q: Query<&mut SkillCaster>,
+    mut mana_q: Query<(&mut Mana, &MaxMana, &ManaRegen)>,
+) {
     let dt = time.delta_secs();
     for mut caster in &mut q {
         for slot in &mut caster.slots {
@@ -109,6 +117,11 @@ pub fn tick_skill_cooldowns(time: Res<Time>, mut q: Query<&mut SkillCaster>) {
             // negative (exact-0 assertions and UI reads stay stable).
             slot.cooldown = (slot.cooldown - dt).max(0.0);
         }
+    }
+    // SPL1 mana regen (Tick slot; the lib.rs system table is SEAM property
+    // per D3, so the regen loop folds into the registered Tick system).
+    for (mut mana, max, regen) in &mut mana_q {
+        mana.0 = (mana.0 + regen.0 * dt).min(max.0);
     }
 }
 
@@ -123,21 +136,32 @@ pub fn run_autocast(casters: Query<(Entity, &SkillCaster)>, mut requests: Messag
     }
 }
 
-/// Act: validate requests (learned + off cooldown), start cooldown, emit
-/// SkillCast for effect dispatch.
+/// Act: validate requests (caster exists -> slot learned -> off cooldown ->
+/// mana >= cost), spend mana at cast start, start cooldown, and emit
+/// SkillCast for effect dispatch. Refused casts leave no trace (skip; the
+/// base ships no reject channel by design).
 pub fn process_casts(
     mut requests: MessageReader<CastSkill>,
     mut casts: MessageWriter<SkillCast>,
     defs: Res<SkillDefs>,
-    mut casters: Query<&mut SkillCaster>,
+    mut casters: Query<(&mut SkillCaster, Option<&mut Mana>)>,
 ) {
     for req in requests.read() {
-        let Ok(mut caster) = casters.get_mut(req.caster) else { continue };
+        let Ok((mut caster, mut mana)) = casters.get_mut(req.caster) else { continue };
         let Some(slot) = caster.slots.get_mut(req.slot) else { continue };
         if slot.level == 0 || slot.cooldown > 0.0 {
             continue;
         }
         let Some(def) = defs.get(&slot.skill) else { continue };
+        // SPL1 mana gate: costs > 0 need a pool with enough mana; the spend
+        // happens here, at cast start (interrupts refund nothing).
+        if def.mana_cost > 0.0 {
+            let Some(mana) = mana.as_deref_mut() else { continue };
+            if mana.0 < def.mana_cost {
+                continue;
+            }
+            mana.0 -= def.mana_cost;
+        }
         slot.cooldown = def.cooldown;
         casts.write(SkillCast {
             caster: req.caster,

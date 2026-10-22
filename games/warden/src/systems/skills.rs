@@ -73,6 +73,7 @@ pub fn production_skill_defs() -> SkillDefs {
                 cooldown: balance.cooldown(id, 1),
                 badge,
                 hotkey,
+                mana_cost: 0.0,
             },
         );
     };

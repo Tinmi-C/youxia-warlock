@@ -5934,6 +5934,7 @@ mod skills_core {
                 cooldown: 0.0, // tests read SkillBalance (the cast gate's source)
                 badge: Some(badge),
                 hotkey: None,
+                mana_cost: 0.0,
             };
             defs.defs.clear();
             defs.defs.insert("burst".into(), mk("burst", SkillKind::Active, SkillTargetMode::None, 3, 'B'));
@@ -6164,6 +6165,7 @@ mod skills_core {
                 cooldown: 0.0,
                 badge: Some('X'),
                 hotkey: None,
+                mana_cost: 0.0,
             },
         );
         let mut caster = SkillCaster { slots: vec![] };
