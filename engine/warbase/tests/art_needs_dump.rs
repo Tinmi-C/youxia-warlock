@@ -81,6 +81,11 @@ fn bundle_with_towers() -> MapBundle {
         econ_start: EconStart { gold: 120, wood: 5, pop_cap: 8 },
         econ_rules: EconRules::default(),
         attack_armor: AttackArmorTable::default(),
+        nav: Default::default(),
+        vision: Default::default(),
+        items: Default::default(),
+        production: Default::default(),
+        teams: Default::default(),
     }
 }
 

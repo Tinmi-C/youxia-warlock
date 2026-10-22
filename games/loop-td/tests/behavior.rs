@@ -82,6 +82,11 @@ fn scenario_bundle(
         econ_start: EconStart { gold: 200, wood: 0, pop_cap: 8 },
         econ_rules: EconRules::default(),
         attack_armor: AttackArmorTable::default(),
+        nav: Default::default(),
+        vision: Default::default(),
+        items: Default::default(),
+        production: Default::default(),
+        teams: Default::default(),
     }
 }
 

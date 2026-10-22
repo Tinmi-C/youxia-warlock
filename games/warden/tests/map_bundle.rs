@@ -50,6 +50,11 @@ fn warden_bundle() -> MapBundle {
         econ_start: warbase::prelude::EconStart { gold: 100, wood: 0, pop_cap: 8 },
         econ_rules: warbase::prelude::EconRules::default(),
         attack_armor: warden_armor_table(),
+        nav: Default::default(),
+        vision: Default::default(),
+        items: Default::default(),
+        production: Default::default(),
+        teams: Default::default(),
     }
 }
 

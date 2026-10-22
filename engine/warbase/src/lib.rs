@@ -40,9 +40,17 @@ pub mod prelude {
     };
     pub use crate::unit::{
         spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
-        AttackDef, AttackType, BaseAttributes, HealDef, Hp, MaxHp, ProjDef, TargetDomain, UnitDef,
-        UnitId, UnitInstance, UnitRegistry, UnitTrait, XpHolder,
+        AttackDef, AttackType, BaseAttributes, HealDef, Hp, Hostility, MatchDiplomacy, MaxHp,
+        Owner, PlayerId, ProjDef, TargetDomain, TeamId, TeamsDef, UnitDef, UnitId, UnitInstance,
+        UnitRegistry, UnitTrait, XpHolder,
     };
+    pub use crate::item::prelude::*;
+    pub use crate::movement::prelude::*;
+    pub use crate::production::prelude::*;
+    pub use crate::replay::prelude::*;
+    pub use crate::selection::prelude::*;
+    pub use crate::sfx::prelude::*;
+    pub use crate::vision::prelude::*;
     pub use crate::wave::{
         run_director, Advance, BossTimedOut, DirectorPhase, Paths, SpawnSpec, StartWave,
         WaveCleared, WaveDirector, WaveEntry, WavePreview, WaveStarted, WaveTable, WaveTag,
@@ -52,10 +60,15 @@ pub mod prelude {
 }
 
 mod combat;
+mod item;
+mod movement;
 mod path;
+mod production;
+mod replay;
 mod rng;
 pub mod testing;
 mod unit;
+mod vision;
 
 mod buff;
 pub mod build;
@@ -63,6 +76,8 @@ pub mod bundle;
 mod econ;
 pub mod harness;
 mod rule;
+mod selection;
+mod sfx;
 mod skill;
 mod wave;
 
@@ -70,6 +85,8 @@ mod wave;
 pub mod fx;
 #[cfg(feature = "ui")]
 pub mod ui;
+#[cfg(feature = "ui")]
+pub mod input;
 
 use bevy::prelude::*;
 
@@ -126,7 +143,16 @@ impl Plugin for WarbasePlugin {
             .add_message::<rule::MatchEnded>()
             .add_message::<skill::CastSkill>()
             .add_message::<skill::SkillCast>()
+            .add_message::<skill::InterruptCast>()
             .add_message::<combat::HealRequest>()
+            .add_message::<selection::PickAttempt>()
+            .add_message::<selection::PickResolved>()
+            .add_message::<selection::SelectCommand>()
+            .add_message::<selection::GroupCommand>()
+            .add_message::<movement::UnitCommand>()
+            .add_message::<production::TrainCommand>()
+            .add_message::<production::CancelTrain>()
+            .add_message::<sfx::SfxRequest>()
             .init_resource::<rule::MatchRules>()
             .init_resource::<rule::MatchFlow>()
             .init_resource::<rule::StockCount>()
@@ -134,6 +160,8 @@ impl Plugin for WarbasePlugin {
             .init_resource::<skill::XpEventCursor>()
             .init_resource::<unit::UnitRegistry>()
             .init_resource::<unit::AttackArmorTable>()
+            .init_resource::<unit::Hostility>()
+            .init_resource::<unit::MatchDiplomacy>()
             .init_resource::<rng::MatchRng>()
             .init_resource::<econ::Resources>()
             .init_resource::<econ::Population>()
@@ -141,7 +169,12 @@ impl Plugin for WarbasePlugin {
             .init_resource::<econ::EconRules>()
             .init_resource::<wave::WaveTable>()
             .init_resource::<wave::Paths>()
-            .init_resource::<wave::WaveDirector>();
+            .init_resource::<wave::WaveDirector>()
+            .init_resource::<selection::SelectionState>()
+            .init_resource::<selection::ControlGroups>()
+            .init_resource::<selection::SelectionPanelData>()
+            .init_resource::<item::ItemRegistry>()
+            .init_resource::<movement::NavGrid>();
 
         app.add_systems(
             Update,

@@ -46,3 +46,21 @@ pub fn temp_path(tag: &str) -> PathBuf {
     let _ = std::fs::remove_file(&p);
     p
 }
+
+/// Spawn a minimal selectable unit (selection/SEAM tests & SEL domain).
+pub fn spawn_selectable(world: &mut World, pos: Vec2, side: crate::unit::Allegiance) -> Entity {
+    world
+        .spawn((
+            crate::selection::Selectable,
+            side,
+            Transform::from_translation(pos.extend(0.0)),
+        ))
+        .id()
+}
+
+/// Write one message then advance a single frame (command-injection helper
+/// for headless domain tests).
+pub fn send<M: Message>(app: &mut App, msg: M) {
+    app.world_mut().write_message(msg);
+    app.update();
+}

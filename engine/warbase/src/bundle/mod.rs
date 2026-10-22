@@ -43,6 +43,10 @@ pub struct WorldDef {
 
 /// The map file. All content numbers live here (ADR-0013 narrowed ADR-0008);
 /// the base ships only mechanisms.
+///
+/// New-domain sections (ADR-0016 alignment plan) are optional with serde
+/// defaults: appending an optional section does NOT bump MAP_FORMAT_VERSION
+/// (schema superset, old maps load unchanged); only breaking changes bump.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapBundle {
     pub identity: MapIdentity,
@@ -54,6 +58,21 @@ pub struct MapBundle {
     #[serde(default)]
     pub econ_rules: EconRules,
     pub attack_armor: AttackArmorTable,
+    /// Navigation grid overrides (MOV2; defaults empty = free map).
+    #[serde(default)]
+    pub nav: crate::movement::NavDef,
+    /// Vision/fog parameters (FOG1; defaults = 1.0 cell).
+    #[serde(default)]
+    pub vision: crate::vision::VisionDef,
+    /// Item table (INV; defaults empty).
+    #[serde(default)]
+    pub items: crate::item::ItemsDef,
+    /// Production/research section (PRD; defaults empty).
+    #[serde(default)]
+    pub production: crate::production::ProductionDef,
+    /// Player/team layout (MP1; defaults = single player vs environment).
+    #[serde(default)]
+    pub teams: crate::unit::TeamsDef,
 }
 
 #[derive(Debug)]
@@ -222,6 +241,15 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     world.insert_resource(crate::rule::MatchFlow::Running);
     world.insert_resource(crate::rule::StockCount(0));
     world.remove_resource::<crate::rule::LivesLeft>();
+
+    // New-domain dispatch (SEAM0d): one line per domain, implemented in the
+    // domain module. Never add domain loading logic to this file.
+    crate::movement::apply_nav(world, bundle);
+    crate::selection::apply_selection(world, bundle);
+    crate::vision::apply_vision(world, bundle);
+    crate::item::apply_items(world, bundle);
+    crate::production::apply_production(world, bundle);
+    crate::unit::apply_teams(world, bundle);
 }
 
 // ---------- art-needs projection (ADR-0015) ----------

@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::path::PathFollower;
-use crate::unit::{AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable, AttackDef, AttackType, Hp, MaxHp, TargetDomain, UnitId, UnitInstance};
+use crate::unit::{AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable, AttackDef, AttackType, Hp, Hostility, MaxHp, TargetDomain, UnitId, UnitInstance};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetingPriority {
@@ -88,6 +88,7 @@ pub struct Healer {
 
 pub fn healer_tick(
     time: Res<Time>,
+    hostility: Res<Hostility>,
     mut requests: MessageWriter<HealRequest>,
     mut healers: Query<(Entity, &Transform, &Allegiance, &mut Healer)>,
     allies: Query<(Entity, &Transform, &Allegiance, &Hp, &MaxHp), Without<Dead>>,
@@ -100,7 +101,7 @@ pub fn healer_tick(
         }
         healer.timer = healer.interval;
         for (ae, apos, aside, hp, max) in &allies {
-            if aside != side || hp.0 <= 0.0 || hp.0 >= max.0 {
+            if !hostility.allied(*side, *aside) || hp.0 <= 0.0 || hp.0 >= max.0 {
                 continue;
             }
             if pos.translation.distance(apos.translation) <= healer.radius {
@@ -156,6 +157,7 @@ pub fn tick_cooldowns(time: Res<Time>, mut q: Query<&mut AttackCooldown>) {
 /// v1 — cheap at our unit counts, trivially testable).
 #[allow(clippy::type_complexity)]
 pub fn pick_targets(
+    hostility: Res<Hostility>,
     mut attackers: Query<(&AttackKit, &Transform, &Allegiance, &mut CurrentTarget)>,
     enemies: Query<
         (
@@ -173,7 +175,7 @@ pub fn pick_targets(
         // (entity, hp, path rank, dist) for the current best candidate.
         let mut best: Option<(Entity, f32, (u32, f32), f32)> = None;
         for (e, epos, hp, eside, air, follower) in &enemies {
-            if eside == side {
+            if !hostility.hostile(*side, *eside) {
                 continue;
             }
             if kit.def.targets == TargetDomain::Ground && air {
@@ -189,7 +191,7 @@ pub fn pick_targets(
             let rank = follower.map(|f| (f.laps, f.progress)).unwrap_or((0, 0.0));
             let better = match (best, kit.priority) {
                 (None, _) => true,
-                (Some((_, bhp, brank, _)), TargetingPriority::First) => rank > brank,
+                (Some((_, _bhp, brank, _)), TargetingPriority::First) => rank > brank,
                 (Some((_, _, brank, _)), TargetingPriority::Last) => rank < brank,
                 (Some((_, bhp, _, _)), TargetingPriority::Strongest) => hp.0 > bhp,
                 (Some((_, bhp, _, _)), TargetingPriority::LowestHp) => hp.0 < bhp,
@@ -207,6 +209,7 @@ pub fn pick_targets(
 /// now; projectile attacks spawn a homing logic entity at the attacker.
 #[allow(clippy::type_complexity)]
 pub fn fire_attacks(
+    hostility: Res<Hostility>,
     mut commands: Commands,
     mut requests: MessageWriter<DamageRequest>,
     mut attackers: Query<
@@ -226,7 +229,7 @@ pub fn fire_attacks(
     for (entity, kit, pos, side, target, mut cd, eff) in &mut attackers {
         let Some(t) = target.0 else { continue };
         let Ok((hp, tside)) = targets.get(t) else { continue };
-        if hp.0 <= 0.0 || tside == side || cd.0 > 0.0 {
+        if hp.0 <= 0.0 || !hostility.hostile(*side, *tside) || cd.0 > 0.0 {
             continue;
         }
         let eff = eff.copied().unwrap_or_else(crate::buff::EffectiveStats::neutral);
@@ -268,7 +271,7 @@ pub fn move_projectiles(
     mut projs: Query<(Entity, &mut Projectile, &mut Transform)>,
 ) {
     let dt = time.delta_secs();
-    for (pe, mut proj, mut pos) in &mut projs {
+    for (pe, proj, mut pos) in &mut projs {
         let Ok((tpos, hp)) = targets.get(proj.target) else {
             commands.entity(pe).despawn();
             continue;

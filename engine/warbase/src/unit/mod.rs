@@ -212,6 +212,69 @@ pub enum Allegiance {
     Attacker,
 }
 
+/// Pluggable friend-or-foe oracle (ADR-0017): the ONLY place combat/buff may
+/// ask "are these two hostile/allied" — direct Allegiance comparisons are
+/// forbidden outside this impl. Default = the historical two-sided
+/// semantics (zero drift); MP1 swaps the body for team diplomacy while
+/// Allegiance stays as a derived view.
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct Hostility;
+
+impl Hostility {
+    pub fn hostile(&self, a: Allegiance, b: Allegiance) -> bool {
+        a != b
+    }
+
+    pub fn allied(&self, a: Allegiance, b: Allegiance) -> bool {
+        a == b
+    }
+}
+
+/// Player slot in a match (ADR-0017 data layer; netcode is out of scope).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PlayerId(pub u8);
+
+/// Team a player belongs to (allied = shared vision/victory semantics).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TeamId(pub u8);
+
+/// Ownership marker on units/buildings (MP1 consumes; single-player maps
+/// leave entities unowned = local player).
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Owner(pub PlayerId);
+
+/// Player -> team table + hostility pairs (map-bundle authored). Default =
+/// single player P0 on team 0 versus the environment team 1 — identical to
+/// the historical Defender/Attacker semantics.
+#[derive(Resource, Debug, Clone)]
+pub struct MatchDiplomacy {
+    pub players: Vec<(PlayerId, TeamId)>,
+    /// Hostile team pairs (both directions implied).
+    pub hostile_pairs: Vec<(TeamId, TeamId)>,
+}
+
+impl Default for MatchDiplomacy {
+    fn default() -> Self {
+        Self {
+            players: vec![(PlayerId(0), TeamId(0))],
+            hostile_pairs: vec![(TeamId(0), TeamId(1))],
+        }
+    }
+}
+
+/// Map-bundle teams section (SEAM0d; optional, defaults to single player).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TeamsDef {
+    #[serde(default)]
+    pub players: Vec<(u8, u8)>,
+}
+
+/// Bundle dispatch stub (SEAM0d): MP1 fills this in.
+pub fn apply_teams(world: &mut World, bundle: &crate::bundle::MapBundle) {
+    let _ = (world, bundle);
+    // TODO(MP1): build MatchDiplomacy from TeamsDef + refresh sync_allegiance.
+}
+
 /// Present on units with UnitTrait::Air; Ground-only attacks skip them.
 #[derive(Component, Debug)]
 pub struct AirUnit;

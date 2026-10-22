@@ -79,6 +79,16 @@ pub struct CastSkill {
     pub slot: usize,
 }
 
+/// Interrupt an in-progress cast (stun/silence archetype effects; SPL2's
+/// `Casting` component consumes this). Interrupted casts refund no mana and
+/// start cooldown from the interrupt tick — pinned by the alignment plan.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct InterruptCast {
+    /// Read by SPL2's casting consumer (silence-all vs single-target).
+    #[allow(dead_code)]
+    pub caster: Entity,
+}
+
 /// Emitted after validation; game-side effect systems dispatch by skill id.
 /// `point` is Some only when a game-side aiming layer confirmed a
 /// Point-target cast (the base validates and fires immediately; games that

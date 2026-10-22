@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::path::PathFollower;
-use crate::unit::Allegiance;
+use crate::unit::{Allegiance, Hostility};
 
 /// Which stat a mod touches. Amounts are multiplier deltas (0.3 = +30%,
 /// -0.25 = -25%); same-kind deltas from different sources sum.
@@ -116,6 +116,7 @@ fn fold(mods: &StatMods, eff: &mut EffectiveStats, now: f32) {
 /// (enemy aura bearers — the "kill the shaman first" archetype). Same
 /// per-frame rebuild semantics as tower auras.
 pub fn apply_follower_auras(
+    hostility: Res<Hostility>,
     sources: Query<(Entity, &Transform, &Allegiance, &Auras), With<PathFollower>>,
     mut targets: Query<(Entity, &Transform, &Allegiance, &mut StatMods), With<PathFollower>>,
 ) {
@@ -127,7 +128,7 @@ pub fn apply_follower_auras(
     for (tgt_e, tgt_pos, tgt_side, mut mods) in &mut targets {
         mods.entries.retain(|e| !e.from_aura);
         for (src_e, src_pos, src_side, auras) in &sources {
-            if *src_side != *tgt_side {
+            if !hostility.allied(*src_side, *tgt_side) {
                 continue; // followers buff allies only
             }
             let d = src_pos.translation.distance(tgt_pos.translation);
@@ -157,6 +158,7 @@ pub fn apply_follower_auras(
 /// enemy creeps on paths. Per-frame full rebuild of the target's
 /// aura-sourced entries; entries from non-aura sources are preserved.
 pub fn apply_auras(
+    hostility: Res<Hostility>,
     sources: Query<(Entity, &Transform, &Allegiance, &Auras), Without<PathFollower>>,
     mut targets: Query<(Entity, &Transform, &Allegiance, &mut StatMods), With<PathFollower>>,
 ) {
@@ -168,7 +170,7 @@ pub fn apply_auras(
     for (tgt_e, tgt_pos, tgt_side, mut mods) in &mut targets {
         mods.entries.retain(|e| !e.from_aura);
         for (src_e, src_pos, src_side, auras) in &sources {
-            if *src_side == *tgt_side {
+            if !hostility.hostile(*src_side, *tgt_side) {
                 continue;
             }
             let d = src_pos.translation.distance(tgt_pos.translation);
