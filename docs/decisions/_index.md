@@ -23,7 +23,9 @@
 | [[decisions/0009-art-vault-to-game-asset-flow\|ADR-0009]] | 美术资产从岩库（ArtVault）进入游戏仓库——清单锁定 + art-sync 桥 | accepted | 2026-09-14 |
 | [[decisions/0010-showroom-generic-asset-viewer\|ADR-0010]] | 展示场（美术资产查看器）通用化——抽入 engine/showroom-viewer（warden 适配 + 独立 asset-viewer bin 双消费方） | accepted | 2026-09-20 |
 | [[decisions/0011-generic-per-entity-skill-framework\|ADR-0011]] | 技能系统通用化——按实体挂载的技能框架（被动/主动/自动施法）+ 统一伤害结算 | accepted | 2026-09-29 |
-| [[decisions/0012-warbase-shared-runtime-and-map-architecture\|ADR-0012]] | 魔兽式游戏基底 warbase——共享战斗 runtime crate +「游戏=地图」分层架构（v2：warden 回迁消费方 #0 + 根 workspace + UI/FX feature 门控） | accepted | 2026-10-08 |
+| [[decisions/0012-warbase-shared-runtime-and-map-architecture\|ADR-0012]] | 魔兽式游戏基底 warbase——共享战斗 runtime crate +「游戏=地图」分层架构（v2：warden 回迁消费方 #0 + 根 workspace + UI/FX feature 门控；**范围条已被 ADR-0016 扩域修订**） | accepted | 2026-10-08 |
 | [[decisions/0013-mapbundle-as-data-file\|ADR-0013]] | MapBundle 数据文件化——「地图」是自包含 RON 数据包（收窄 ADR-0008 适用范围） | accepted | 2026-10-08 |
 | [[decisions/0014-deprecate-capability-card-workflow\|ADR-0014]] | 开发流程简化——能力卡工作流退役，规格-测试-小步提交（进度用各项目 roadmap.md） | accepted | 2026-10-08 |
 | [[decisions/0015-art-needs-demand-integration\|ADR-0015]] | 游戏侧美术需求接入——art-needs 工具与三文件契约（art-needs.json / art-mapping.json / art-assets.json demand 回链） | accepted | 2026-10-09 |
+| [[decisions/0016-warbase-wc3-alignment-expansion\|ADR-0016]] | warbase 基底范围扩域——WC3 交互模板九域（选择/移动/寻路/生产/物品/视野/多玩家/录像/音效通道；修订 ADR-0012 范围条；总规格=warbase-wc3-alignment-plan） | accepted | 2026-10-22 |
+| [[decisions/0017-multiplayer-data-layer\|ADR-0017]] | 多玩家数据层——玩家/队伍/外交矩阵，Hostility 唯一敌我判定缝（不含 netcode；经济分域暂缓） | accepted | 2026-10-22 |
