@@ -75,7 +75,7 @@ pub fn load_map(world: &mut World) {
                 kind: SkillKind::Autocast,
                 targeting: SkillTargeting::None,
                 max_level: 3,
-                cooldown: 6.0, badge: None, hotkey: None, mana_cost: 0.0,
+                cooldown: 6.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None,
             },
         );
         world.insert_resource(defs);

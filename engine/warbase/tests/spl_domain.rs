@@ -41,7 +41,25 @@ fn skill_def(id: &str, cooldown: f32, mana_cost: f32) -> SkillDef {
         badge: None,
         hotkey: None,
         mana_cost,
+        cast_time: 0.0,
+        channel: None,
     }
+}
+
+/// SkillDef with a cast time and optional channel duration.
+fn timed_skill_def(id: &str, cooldown: f32, mana_cost: f32, cast_time: f32, channel: Option<f32>) -> SkillDef {
+    SkillDef {
+        cast_time,
+        channel,
+        ..skill_def(id, cooldown, mana_cost)
+    }
+}
+
+/// One warmup frame: the harness clock has a first-frame dt=0 quirk
+/// (ts0_determinism), so every exact frame count below starts from the
+/// second update.
+fn warm_up(app: &mut App) {
+    app.update();
 }
 
 fn with_skill_defs(app: &mut App, defs: Vec<SkillDef>) {
@@ -152,9 +170,7 @@ fn mana_regen_ticks_and_clamps_at_max() {
     let e = spawn_unit(&mut app.world_mut(), &reg, "mage", Vec3::ZERO, Allegiance::Defender, 1.0)
         .unwrap();
 
-    // Warm up one frame first: the harness clock has a first-frame dt=0
-    // quirk (ts0_determinism), so regen is only exact from frame 2 on.
-    app.update();
+    warm_up(&mut app);
     // 0.5s at regen 2.0/s from 40.0 -> 41.0 exactly (30 frames).
     app.world_mut().get_mut::<Mana>(e).unwrap().0 = 40.0;
     for _ in 0..30 {
@@ -196,4 +212,166 @@ fn manaless_unit_zero_cost_skill_unchanged() {
         "cooldown as before: {}",
         cooldown_of(&app, e)
     );
+}
+
+fn interrupt(app: &mut App, caster: Entity) {
+    app.world_mut()
+        .resource_mut::<Messages<InterruptCast>>()
+        .write(InterruptCast { caster });
+}
+
+/// SPL2-1: cast_time 1.0s (60 frames at 1/60). At 0.5s (30 frames in) the
+/// mana is already spent (deducted at cast START), zero SkillCast have
+/// fired, and the slot cooldown has NOT started; exactly one SkillCast
+/// fires on the 60th frame, and the cooldown starts from that completion
+/// moment.
+#[test]
+fn cast_time_deducts_upfront_and_fires_on_completion_frame() {
+    let mut app = test_app();
+    let mut u = def("mage", 100.0);
+    u.mana = Some(ManaDef { max: 100.0, regen: 0.0 });
+    let e = spawn_with_slot(
+        &mut app,
+        u,
+        vec![timed_skill_def("pyro", 2.0, 30.0, 1.0, None)],
+        "pyro",
+    );
+    warm_up(&mut app);
+
+    cast(&mut app, e, 0);
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 30), 0, "0.5s: not done");
+    assert!((mana_of(&app, e) - 70.0).abs() < 1e-5, "mana spent at cast start");
+    assert_eq!(cooldown_of(&app, e), 0.0, "cooldown waits for completion");
+    assert!(app.world().get::<Casting>(e).is_some(), "cast in flight");
+
+    // Frames 31..60 after the cast: fires exactly once, on the 60th.
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 30), 1, "fires on frame 60");
+    assert!((cooldown_of(&app, e) - 2.0).abs() < 1e-5, "cooldown set at completion frame");
+    assert!(app.world().get::<Casting>(e).is_none(), "Casting removed");
+}
+
+/// SPL2-2: a duplicate CastSkill while a cast is in flight is refused —
+/// single deduction, no restart, still exactly one SkillCast at the end.
+#[test]
+fn duplicate_request_while_casting_is_refused() {
+    let mut app = test_app();
+    let mut u = def("mage", 100.0);
+    u.mana = Some(ManaDef { max: 100.0, regen: 0.0 });
+    let e = spawn_with_slot(
+        &mut app,
+        u,
+        vec![timed_skill_def("pyro", 2.0, 30.0, 1.0, None)],
+        "pyro",
+    );
+    warm_up(&mut app);
+
+    cast(&mut app, e, 0);
+    cast(&mut app, e, 0); // duplicate in the same window
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 5), 0);
+    assert!(
+        (mana_of(&app, e) - 70.0).abs() < 1e-5,
+        "single deduction despite the duplicate request"
+    );
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 55), 1, "exactly one cast total");
+}
+
+/// SPL2-3: InterruptCast at 0.5s — no SkillCast ever, mana NOT refunded,
+/// and the cooldown starts from the interrupt frame (pinned semantics).
+#[test]
+fn interrupt_cancels_cast_no_refund_cooldown_from_interrupt() {
+    let mut app = test_app();
+    let mut u = def("mage", 100.0);
+    u.mana = Some(ManaDef { max: 100.0, regen: 0.0 });
+    let e = spawn_with_slot(
+        &mut app,
+        u,
+        vec![timed_skill_def("pyro", 5.0, 30.0, 1.0, None)],
+        "pyro",
+    );
+    warm_up(&mut app);
+
+    cast(&mut app, e, 0);
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 30), 0);
+
+    interrupt(&mut app, e);
+    app.update(); // the frame that consumes the interrupt
+    assert!(app.world().get::<Casting>(e).is_none(), "cast cancelled");
+    assert!((cooldown_of(&app, e) - 5.0).abs() < 1e-5, "full cooldown from interrupt frame");
+
+    // No effect ever fires; the interrupted cooldown keeps ticking down.
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 5), 0, "interrupted cast never fires");
+    assert!((mana_of(&app, e) - 70.0).abs() < 1e-5, "no mana refund");
+    let expected = 5.0 - 5.0 * STEP as f32;
+    assert!(
+        (cooldown_of(&app, e) - expected).abs() < 1e-4,
+        "cooldown ticking from interrupt: {}",
+        cooldown_of(&app, e)
+    );
+}
+
+/// SPL2-4: channel 1.0s after a 0.5s cast — Channeling appears right after
+/// the SkillCast, survives mid-channel, and disappears on natural expiry.
+#[test]
+fn channel_component_lifecycle_natural_expiry() {
+    let mut app = test_app();
+    let mut u = def("mage", 100.0);
+    u.mana = Some(ManaDef { max: 100.0, regen: 0.0 });
+    let e = spawn_with_slot(
+        &mut app,
+        u,
+        vec![timed_skill_def("bliz", 2.0, 10.0, 0.5, Some(1.0))],
+        "bliz",
+    );
+    warm_up(&mut app);
+
+    cast(&mut app, e, 0);
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 30), 1, "effect at 0.5s");
+    app.update(); // frame 31: Channeling now visible
+    assert!(app.world().get::<Channeling>(e).is_some(), "channeling after the cast");
+
+    for _ in 0..44 {
+        app.update(); // mid-channel (frames 32..75)
+    }
+    assert!(app.world().get::<Channeling>(e).is_some(), "still channeling mid-window");
+
+    for _ in 0..20 {
+        app.update(); // past frame 90: 1.0s of channel has fully elapsed
+    }
+    assert!(app.world().get::<Channeling>(e).is_none(), "channel expired naturally");
+}
+
+/// SPL2-5: InterruptCast during a channel removes Channeling and restarts
+/// the slot cooldown from the interrupt moment.
+#[test]
+fn interrupt_during_channel_resets_cooldown() {
+    let mut app = test_app();
+    let mut u = def("mage", 100.0);
+    u.mana = Some(ManaDef { max: 100.0, regen: 0.0 });
+    let e = spawn_with_slot(
+        &mut app,
+        u,
+        vec![timed_skill_def("bliz", 5.0, 10.0, 0.5, Some(1.0))],
+        "bliz",
+    );
+    warm_up(&mut app);
+
+    cast(&mut app, e, 0);
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 30), 1);
+    assert!((cooldown_of(&app, e) - 5.0).abs() < 1e-5, "cooldown from completion");
+
+    for _ in 0..14 {
+        app.update(); // 14 frames into the 5.0s cooldown
+    }
+    let mid = cooldown_of(&app, e);
+    assert!((mid - (5.0 - 14.0 * STEP as f32)).abs() < 1e-4, "ticking before interrupt: {mid}");
+
+    interrupt(&mut app, e);
+    app.update();
+    assert!(app.world().get::<Channeling>(e).is_none(), "channel interrupted");
+    assert!(
+        (cooldown_of(&app, e) - 5.0).abs() < 1e-5,
+        "cooldown restarted at full from the interrupt frame: {}",
+        cooldown_of(&app, e)
+    );
+    assert_eq!(count_over_frames::<SkillCast>(&mut app, 5), 0, "no extra SkillCast");
 }

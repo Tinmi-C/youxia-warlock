@@ -74,6 +74,8 @@ pub fn production_skill_defs() -> SkillDefs {
                 badge,
                 hotkey,
                 mana_cost: 0.0,
+                cast_time: 0.0,
+                channel: None,
             },
         );
     };

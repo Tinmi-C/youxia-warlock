@@ -235,6 +235,8 @@ fn driver_wordlist_executes() {
                 badge: None,
                 hotkey: None,
                 mana_cost: 0.0,
+                cast_time: 0.0,
+                channel: None,
             },
         );
         app.insert_resource(defs);

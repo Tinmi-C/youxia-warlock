@@ -5,7 +5,7 @@
 //! Also hosts hero xp distribution (killer-fed XpHolder leveling).
 
 use bevy::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use bevy::ecs::world::Mut;
 
 use crate::buff::{ModEntry, StatKind, StatMods};
@@ -37,6 +37,14 @@ pub struct SkillDef {
     /// games authoring SkillDefs in Rust write `mana_cost: 0.0` for legacy
     /// behavior (D8: zero drift for warden's cooldown-driven free casts).
     pub mana_cost: f32,
+    /// Seconds between cast start and the SkillCast effect (SPL2). 0 =
+    /// instant (legacy default). While a timed cast is in flight the caster
+    /// carries a `Casting` component.
+    pub cast_time: f32,
+    /// Channel window in seconds after the SkillCast fires (SPL2). None =
+    /// no channel; Some(d) keeps a `Channeling` component on the caster for
+    /// d seconds (read freely by game effect systems).
+    pub channel: Option<f32>,
     /// UI badge char (e.g. 'Z' for the hotkey label). Game-agnostic.
     pub badge: Option<char>,
     /// Global hotkey if the skill has one (commander Z/X/C style).
@@ -89,8 +97,34 @@ pub struct CastSkill {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct InterruptCast {
     /// Read by SPL2's casting consumer (silence-all vs single-target).
-    #[allow(dead_code)]
     pub caster: Entity,
+}
+
+/// In-progress timed cast (SPL2). The request frame counts as the first
+/// casting frame (`elapsed` starts at dt), so a T-second cast_time fires
+/// its SkillCast exactly round(T/dt) frames after the CastSkill request at
+/// a fixed timestep. Completion emits SkillCast, starts the slot cooldown
+/// from that moment, and attaches `Channeling` if the def has one; an
+/// InterruptCast removes this component with no SkillCast and no refund.
+#[derive(Component, Debug)]
+pub struct Casting {
+    pub skill: String,
+    pub elapsed: f32,
+    pub total: f32,
+    /// Reserved for targeting layers (point/unit casts); the base's own
+    /// pipeline currently starts untimed-slot casts with no target.
+    pub target: Option<Entity>,
+    pub point: Option<Vec3>,
+}
+
+/// Post-cast channel window (SPL2): present for `channel` seconds after the
+/// SkillCast fired; game effect systems read it freely. InterruptCast
+/// cancels it (cooldown restarts from the interrupt frame); natural expiry
+/// just removes the component (no message).
+#[derive(Component, Debug)]
+pub struct Channeling {
+    pub skill: String,
+    pub remaining: f32,
 }
 
 /// Emitted after validation; game-side effect systems dispatch by skill id.
@@ -136,23 +170,94 @@ pub fn run_autocast(casters: Query<(Entity, &SkillCaster)>, mut requests: Messag
     }
 }
 
-/// Act: validate requests (caster exists -> slot learned -> off cooldown ->
-/// mana >= cost), spend mana at cast start, start cooldown, and emit
-/// SkillCast for effect dispatch. Refused casts leave no trace (skip; the
-/// base ships no reject channel by design).
+/// Set every slot holding `skill` to the def's full cooldown (cooldown
+/// starts "now": at completion for timed casts, at the interrupt frame for
+/// interrupted ones — both pinned by the alignment plan).
+fn start_slot_cooldown(caster: &mut SkillCaster, defs: &SkillDefs, skill: &str) {
+    let Some(def) = defs.get(skill) else { return };
+    for slot in &mut caster.slots {
+        if slot.skill == skill {
+            slot.cooldown = def.cooldown;
+        }
+    }
+}
+
+/// Act: the cast pipeline (SPL1/SPL2, ADR-0016 §6). Ordered phases:
+/// 1. consume `InterruptCast` — cancels in-flight `Casting`/`Channeling`
+///    with no SkillCast, no mana refund, and the slot cooldown restarted
+///    from this frame (an interrupt on the completion frame beats it);
+/// 2. validate `CastSkill` requests (caster exists -> slot learned -> off
+///    cooldown -> not already casting/channeling -> mana >= cost), spend
+///    mana at cast start, then either fire instantly (cast_time == 0,
+///    legacy path: cooldown + SkillCast right away) or attach `Casting`;
+/// 3. advance `Casting` — on completion emit SkillCast (effect systems
+///    unchanged), start the cooldown from this moment, attach `Channeling`
+///    if the def has one;
+/// 4. advance `Channeling` down to natural expiry (removal, no message).
+/// Refused casts leave no trace (skip; the base ships no reject channel).
 pub fn process_casts(
+    time: Res<Time>,
     mut requests: MessageReader<CastSkill>,
+    mut interrupts: MessageReader<InterruptCast>,
     mut casts: MessageWriter<SkillCast>,
     defs: Res<SkillDefs>,
-    mut casters: Query<(&mut SkillCaster, Option<&mut Mana>)>,
+    mut commands: Commands,
+    mut casters: Query<(
+        Entity,
+        &mut SkillCaster,
+        Option<&mut Mana>,
+        Option<&mut Casting>,
+        Option<&mut Channeling>,
+    )>,
 ) {
+    let dt = time.delta_secs();
+    // Half-frame tolerance for "this frame completes it": f32 accumulation
+    // over many dt additions can sit a few ulps under the exact total, and
+    // completion/expiry must land on the exact frame count at fixed steps.
+    let half_frame = dt * 0.5;
+
+    // 1) Interrupts first (see doc comment).
+    for irq in interrupts.read() {
+        let Ok((entity, mut caster, _mana, casting, channeling)) = casters.get_mut(irq.caster)
+        else {
+            continue;
+        };
+        let skill = casting
+            .as_deref()
+            .map(|c| c.skill.clone())
+            .or_else(|| channeling.as_deref().map(|c| c.skill.clone()));
+        let Some(skill) = skill else { continue };
+        start_slot_cooldown(&mut caster, &defs, &skill);
+        commands
+            .entity(entity)
+            .remove::<Casting>()
+            .remove::<Channeling>();
+    }
+
+    // 2) New cast requests.
+    // Deferred inserts are invisible to this frame's later phases, so
+    // same-frame duplicate requests are tracked locally (the legacy
+    // instant path blocks them via the immediate cooldown write).
+    let mut started_this_frame: HashSet<Entity> = HashSet::new();
     for req in requests.read() {
-        let Ok((mut caster, mut mana)) = casters.get_mut(req.caster) else { continue };
-        let Some(slot) = caster.slots.get_mut(req.slot) else { continue };
-        if slot.level == 0 || slot.cooldown > 0.0 {
+        let Ok((entity, mut caster, mut mana, casting, channeling)) = casters.get_mut(req.caster)
+        else {
+            continue;
+        };
+        if started_this_frame.contains(&req.caster)
+            || casting.is_some()
+            || channeling.is_some()
+        {
+            continue; // already busy: one cast at a time
+        }
+        let (skill, level, slot_cooldown) = {
+            let Some(slot) = caster.slots.get(req.slot) else { continue };
+            (slot.skill.clone(), slot.level, slot.cooldown)
+        };
+        if level == 0 || slot_cooldown > 0.0 {
             continue;
         }
-        let Some(def) = defs.get(&slot.skill) else { continue };
+        let Some(def) = defs.get(&skill) else { continue };
         // SPL1 mana gate: costs > 0 need a pool with enough mana; the spend
         // happens here, at cast start (interrupts refund nothing).
         if def.mana_cost > 0.0 {
@@ -162,13 +267,61 @@ pub fn process_casts(
             }
             mana.0 -= def.mana_cost;
         }
-        slot.cooldown = def.cooldown;
-        casts.write(SkillCast {
-            caster: req.caster,
-            skill: slot.skill.clone(),
-            level: slot.level,
-            point: None,
-        });
+        started_this_frame.insert(req.caster);
+        if def.cast_time > 0.0 {
+            commands.entity(entity).insert(Casting {
+                skill,
+                // The request frame counts as the first casting frame.
+                elapsed: dt,
+                total: def.cast_time,
+                target: None,
+                point: None,
+            });
+        } else {
+            caster.slots[req.slot].cooldown = def.cooldown;
+            casts.write(SkillCast {
+                caster: entity,
+                skill,
+                level,
+                point: None,
+            });
+            if let Some(d) = def.channel {
+                commands.entity(entity).insert(Channeling { skill: def.id.clone(), remaining: d });
+            }
+        }
+    }
+
+    // 3) Advance in-flight casts; completion = SkillCast + cooldown from
+    //    now + optional Channeling.
+    for (entity, mut caster, _mana, casting, _channeling) in &mut casters {
+        let Some(mut c) = casting else { continue };
+        c.elapsed += dt;
+        if c.elapsed + half_frame < c.total {
+            continue;
+        }
+        let skill = c.skill.clone();
+        let point = c.point;
+        let level = caster
+            .slots
+            .iter()
+            .find(|s| s.skill == skill)
+            .map(|s| s.level)
+            .unwrap_or(1);
+        start_slot_cooldown(&mut caster, &defs, &skill);
+        casts.write(SkillCast { caster: entity, skill: skill.clone(), level, point });
+        commands.entity(entity).remove::<Casting>();
+        if let Some(d) = defs.get(&skill).and_then(|d| d.channel) {
+            commands.entity(entity).insert(Channeling { skill, remaining: d });
+        }
+    }
+
+    // 4) Channel windows tick down; natural expiry is silent removal.
+    for (entity, _caster, _mana, _casting, channeling) in &mut casters {
+        let Some(mut ch) = channeling else { continue };
+        ch.remaining = (ch.remaining - dt).max(0.0);
+        if ch.remaining <= half_frame {
+            commands.entity(entity).remove::<Channeling>();
+        }
     }
 }
 

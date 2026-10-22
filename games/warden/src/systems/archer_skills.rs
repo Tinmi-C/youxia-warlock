@@ -48,6 +48,8 @@ pub fn archer_skill_defs(balance: &SkillBalance) -> [SkillDef; 3] {
         badge: Some(badge),
         hotkey: None, // SK10 assigns the context hotkeys
         mana_cost: 0.0,
+        cast_time: 0.0,
+        channel: None,
     };
     [
         mk(

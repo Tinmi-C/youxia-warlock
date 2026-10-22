@@ -35,8 +35,8 @@ pub mod prelude {
     };
     pub use crate::skill::{
         distribute_xp, process_casts, run_autocast, spend_skill_point, tick_skill_cooldowns,
-        CastSkill, SkillCast, SkillCaster, SkillDef, SkillDefs, SkillKind, SkillSlot,
-        SkillTargeting,
+        CastSkill, Casting, Channeling, InterruptCast, SkillCast, SkillCaster, SkillDef, SkillDefs,
+        SkillKind, SkillSlot, SkillTargeting,
     };
     pub use crate::unit::{
         spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
