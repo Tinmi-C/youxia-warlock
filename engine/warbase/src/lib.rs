@@ -149,6 +149,7 @@ impl Plugin for WarbasePlugin {
             .add_message::<selection::PickResolved>()
             .add_message::<selection::SelectCommand>()
             .add_message::<selection::GroupCommand>()
+            .add_message::<selection::CycleSubgroups>()
             .add_message::<movement::UnitCommand>()
             .add_message::<production::TrainCommand>()
             .add_message::<production::CancelTrain>()
