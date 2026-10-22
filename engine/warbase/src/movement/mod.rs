@@ -93,6 +93,16 @@ pub fn apply_nav(world: &mut World, bundle: &crate::bundle::MapBundle) {
     // TODO(MOV2): seed NavGrid from WorldDef build domain + NavDef.blocked.
 }
 
+/// Domain systems (registered once by WarbasePlugin; increments add systems
+/// HERE, never in lib.rs).
+pub struct MovementPlugin;
+
+impl Plugin for MovementPlugin {
+    fn build(&self, _app: &mut App) {
+        // TODO(MOV1): move_agents in Director; MOV4 tick_orders in Tick.
+    }
+}
+
 pub mod prelude {
-    pub use super::{AgentOrderState, MoveAgent, NavDef, NavGrid, Order, UnitCommand};
+    pub use super::{AgentOrderState, MoveAgent, MovementPlugin, NavDef, NavGrid, Order, UnitCommand};
 }

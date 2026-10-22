@@ -83,6 +83,16 @@ pub fn apply_items(world: &mut World, bundle: &crate::bundle::MapBundle) {
     // TODO(INV1): insert ItemRegistry from ItemsDef.
 }
 
+/// Domain systems (registered once by WarbasePlugin; INV increments add
+/// systems HERE, never in lib.rs).
+pub struct ItemPlugin;
+
+impl Plugin for ItemPlugin {
+    fn build(&self, _app: &mut App) {
+        // TODO(INV1): pickup resolution in Cleanup.
+    }
+}
+
 pub mod prelude {
-    pub use super::{GroundItem, Inventory, ItemDef, ItemKind, ItemStack, ItemReject, ItemRegistry, ItemsDef, INVENTORY_SLOTS};
+    pub use super::{GroundItem, Inventory, ItemDef, ItemKind, ItemStack, ItemPlugin, ItemReject, ItemRegistry, ItemsDef, INVENTORY_SLOTS};
 }

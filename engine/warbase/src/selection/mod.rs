@@ -104,9 +104,20 @@ pub fn apply_selection(world: &mut World, bundle: &crate::bundle::MapBundle) {
     let _ = (world, bundle);
 }
 
+/// Domain systems (registered once by WarbasePlugin; increments add systems
+/// HERE, never in lib.rs).
+pub struct SelectionPlugin;
+
+impl Plugin for SelectionPlugin {
+    fn build(&self, _app: &mut App) {
+        // TODO(SEL2): SelectCommand/GroupCommand consumer in Tick; SEL1b
+        // resolve_picks before Tick; SEL4 smart_resolve before Intent.
+    }
+}
+
 pub mod prelude {
     pub use super::{
         ControlGroups, GroupCommand, PickAttempt, PickButton, PickResolved, SelectCommand,
-        Selectable, Selected, SelectionDetail, SelectionPanelData, SelectionState,
+        Selectable, Selected, SelectionDetail, SelectionPanelData, SelectionPlugin, SelectionState,
     };
 }

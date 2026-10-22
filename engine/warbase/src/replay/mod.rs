@@ -45,6 +45,16 @@ pub struct MatchInputLog {
     pub hashes: Vec<(u32, u64)>,
 }
 
+/// Domain systems (registered once by WarbasePlugin; RPL1 adds the recorder
+/// HERE, never in lib.rs). Recording is pure logic — feature-free.
+pub struct ReplayPlugin;
+
+impl bevy::prelude::Plugin for ReplayPlugin {
+    fn build(&self, _app: &mut bevy::prelude::App) {
+        // TODO(RPL1): input recorder first in Update (before everything).
+    }
+}
+
 pub mod prelude {
-    pub use super::{CommandEnvelope, MatchInputLog, INPUT_LOG_VERSION};
+    pub use super::{CommandEnvelope, MatchInputLog, ReplayPlugin, INPUT_LOG_VERSION};
 }

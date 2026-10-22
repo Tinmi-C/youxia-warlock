@@ -87,6 +87,16 @@ pub fn apply_production(world: &mut World, bundle: &crate::bundle::MapBundle) {
     // TODO(PRD1): insert ResearchTable from ProductionDef.
 }
 
+/// Domain systems (registered once by WarbasePlugin; PRD increments add
+/// systems HERE, never in lib.rs).
+pub struct ProductionPlugin;
+
+impl Plugin for ProductionPlugin {
+    fn build(&self, _app: &mut App) {
+        // TODO(PRD1): queue progress in Tick; TrainCommand/CancelTrain in Tick.
+    }
+}
+
 pub mod prelude {
-    pub use super::{CancelTrain, ProductionDef, ProductionQueue, QueueEntry, RallyPoint, ResearchDef, ResearchGrant, TrainCommand};
+    pub use super::{CancelTrain, ProductionDef, ProductionPlugin, ProductionQueue, QueueEntry, RallyPoint, ResearchDef, ResearchGrant, TrainCommand};
 }

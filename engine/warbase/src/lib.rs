@@ -225,5 +225,18 @@ impl Plugin for WarbasePlugin {
         app.add_plugins(fx::FxPlugin);
         #[cfg(feature = "ui")]
         app.add_plugins(ui::UiPlugin);
+        #[cfg(feature = "ui")]
+        app.add_plugins(input::InputPlugin);
+
+        // Domain plugins (ADR-0016 alignment plan): domain systems register
+        // inside their own plugin; lib.rs wires them exactly once. Domain
+        // increments never edit this file.
+        app.add_plugins(selection::SelectionPlugin)
+            .add_plugins(movement::MovementPlugin)
+            .add_plugins(vision::VisionPlugin)
+            .add_plugins(item::ItemPlugin)
+            .add_plugins(production::ProductionPlugin)
+            .add_plugins(replay::ReplayPlugin)
+            .add_plugins(sfx::SfxPlugin);
     }
 }

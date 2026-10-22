@@ -30,6 +30,14 @@ pub struct SfxRequest {
     pub kind: SfxKind,
 }
 
+/// Domain systems (registered once by WarbasePlugin; AUD increments add
+/// systems HERE, never in lib.rs). Phase 1 emits messages only — no system.
+pub struct SfxPlugin;
+
+impl Plugin for SfxPlugin {
+    fn build(&self, _app: &mut App) {}
+}
+
 pub mod prelude {
-    pub use super::{SfxKind, SfxRequest};
+    pub use super::{SfxKind, SfxPlugin, SfxRequest};
 }

@@ -29,6 +29,15 @@ impl WorldPicker for IdentityPicker {
 // + pointer-event bridge emitting selection::PickAttempt. UI panels must
 // block world picks (hit-test the ui tree first).
 
+/// Domain systems (ui feature; registered once by WarbasePlugin).
+pub struct InputPlugin;
+
+impl Plugin for InputPlugin {
+    fn build(&self, _app: &mut App) {
+        // TODO(SEL1b): pointer bridge before WarbaseSet::Tick.
+    }
+}
+
 pub mod prelude {
-    pub use super::{IdentityPicker, WorldPicker};
+    pub use super::{IdentityPicker, InputPlugin, WorldPicker};
 }

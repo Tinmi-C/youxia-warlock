@@ -58,6 +58,16 @@ pub fn apply_vision(world: &mut World, bundle: &crate::bundle::MapBundle) {
     // TODO(FOG1): size VisionGrid from the build grid bounds + VisionDef.
 }
 
+/// Domain systems (registered once by WarbasePlugin; FOG1 adds the grid
+/// update here, never in lib.rs).
+pub struct VisionPlugin;
+
+impl Plugin for VisionPlugin {
+    fn build(&self, _app: &mut App) {
+        // TODO(FOG1): vision grid update in Tick.
+    }
+}
+
 pub mod prelude {
-    pub use super::{InFog, VisionDef, VisionGrid, VisionSource};
+    pub use super::{InFog, VisionDef, VisionGrid, VisionPlugin, VisionSource};
 }
