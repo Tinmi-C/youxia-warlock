@@ -44,7 +44,10 @@ pub struct Population {
 #[derive(Resource, Debug, Default)]
 pub struct PopPurchases(pub u32);
 
-#[derive(Message, Debug)]
+/// Player-facing econ commands. `Serialize, Deserialize` added by RPL1
+/// (authorized derive-only change) so the replay module can store them in
+/// `CommandEnvelope::Ext` payloads; behavior is untouched.
+#[derive(Message, Debug, Serialize, Deserialize)]
 pub enum EconCommand {
     Spend { gold: u32, wood: u32 },
     Grant { gold: u32, wood: u32 },
