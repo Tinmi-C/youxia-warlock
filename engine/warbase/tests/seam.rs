@@ -9,7 +9,9 @@ use warbase::prelude::*;
 /// (the zero-drift contract every combat/buff call site now routes through).
 #[test]
 fn hostility_default_is_two_sided() {
-    let h = Hostility;
+    // MP1: Hostility carries its diplomacy snapshot, so construct the
+    // default explicitly — assertions below are byte-identical to SEAM0.
+    let h = Hostility::default();
     use Allegiance::{Attacker, Defender};
     assert!(h.hostile(Defender, Attacker));
     assert!(h.hostile(Attacker, Defender));
