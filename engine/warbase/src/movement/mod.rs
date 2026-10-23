@@ -15,10 +15,19 @@
 //!   untouched) and re-enqueues affected agents through the same budgeted
 //!   queue.
 //!
-//! Later increments (plan §5): MOV3 separation, MOV4 `tick_orders` (order
-//! consumption in Tick), MOV5 formation scatter. `MoveAgent` and
-//! `PathFollower` are mutually exclusive on an entity (debug_assert in
-//! `move_agents`) — track creeps and free agents are two worlds.
+//! Also landed here (MOV3/4/5, plan §5):
+//! - `separate_agents` (Director, after `move_agents`): soft-collision push
+//!   via a hardcoded spatial-grid bucketing (see the constants below);
+//!   track creeps (`PathFollower`) never participate — pinned rule.
+//! - `tick_orders` (Tick): consumes `UnitCommand` messages (D4) — order
+//!   assignment, MOV5 formation scatter, and the per-frame order state
+//!   machine (Move / AttackMove / AttackTarget / HoldPosition / Patrol /
+//!   Stop).
+//! - `acquire_engagement` (Intent, after combat's `pick_targets`): the
+//!   attack-move/patrol/hold engagement seam — scans the nearest hostile in
+//!   weapon range (combat's own air/ground filter) and writes `CurrentTarget`
+//!   + the Engaging/Moving label. combat/ itself is never touched (MOV4 hard
+//!   constraint): `fire_attacks` already fires at any live `CurrentTarget`.
 //!
 //! Determinism (plan D6, replay's foundation): the A* open set is a std
 //! `BinaryHeap` over a hand-written total order (f asc, h asc, insertion
@@ -30,11 +39,13 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ordering, Reverse};
-use std::collections::{BTreeSet, BinaryHeap};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 use crate::build::{BuildGrid, BuildMode, Cell};
 use crate::buff::EffectiveStats;
+use crate::combat::{AttackKit, CurrentTarget, Dead};
 use crate::path::PathFollower;
+use crate::unit::{AirUnit, Allegiance, Hostility, Hp, TargetDomain};
 
 /// A commanded unit's current order (WC3 command set; `Smart` is resolved
 /// into a concrete variant by selection::smart_resolve before it reaches
@@ -70,6 +81,11 @@ pub struct UnitCommand {
     pub subjects: Vec<Entity>,
 }
 
+/// Documented default `MoveAgent::body_radius` (MOV3/MOV5): games that do
+/// not carry a body size on their defs spawn agents with this. Same value
+/// the plan's acceptance numbers assume (0.3-radius units).
+pub const DEFAULT_BODY_RADIUS: f32 = 0.3;
+
 /// Free-roaming locomotion component (NOT for wave creeps on tracks).
 /// `speed` is the unit's base speed; `move_agents` multiplies it by
 /// `EffectiveStats.move_mult` each frame (no StatMods on the entity => bare
@@ -77,6 +93,11 @@ pub struct UnitCommand {
 /// consumed front-first — written by MOV2 `process_path_requests`, or seeded
 /// directly for straight-line orders. `velocity` is derived state written by
 /// `move_agents` (zero when idle) for readers (facing, separation, sfx).
+/// `body_radius` (MOV3 soft collision, MOV5 slot spacing) is filled by the
+/// game at spawn from its def (BaseAttributes stay in the registry; nothing
+/// on the entity carries a radius) — default `DEFAULT_BODY_RADIUS`.
+/// `order` (MOV4) is the currently assigned command; `None` = manual /
+/// legacy agents (warden, loop-td) that `move_agents` alone drives.
 /// Spawn together with `AgentOrderState`.
 #[derive(Component, Debug)]
 pub struct MoveAgent {
@@ -84,11 +105,16 @@ pub struct MoveAgent {
     pub arrival_radius: f32,
     pub waypoints: Vec<Vec3>,
     pub velocity: Vec3,
+    pub body_radius: f32,
+    pub order: Option<Order>,
 }
 
-/// Execution sub-state of the current order. MOV1 maintains Idle/Moving;
-/// Engaging/Chasing belong to MOV4 (engaged units hold position in
-/// `move_agents` — the seam MOV4 will drive).
+/// Execution sub-state of the current order. Idle/Moving are maintained by
+/// `move_agents` for order-less agents; Engaging/Chasing are MOV4's (MOV4's
+/// `tick_orders`/`acquire_engagement` own the transitions): Engaging units
+/// hold position in `move_agents` (attack-move pause / chase in range);
+/// Chasing units WALK their MOV4-refreshed pursuit waypoints — the label
+/// just says who steers.
 #[derive(Component, Debug, Default, PartialEq)]
 pub enum AgentOrderState {
     #[default]
@@ -506,13 +532,16 @@ pub fn process_path_requests(
             // No grid geometry: straight-line best-effort.
             None => agent.waypoints = vec![req.target],
         }
-        // MOV1 only owns Idle/Moving; Engaging/Chasing are MOV4's (a path
-        // reply while engaged simply waits in `waypoints`).
-        *state = if agent.waypoints.is_empty() {
-            AgentOrderState::Idle
-        } else {
-            AgentOrderState::Moving
-        };
+        // MOV1 owns Idle/Moving; Engaging/Chasing are MOV4's — a path reply
+        // landing mid-engagement updates the waiting route but never the
+        // label (the engagement logic re-evaluates it next frame).
+        if *state != AgentOrderState::Engaging && *state != AgentOrderState::Chasing {
+            *state = if agent.waypoints.is_empty() {
+                AgentOrderState::Idle
+            } else {
+                AgentOrderState::Moving
+            };
+        }
     }
 }
 
@@ -627,11 +656,15 @@ pub fn move_agents(
             );
             continue;
         }
-        // Engaging/Chasing units hold position (MOV4 owns those states).
-        if *state == AgentOrderState::Engaging || *state == AgentOrderState::Chasing {
+        // Engaging units hold position (MOV4's attack-move pause / chase in
+        // range). Chasing units walk their MOV4-refreshed waypoints like any
+        // mover — only the label differs (MOV4 owns the transitions, so the
+        // trailing Idle/Moving rewrite is skipped for Chasing).
+        if *state == AgentOrderState::Engaging {
             agent.velocity = Vec3::ZERO;
             continue;
         }
+        let chasing = *state == AgentOrderState::Chasing;
         let mult = eff.map(|s| s.move_mult.max(0.0)).unwrap_or(1.0);
         let speed = agent.speed * mult;
         let mut budget = speed * dt;
@@ -659,11 +692,490 @@ pub fn move_agents(
             }
         }
         agent.velocity = vel;
-        *state = if agent.waypoints.is_empty() {
-            AgentOrderState::Idle
-        } else {
-            AgentOrderState::Moving
-        };
+        if !chasing {
+            *state = if agent.waypoints.is_empty() {
+                AgentOrderState::Idle
+            } else {
+                AgentOrderState::Moving
+            };
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// MOV3: soft-collision separation
+// --------------------------------------------------------------------------
+
+/// Largest `body_radius` the bucketing below GUARANTEES to catch (plan §5
+/// MOV3: bucket edge = 2 * max radius). HARDCODED by design — a constant
+/// bucket grid keeps the pair set frame-stable and deterministic; 1.0 is
+/// generous against a 1.0 nav cell (WC3-scale units sit near 0.3). Agents
+/// with a larger radius simply degrade to neighbor-bucket coverage.
+const SEPARATION_MAX_BODY_RADIUS: f32 = 1.0;
+
+/// Spatial bucket edge = 2 * `SEPARATION_MAX_BODY_RADIUS`: two overlapping
+/// agents (both radii <= max) are at most in adjacent buckets, so a
+/// half-neighborhood scan sees every overlapping pair exactly once.
+const SEPARATION_BUCKET_EDGE: f32 = 2.0 * SEPARATION_MAX_BODY_RADIUS;
+
+/// Pair correction clamp per frame = 0.5 x nav cell. FixedSlots maps (and
+/// the default NavGrid) have no geometry (cell == 0); they fall back to this
+/// constant, which equals 0.5 x cell on the standard 1.0 grid.
+const SEPARATION_FALLBACK_MAX_PUSH: f32 = 0.5;
+
+/// Positions closer than this count as EXACTLY stacked (the spawn-pile
+/// case): the separation axis is undefined, so a pinned axis is used.
+const SEPARATION_COINCIDENT_EPS: f32 = 1e-6;
+
+/// Half-neighborhood bucket offsets: together with the in-bucket i<j scan
+/// each unordered bucket pair is visited exactly once per frame.
+const SEPARATION_NEIGHBORS: [(i32, i32); 4] = [(1, 0), (1, 1), (0, 1), (-1, 1)];
+
+/// One soft-collision correction between entries `i` (lower entity index)
+/// and `j`: if the body circles (radii from `MoveAgent::body_radius`)
+/// overlap by less than 50%, both sides retreat half the overlap each along
+/// the center axis (per-pair clamp `max_push`, see constants above).
+/// Pinned rules:
+/// - No overlap (dist >= ri + rj): nothing.
+/// - Deep penetration (0 < dist < 0.5 x (ri + rj)): DO NOT push — the
+///   anti-jitter rule (plan §5 MOV3 "穿透>50% 不推"): teleport-style pileups
+///   are resolved by the game, not by a violent pop.
+/// - Exactly stacked (dist ~ 0): push along the pinned +/-x axis by half
+///   the wanted distance — the deep-penetration skip above deliberately
+///   does not apply, or coincident spawn piles could never separate.
+fn separation_push(
+    entries: &[(Entity, f32, Vec2)],
+    i: usize,
+    j: usize,
+    max_push: f32,
+    pushes: &mut [Vec2],
+) {
+    let want = entries[i].1 + entries[j].1;
+    if want <= 0.0 {
+        return;
+    }
+    let delta = entries[j].2 - entries[i].2;
+    let dist = delta.length();
+    if dist >= want {
+        return; // not overlapping
+    }
+    let (dir, overlap) = if dist < SEPARATION_COINCIDENT_EPS {
+        (Vec2::new(1.0, 0.0), want)
+    } else {
+        if dist < want * 0.5 {
+            return; // deep penetration: hold (anti-jitter)
+        }
+        (delta / dist, want - dist)
+    };
+    let step = (overlap * 0.5).min(max_push);
+    pushes[i] -= dir * step;
+    pushes[j] += dir * step;
+}
+
+/// Director (after `move_agents`): soft-collision separation for free
+/// agents — mutually overlapping `MoveAgent`s push each other apart by
+/// position correction (never velocity; `move_agents` rewrites velocity).
+/// Track creeps (`PathFollower`) NEVER participate — pinned rule (plan §5
+/// MOV3; the TD games' creep flow stays exactly as it was).
+///
+/// Determinism (D6): agents are snapshotted in entity-index order, buckets
+/// live in a `BTreeMap` (key order), bucket members are index-ascending,
+/// and the pinned half-neighborhood offsets fix the pair enumeration order —
+/// the accumulated f32 pushes are a pure function of the snapshot.
+pub fn separate_agents(
+    nav: Res<NavGrid>,
+    mut agents: Query<(Entity, &MoveAgent, &mut Transform), Without<PathFollower>>,
+) {
+    if agents.is_empty() {
+        return;
+    }
+    // Snapshot (Entity, body_radius, xz-position) in entity-index order.
+    let mut entries: Vec<(Entity, f32, Vec2)> = agents
+        .iter()
+        .map(|(e, agent, tf)| {
+            (e, agent.body_radius.max(0.0), Vec2::new(tf.translation.x, tf.translation.z))
+        })
+        .collect();
+    entries.sort_by_key(|&(e, _, _)| e.index_u32());
+    let mut pushes: Vec<Vec2> = vec![Vec2::ZERO; entries.len()];
+    let max_push = if nav.cell > 0.0 {
+        nav.cell * 0.5
+    } else {
+        SEPARATION_FALLBACK_MAX_PUSH
+    };
+
+    // Spatial buckets (BTreeMap: deterministic key order; members are pushed
+    // in index order, so each bucket's Vec is index-ascending).
+    let mut buckets: BTreeMap<(i32, i32), Vec<usize>> = BTreeMap::new();
+    for (i, &(_, _, pos)) in entries.iter().enumerate() {
+        let key = (
+            (pos.x / SEPARATION_BUCKET_EDGE).floor() as i32,
+            (pos.y / SEPARATION_BUCKET_EDGE).floor() as i32,
+        );
+        buckets.entry(key).or_default().push(i);
+    }
+    for (&key, members) in &buckets {
+        for a in 0..members.len() {
+            for b in (a + 1)..members.len() {
+                separation_push(&entries, members[a], members[b], max_push, &mut pushes);
+            }
+        }
+        for &(dx, dy) in SEPARATION_NEIGHBORS.iter() {
+            let Some(nbr) = buckets.get(&(key.0 + dx, key.1 + dy)) else {
+                continue;
+            };
+            for &a in members {
+                for &b in nbr {
+                    separation_push(&entries, a, b, max_push, &mut pushes);
+                }
+            }
+        }
+    }
+
+    // Apply the accumulated corrections (index order; y untouched).
+    for (i, &(entity, _, _)) in entries.iter().enumerate() {
+        if pushes[i] == Vec2::ZERO {
+            continue;
+        }
+        if let Ok((_, _, mut tf)) = agents.get_mut(entity) {
+            tf.translation.x += pushes[i].x;
+            tf.translation.z += pushes[i].y;
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// MOV5: formation scatter (consumed by MOV4 `tick_orders`)
+// --------------------------------------------------------------------------
+
+/// Deterministic hex-ring slot table around a command point (MOV5, plan §5):
+/// slot 0 IS the order point (single-unit commands go straight to it); ring
+/// k >= 1 adds 6k slots on a hexagon of radius k * spacing, slot angles
+/// 2*pi*j/(6k) counted from +x. `spacing` = 2 x max subject body radius, so
+/// every slot pair (and each slot vs the center) is at least `spacing`
+/// apart — comfortably above the plan's 0.9 x (ri + rj) scatter bound.
+/// Fixed algorithm, no RNG (D6); subjects are assigned slots in entity-index
+/// order by `tick_orders`.
+fn formation_slots(center: Vec3, count: usize, spacing: f32) -> Vec<Vec3> {
+    let mut slots = vec![center];
+    let mut ring: usize = 1;
+    while slots.len() < count {
+        let n = 6 * ring;
+        for j in 0..n {
+            let angle = (j as f32 / n as f32) * std::f32::consts::TAU;
+            slots.push(Vec3::new(
+                center.x + ring as f32 * spacing * angle.cos(),
+                0.0,
+                center.z + ring as f32 * spacing * angle.sin(),
+            ));
+        }
+        ring += 1;
+    }
+    slots
+}
+
+// --------------------------------------------------------------------------
+// MOV4: order consumption + state machine
+// --------------------------------------------------------------------------
+
+/// Tick (before `process_path_requests`): the WC3 command state machine.
+///
+/// Phase 1 — consume `UnitCommand` messages (arrival order, D4):
+/// - Move / AttackMove: MOV5 scatter (subjects sorted by entity index, slot
+///   i for the i-th subject; single subject = slot 0 = the order point),
+///   seed `waypoints = [slot]` (instant straight-line best-effort, MOV2's
+///   contract) and enqueue the same target through the budgeted
+///   PathRequestQueue — the A* reply overwrites the seed with the true
+///   route.
+/// - AttackTarget: assign the order; phase 2 evaluates range this frame.
+/// - HoldPosition: clear waypoints, stand.
+/// - Patrol: seed the first leg (toward_b ? b : a) through the same queue.
+/// - Stop: clear waypoints and the order.
+/// - Pickup / Follow: stored only — executed by the future INV/Follow
+///   increments (no behavior yet, pinned as parked).
+///
+/// Phase 2 — per-frame order advancement over every ordered agent:
+/// - Move / AttackMove: arrival (empty waypoints + Idle) spends the order
+///   (back to order-less manual locomotion).
+/// - AttackTarget: target gone => order ends (Idle, waypoints cleared);
+///   in weapon range (kit range; arrival_radius when kit-less) => Engaging
+///   (holds, combat fires via CurrentTarget); out of range => Chasing with
+///   `waypoints = [target position]` refreshed EVERY frame.
+/// - Patrol: reaching an endpoint (empty waypoints + Idle) flips toward_b
+///   and seeds the other leg through the queue. Engagement during a leg is
+///   `acquire_engagement`'s business (AttackMove semantics), not here.
+///
+/// Zero drift: order-less agents (warden, loop-td) never enter phase 2.
+#[allow(clippy::type_complexity)]
+pub fn tick_orders(
+    mut commands: MessageReader<UnitCommand>,
+    mut queue: ResMut<PathRequestQueue>,
+    frame: Res<NavFrame>,
+    mut agents: Query<(
+        Entity,
+        &mut MoveAgent,
+        &mut AgentOrderState,
+        &Transform,
+        Option<&AttackKit>,
+    )>,
+    others: Query<(&Transform, &Hp), Without<Dead>>,
+) {
+    // ---- Phase 1: command consumption ----
+    for cmd in commands.read() {
+        match &cmd.order {
+            Order::Move { to } | Order::AttackMove { to } => {
+                let mut subjects: Vec<Entity> = cmd
+                    .subjects
+                    .iter()
+                    .copied()
+                    .filter(|e| agents.get(*e).is_ok())
+                    .collect();
+                if subjects.is_empty() {
+                    continue;
+                }
+                subjects.sort_by_key(|e| e.index_u32());
+                subjects.dedup();
+                // Slot spacing from the subjects' own bodies (MOV5): two radii
+                // must fit between neighbours; floor at the documented default.
+                let max_radius = subjects
+                    .iter()
+                    .filter_map(|e| agents.get(*e).ok().map(|a| a.1.body_radius))
+                    .fold(0.0f32, f32::max)
+                    .max(DEFAULT_BODY_RADIUS);
+                let slots = formation_slots(*to, subjects.len(), 2.0 * max_radius);
+                for (i, &entity) in subjects.iter().enumerate() {
+                    let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
+                        continue;
+                    };
+                    agent.order = Some(cmd.order.clone());
+                    agent.waypoints = vec![slots[i]];
+                    agent.velocity = Vec3::ZERO;
+                    *state = AgentOrderState::Moving;
+                    queue.push(entity, slots[i], frame.0);
+                }
+            }
+            Order::AttackTarget { .. } => {
+                for &entity in &cmd.subjects {
+                    let Ok((_, mut agent, _, _, _)) = agents.get_mut(entity) else {
+                        continue;
+                    };
+                    agent.order = Some(cmd.order.clone());
+                    // Range evaluated by phase 2 this same frame.
+                }
+            }
+            Order::HoldPosition => {
+                for &entity in &cmd.subjects {
+                    let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
+                        continue;
+                    };
+                    agent.waypoints.clear();
+                    agent.velocity = Vec3::ZERO;
+                    agent.order = Some(Order::HoldPosition);
+                    *state = AgentOrderState::Idle;
+                }
+            }
+            Order::Stop => {
+                for &entity in &cmd.subjects {
+                    let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
+                        continue;
+                    };
+                    agent.waypoints.clear();
+                    agent.velocity = Vec3::ZERO;
+                    agent.order = None;
+                    *state = AgentOrderState::Idle;
+                }
+            }
+            Order::Patrol { a, b, toward_b } => {
+                for &entity in &cmd.subjects {
+                    let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
+                        continue;
+                    };
+                    let dest = if *toward_b { *b } else { *a };
+                    agent.order = Some(cmd.order.clone());
+                    agent.waypoints = vec![dest];
+                    agent.velocity = Vec3::ZERO;
+                    *state = AgentOrderState::Moving;
+                    queue.push(entity, dest, frame.0);
+                }
+            }
+            // Parked orders: stored for the future INV/Follow increments.
+            Order::Pickup { .. } | Order::Follow { .. } => {
+                for &entity in &cmd.subjects {
+                    let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
+                        continue;
+                    };
+                    agent.waypoints.clear();
+                    agent.order = Some(cmd.order.clone());
+                    *state = AgentOrderState::Idle;
+                }
+            }
+        }
+    }
+
+    // ---- Phase 2: per-frame order advancement ----
+    for (entity, mut agent, mut state, tf, kit) in &mut agents {
+        let Some(order) = agent.order.clone() else { continue };
+        match order {
+            Order::Move { .. } | Order::AttackMove { .. } => {
+                // Arrival brake emptied the route: the order is spent.
+                if agent.waypoints.is_empty() && *state == AgentOrderState::Idle {
+                    agent.order = None;
+                }
+            }
+            Order::AttackTarget { target } => {
+                // Order ends when the target is gone (despawned, or dead
+                // pending this frame's Cleanup).
+                let Ok((ttpos, hp)) = others.get(target) else {
+                    agent.order = None;
+                    agent.waypoints.clear();
+                    agent.velocity = Vec3::ZERO;
+                    *state = AgentOrderState::Idle;
+                    continue;
+                };
+                if hp.0 <= 0.0 {
+                    agent.order = None;
+                    agent.waypoints.clear();
+                    agent.velocity = Vec3::ZERO;
+                    *state = AgentOrderState::Idle;
+                    continue;
+                }
+                let range = kit.map(|k| k.def.range).unwrap_or(agent.arrival_radius);
+                if tf.translation.distance(ttpos.translation) <= range {
+                    // In weapon range: stand and fire (combat supplies the
+                    // shots — pick_targets/acquire write CurrentTarget).
+                    agent.waypoints.clear();
+                    agent.velocity = Vec3::ZERO;
+                    *state = AgentOrderState::Engaging;
+                } else {
+                    // Chase: pursuit waypoint refreshed every frame.
+                    agent.waypoints = vec![ttpos.translation];
+                    *state = AgentOrderState::Chasing;
+                }
+            }
+            Order::Patrol { a, b, toward_b } => {
+                if agent.waypoints.is_empty() && *state == AgentOrderState::Idle {
+                    let toward_b = !toward_b;
+                    let dest = if toward_b { b } else { a };
+                    agent.order = Some(Order::Patrol { a, b, toward_b });
+                    agent.waypoints = vec![dest];
+                    agent.velocity = Vec3::ZERO;
+                    *state = AgentOrderState::Moving;
+                    queue.push(entity, dest, frame.0);
+                }
+            }
+            // HoldPosition stands until another order replaces it; Stop was
+            // fully handled in phase 1 (defensive clear here); Pickup/Follow
+            // are parked.
+            Order::HoldPosition => {}
+            Order::Stop => agent.order = None,
+            Order::Pickup { .. } | Order::Follow { .. } => {}
+        }
+    }
+}
+
+/// Intent (after combat's `pick_targets`): the engagement seam for
+/// ordered movers (plan §5 MOV4 — combat itself is never modified; this
+/// system writes `CurrentTarget` for its agents and lets `fire_attacks` do
+/// what it already does).
+///
+/// - AttackMove / Patrol, state Moving: nearest hostile inside weapon range
+///   (combat's own air/ground filter, Hostility oracle) => write
+///   CurrentTarget, state -> Engaging (move_agents then holds the unit;
+///   waypoints are PRESERVED — the route resumes after the fight).
+/// - AttackMove / Patrol, state Engaging: re-scan each frame — no hostile
+///   left in range (killed, fled, despawned) => clear CurrentTarget,
+///   state -> Moving (the paused route continues).
+/// - HoldPosition: same nearest-in-range scan into CurrentTarget, but the
+///   state NEVER changes (out of range => no target, no chase, no shot).
+/// - AttackTarget / order-less agents: not here (tick_orders owns the
+///   chase; pick_targets alone serves everyone).
+///
+/// Running AFTER `pick_targets` makes this the last CurrentTarget writer in
+/// Intent for engaged movers, so "nearest" (the engagement rule) wins over
+/// the kit's own priority; every other attacker keeps pick_targets' pick.
+#[allow(clippy::type_complexity)]
+pub fn acquire_engagement(
+    hostility: Res<Hostility>,
+    mut agents: Query<(
+        &mut MoveAgent,
+        &mut AgentOrderState,
+        &Transform,
+        &Allegiance,
+        &AttackKit,
+        &mut CurrentTarget,
+    )>,
+    enemies: Query<
+        (
+            Entity,
+            &Transform,
+            &Hp,
+            &Allegiance,
+            Has<AirUnit>,
+            Option<&PathFollower>,
+        ),
+        Without<Dead>,
+    >,
+) {
+    for (agent, mut state, tf, side, kit, mut target) in &mut agents {
+        let mover = matches!(
+            agent.order.as_ref(),
+            Some(Order::AttackMove { .. }) | Some(Order::Patrol { .. })
+        );
+        let holding = matches!(agent.order.as_ref(), Some(Order::HoldPosition));
+        if !mover && !holding {
+            continue;
+        }
+        // Engaging is meaningful only for movers; HoldPosition never relabels.
+        if mover
+            && !matches!(
+                *state,
+                AgentOrderState::Moving | AgentOrderState::Engaging
+            )
+        {
+            continue;
+        }
+        // Nearest hostile in weapon range; total-order tie-break on entity
+        // index (D6 — query iteration order never decides logic).
+        let mut best: Option<(f32, u32, Entity)> = None;
+        for (e, etf, hp, eside, air, _) in &enemies {
+            if hp.0 <= 0.0 || !hostility.hostile(*side, *eside) {
+                continue;
+            }
+            if kit.def.targets == TargetDomain::Ground && air {
+                continue;
+            }
+            if kit.def.targets == TargetDomain::Air && !air {
+                continue;
+            }
+            let dist = tf.translation.distance(etf.translation);
+            if dist > kit.def.range {
+                continue;
+            }
+            let idx = e.index_u32();
+            let better = match best {
+                None => true,
+                Some((bd, bi, _)) => {
+                    dist.total_cmp(&bd).then(idx.cmp(&bi)) == Ordering::Less
+                }
+            };
+            if better {
+                best = Some((dist, idx, e));
+            }
+        }
+        match best {
+            Some((_, _, e)) => {
+                target.0 = Some(e);
+                if mover {
+                    *state = AgentOrderState::Engaging;
+                }
+            }
+            None => {
+                target.0 = None;
+                if mover && *state == AgentOrderState::Engaging {
+                    *state = AgentOrderState::Moving; // resume the preserved route
+                }
+            }
+        }
     }
 }
 
@@ -702,7 +1214,12 @@ pub fn apply_nav(world: &mut World, bundle: &crate::bundle::MapBundle) {
 }
 
 /// Domain systems (registered once by WarbasePlugin; increments add systems
-/// HERE, never in lib.rs). MOV4 `tick_orders` will join the Tick slot.
+/// HERE, never in lib.rs). Tick: `tick_orders` (command consumption + order
+/// state machine) before `process_path_requests` (same-frame routing of
+/// fresh orders). Director: (dirty_recompute, move_agents, separate_agents)
+/// — locomotion then soft-collision separation. Intent:
+/// `acquire_engagement` after combat's `pick_targets` (last CurrentTarget
+/// writer for engaged movers — see its doc).
 pub struct MovementPlugin;
 
 impl Plugin for MovementPlugin {
@@ -713,22 +1230,31 @@ impl Plugin for MovementPlugin {
             .init_resource::<NavForceDirty>()
             .add_systems(
                 Update,
-                process_path_requests.in_set(crate::WarbaseSet::Tick),
+                (tick_orders, process_path_requests)
+                    .chain()
+                    .in_set(crate::WarbaseSet::Tick),
             )
             .add_systems(
                 Update,
-                (dirty_recompute, move_agents)
+                (dirty_recompute, move_agents, separate_agents)
                     .chain()
                     .after(crate::path::advance_followers)
                     .in_set(crate::WarbaseSet::Director),
+            )
+            .add_systems(
+                Update,
+                acquire_engagement
+                    .after(crate::combat::pick_targets)
+                    .in_set(crate::WarbaseSet::Intent),
             );
     }
 }
 
 pub mod prelude {
     pub use super::{
-        astar, dirty_recompute, mark_nav_dirty, move_agents, process_path_requests, request_path,
-        smooth_path, AgentOrderState, AstarCount, MoveAgent, MovementPlugin, NavDef, NavForceDirty,
-        NavFrame, NavGrid, Order, PathRequest, PathRequestQueue, UnitCommand,
+        acquire_engagement, astar, dirty_recompute, mark_nav_dirty, move_agents,
+        process_path_requests, request_path, separate_agents, smooth_path, tick_orders,
+        AgentOrderState, AstarCount, DEFAULT_BODY_RADIUS, MoveAgent, MovementPlugin, NavDef,
+        NavForceDirty, NavFrame, NavGrid, Order, PathRequest, PathRequestQueue, UnitCommand,
     };
 }
