@@ -4,15 +4,19 @@
 //! the messages defined here; tests inject messages directly.
 //!
 //! Scheduling (D2): `apply_group_commands` -> `apply_select_commands` ->
-//! `cycle_subgroups` -> `fill_panel_data` run chained in Tick (group recalls
-//! emit `SelectCommand::Set` consumed the same frame); `sweep_dead_selection`
-//! runs in Cleanup and drops despawned entities from the selection and all
-//! control groups. Smart right-click resolution (SEL4) runs before Intent.
+//! `resolve_picks` -> `apply_command_hotkeys` -> `issue_targeted_orders` ->
+//! `smart_resolve` -> `cycle_subgroups` -> `fill_panel_data` run chained in
+//! Tick (group recalls emit `SelectCommand::Set` consumed the same frame, so
+//! pick resolution and smart commands see the fresh selection, still before
+//! Intent); `sweep_dead_selection` runs in Cleanup and drops despawned
+//! entities from the selection and all control groups.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::unit::{Hp, MaxHp, UnitId, UnitInstance, UnitRegistry};
+use crate::build::{BuildGrid, BuildMode};
+use crate::movement::{Order, UnitCommand};
+use crate::unit::{Allegiance, Hostility, Hp, MaxHp, UnitId, UnitInstance, UnitRegistry};
 
 /// Boundary tolerance for box-select hit tests: a body disc whose edge is
 /// within this distance of the rect still counts as hit (pinned by spec).
@@ -47,12 +51,48 @@ pub struct PickAttempt {
 }
 
 /// Resolved pick: entities under the point (body_radius hit, nearest first
-/// — SEL1b) and the build-grid cell under it, if any.
+/// — SEL1b) and the build-grid cell under it, if any. Carries the
+/// originating button so `smart_resolve` can filter right-clicks.
 #[derive(Message, Debug, Clone)]
 pub struct PickResolved {
     pub world: Vec2,
+    pub button: PickButton,
     pub entities: Vec<Entity>,
     pub cell: Option<(i32, i32)>,
+}
+
+/// Keyboard command intents (SEL4): the ui-feature input layer translates
+/// raw A/H/S/P/Esc presses into these; the state machine consuming them
+/// stays pure logic here (headless tests write them directly).
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHotkey {
+    /// A: arm AttackMove targeting — the next left click is the target point.
+    AttackMove,
+    /// H: HoldPosition for the current selection, immediately.
+    Hold,
+    /// S: Stop for the current selection, immediately.
+    Stop,
+    /// P: arm Patrol targeting — two left clicks (point a, then point b).
+    Patrol,
+    /// Esc: cancel any pending targeting state (never touches the selection
+    /// set itself — Clear owns that, SEL2).
+    Cancel,
+}
+
+/// Modal command-targeting cursor state (A/P keys; SEL4). Lives in the
+/// selection domain — not the ui input module — so headless tests can drive
+/// the two-click state machine through `CommandHotkey` + `PickAttempt`.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+pub enum PendingTargetOrder {
+    /// Normal cursor: left clicks do not target commands.
+    #[default]
+    Idle,
+    /// A pressed: the next left click issues AttackMove at that point.
+    AttackMove,
+    /// P pressed: waiting for the first click (point a).
+    PatrolFirst,
+    /// Point a captured: waiting for the second click (point b).
+    PatrolSecond { a: Vec3 },
 }
 
 /// Selection set mutations. `SameTypeOnScreen` is resolved by the input
@@ -146,6 +186,20 @@ fn disc_hits_rect(center: Vec2, radius: f32, min: Vec2, max: Vec2) -> bool {
 /// GroupCommand slot index (groups are 1..=9); None = out of range, ignored.
 fn group_slot(digit: u8) -> Option<usize> {
     (1..=9).contains(&digit).then_some(digit as usize - 1)
+}
+
+/// Build-grid cell under a world point, if the grid covers it. FixedSlots
+/// maps carry no cell lattice (slots are authored world points), so only
+/// FreeGrid resolves a cell; fixed-slot games snap to slots in their own
+/// layer. Guards `cell_size <= 0` (FixedSlots default) against the
+/// division in `world_to_cell`.
+fn cell_under(grid: &BuildGrid, world: Vec2) -> Option<(i32, i32)> {
+    if grid.mode != BuildMode::FreeGrid || grid.cell_size <= 0.0 {
+        return None;
+    }
+    let cell = grid.world_to_cell(world);
+    (cell.0 >= 0 && cell.1 >= 0 && cell.0 < grid.cols && cell.1 < grid.rows)
+        .then_some((cell.0, cell.1))
 }
 
 /// Def-id partition of a selection from a system query (sorted, deduped).
@@ -294,6 +348,164 @@ fn apply_select_commands(
     }
 }
 
+/// Consumes `PickAttempt`s (Tick, after selection settles): resolves each
+/// world pick into a `PickResolved` — Selectable bodies whose disc contains
+/// the point (`body_radius` + edge epsilon, the same pinned rule as box
+/// select), nearest first with equal distances broken by Entity index (D6),
+/// plus the build-grid cell under the point when a FreeGrid `BuildGrid`
+/// resource is present (Option-gated: gridless apps keep working).
+fn resolve_picks(
+    mut attempts: MessageReader<PickAttempt>,
+    mut resolved: MessageWriter<PickResolved>,
+    bodies: Query<(Entity, &Transform, Option<&UnitInstance>), With<Selectable>>,
+    registry: Res<UnitRegistry>,
+    grid: Option<Res<BuildGrid>>,
+) {
+    for attempt in attempts.read() {
+        let mut hits: Vec<(f32, Entity)> = bodies
+            .iter()
+            .filter_map(|(entity, transform, instance)| {
+                let radius = body_radius(instance, &registry);
+                let dist = transform.translation.truncate().distance(attempt.world);
+                (dist <= radius + AABB_EDGE_EPSILON).then_some((dist, entity))
+            })
+            .collect();
+        // Distance ascending (total_cmp: IEEE-total, NaN-safe); ties fall
+        // back to Entity index so the order is fully deterministic.
+        hits.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.index().cmp(&b.1.index())));
+        resolved.write(PickResolved {
+            world: attempt.world,
+            button: attempt.button,
+            entities: hits.into_iter().map(|(_, entity)| entity).collect(),
+            cell: grid.as_deref().and_then(|g| cell_under(g, attempt.world)),
+        });
+    }
+}
+
+/// Consumes `CommandHotkey`s (Tick, after selection settles): H/S fire their
+/// order for the current selection at once; A/P arm the targeting cursor
+/// (`PendingTargetOrder`); Esc clears the pending state only — the selection
+/// set belongs to `SelectCommand::Clear` (SEL2), never to Esc. An empty
+/// selection makes every targeting key a no-op (WC3 semantics).
+fn apply_command_hotkeys(
+    mut hotkeys: MessageReader<CommandHotkey>,
+    state: Res<SelectionState>,
+    mut pending: ResMut<PendingTargetOrder>,
+    mut commands: MessageWriter<UnitCommand>,
+) {
+    for hotkey in hotkeys.read() {
+        match *hotkey {
+            CommandHotkey::Cancel => *pending = PendingTargetOrder::Idle,
+            CommandHotkey::AttackMove if !state.entities.is_empty() => {
+                *pending = PendingTargetOrder::AttackMove;
+            }
+            CommandHotkey::Patrol if !state.entities.is_empty() => {
+                *pending = PendingTargetOrder::PatrolFirst;
+            }
+            CommandHotkey::Hold if !state.entities.is_empty() => {
+                commands.write(UnitCommand {
+                    order: Order::HoldPosition,
+                    subjects: state.entities.clone(),
+                });
+            }
+            CommandHotkey::Stop if !state.entities.is_empty() => {
+                commands.write(UnitCommand {
+                    order: Order::Stop,
+                    subjects: state.entities.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Consumes left-click `PickAttempt`s while a `PendingTargetOrder` is armed
+/// (Tick): the click targets the pending order instead of selecting — A
+/// fires AttackMove at the point; P is a two-click machine (first parks a,
+/// second fires Patrol{a, b}); Esc (see `apply_command_hotkeys`) cancels.
+/// A selection emptied between arming and clicking disarms the cursor
+/// instead of issuing an empty command.
+fn issue_targeted_orders(
+    mut attempts: MessageReader<PickAttempt>,
+    state: Res<SelectionState>,
+    mut pending: ResMut<PendingTargetOrder>,
+    mut commands: MessageWriter<UnitCommand>,
+) {
+    for attempt in attempts.read() {
+        if *pending == PendingTargetOrder::Idle || attempt.button != PickButton::Left {
+            continue;
+        }
+        if state.entities.is_empty() {
+            *pending = PendingTargetOrder::Idle;
+            continue;
+        }
+        let to = attempt.world.extend(0.0); // gameplay plane is z = 0
+        *pending = match *pending {
+            PendingTargetOrder::Idle => continue,
+            PendingTargetOrder::AttackMove => {
+                commands.write(UnitCommand {
+                    order: Order::AttackMove { to },
+                    subjects: state.entities.clone(),
+                });
+                PendingTargetOrder::Idle
+            }
+            PendingTargetOrder::PatrolFirst => PendingTargetOrder::PatrolSecond { a: to },
+            PendingTargetOrder::PatrolSecond { a } => {
+                commands.write(UnitCommand {
+                    order: Order::Patrol { a, b: to, toward_b: true },
+                    subjects: state.entities.clone(),
+                });
+                PendingTargetOrder::Idle
+            }
+        };
+    }
+}
+
+/// Consumes right-click `PickResolved`s (Tick, before Intent): the WC3 smart
+/// command — exactly one `UnitCommand` per right click, the whole selection
+/// as subjects (formation scatter is MOV5's business at consumption). The
+/// first hit decides: a hostile body -> AttackTarget; open ground -> Move to
+/// the pick point. Commander side = the first subject's Allegiance
+/// (selections are single-side; MP1 re-derives this via Owner/diplomacy
+/// inside the `Hostility` oracle, not here).
+fn smart_resolve(
+    mut picks: MessageReader<PickResolved>,
+    state: Res<SelectionState>,
+    hostility: Res<Hostility>,
+    sides: Query<&Allegiance>,
+    mut commands: MessageWriter<UnitCommand>,
+) {
+    for pick in picks.read() {
+        if pick.button != PickButton::Right || state.entities.is_empty() {
+            continue;
+        }
+        let Some(&target) = pick.entities.first() else {
+            // Open ground: walk there.
+            commands.write(UnitCommand {
+                order: Order::Move { to: pick.world.extend(0.0) },
+                subjects: state.entities.clone(),
+            });
+            continue;
+        };
+        let side = sides
+            .get(state.entities[0])
+            .copied()
+            .unwrap_or(Allegiance::Defender);
+        let target_side = sides.get(target).copied().unwrap_or(Allegiance::Defender);
+        if hostility.hostile(side, target_side) {
+            commands.write(UnitCommand {
+                order: Order::AttackTarget { target },
+                subjects: state.entities.clone(),
+            });
+        } else {
+            // TODO(SEL4->INV): a GroundItem hit resolves to Order::Pickup
+            // once ground-item entities exist in the item domain.
+            // TODO(SEL4->MOV): a friendly Selectable hit resolves to
+            // Order::Follow; until then friendly hits issue nothing.
+        }
+    }
+}
+
 /// Consumes `CycleSubgroups` (Tick, after selection settles): advances the
 /// subgroup cursor one step per message through the def-id partition.
 fn cycle_subgroups(
@@ -367,25 +579,32 @@ pub struct SelectionPlugin;
 
 impl Plugin for SelectionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (
-                apply_group_commands,
-                apply_select_commands,
-                cycle_subgroups,
-                fill_panel_data,
+        app.add_message::<CommandHotkey>()
+            .init_resource::<PendingTargetOrder>()
+            .add_systems(
+                Update,
+                (
+                    apply_group_commands,
+                    apply_select_commands,
+                    resolve_picks,
+                    apply_command_hotkeys,
+                    issue_targeted_orders,
+                    smart_resolve,
+                    cycle_subgroups,
+                    fill_panel_data,
+                )
+                    .chain()
+                    .in_set(crate::WarbaseSet::Tick),
             )
-                .chain()
-                .in_set(crate::WarbaseSet::Tick),
-        )
-        .add_systems(Update, sweep_dead_selection.in_set(crate::WarbaseSet::Cleanup));
+            .add_systems(Update, sweep_dead_selection.in_set(crate::WarbaseSet::Cleanup));
     }
 }
 
 pub mod prelude {
     pub use super::{
-        AABB_EDGE_EPSILON, ControlGroups, CycleSubgroups, GroupCommand, PickAttempt, PickButton,
-        PickResolved, SelectCommand, Selectable, Selected, SelectionDetail, SelectionPanelData,
-        SelectionPlugin, SelectionState, selection_subgroups,
+        AABB_EDGE_EPSILON, CommandHotkey, ControlGroups, CycleSubgroups, GroupCommand,
+        PendingTargetOrder, PickAttempt, PickButton, PickResolved, SelectCommand, Selectable,
+        Selected, SelectionDetail, SelectionPanelData, SelectionPlugin, SelectionState,
+        selection_subgroups,
     };
 }

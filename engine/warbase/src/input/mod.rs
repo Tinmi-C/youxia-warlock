@@ -46,21 +46,28 @@
 //! `HoverMap`. Games that prefer wholesale picking events can swap the
 //! bridge; the seam (`WorldPicker` + `PickAttempt`/`SelectCommand`) holds.
 //!
-//! HOTKEY SEMANTICS (pinned here; consumed by SEL4's keyboard layer,
-//! Phase 2 — the mouse bridge below does not handle digits):
+//! HOTKEY SEMANTICS (pinned here; the keyboard bridge below translates raw
+//! keys into domain messages — the mouse bridge does not handle keys):
 //! - Digit 1..=9, non-modal       -> `GroupCommand::Recall(digit)`
 //! - Ctrl  + digit                -> `GroupCommand::Bind(digit)`
 //! - Shift + digit                -> `GroupCommand::Insert(digit)`
 //! - Tab                          -> `selection::CycleSubgroups`
+//! - A / H / S / P / Esc          -> `selection::CommandHotkey` (SEL4: A/P
+//!   arm `PendingTargetOrder` targeting, H/S fire at once, Esc cancels the
+//!   pending state only — the selection set is untouched)
 //! - While a modal card is open (build placement / skill target), digits
 //!   belong to the modal, not to groups; group keys resume once it closes.
+//!   Game-level modals own their keys by disabling/swapping this bridge —
+//!   the same seam pattern as `ActiveWorldPicker`.
 
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use crate::selection::{PickAttempt, PickButton, SelectCommand};
+use crate::selection::{
+    CommandHotkey, CycleSubgroups, GroupCommand, PickAttempt, PickButton, SelectCommand,
+};
 use crate::WarbaseSet;
 
 /// Screen -> world mapping seam. Games with unusual cameras swap the
@@ -259,6 +266,66 @@ fn ui_blocks_world_pick(world: &World) -> bool {
         .is_some_and(|hits| hits.keys().any(|e| world.get::<Node>(*e).is_some()))
 }
 
+/// Digit keys -> group slot digits (1-based), pinned key order.
+const DIGIT_KEYS: [(KeyCode, u8); 9] = [
+    (KeyCode::Digit1, 1),
+    (KeyCode::Digit2, 2),
+    (KeyCode::Digit3, 3),
+    (KeyCode::Digit4, 4),
+    (KeyCode::Digit5, 5),
+    (KeyCode::Digit6, 6),
+    (KeyCode::Digit7, 7),
+    (KeyCode::Digit8, 8),
+    (KeyCode::Digit9, 9),
+];
+
+/// Raw keyboard bridge (SEL4): the HOTKEY SEMANTICS table above as code —
+/// A/H/S/P/Esc -> `CommandHotkey`, Tab -> `CycleSubgroups`, digits (with
+/// Ctrl/Shift) -> `GroupCommand`. The state machine behind those messages
+/// stays in `selection` (headless-testable); this is raw-key translation
+/// only. Exclusive like the pointer bridge (reads ButtonInput + writes
+/// messages). No-ops whenever raw input resources are absent (headless;
+/// see SEL1a point 5).
+fn keyboard_bridge(world: &mut World) {
+    let Some(keys) = world.get_resource::<ButtonInput<KeyCode>>().cloned() else {
+        return;
+    };
+    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+
+    if keys.just_pressed(KeyCode::Escape) {
+        world.write_message(CommandHotkey::Cancel);
+    }
+    if keys.just_pressed(KeyCode::KeyA) {
+        world.write_message(CommandHotkey::AttackMove);
+    }
+    if keys.just_pressed(KeyCode::KeyH) {
+        world.write_message(CommandHotkey::Hold);
+    }
+    if keys.just_pressed(KeyCode::KeyS) {
+        world.write_message(CommandHotkey::Stop);
+    }
+    if keys.just_pressed(KeyCode::KeyP) {
+        world.write_message(CommandHotkey::Patrol);
+    }
+    if keys.just_pressed(KeyCode::Tab) {
+        world.write_message(CycleSubgroups);
+    }
+    for (code, digit) in DIGIT_KEYS {
+        if !keys.just_pressed(code) {
+            continue;
+        }
+        let command = if ctrl {
+            GroupCommand::Bind(digit)
+        } else if shift {
+            GroupCommand::Insert(digit)
+        } else {
+            GroupCommand::Recall(digit)
+        };
+        world.write_message(command);
+    }
+}
+
 /// Domain systems (ui feature; registered once by WarbasePlugin).
 pub struct InputPlugin;
 
@@ -268,7 +335,12 @@ impl Plugin for InputPlugin {
             .init_resource::<PointerDrag>()
             // D2: raw input translation runs at the very front of Update,
             // before WarbaseSet::Tick consumes the translated messages.
-            .add_systems(Update, pointer_bridge.before(WarbaseSet::Tick));
+            .add_systems(
+                Update,
+                (pointer_bridge, keyboard_bridge)
+                    .chain()
+                    .before(WarbaseSet::Tick),
+            );
     }
 }
 
