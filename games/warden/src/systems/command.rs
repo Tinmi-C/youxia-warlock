@@ -14,7 +14,6 @@
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
-use bevy::window::Window;
 
 use crate::components::{SkillCaster, Tower, TowerKind, TowerSlot};
 use crate::resources::{
@@ -25,6 +24,7 @@ use crate::states::GameState;
 use crate::systems::hud::UiFont;
 use crate::systems::l10n;
 use crate::systems::skills::{CastSkill, SkillButton};
+use warbase::prelude::{PickButton, PickResolved};
 
 /// Marker on the whole bottom bar root (hidden on GameOver/Win, UI9).
 #[derive(Component)]
@@ -904,14 +904,17 @@ pub struct PendingFusionConfirm(pub Entity);
 /// confirms the fusion or falls back to plain selection (no accidental
 /// fusing, §16.6). While a point-skill target pick is active (SK1) the skill
 /// owns the world click — this system stays idle for it.
-#[allow(clippy::type_complexity)]
+///
+/// SEL5: the raw click -> world -> hit pipeline moved up into
+/// `pointer::pick_bridge` + `pointer::resolve_world_picks` (base
+/// `PickAttempt`/`PickResolved` shapes); this system keeps ONLY the
+/// selection semantics (tower-first, occupancy via the grid, occupied-slot
+/// -> nearest tower standing on it, blank cancels). The pick reader always
+/// drains the queue so a click swallowed by an armed/aiming gate is not
+/// replayed a frame later.
 pub fn select_object(
     mut commands: Commands,
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    camera: Query<(&Camera, &GlobalTransform)>,
-    blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
-    panel: Res<crate::resources::DebugPanelCapture>,
+    mut picks: MessageReader<PickResolved>,
     build: Res<BuildMode>,
     aiming: Res<crate::resources::SkillAiming>,
     state: Res<State<GameState>>,
@@ -920,73 +923,52 @@ pub fn select_object(
     grid: Res<warbase::prelude::BuildGrid>,
     slots: Query<(Entity, &TowerSlot, &Transform)>,
 ) {
-    if build.armed
-        || aiming.0.is_some()
-        || !buttons.just_pressed(MouseButton::Left)
-        || *state.get() != GameState::Playing
-    {
-        return;
-    }
-    if cursor_over_blocking_ui(&blocking, &panel) {
-        return;
-    }
-    let Some((cam, cam_tf)) = camera.single().ok() else {
-        return;
-    };
-    let Some(cursor) = windows.single().ok().and_then(|w| w.cursor_position()) else {
-        return;
-    };
-    // 1) A tower under the cursor?
-    let mut best_tower: Option<(Entity, f32)> = None;
-    for (eid, _, ttf) in towers.iter() {
-        if let Ok(sp) = cam.world_to_viewport(cam_tf, ttf.translation) {
-            let d = sp.distance(cursor);
-            if d <= 45.0 && best_tower.map_or(true, |(_, bd)| d < bd) {
-                best_tower = Some((eid, d));
+    for pick in picks.read() {
+        if pick.button != PickButton::Left {
+            continue;
+        }
+        if build.armed
+            || aiming.0.is_some()
+            || *state.get() != GameState::Playing
+        {
+            continue; // the armed build / skill aiming owns this click
+        }
+        // 1) A tower under the pick? (resolver: nearest-first, radius-gated)
+        if let Some(&e) = pick.entities.first() {
+            if matches!(*selection, Selection::FusionTarget(_)) {
+                // Defer to the chained applier (keeps this system lean).
+                commands.insert_resource(PendingFusionConfirm(e));
+            } else {
+                *selection = Selection::Tower(e);
             }
+            continue;
         }
-    }
-    if let Some((e, _)) = best_tower {
-        if matches!(*selection, Selection::FusionTarget(_)) {
-            // Defer to the chained applier (keeps this system lean).
-            commands.insert_resource(PendingFusionConfirm(e));
-        } else {
-            *selection = Selection::Tower(e);
-        }
-        return;
-    }
-    // 2) The nearest slot (screen-space)?
-    let mut best_slot: Option<(Entity, f32, bool)> = None;
-    for (eid, slot, stf) in slots.iter() {
-        if let Ok(sp) = cam.world_to_viewport(cam_tf, stf.translation) {
-            let d = sp.distance(cursor);
-            if d <= 45.0 && best_slot.map_or(true, |(_, bd, _)| d < bd) {
-                // Occupancy verdict from the grid (WX6-6c).
-                let occupied = grid
-                    .check(crate::systems::map::slot_cell(slot.index))
-                    .is_err();
-                best_slot = Some((eid, d, occupied));
-            }
-        }
-    }
-    *selection = match best_slot {
-        Some((e, _, false)) => Selection::EmptySlot(e),
-        Some((e, _, true)) => {
-            // Occupied slot: select the tower standing on it (nearest).
-            let Ok((_, _, stf)) = slots.get(e) else {
-                return;
-            };
-            let mut tower_here: Option<(Entity, f32)> = None;
-            for (eid, _, ttf) in towers.iter() {
-                let d = ttf.translation.distance(stf.translation);
-                if tower_here.map_or(true, |(_, bd)| d < bd) {
-                    tower_here = Some((eid, d));
+        // 2) The nearest slot (resolver cell, radius-gated)?
+        let slot_entry = pick
+            .cell
+            .and_then(|(slot_idx, _)| {
+                slots.iter().find(|(_, slot, _)| slot.index as i32 == slot_idx)
+            });
+        *selection = match slot_entry {
+            Some((e, slot, stf)) => {
+                if grid.check(crate::systems::map::slot_cell(slot.index)).is_ok() {
+                    Selection::EmptySlot(e)
+                } else {
+                    // Occupied slot: select the tower standing on it (nearest).
+                    let mut tower_here: Option<(Entity, f32)> = None;
+                    for (eid, _, ttf) in towers.iter() {
+                        let d = ttf.translation.distance(stf.translation);
+                        if tower_here.map_or(true, |(_, bd)| d < bd) {
+                            tower_here = Some((eid, d));
+                        }
+                    }
+                    tower_here.map(|(e, _)| Selection::Tower(e)).unwrap_or(Selection::None)
                 }
             }
-            tower_here.map(|(e, _)| Selection::Tower(e)).unwrap_or(Selection::None)
-        }
-        None => Selection::None, // 3) blank ground cancels (§16.3)
-    };
+            // 3) Blank ground (or a vanished slot) cancels (§16.3).
+            None => Selection::None,
+        };
+    }
 }
 
 /// Executes a posted fusion confirm (UI11 step 3, §16.6): fuses the picked

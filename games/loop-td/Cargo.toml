@@ -14,6 +14,8 @@ bevy = { workspace = true }
 warbase = { path = "../../engine/warbase" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# RPL2 replay entry (--replay): parses the recorded MatchInputLog (RON).
+ron = { workspace = true }
 
 # NOTE: profiles (dev opt-level / release thin-LTO / release-check) live in
 # the root workspace Cargo.toml — member profiles are ignored in a workspace.
