@@ -31,6 +31,18 @@ impl Plugin for GamePlugin {
         // Debug-panel input capture (DB1): registered unconditionally (the
         // guard systems read it in release too); only debug builds write it.
         .init_resource::<DebugPanelCapture>()
+        // SEL5 picking seam (ADR-0016): warden swaps the base's ortho
+        // default with its perspective ground-plane picker and rides the
+        // base PickAttempt/PickResolved message shapes. The base
+        // SelectionState/SelectCommand model is intentionally NOT adopted
+        // (TD single-select semantics stay in warden's Selection — see the
+        // pointer.rs module header).
+        .insert_resource(warbase::input::ActiveWorldPicker(Box::new(
+            systems::pointer::GroundPlanePicker,
+        )))
+        .init_resource::<systems::pointer::CursorGround>()
+        .add_message::<warbase::prelude::PickAttempt>()
+        .add_message::<warbase::prelude::PickResolved>()
         // D1 晴昼要塞 ambience (docs/art-direction.md, 2026-09-20 re-tone):
         // morning blue-white sky bounce and a pale blue clear color behind
         // the cliff skirt (replaces the rejected dusk purple/brown).
@@ -58,11 +70,19 @@ impl Plugin for GamePlugin {
                     .before(systems::command::handle_command_buttons),
                 systems::pointer::handle_start_wave_button.in_set(GameSet::Input),
                 systems::pointer::handle_choice_card_buttons.in_set(GameSet::Input),
-                systems::command::select_object
-                    .in_set(GameSet::Input)
-                    .before(systems::command::apply_pending_fusion),
-                systems::pointer::mouse_place_system.in_set(GameSet::Input),
-                systems::command::apply_pending_fusion.in_set(GameSet::Input),
+                // SEL5 pick chain: raw input -> base PickAttempt -> base
+                // PickResolved -> selection semantics -> fusion confirm.
+                // (update_aim_picking keeps its `.before(select_object)`
+                // constraint in SkillsPlugin — the chain preserves it.)
+                (
+                    systems::pointer::pick_bridge,
+                    systems::pointer::resolve_world_picks,
+                    systems::command::select_object,
+                    systems::pointer::mouse_place_system,
+                    systems::command::apply_pending_fusion,
+                )
+                    .chain()
+                    .in_set(GameSet::Input),
             )
                 .run_if(in_state(GameState::Playing)),
         )

@@ -9,24 +9,221 @@
 //!   - The GameOver/Win end screen (UI5) and the language button handler (UI7)
 //!     live here; the button itself lives in the command bar control zone.
 //!
-//! Split into small systems: Bevy caps a single system at 16 params.
+//! SEL5 (WC3 alignment, ADR-0016): the screen->world->hit bottom layer now
+//! rides the warbase picking seam — `ActiveWorldPicker` (with warden's
+//! `GroundPlanePicker`, see below) converts cursor pixels to ground-plane
+//! world XY, `pick_bridge` emits the base `PickAttempt` message, and
+//! `resolve_world_picks` produces the base `PickResolved` shape for the
+//! semantic consumers (`select_object` / `mouse_place_system`).
+//!
+//! UPCAST BOUNDARY (scope pin, do not over-adopt): warden upcasts the pick
+//! MATH (ray->ground-plane + world-space disc hits) and the MESSAGE SHAPES
+//! (`PickAttempt`/`PickResolved`) only. It does NOT adopt the base
+//! `SelectionState`/`SelectCommand` selection-set model — a TD keeps its own
+//! single-target `resources::Selection` state machine (tower / empty slot /
+//! fusion target), which stays the semantic layer here. Slot resolution also
+//! stays warden-side: the base `resolve_picks` hits `Selectable` bodies and
+//! FreeGrid cells, while warden's slots are FixedSlots authored points.
+//!
+//! Why not the base `OrthoTopDownPicker`: it only inverts orthographic
+//! cameras; warden frames the arena with a perspective 3/4 view (camera.rs),
+//! so warden swaps the resource with its own perspective implementation —
+//! exactly the seam contract ("games with unusual cameras swap the resource",
+//! warbase input module).
 
-use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 use bevy::window::Window;
 
-use crate::components::{AttackType, TowerSlot};
+use crate::components::{AttackType, Tower, TowerSlot};
 use crate::resources::{
     Boosts, BuildMode, Economy, Hand, Lang, MetaSavePath, MetaState, SelectedTower, TowerDefs,
     UiPrefsPath, UPGRADE1_COST, UPGRADE2_COST, WaveChoice, WavePhase, WaveSchedule,
     WaveState,
 };
 use crate::states::GameState;
-use crate::systems::command::{cursor_over_blocking_ui, BlocksWorldInput};
+use crate::systems::command::BlocksWorldInput;
 use crate::systems::l10n;
 use crate::systems::{
     hud::UiFont, input::{apply_choice, try_start_wave}, meta::buy_upgrade,
 };
+use warbase::input::{ActiveWorldPicker, WorldPicker};
+use warbase::prelude::{PickAttempt, PickButton, PickResolved};
+
+// ---------------------------------------------------------------------------
+// SEL5: screen->world seam (warden's ActiveWorldPicker implementation)
+// ---------------------------------------------------------------------------
+
+/// Warden's `WorldPicker`: perspective camera ray intersected with the y=0
+/// ground plane, gameplay 2D coordinates = world (x, z). Installed as the
+/// `ActiveWorldPicker` resource by GamePlugin (swapping the base's ortho
+/// default — see the module header).
+pub struct GroundPlanePicker;
+
+impl WorldPicker for GroundPlanePicker {
+    fn screen_to_world(&self, world: &World, screen: Vec2) -> Option<Vec2> {
+        // &World seam: iterate entities instead of a QueryState (same trick
+        // as the base OrthoTopDownPicker); warden frames exactly one camera.
+        let mut found: Option<(&Camera, &GlobalTransform)> = None;
+        let mut count = 0usize;
+        for entity in world.iter_entities() {
+            if let (Some(cam), Some(tf)) = (entity.get::<Camera>(), entity.get::<GlobalTransform>())
+            {
+                count += 1;
+                found = Some((cam, tf));
+            }
+        }
+        if count != 1 {
+            return None; // camera.single() semantics (no or ambiguous camera)
+        }
+        let (cam, cam_tf) = found?;
+        ray_ground_point(cam, cam_tf, screen)
+    }
+}
+
+/// Shared core of every warden screen->world conversion: viewport pixel ->
+/// camera ray -> intersection with the y=0 ground plane, as (x, z). Same
+/// math the pre-SEL5 skill aiming used (`skills::cursor_ground_point` now
+/// delegates here); the ground-plane picker above is this plus camera lookup.
+pub fn ray_ground_point(
+    cam: &Camera,
+    cam_tf: &GlobalTransform,
+    screen: Vec2,
+) -> Option<Vec2> {
+    let ray = cam.viewport_to_world(cam_tf, screen).ok()?;
+    if ray.direction.y.abs() < 1e-6 {
+        return None; // view direction parallel to the ground plane
+    }
+    let t = -ray.origin.y / ray.direction.y;
+    if t < 0.0 {
+        return None; // the ground is behind the camera
+    }
+    let point = ray.origin + *ray.direction * t;
+    Some(Vec2::new(point.x, point.z))
+}
+
+/// The cursor's ground-plane position, refreshed every frame by `pick_bridge`
+/// (Playing only). Non-click consumers (the UI3 hover ghost) read this
+/// instead of re-deriving the ray themselves — one screen->world owner.
+#[derive(Resource, Debug, Default)]
+pub struct CursorGround(pub Option<Vec2>);
+
+/// World-space click slop. The pre-SEL5 hit tests compared SCREEN distances
+/// with a 45 px threshold; through warden's pinned framing (camera at
+/// (0, 22, 27.5), 45 deg fov, 1280x720) 45 px is ~1.8 world units laterally
+/// and ~2.3 along the depth axis at map center, so 2.0 is the disc mid-value.
+/// Slots sit >= 4.0 apart (`map::SLOT_POSITIONS`), so the disc never changes
+/// WHICH slot/tower wins a pick — it only trims far-field clicks. The
+/// old-vs-new equivalence is pinned by tests/pick_upcast.rs.
+pub const TOWER_PICK_RADIUS: f32 = 2.0;
+/// See `TOWER_PICK_RADIUS`.
+pub const SLOT_PICK_RADIUS: f32 = 2.0;
+
+/// Raw-input bridge (SEL5): the single owner of screen->world input —
+/// refreshes `CursorGround` every frame and emits one base `PickAttempt`
+/// per left press that lands on the world (not over blocking UI). The
+/// semantic consumers downstream never touch raw mouse/window state again.
+/// Exclusive like the base `pointer_bridge` (the picker seam needs &World).
+pub fn pick_bridge(world: &mut World) {
+    // Cursor from THE window (pre-SEL5 consumers used windows.single()).
+    let cursor = {
+        let mut windows = world.query::<&Window>();
+        match windows.single(world) {
+            Ok(w) => w.cursor_position(),
+            Err(_) => None,
+        }
+    };
+    let ground = cursor.and_then(|c| {
+        world
+            .resource::<ActiveWorldPicker>()
+            .0
+            .screen_to_world(world, c)
+    });
+    world.resource_mut::<CursorGround>().0 = ground;
+
+    let Some(buttons) = world.get_resource::<ButtonInput<bevy::input::mouse::MouseButton>>().cloned()
+    else {
+        return;
+    };
+    if !buttons.just_pressed(bevy::input::mouse::MouseButton::Left) {
+        return;
+    }
+    // UI panels swallow world picks (pre-SEL5 each consumer checked this;
+    // the bridge now checks it once for all of them — same outcome).
+    let over_ui = {
+        let panel = world
+            .get_resource::<crate::resources::DebugPanelCapture>()
+            .map(|p| p.pointer)
+            .unwrap_or(false);
+        let mut roots = world.query_filtered::<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>();
+        panel || roots.iter(world).any(|r| r.cursor_over())
+    };
+    if over_ui {
+        return;
+    }
+    let Some(point) = ground else {
+        return;
+    };
+    let (ctrl, shift) = world
+        .get_resource::<ButtonInput<KeyCode>>()
+        .map(|keys| {
+            (
+                keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]),
+                keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
+            )
+        })
+        .unwrap_or((false, false));
+    world.write_message(PickAttempt {
+        world: point,
+        button: PickButton::Left,
+        click_count: 1,
+        ctrl,
+        shift,
+    });
+}
+
+/// SEL5 resolver: base `PickAttempt` -> base-shaped `PickResolved` with
+/// warden's FixedSlots semantics. `entities` = towers whose (x, z) disc
+/// catches the pick (nearest first, ties by Entity index — D6); `cell` =
+/// FixedSlots cell `(slot_index, 0)` of the nearest slot within
+/// `SLOT_PICK_RADIUS`. Occupancy stays a consumer concern (the grid is the
+/// authority, WX6-6c); the pre-threshold "nearest slot anywhere" used by
+/// armed placement is intentionally NOT encoded here — `mouse_place_system`
+/// keeps its own no-threshold nearest-slot from the pick point.
+pub fn resolve_world_picks(
+    mut attempts: MessageReader<PickAttempt>,
+    mut resolved: MessageWriter<PickResolved>,
+    towers: Query<(Entity, &Transform), With<Tower>>,
+    slots: Query<(Entity, &TowerSlot, &Transform)>,
+) {
+    for attempt in attempts.read() {
+        let mut tower_hits: Vec<(f32, Entity)> = towers
+            .iter()
+            .filter_map(|(eid, tf)| {
+                let d = Vec2::new(tf.translation.x, tf.translation.z).distance(attempt.world);
+                (d <= TOWER_PICK_RADIUS).then_some((d, eid))
+            })
+            .collect();
+        tower_hits.sort_by(|a, b| {
+            a.0.total_cmp(&b.0).then_with(|| a.1.index().cmp(&b.1.index()))
+        });
+        let mut slot_hits: Vec<(f32, Entity, i32)> = slots
+            .iter()
+            .filter_map(|(eid, slot, tf)| {
+                let d = Vec2::new(tf.translation.x, tf.translation.z).distance(attempt.world);
+                (d <= SLOT_PICK_RADIUS).then_some((d, eid, slot.index as i32))
+            })
+            .collect();
+        slot_hits.sort_by(|a, b| {
+            a.0.total_cmp(&b.0).then_with(|| a.1.index().cmp(&b.1.index()))
+        });
+        resolved.write(PickResolved {
+            world: attempt.world,
+            button: attempt.button,
+            entities: tower_hits.into_iter().map(|(_, e)| e).collect(),
+            cell: slot_hits.first().map(|(_, _, idx)| (*idx, 0)),
+        });
+    }
+}
 
 /// "开始下一波" button (lives in the command-bar control zone since UI9):
 /// same effect as the Space key.
@@ -187,10 +384,14 @@ pub fn handle_choice_card_buttons(
 /// exactly where and what will be placed. Hidden otherwise (or on an occupied
 /// slot). A single entity is reused; it is respawned only when the armed tower
 /// type changes (so the colour stays in sync).
+///
+/// SEL5: the cursor's ground point comes from `CursorGround` (the pick
+/// bridge owns screen->world); the nearest slot is measured in world space
+/// with NO threshold — the pre-SEL5 ghost likewise highlighted the nearest
+/// slot wherever the cursor was (screen-space nearest, also unthresholded).
 pub fn update_hover_ghost(
     mut commands: Commands,
-    windows: Query<&Window>,
-    camera: Query<(&Camera, &GlobalTransform)>,
+    cursor: Res<CursorGround>,
     build: Res<BuildMode>,
     selected: Res<SelectedTower>,
     defs: Res<TowerDefs>,
@@ -209,10 +410,8 @@ pub fn update_hover_ghost(
     // Pick the slot under the cursor when armed and the slot is free.
     let mut target: Option<Vec3> = None;
     if armed {
-        let cam = camera.single().ok();
-        let cursor = windows.single().ok().and_then(|w| w.cursor_position());
-        if let (Some((cam, cam_tf)), Some(cursor)) = (cam, cursor) {
-            if let Some((slot_e, pos)) = nearest_slot_screen(&slots, cursor, cam, cam_tf) {
+        if let Some(point) = cursor.0 {
+            if let Some((slot_e, pos)) = nearest_slot_ground(&slots, point) {
                 if let Ok((_, slot, _)) = slots.get(slot_e) {
                     // WX6-6c: same-source occupancy verdict from the grid.
                     if grid.check(crate::systems::map::slot_cell(slot.index)).is_ok() {
@@ -467,79 +666,72 @@ pub struct PlaceGate<'w> {
     pub grid: ResMut<'w, warbase::prelude::BuildGrid>,
 }
 
+/// SEL5: consumes base `PickResolved` picks (the pick bridge already gated
+/// the click on the raw side: left press, Playing, not over blocking UI).
+/// Keeps the pre-SEL5 placement semantics verbatim: armed + Intermission
+/// only, and the NEAREST slot to the pick point with NO distance threshold
+/// (an armed click anywhere on the world commits at the nearest slot — the
+/// resolver's `SLOT_PICK_RADIUS` cell is a selection affordance, not a
+/// placement gate).
 pub fn mouse_place_system(
-    buttons: Res<ButtonInput<MouseButton>>,
+    mut picks: MessageReader<PickResolved>,
     server: Option<Res<AssetServer>>,
-    windows: Query<&Window>,
-    camera: Query<(&Camera, &GlobalTransform)>,
-    blocking: Query<&bevy::ui::RelativeCursorPosition, With<BlocksWorldInput>>,
-    panel: Res<crate::resources::DebugPanelCapture>,
     mut place: PlaceGate<'_>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
+    slots: Query<(Entity, &mut TowerSlot, &Transform)>,
 ) {
-    if !place.build.armed
-        || !buttons.just_pressed(MouseButton::Left)
-        || place.wave.phase != WavePhase::Intermission
-    {
+    if !place.build.armed || place.wave.phase != WavePhase::Intermission {
         return;
     }
-    if cursor_over_blocking_ui(&blocking, &panel) {
-        return;
-    }
-    let Some((cam_comp, cam_tf)) = camera.single().ok() else {
-        return;
-    };
-    let Some(cursor) = windows.single().ok().and_then(|w| w.cursor_position()) else {
-        return;
-    };
-    let Some((slot_e, _)) = nearest_slot_screen(&slots, cursor, cam_comp, cam_tf) else {
-        return;
-    };
-    let Some(def) = place.defs.list.get(place.selected.tower_index) else {
-        return;
-    };
-    let cost = crate::systems::tower::tower_cost(&place.registry, def);
-    if !place.hand.owned_towers.contains(&place.selected.tower_index)
-        || place.economy.gold < cost
-    {
-        return;
-    }
-    if let Ok((_, slot, stf)) = slots.get(slot_e) {
-        let cell = crate::systems::map::slot_cell(slot.index);
-        if place.grid.check(cell).is_err() {
-            return; // occupied (or invalid) — the grid is the authority
+    for pick in picks.read() {
+        if pick.button != PickButton::Left {
+            continue;
         }
-        place.economy.gold -= cost;
-        let tower = crate::systems::tower::spawn_base_tower(
-            &mut commands,
-            def,
-            place.selected.tower_index,
-            stf.translation,
-            &mut meshes,
-            &mut materials,
-            server.as_deref(),
-        );
-        place.grid.place(cell, tower);
-        info!("[mouse] placed {} at slot, gold={}", def.name, place.economy.gold);
+        let Some((slot_e, _)) = nearest_slot_ground(&slots, pick.world) else {
+            continue;
+        };
+        let Some(def) = place.defs.list.get(place.selected.tower_index) else {
+            continue;
+        };
+        let cost = crate::systems::tower::tower_cost(&place.registry, def);
+        if !place.hand.owned_towers.contains(&place.selected.tower_index)
+            || place.economy.gold < cost
+        {
+            continue;
+        }
+        if let Ok((_, slot, stf)) = slots.get(slot_e) {
+            let cell = crate::systems::map::slot_cell(slot.index);
+            if place.grid.check(cell).is_err() {
+                continue; // occupied (or invalid) — the grid is the authority
+            }
+            place.economy.gold -= cost;
+            let tower = crate::systems::tower::spawn_base_tower(
+                &mut commands,
+                def,
+                place.selected.tower_index,
+                stf.translation,
+                &mut meshes,
+                &mut materials,
+                server.as_deref(),
+            );
+            place.grid.place(cell, tower);
+            info!("[mouse] placed {} at slot, gold={}", def.name, place.economy.gold);
+        }
     }
 }
 
-/// Nearest slot to the screen-space cursor position.
-fn nearest_slot_screen(
+/// Nearest slot to a ground-plane pick point (world space, no threshold) —
+/// the placement/ghost counterpart of the pre-SEL5 screen-space
+/// `nearest_slot_screen` (which also applied no threshold).
+fn nearest_slot_ground(
     slots: &Query<(Entity, &mut TowerSlot, &Transform)>,
-    cursor: Vec2,
-    cam: &Camera,
-    cam_tf: &GlobalTransform,
+    point: Vec2,
 ) -> Option<(Entity, Vec3)> {
     let mut best: Option<(Entity, f32, Vec3)> = None;
     for (eid, _slot, stf) in slots.iter() {
-        let Ok(sp) = cam.world_to_viewport(cam_tf, stf.translation) else {
-            continue;
-        };
-        let d = sp.distance(cursor);
+        let d = Vec2::new(stf.translation.x, stf.translation.z).distance(point);
         if best.map_or(true, |(_, bd, _)| d < bd) {
             best = Some((eid, d, stf.translation));
         }

@@ -363,22 +363,17 @@ pub fn handle_skill_buttons(
 }
 
 /// Ground point under the cursor (y=0 plane), or None without a
-/// projectable camera / cursor.
+/// projectable camera / cursor. SEL5: the ray math now lives in
+/// `pointer::ray_ground_point` (shared with the world-picker seam) — this
+/// is the same computation the pre-SEL5 body inlined.
 fn cursor_ground_point(
     windows: &Query<&Window>,
     camera: &Query<(&Camera, &GlobalTransform)>,
 ) -> Option<Vec3> {
     let (cam, cam_tf) = camera.single().ok()?;
     let cursor = windows.single().ok().and_then(|w| w.cursor_position())?;
-    let ray = cam.viewport_to_world(cam_tf, cursor).ok()?;
-    if ray.direction.y.abs() < 1e-6 {
-        return None; // parallel to the ground plane
-    }
-    let t = -ray.origin.y / ray.direction.y;
-    if t < 0.0 {
-        return None; // the ground is behind the camera
-    }
-    Some(ray.origin + *ray.direction * t)
+    let point = crate::systems::pointer::ray_ground_point(cam, cam_tf, cursor)?;
+    Some(Vec3::new(point.x, 0.0, point.y))
 }
 
 /// Marker on the point-skill indicator ring (§17.3 地图指示圈).
