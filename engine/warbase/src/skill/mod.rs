@@ -192,15 +192,17 @@ fn start_slot_cooldown(caster: &mut SkillCaster, defs: &SkillDefs, skill: &str) 
 ///    legacy path: cooldown + SkillCast right away) or attach `Casting`;
 /// 3. advance `Casting` — on completion emit SkillCast (effect systems
 ///    unchanged), start the cooldown from this moment, attach `Channeling`
-///    if the def has one;
-/// 4. advance `Channeling` down to natural expiry (removal, no message).
-/// Refused casts leave no trace (skip; the base ships no reject channel).
+///    if the def has one; Point-targeted casts with a known ground point
+///    are first checked against the observer's vision (FOG2 gate below —
+///    dark points are refused, no SkillCast and no cooldown);
+/// 4. advance `Channeling` down to natural expiry (removal, no message)./// Refused casts leave no trace (skip; the base ships no reject channel).
 pub fn process_casts(
     time: Res<Time>,
     mut requests: MessageReader<CastSkill>,
     mut interrupts: MessageReader<InterruptCast>,
     mut casts: MessageWriter<SkillCast>,
     defs: Res<SkillDefs>,
+    vision: Res<crate::vision::VisionGrid>,
     mut commands: Commands,
     mut casters: Query<(
         Entity,
@@ -301,6 +303,26 @@ pub fn process_casts(
         }
         let skill = c.skill.clone();
         let point = c.point;
+        // FOG2 visibility gate (D5, ADR-0016 §9): a manual Point-targeted
+        // cast must land inside the observer team's vision. Ground points
+        // only ever reach this pipeline through `Casting.point`, set by
+        // game-side aiming layers — the base's own CastSkill path ships no
+        // point (see the `point: None` writes below), so this gate is
+        // dormant in-tree; the interface is pinned here for those layers.
+        // A dark point refuses the cast: no SkillCast, no cooldown burn,
+        // Casting dropped.
+        if let Some(p) = point {
+            let targets_point = defs
+                .get(&skill)
+                .map(|d| d.targeting == SkillTargeting::Point)
+                .unwrap_or(false);
+            if targets_point
+                && !crate::vision::point_visible(&vision, Vec2::new(p.x, p.z))
+            {
+                commands.entity(entity).remove::<Casting>();
+                continue;
+            }
+        }
         let level = caster
             .slots
             .iter()
