@@ -39,10 +39,11 @@ pub mod prelude {
         SkillKind, SkillSlot, SkillTargeting,
     };
     pub use crate::unit::{
-        spawn_unit, spawn_unit_deferred, AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable,
-        AttackDef, AttackType, BaseAttributes, HealDef, Hp, Hostility, Mana, ManaDef, ManaRegen,
-        MatchDiplomacy, MaxHp, MaxMana, Owner, PlayerId, ProjDef, TargetDomain, TeamId, TeamsDef,
-        UnitDef, UnitId, UnitInstance, UnitRegistry, UnitTrait, XpHolder,
+        spawn_unit, spawn_unit_deferred, sync_allegiance, AirUnit, Allegiance, Armor, ArmorType,
+        AttackArmorTable, AttackDef, AttackType, BaseAttributes, HealDef, Hp, Hostility, Mana,
+        ManaDef, ManaRegen, MatchDiplomacy, MaxHp, MaxMana, Owner, PlayerId, ProjDef, TargetDomain,
+        TeamId, TeamsDef, UnitDef, UnitId, UnitInstance, UnitPlugin, UnitRegistry, UnitTrait,
+        XpHolder,
     };
     pub use crate::item::prelude::*;
     pub use crate::movement::prelude::*;
@@ -238,6 +239,7 @@ impl Plugin for WarbasePlugin {
             .add_plugins(item::ItemPlugin)
             .add_plugins(production::ProductionPlugin)
             .add_plugins(replay::ReplayPlugin)
-            .add_plugins(sfx::SfxPlugin);
+            .add_plugins(sfx::SfxPlugin)
+            .add_plugins(unit::UnitPlugin);
     }
 }
