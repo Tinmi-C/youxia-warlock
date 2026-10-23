@@ -3,6 +3,7 @@
 
 pub mod components;
 pub mod plugins;
+pub mod replay_io;
 pub mod resources;
 pub mod states;
 pub mod systems;
