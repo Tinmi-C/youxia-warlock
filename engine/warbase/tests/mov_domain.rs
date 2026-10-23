@@ -21,10 +21,18 @@ fn nav_10x10(blocked: &[(i32, i32)]) -> NavGrid {
     nav
 }
 
+/// Mechanical patch (MOV3/4/5): MoveAgent grew `body_radius` + `order`.
 fn spawn_agent(world: &mut World, pos: Vec3, speed: f32, arrival_radius: f32) -> Entity {
     world
         .spawn((
-            MoveAgent { speed, arrival_radius, waypoints: Vec::new(), velocity: Vec3::ZERO },
+            MoveAgent {
+                speed,
+                arrival_radius,
+                waypoints: Vec::new(),
+                velocity: Vec3::ZERO,
+                body_radius: DEFAULT_BODY_RADIUS,
+                order: None,
+            },
             AgentOrderState::Idle,
             Transform::from_translation(pos),
         ))
@@ -298,6 +306,8 @@ fn move_agent_with_path_follower_rejected() {
             arrival_radius: 0.05,
             waypoints: vec![Vec3::new(2.0, 0.0, 0.0)],
             velocity: Vec3::ZERO,
+            body_radius: DEFAULT_BODY_RADIUS,
+            order: None,
         },
         AgentOrderState::Moving,
         Transform::default(),
