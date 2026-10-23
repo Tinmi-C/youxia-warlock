@@ -61,7 +61,7 @@
 | SEAM0b–e | Phase 0 接缝：七域模块骨架（类型/消息/资源/域插件一次接线，lib.rs 与 bundle/mod.rs 此后冻结）；Hostility 唯一敌我缝（combat 3 处+buff 2 处收口，默认零漂移）；MapBundle 五个可选段 + assemble 分发；replay 输入信封；testing helpers + tests/seam.rs 5 断言 | ✅ 33ad9f3 + 域插件修订（workspace 275 全绿 = 270 基线 + 5 seam，warden/loop-td 零漂移） |
 | Phase 1 | SPL1/2（法力/施法/引导/打断）· SEL1-3（bevy_picking 调研+正交拾取桥+选择集/编队/子组）· PRD1（训练队列：入队扣费/取消退款/人口挂起/帧精确）· FOG1（视野网格+explored 记忆+指纹跳过）· AUD1（反应式音效通道+节流）· RPL1（输入录制+StateHash 确定性回放）——**六线 worktree 并行，40 条新断言** | ✅ 2026-10-22 合并态 workspace **315 全绿**（275+40），warden/loop-td 零漂移；集成修正 ec056ab（并行新写测试的 UnitDef.mana 补默认值）；SEL 一次限频补发；两条 pitfall 卡入 vault |
 | Phase 2 | MP1（Hostility 换外交矩阵实现，默认零漂移；Owner/sync_allegiance/TeamsDef.hostile_pairs）· MOV1-2（自由移动运动学 + 网格 A*：禁穿角/预算分帧/BuildGrid 变更观察脏重算/best-effort 不可达）· SEL4（resolve_picks 补全 + 右键智能命令 + A/H/S/P/P 两点机 + 编队热键；PendingTargetOrder 纯逻辑态）——**三线并行 20 条新断言** | ✅ 2026-10-23 合并态 workspace **335 全绿**（315+20）；SEAM 修订收口 UnitPlugin 接缝缺口；方案勘误：MOV2「100 请求 8 帧」算术错误，正确钉 13 帧 |
-| Phase 3 | MOV3-5（软碰撞/命令状态机/阵型散点）· SEL5（warden 拾取上收）· PRD2/3+MP2（科研/集结点+多玩家胜负）· INV1-3（物品/背包/掉落/商店）· FOG2/3（迷雾消费/共享视野/小地图数据）· RPL2（loop-td 真机录像入口）——五 agent 并行 | 🚧 派发中 |
-| Phase 4 | RL0-3 RTS 验收图 + H1 人工试玩 | ⬜ |
+| Phase 3 | MOV3-5（软碰撞/命令状态机全表/螺旋阵型散点）· INV1-3（物品/背包/使用走 SkillCast/被动携带/商店/掉落）· FOG2-3（InFog 标记/施法可见性钩子/队视角共享视野/小地图数据）· PRD2-3+MP2（科研三类 grant+marker 实体 source/集结点发 UnitCommand/LastTeamStanding+MatchWinner/经济分域评估卡）· SEL5+RPL2（warden 拾取上收 161 断言零漂移、GroundPlanePicker 透视换缝；loop-td --record/--replay 录像入口含 econ 来源过滤）——**五线并行 38 条新断言** | ✅ 2026-10-23 合并态 workspace **373 全绿**（335+38），warden 161/loop-td 零漂移；全部 27 开发增量落地；坑卡+Entity Ord 复查干净 |
+| Phase 4 | RL0-3 RTS 验收图（games/rts-lab：选农民/右键移动/A 交战/训练/科研/物品/迷雾全链——「新地图不改基底核心」护栏检验）+ H1 人工试玩 | ⬜ 待立项确认 |
 
 > 注：上方「待做」表为 WX 中间态存档（WX6 已全量收口，见消费方表），不再作为待办依据。
