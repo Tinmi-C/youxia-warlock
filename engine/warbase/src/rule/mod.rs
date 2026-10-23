@@ -6,9 +6,11 @@
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
+use crate::combat::AttackKit;
 use crate::path::{Arrived, LapCompleted, MoveSpeed, PathFollower};
-use crate::unit::{Allegiance, Hp, MaxHp, UnitInstance, UnitRegistry};
+use crate::unit::{Allegiance, Hp, MatchDiplomacy, MaxHp, Owner, TeamId, UnitInstance, UnitRegistry};
 use crate::wave::{BossTimedOut, WaveCleared};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +45,16 @@ pub struct LapBuffPolicy {
 pub enum WinCondition {
     SurviveWaves { waves: u32 },
     Endless,
+    /// MP2 melee semantics (ADR-0017): the match runs while two or more
+    /// MUTUALLY HOSTILE teams still have live combat units (an `AttackKit`
+    /// or `PathFollower` carrier); once no hostile pair remains, the
+    /// surviving team (smallest `TeamId` when several non-hostile teams
+    /// stand — deterministic) wins. Units map to teams via `Owner` +
+    /// `MatchDiplomacy`; unowned units fold through the MP1 rule
+    /// (Defender -> team 0, Attacker -> environment team). A new enum
+    /// variant is backward compatible: old RON bundles (SurviveWaves /
+    /// Endless) deserialize unchanged and never take this branch.
+    LastTeamStanding,
 }
 
 #[derive(Debug, Clone, Resource, Serialize, Deserialize)]
@@ -87,6 +99,21 @@ pub struct MatchEnded {
     pub outcome: Result<String, String>,
 }
 
+/// Structured winner of a `LastTeamStanding` match (MP2): the surviving
+/// `TeamId`, lazily inserted at the win transition (same pattern as
+/// `LivesLeft`). Why not a `MatchEnded` field or a `MatchWon` message:
+/// both need lib.rs edits — a struct field breaks every constructor
+/// (including tests in frozen files) and a new message needs an
+/// `add_message` registration; lib.rs is frozen for parallel domain
+/// increments (plan D3). So `MatchEnded` carries the human-readable reason
+/// (`"last team standing: team N wins"`) unchanged, and this resource
+/// carries the winner as data. Reachable from the crate prelude via the
+/// production module's prelude re-export (the one frozen-lib escape
+/// hatch); the next SEAM revision should lift it into rule's own prelude
+/// line.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MatchWinner(pub TeamId);
+
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct LivesLeft(pub u32);
 
@@ -99,6 +126,7 @@ pub fn rules_tick(
     mut commands: Commands,
     rules: Res<MatchRules>,
     registry: Res<UnitRegistry>,
+    diplomacy: Res<MatchDiplomacy>,
     mut flow: ResMut<MatchFlow>,
     mut ended: MessageWriter<MatchEnded>,
     mut arrived: MessageReader<Arrived>,
@@ -114,6 +142,10 @@ pub fn rules_tick(
         Query<(&mut MoveSpeed, &mut Hp, &mut MaxHp)>,
     )>,
     instances: Query<&UnitInstance>,
+    // MP2: live combat units (fighters) for LastTeamStanding. cleanup_dead
+    // runs earlier in the same Cleanup chain, so despawned units are gone
+    // by the time this query is iterated.
+    fighters: Query<(Option<&Owner>, &Allegiance), Or<(With<AttackKit>, With<PathFollower>)>>,
 ) {
     if *flow != MatchFlow::Running {
         return;
@@ -189,6 +221,48 @@ pub fn rules_tick(
         }
     }
 
+    // MP2: team-elimination semantics. Runs ONLY under
+    // `WinCondition::LastTeamStanding` — every existing map (Endless /
+    // SurviveWaves) skips this branch entirely: zero drift. The Running
+    // re-check keeps a same-frame earlier transition (leak loss, boss
+    // timeout) authoritative — team victory never overwrites it.
+    let mut winner: Option<TeamId> = None;
+    if *flow == MatchFlow::Running && matches!(rules.win, WinCondition::LastTeamStanding) {
+        // Teams with at least one live combat unit. BTreeSet: deterministic
+        // iteration order AND a deterministic "smallest surviving team"
+        // pick when several non-hostile teams stand (D6).
+        let mut present: BTreeSet<TeamId> = BTreeSet::new();
+        for (owner, side) in fighters.iter() {
+            let team = match owner {
+                // Owned units fight for their owner's team; unlisted owners
+                // conservatively fold to the home team (mirrors
+                // MatchDiplomacy::allegiance_of).
+                Some(o) => diplomacy.team_of(o.0).unwrap_or(TeamId(0)),
+                // Unowned units follow the MP1 side mapping: Defender ->
+                // team 0, Attacker -> environment team.
+                None => match side {
+                    Allegiance::Defender => TeamId(0),
+                    Allegiance::Attacker => diplomacy.environment_team(),
+                },
+            };
+            present.insert(team);
+        }
+        let still_fighting = present
+            .iter()
+            .any(|a| present.iter().any(|b| a != b && diplomacy.teams_hostile(*a, *b)));
+        // Transition only on the positive outcome: at least one team
+        // standing and no hostile pair left among the survivors. An empty
+        // field (mutual destruction) leaves the flow to the other
+        // policies — no surprise transitions.
+        if !present.is_empty() && !still_fighting {
+            let team = *present.iter().next().expect("non-empty checked above");
+            let reason = format!("last team standing: team {} wins", team.0);
+            *flow = MatchFlow::Won(reason.clone());
+            ended.write(MatchEnded { outcome: Ok(reason) });
+            winner = Some(team);
+        }
+    }
+
     // Keep resource defaults initialized lazily for UI consumers.
     let init_lives = match &rules.leak {
         LeakPolicy::Lives { lives } => Some(*lives),
@@ -197,6 +271,9 @@ pub fn rules_tick(
     commands.queue(move |world: &mut World| {
         if let Some(lives) = init_lives {
             world.get_resource_or_insert_with(|| LivesLeft(lives));
+        }
+        if let Some(team) = winner {
+            world.insert_resource(MatchWinner(team));
         }
     });
 }
