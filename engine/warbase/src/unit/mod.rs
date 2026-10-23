@@ -240,19 +240,66 @@ pub enum Allegiance {
 
 /// Pluggable friend-or-foe oracle (ADR-0017): the ONLY place combat/buff may
 /// ask "are these two hostile/allied" — direct Allegiance comparisons are
-/// forbidden outside this impl. Default = the historical two-sided
-/// semantics (zero drift); MP1 swaps the body for team diplomacy while
-/// Allegiance stays as a derived view.
-#[derive(Resource, Debug, Default, Clone, Copy)]
-pub struct Hostility;
+/// forbidden outside this impl. MP1: answers come from a snapshot of
+/// [`MatchDiplomacy`] (player -> team -> hostility matrix); [`apply_teams`]
+/// rebuilds the snapshot in lockstep with the resource (source of truth).
+///
+/// Allegiance -> team mapping rule (the derived view is intentionally lossy
+/// for 3+ sides; fidelity-critical consumers use the team-level helpers):
+/// - `Defender` maps to `TeamId(0)` — the home/defending team (default
+///   single player P0's team; entities without `Owner` are environment
+///   units on exactly these two sides).
+/// - `Attacker` maps to the environment team: the smallest team id hostile
+///   to team 0, falling back to `TeamId(1)` when nothing is hostile to it.
+///
+/// Under `MatchDiplomacy::default()` this reproduces the historical
+/// two-sided semantics exactly — the zero-drift contract of this increment.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct Hostility {
+    /// Diplomacy snapshot this oracle answers from. Kept in lockstep with
+    /// the `MatchDiplomacy` resource by [`apply_teams`]; runtime diplomacy
+    /// edits must rebuild both or the oracle answers from stale data.
+    pub diplomacy: MatchDiplomacy,
+}
+
+impl From<&MatchDiplomacy> for Hostility {
+    fn from(d: &MatchDiplomacy) -> Self {
+        Self { diplomacy: d.clone() }
+    }
+}
 
 impl Hostility {
+    fn side_team(&self, side: Allegiance) -> TeamId {
+        match side {
+            Allegiance::Defender => TeamId(0),
+            Allegiance::Attacker => self.diplomacy.environment_team(),
+        }
+    }
+
     pub fn hostile(&self, a: Allegiance, b: Allegiance) -> bool {
-        a != b
+        self.diplomacy.teams_hostile(self.side_team(a), self.side_team(b))
     }
 
     pub fn allied(&self, a: Allegiance, b: Allegiance) -> bool {
+        self.side_team(a) == self.side_team(b)
+    }
+
+    /// Team-level hostility query (full-fidelity API for MP2/FOG2 consumers:
+    /// shared vision, damage attribution — the two-sided Allegiance view
+    /// would lose neutrality there).
+    pub fn teams_hostile(&self, a: TeamId, b: TeamId) -> bool {
+        self.diplomacy.teams_hostile(a, b)
+    }
+
+    /// Team-level alliance: allied = same team (the model has no explicit
+    /// alliance pairs); listed-but-unpaired teams are neutral.
+    pub fn teams_allied(&self, a: TeamId, b: TeamId) -> bool {
         a == b
+    }
+
+    /// Team a player belongs to; None = not listed in the match table.
+    pub fn team_of(&self, player: PlayerId) -> Option<TeamId> {
+        self.diplomacy.team_of(player)
     }
 }
 
@@ -288,17 +335,163 @@ impl Default for MatchDiplomacy {
     }
 }
 
-/// Map-bundle teams section (SEAM0d; optional, defaults to single player).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TeamsDef {
-    #[serde(default)]
-    pub players: Vec<(u8, u8)>,
+impl MatchDiplomacy {
+    /// Team a player belongs to; None = not listed in the match table.
+    pub fn team_of(&self, player: PlayerId) -> Option<TeamId> {
+        self.players.iter().find(|(p, _)| *p == player).map(|(_, t)| *t)
+    }
+
+    /// Hostility matrix lookup. Pairs are symmetric (both directions
+    /// implied) and a team is never hostile to itself regardless of the
+    /// table contents.
+    pub fn teams_hostile(&self, a: TeamId, b: TeamId) -> bool {
+        if a == b {
+            return false;
+        }
+        self.hostile_pairs
+            .iter()
+            .any(|(x, y)| (*x == a && *y == b) || (*x == b && *y == a))
+    }
+
+    /// Team-level alliance: allied = same team. Two listed-but-unpaired
+    /// teams are neutral (neither hostile nor allied).
+    pub fn teams_allied(&self, a: TeamId, b: TeamId) -> bool {
+        a == b
+    }
+
+    /// The team the Attacker side maps to: the smallest team id hostile to
+    /// team 0 (the Defender home team). Fallback `TeamId(1)` keeps the
+    /// default two-sided split well-defined even with an empty matrix.
+    pub fn environment_team(&self) -> TeamId {
+        let mut env = TeamId(1);
+        let mut found = false;
+        for (a, b) in &self.hostile_pairs {
+            let other = if *a == TeamId(0) && *b != TeamId(0) {
+                Some(*b)
+            } else if *b == TeamId(0) && *a != TeamId(0) {
+                Some(*a)
+            } else {
+                None
+            };
+            if let Some(t) = other {
+                if !found || t < env {
+                    env = t;
+                    found = true;
+                }
+            }
+        }
+        env
+    }
+
+    /// Derived `Allegiance` for an owned unit (ADR-0017 §3): hostile to
+    /// team 0 => Attacker; everything else (same team, allied, neutral)
+    /// folds to Defender — neutrals are non-combatants, not auto-targets.
+    /// The view is intentionally lossy for 3+ sides; fidelity-critical
+    /// consumers use the team-level queries. Owners missing from the table
+    /// conservatively fold to Defender as well.
+    pub fn allegiance_of(&self, owner: PlayerId) -> Allegiance {
+        let team = self.team_of(owner).unwrap_or(TeamId(0));
+        if self.teams_hostile(team, TeamId(0)) {
+            Allegiance::Attacker
+        } else {
+            Allegiance::Defender
+        }
+    }
 }
 
-/// Bundle dispatch stub (SEAM0d): MP1 fills this in.
+/// Map-bundle teams section (SEAM0d; optional, defaults to single player).
+/// Empty `players` => the default diplomacy is used and `hostile_pairs` is
+/// ignored (old maps without a teams section load unchanged).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TeamsDef {
+    /// (player id, team id) slots of the match.
+    #[serde(default)]
+    pub players: Vec<(u8, u8)>,
+    /// Hostile team pairs, both directions implied. Absent when a teams
+    /// section lists players => `[(0, 1)]`, so a plain two-sided map only
+    /// lists its players. (Whole-section absence goes through
+    /// `TeamsDef::default()`, i.e. both vecs empty — `apply_teams` never
+    /// reads `hostile_pairs` then.)
+    #[serde(default = "default_hostile_pairs")]
+    pub hostile_pairs: Vec<(u8, u8)>,
+}
+
+fn default_hostile_pairs() -> Vec<(u8, u8)> {
+    vec![(0, 1)]
+}
+
+/// Bundle dispatch (SEAM0d): build the match diplomacy from the `teams`
+/// section. Empty players => the default single-player layout (zero drift);
+/// otherwise the table ships verbatim. Both `MatchDiplomacy` (source of
+/// truth) and the `Hostility` oracle snapshot are (re)inserted in lockstep,
+/// then owned units' derived `Allegiance` is refreshed immediately.
 pub fn apply_teams(world: &mut World, bundle: &crate::bundle::MapBundle) {
-    let _ = (world, bundle);
-    // TODO(MP1): build MatchDiplomacy from TeamsDef + refresh sync_allegiance.
+    let diplomacy = if bundle.teams.players.is_empty() {
+        MatchDiplomacy::default()
+    } else {
+        MatchDiplomacy {
+            players: bundle
+                .teams
+                .players
+                .iter()
+                .map(|&(p, t)| (PlayerId(p), TeamId(t)))
+                .collect(),
+            hostile_pairs: bundle
+                .teams
+                .hostile_pairs
+                .iter()
+                .map(|&(a, b)| (TeamId(a), TeamId(b)))
+                .collect(),
+        }
+    };
+    world.insert_resource(Hostility::from(&diplomacy));
+    world.insert_resource(diplomacy);
+    sync_allegiance(world);
+}
+
+/// Refresh the derived `Allegiance` view from `Owner` + `MatchDiplomacy`
+/// (ADR-0017 §3): warden-era Allegiance readers keep working while `Owner`
+/// becomes the multiplayer source of identity. Runs in `WarbaseSet::Cleanup`
+/// (after this frame's combat reads, before the next frame's targeting).
+pub fn sync_allegiance(world: &mut World) {
+    let diplomacy = world.resource::<MatchDiplomacy>().clone();
+    let mut owned = world.query::<(&Owner, &mut Allegiance)>();
+    for (owner, mut side) in owned.iter_mut(world) {
+        *side = diplomacy.allegiance_of(owner.0);
+    }
+}
+
+/// System form of [`sync_allegiance`] for plugin wiring.
+#[allow(dead_code)] // SEAM GAP — see UnitPlugin below.
+fn sync_allegiance_system(
+    diplomacy: Res<MatchDiplomacy>,
+    mut owned: Query<(&Owner, &mut Allegiance)>,
+) {
+    for (owner, mut side) in &mut owned {
+        *side = diplomacy.allegiance_of(owner.0);
+    }
+}
+
+/// Unit-domain plugin (MP1): owns the Owner -> Allegiance derivation in
+/// `WarbaseSet::Cleanup`.
+///
+/// SEAM GAP (recorded for the next SEAM revision): lib.rs is frozen this
+/// increment and does NOT wire this plugin into `WarbasePlugin`, and the
+/// `unit` module is private, so neither `UnitPlugin` nor the plugin-wired
+/// system is reachable from consumer games or integration tests. Until the
+/// seam is revised (export the unit plugin/prelude + wire it once in
+/// lib.rs), consumers get correct diplomacy resources from `apply_teams`
+/// (which also refreshes already-owned entities once at assembly), but
+/// per-frame ownership refresh is engine-internal. The derivation rule
+/// itself is pinned by tests through `MatchDiplomacy::allegiance_of`,
+/// which is reachable via the prelude.
+#[allow(dead_code)]
+pub struct UnitPlugin;
+
+impl Plugin for UnitPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, sync_allegiance_system.in_set(crate::WarbaseSet::Cleanup));
+    }
 }
 
 /// Present on units with UnitTrait::Air; Ground-only attacks skip them.
