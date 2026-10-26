@@ -67,6 +67,216 @@ pub fn grid_badge(grid: u8) -> char {
     "QWERASDF".as_bytes()[grid as usize % 8] as char
 }
 
+// ---------------------------------------------------------------------------
+// UI-DSGN theme tokens: every visual constant the card/panel/tooltip render
+// is a field on `UiTheme` (serde, data-only). Re-skinning a game = inserting
+// a different resource — zero rendering-code change (asserted by tests).
+// Field defaults are the legacy hard-coded values, digit for digit, so the
+// existing rendering tests lock zero drift. Design reference:
+// docs/ui-design-brief.md §5 (the token tables ARE these fields).
+// ---------------------------------------------------------------------------
+
+/// One color token: sRGBA components in 0..=1 (serde-stable, engine-free).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThemeColor {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    /// Alpha defaults to opaque so 3-component skin colors parse.
+    #[serde(default = "opaque_alpha")]
+    pub a: f32,
+}
+
+fn opaque_alpha() -> f32 {
+    1.0
+}
+
+impl ThemeColor {
+    pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
+        Self { r, g, b, a: 1.0 }
+    }
+    pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
+    }
+    /// The bevy color this token renders as.
+    pub fn color(&self) -> Color {
+        Color::srgba(self.r, self.g, self.b, self.a)
+    }
+}
+
+/// Structural neutrals + the one accent (brief §5.1).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct UiPalette {
+    pub panel_bg: ThemeColor,
+    pub panel_raised: ThemeColor,
+    pub panel_border: ThemeColor,
+    pub text_primary: ThemeColor,
+    pub text_secondary: ThemeColor,
+    pub text_dim: ThemeColor,
+    pub accent: ThemeColor,
+}
+
+impl Default for UiPalette {
+    fn default() -> Self {
+        Self {
+            panel_bg: ThemeColor::rgb(0.06, 0.07, 0.09),
+            panel_raised: ThemeColor::rgb(0.14, 0.16, 0.20),
+            panel_border: ThemeColor::rgb(0.35, 0.38, 0.44),
+            text_primary: ThemeColor::rgb(1.0, 1.0, 1.0),
+            text_secondary: ThemeColor::rgb(0.7, 0.7, 0.7),
+            text_dim: ThemeColor::rgb(0.45, 0.45, 0.45),
+            accent: ThemeColor::rgb(0.6, 0.8, 1.0),
+        }
+    }
+}
+
+/// Semantic + interaction states (brief §5.2). WC3 color grammar:
+/// gold/wood resources, green health, blue mana, red enemy/danger,
+/// yellow warning — shared across every game on the base.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct UiStateColors {
+    pub slot_disabled_bg: ThemeColor,
+    pub tooltip_bg: ThemeColor,
+    pub tooltip_fg: ThemeColor,
+    pub gold: ThemeColor,
+    pub wood: ThemeColor,
+    pub health: ThemeColor,
+    pub health_low: ThemeColor,
+    pub mana: ThemeColor,
+    pub warning: ThemeColor,
+    pub enemy: ThemeColor,
+    pub xp: ThemeColor,
+    pub cooldown: ThemeColor,
+}
+
+impl Default for UiStateColors {
+    fn default() -> Self {
+        Self {
+            slot_disabled_bg: ThemeColor::rgb(0.16, 0.16, 0.18),
+            tooltip_bg: ThemeColor::rgb(0.05, 0.06, 0.08),
+            tooltip_fg: ThemeColor::rgb(0.85, 0.88, 0.92),
+            gold: ThemeColor::rgb(1.0, 0.84, 0.0),
+            wood: ThemeColor::rgb(0.55, 0.36, 0.18),
+            health: ThemeColor::rgb(0.3, 0.85, 0.3),
+            health_low: ThemeColor::rgb(1.0, 0.25, 0.15),
+            mana: ThemeColor::rgb(0.25, 0.5, 1.0),
+            warning: ThemeColor::rgb(1.0, 0.8, 0.2),
+            enemy: ThemeColor::rgb(0.85, 0.2, 0.2),
+            xp: ThemeColor::rgb(0.6, 0.8, 1.0),
+            cooldown: ThemeColor::rgba(0.0, 0.0, 0.0, 0.55),
+        }
+    }
+}
+
+/// Four-step type scale + component sizes (brief §5.3).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct UiTypography {
+    /// Value digits (gold / stock / wave numbers).
+    pub font_value: f32,
+    /// Slot labels, panel titles use `font_title`.
+    pub font_label: f32,
+    /// Captions, sub-lines, counts.
+    pub font_caption: f32,
+    /// Hotkey badges.
+    pub font_badge: f32,
+    /// Tooltip main line (legacy size).
+    pub font_tooltip: f32,
+    /// Panel headers.
+    pub font_title: f32,
+}
+
+impl Default for UiTypography {
+    fn default() -> Self {
+        Self {
+            font_value: 20.0,
+            font_label: 14.0,
+            font_caption: 10.0,
+            font_badge: 9.0,
+            font_tooltip: 11.0,
+            font_title: 16.0,
+        }
+    }
+}
+
+/// Spacing constants (brief §5.4); defaults = legacy layout values.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct UiSpacing {
+    pub panel_margin: f32,
+    pub panel_gap: f32,
+    pub slot_w: f32,
+    pub slot_h: f32,
+    pub slot_pad: f32,
+    pub panel_border_w: f32,
+    pub slot_border_w: f32,
+    pub tooltip_bottom: f32,
+    pub tooltip_left: f32,
+    pub tooltip_pad: f32,
+    pub badge_top: f32,
+    pub badge_right: f32,
+    pub bar_h: f32,
+    pub icon_size: f32,
+}
+
+impl Default for UiSpacing {
+    fn default() -> Self {
+        Self {
+            panel_margin: 8.0,
+            panel_gap: 4.0,
+            slot_w: 84.0,
+            slot_h: 56.0,
+            slot_pad: 4.0,
+            panel_border_w: 0.0,
+            slot_border_w: 0.0,
+            tooltip_bottom: 72.0,
+            tooltip_left: 8.0,
+            tooltip_pad: 6.0,
+            badge_top: 2.0,
+            badge_right: 4.0,
+            bar_h: 10.0,
+            icon_size: 14.0,
+        }
+    }
+}
+
+/// Corner radii, px (brief §5.4); 0 = right angles (legacy look).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct UiRadius {
+    pub panel: f32,
+    pub slot: f32,
+    pub pill: f32,
+}
+
+impl Default for UiRadius {
+    fn default() -> Self {
+        Self { panel: 0.0, slot: 0.0, pill: 999.0 }
+    }
+}
+
+/// The whole skin. Games insert/replace this resource to re-skin; bump
+/// `revision` so keyed rebuilds (command panel) pick the new tokens up.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize, Resource)]
+#[serde(default)]
+pub struct UiTheme {
+    pub revision: u64,
+    pub palette: UiPalette,
+    pub typography: UiTypography,
+    pub spacing: UiSpacing,
+    pub radius: UiRadius,
+    pub state_colors: UiStateColors,
+}
+
+impl UiTheme {
+    /// A helper for skins defined as RON data files.
+    pub fn from_ron(s: &str) -> ron::error::SpannedResult<Self> {
+        ron::from_str(s)
+    }
+}
+
 /// Fill hotkeys + corner badges in slot order (grid 0..8); slots beyond the
 /// 2x4 grid get neither. Games wanting the 1..9QWER build-menu order keep
 /// `build_card_from_registry`'s assignment instead.
@@ -230,7 +440,8 @@ pub struct TooltipText;
 /// WX3 tooltip: hovering a slot shows its def-provided tooltip string in a
 /// panel above the bar; leaving despawns it. Content is the game's business
 /// (labels/tooltips arrive localized in the card def); the base only owns
-/// the show/hide mechanics.
+/// the show/hide mechanics. Styling reads the theme tokens (UI-DSGN) inside
+/// the queued spawn — signature stays `Commands`-only (system contract).
 pub fn refresh_tooltip(
     mut commands: Commands,
     slots: Query<(&Interaction, &CommandSlotButton)>,
@@ -249,20 +460,30 @@ pub fn refresh_tooltip(
         commands.entity(e).despawn();
     }
     if let Some(text) = hovered {
-        commands.spawn((
-            TooltipText,
-            Text::new(text),
-            TextFont { font_size: FontSize::Px(11.0), ..default() },
-            TextColor(Color::srgb(0.85, 0.88, 0.92)),
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(72.0), // above the panel's slot row
-                left: Val::Px(8.0),
-                padding: UiRect::all(Val::Px(6.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.05, 0.06, 0.08)),
-        ));
+        commands.queue(move |world: &mut World| {
+            let theme = world.resource::<UiTheme>().clone();
+            let s = &theme.spacing;
+            world.spawn((
+                TooltipText,
+                Text::new(text),
+                TextFont {
+                    font_size: FontSize::Px(theme.typography.font_tooltip),
+                    ..default()
+                },
+                TextColor(theme.state_colors.tooltip_fg.color()),
+                Node {
+                    position_type: PositionType::Absolute,
+                    bottom: Val::Px(s.tooltip_bottom), // above the panel's slot row
+                    left: Val::Px(s.tooltip_left),
+                    padding: UiRect::all(Val::Px(s.tooltip_pad)),
+                    border: UiRect::all(Val::Px(theme.spacing.panel_border_w)),
+                    border_radius: BorderRadius::all(Val::Px(theme.radius.panel)),
+                    ..default()
+                },
+                BackgroundColor(theme.state_colors.tooltip_bg.color()),
+                BorderColor::all(theme.palette.panel_border.color()),
+            ));
+        });
     }
 }
 
@@ -280,7 +501,7 @@ pub fn refresh_tooltip(
 pub struct CommandPanel;
 
 #[derive(Resource, Debug, Default)]
-struct PanelKey(Option<String>, u64);
+struct PanelKey(Option<String>, u64, u64);
 
 /// WX3: games bump this when the card CONTENT changed without the active
 /// key changing (language toggle, economy affordability greying...) — the
@@ -289,36 +510,47 @@ struct PanelKey(Option<String>, u64);
 pub struct PanelVersion(pub u64);
 
 pub fn spawn_command_panel(mut commands: Commands) {
-    commands.spawn((
-        CommandPanel,
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(8.0),
-            left: Val::Px(8.0),
-            row_gap: Val::Px(4.0),
-            display: Display::Flex,
-            flex_direction: FlexDirection::Row,
-            ..default()
-        },
-        BackgroundColor(Color::srgb(0.06, 0.07, 0.09)),
-    ));
+    // Theme read inside the queued spawn: the system signature (the
+    // UI-DSGN contract) stays `Commands`-only.
+    commands.queue(|world: &mut World| {
+        let theme = world.resource::<UiTheme>().clone();
+        let s = &theme.spacing;
+        world.spawn((
+            CommandPanel,
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(s.panel_margin),
+                left: Val::Px(s.panel_margin),
+                row_gap: Val::Px(s.panel_gap),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Row,
+                border: UiRect::all(Val::Px(s.panel_border_w)),
+                border_radius: BorderRadius::all(Val::Px(theme.radius.panel)),
+                ..default()
+            },
+            BackgroundColor(theme.palette.panel_bg.color()),
+            BorderColor::all(theme.palette.panel_border.color()),
+        ));
+    });
 }
 
-/// Rebuild the panel children when (and only when) the active card or the
-/// game-bumped version changes.
+/// Rebuild the panel children when (and only when) the active card, the
+/// game-bumped version, or the theme revision changes (UI-DSGN: swapping
+/// the `UiTheme` resource re-skins without any code change).
 pub fn refresh_command_panel(
     world: &mut World,
 ) {
     let version = world.resource::<PanelVersion>().0;
+    let theme_rev = world.resource::<UiTheme>().revision;
     let Some(key) = active_card_key(world) else {
         maybe_clear(world);
         return;
     };
-    let (last_key, last_version) = {
+    let (last_key, last_version, last_theme) = {
         let pk = world.resource::<PanelKey>();
-        (pk.0.clone(), pk.1)
+        (pk.0.clone(), pk.1, pk.2)
     };
-    if last_key == Some(key.clone()) && last_version == version {
+    if last_key == Some(key.clone()) && last_version == version && last_theme == theme_rev {
         return;
     }
     let Some(card) = world.resource::<CommandCards>().cards.get(&key).cloned() else {
@@ -327,6 +559,7 @@ pub fn refresh_command_panel(
     };
     world.resource_mut::<PanelKey>().0 = Some(key);
     world.resource_mut::<PanelKey>().1 = version;
+    world.resource_mut::<PanelKey>().2 = theme_rev;
 
     let panel = world
         .query_filtered::<Entity, With<CommandPanel>>()
@@ -341,17 +574,41 @@ pub fn refresh_command_panel(
     for slot in prev {
         despawn_subtree(world, slot);
     }
+    let theme = world.resource::<UiTheme>().clone();
+    // Re-skin the panel root itself (background/border/position/radius all
+    // come from the theme — swapping the resource moves the whole panel).
+    {
+        let s = &theme.spacing;
+        let mut root = world.get_entity_mut(panel).unwrap();
+        if let Some(mut bg) = root.get_mut::<BackgroundColor>() {
+            *bg = BackgroundColor(theme.palette.panel_bg.color());
+        }
+        if let Some(mut bc) = root.get_mut::<BorderColor>() {
+            *bc = BorderColor::all(theme.palette.panel_border.color());
+        }
+        if let Some(mut node) = root.get_mut::<Node>() {
+            node.bottom = Val::Px(s.panel_margin);
+            node.left = Val::Px(s.panel_margin);
+            node.row_gap = Val::Px(s.panel_gap);
+            node.border = UiRect::all(Val::Px(s.panel_border_w));
+            node.border_radius = BorderRadius::all(Val::Px(theme.radius.panel));
+        }
+    }
+    let t = &theme.typography;
+    let s = &theme.spacing;
     let mut entity = world.get_entity_mut(panel).unwrap();
     for slot in &card.slots {
         let hotkey = match slot.hotkey {
             Hotkey::Key(k) => format!("{k:?}"),
             Hotkey::None => " ".to_string(),
         };
-        // WX3: disabled slots render grey (combat locks, affordability).
+        // WX3 + UI-DSGN: disabled slots render in the theme's disabled
+        // state (combat locks, affordability) — default tokens are the
+        // legacy grey, digit for digit.
         let (bg, fg) = if slot.enabled {
-            (Color::srgb(0.14, 0.16, 0.2), Color::WHITE)
+            (theme.palette.panel_raised.color(), theme.palette.text_primary.color())
         } else {
-            (Color::srgb(0.16, 0.16, 0.18), Color::srgb(0.45, 0.45, 0.45))
+            (theme.state_colors.slot_disabled_bg.color(), theme.palette.text_dim.color())
         };
         entity.with_children(|p| {
             p.spawn((
@@ -363,34 +620,37 @@ pub fn refresh_command_panel(
                 },
                 Interaction::None,
                 Node {
-                    width: Val::Px(84.0),
-                    height: Val::Px(56.0),
-                    padding: UiRect::all(Val::Px(4.0)),
+                    width: Val::Px(s.slot_w),
+                    height: Val::Px(s.slot_h),
+                    padding: UiRect::all(Val::Px(s.slot_pad)),
+                    border: UiRect::all(Val::Px(s.slot_border_w)),
+                    border_radius: BorderRadius::all(Val::Px(theme.radius.slot)),
                     ..default()
                 },
                 BackgroundColor(bg),
+                BorderColor::all(theme.palette.panel_border.color()),
             ))
             .with_children(|slot_root| {
                 slot_root.spawn((
                     Text::new(format!("[{hotkey}] {}", slot.label)),
-                    TextFont { font_size: FontSize::Px(14.0), ..default() },
+                    TextFont { font_size: FontSize::Px(t.font_label), ..default() },
                     TextColor(fg),
                 ));
                 slot_root.spawn((
                     Text::new(slot.tooltip.clone()),
-                    TextFont { font_size: FontSize::Px(10.0), ..default() },
-                    TextColor(Color::srgb(0.7, 0.7, 0.7)),
+                    TextFont { font_size: FontSize::Px(t.font_caption), ..default() },
+                    TextColor(theme.palette.text_secondary.color()),
                 ));
                 // WX3: grid badge in the corner (when the card assigns one).
                 if let Some(badge) = slot.badge {
                     slot_root.spawn((
                         Text::new(badge.to_string()),
-                        TextFont { font_size: FontSize::Px(9.0), ..default() },
-                        TextColor(Color::srgb(0.6, 0.8, 1.0)),
+                        TextFont { font_size: FontSize::Px(t.font_badge), ..default() },
+                        TextColor(theme.palette.accent.color()),
                         Node {
                             position_type: PositionType::Absolute,
-                            top: Val::Px(2.0),
-                            right: Val::Px(4.0),
+                            top: Val::Px(s.badge_top),
+                            right: Val::Px(s.badge_right),
                             ..default()
                         },
                     ));
@@ -438,6 +698,7 @@ impl Plugin for UiPlugin {
             .init_resource::<Selection>()
             .init_resource::<PanelKey>()
             .init_resource::<PanelVersion>()
+            .init_resource::<UiTheme>()
             .add_systems(Startup, spawn_command_panel)
             .add_systems(
                 Update,
@@ -448,5 +709,108 @@ impl Plugin for UiPlugin {
                     refresh_tooltip,
                 ),
             );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UI-DSGN acceptance tests: default theme = legacy colors (zero drift),
+// theme swap re-skins with zero code change, skins travel as RON data.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::testing::test_app;
+
+    fn one_slot(enabled: bool) -> CommandSlotDef {
+        CommandSlotDef {
+            label: "sell".into(),
+            hotkey: Hotkey::Key(KeyCode::KeyQ),
+            tooltip: "refund".into(),
+            action: CommandAction::Sell,
+            enabled,
+            badge: Some('Q'),
+        }
+    }
+
+    fn panel_app(slot: CommandSlotDef) -> App {
+        let mut app = test_app();
+        let mut cards = CommandCards::default();
+        cards.cards.insert(BUILD_CARD.to_string(), CommandCardDef { slots: vec![slot] });
+        app.insert_resource(cards)
+            .insert_resource(Selection { mode: SelectionMode::Build })
+            .init_resource::<ButtonInput<KeyCode>>();
+        app.update();
+        app.update();
+        app
+    }
+
+    fn panel_bg(app: &mut App) -> Color {
+        let mut q = app.world_mut().query_filtered::<&BackgroundColor, With<CommandPanel>>();
+        **q.single(app.world()).unwrap()
+    }
+
+    fn slot_bg(app: &mut App) -> Color {
+        let mut q = app.world_mut().query_filtered::<&BackgroundColor, With<CommandSlotButton>>();
+        **q.single(app.world()).unwrap()
+    }
+
+    /// Default theme reproduces the legacy hard-coded panel/slot colors
+    /// digit for digit — the token migration is visually a no-op.
+    #[test]
+    fn default_theme_reproduces_legacy_colors() {
+        let mut app = panel_app(one_slot(false));
+        assert_eq!(panel_bg(&mut app), Color::srgb(0.06, 0.07, 0.09), "panel bg");
+        assert_eq!(slot_bg(&mut app), Color::srgb(0.16, 0.16, 0.18), "disabled slot grey");
+        let mut app = panel_app(one_slot(true));
+        assert_eq!(slot_bg(&mut app), Color::srgb(0.14, 0.16, 0.2), "enabled slot");
+    }
+
+    /// UI-DSGN AC: inserting a different `UiTheme` resource re-skins the
+    /// rendered panel on the next update — zero rendering-code change (the
+    /// game only touches the resource).
+    #[test]
+    fn theme_swap_reskins_panel_zero_code() {
+        let mut app = panel_app(one_slot(false));
+        assert_eq!(panel_bg(&mut app), Color::srgb(0.06, 0.07, 0.09), "legacy skin first");
+        // Swap the skin: only a resource insert, revision bumped.
+        let mut skin = UiTheme::default();
+        skin.revision = 1;
+        skin.palette.panel_bg = ThemeColor::rgb(0.5, 0.1, 0.1);
+        skin.state_colors.slot_disabled_bg = ThemeColor::rgb(0.4, 0.0, 0.4);
+        app.insert_resource(skin);
+        app.update();
+        assert_eq!(panel_bg(&mut app), Color::srgb(0.5, 0.1, 0.1), "panel re-skinned");
+        assert_eq!(slot_bg(&mut app), Color::srgb(0.4, 0.0, 0.4), "slot re-skinned");
+        // Same revision again => no rebuild (keyed).
+        app.update();
+        assert_eq!(panel_bg(&mut app), Color::srgb(0.5, 0.1, 0.1), "stable after swap");
+    }
+
+    /// Skins travel as data: a partial RON skin (defaults for the rest)
+    /// round-trips losslessly — "换肤 = 改 RON" holds.
+    #[test]
+    fn theme_ron_round_trip() {
+        let ron_src = r#"
+            (
+                revision: 7,
+                palette: (
+                    panel_bg: ( r: 0.11, g: 0.08, b: 0.05 ),
+                    accent: ( r: 1.0, g: 0.78, b: 0.25 ),
+                ),
+                typography: ( font_value: 22.0 ),
+                radius: ( panel: 6.0 ),
+            )
+        "#;
+        let theme = UiTheme::from_ron(ron_src).expect("partial skin parses");
+        assert_eq!(theme.revision, 7);
+        assert_eq!(theme.palette.accent, ThemeColor::rgb(1.0, 0.78, 0.25));
+        assert_eq!(theme.typography.font_value, 22.0);
+        assert_eq!(theme.radius.panel, 6.0);
+        // Untouched fields fall back to defaults (serde(default) per group).
+        assert_eq!(theme.state_colors, UiStateColors::default());
+        let out = ron::to_string(&theme).expect("serialize");
+        let back: UiTheme = ron::from_str(&out).expect("round trip");
+        assert_eq!(theme, back);
     }
 }
