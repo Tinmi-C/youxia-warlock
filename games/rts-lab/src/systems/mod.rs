@@ -2,3 +2,6 @@
 
 pub mod camera;
 pub mod gameplay;
+pub mod hud;
+pub mod input_bridge;
+pub mod visuals;

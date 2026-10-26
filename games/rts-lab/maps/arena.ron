@@ -1,0 +1,74 @@
+// rts-lab 验收地图（RL1，ADR-0013 —— 地图=自包含数据包）
+// 最小 WC3 场景：P0 主城+农民采集 vs P1 三 grunt 站桩守卫，LastTeamStanding。
+// 数值全部是「让基底机制可验收」的占位（见 docs/GDD.md）。
+//
+// NOTE (hole #1, channel C): bundle 验证器要求 world.paths 非空（TD 出身），
+// 而 RTS 图没有出怪轨道。临时方案：一条贴着地图周界的封闭 path——它在
+// BuildGrid/NavGrid 上恰好落成「竞技场围墙」（周界格被挡），一举两得。
+// 若基底未来提供 starting-units/静态布景段，这条 path 可退役。
+(
+    identity: (id: "arena", version: 1),
+    world: (
+        // 周界围墙：绕 ±11.5 一圈的闭环（见上方 NOTE）。
+        paths: [
+            (points: [(-11.5, -11.5), (11.5, -11.5), (11.5, 11.5), (-11.5, 11.5)], closed: true),
+        ],
+        build: FreeGrid(cell: 1.0, cols: 24, rows: 24),
+        blocked: [],
+    ),
+    units: {
+        // ---- P0 侧 ----
+        // 主城：唯一训练建筑（production 段）；建筑无 MoveAgent 语义（move_speed 0）。
+        "main_hall": (id: "main_hall", attrs: (hp: 1500, move_speed: 0.0, body_radius: 1.2),
+                      armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
+        // 农民：MoveAgent 语义（move_speed>0）；50g 训练费（cost_gold 即 PRD1 入队扣费）；
+        // 弱近战 kit = 民兵语义，兼作 LastTeamStanding 里队 0 的存活战力
+        // （胜负只认 AttackKit/PathFollower 携带者，纯工人会让己方「无人站立」）。
+        "peasant": (id: "peasant", attrs: (hp: 45, move_speed: 3.0, body_radius: 0.3),
+                    attack: Some((damage: 4, interval: 1.2, range: 1.0, attack_type: Normal, targets: Ground)),
+                    armor_type: Light, cost_gold: 50, bounty_gold: 0, grant_xp: 0, traits: []),
+        // 金矿：无 kit（非战斗单位，不参与 LastTeamStanding 计数）；RL1 不枯竭。
+        "gold_mine": (id: "gold_mine", attrs: (hp: 9999, move_speed: 0.0, body_radius: 1.0),
+                      armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
+        // ---- P1 侧（敌） ----
+        // grunt：站桩守卫（move_speed 0 → 不挂 MoveAgent）。
+        "grunt": (id: "grunt", attrs: (hp: 120, move_speed: 0.0, body_radius: 0.35),
+                  attack: Some((damage: 9, interval: 1.0, range: 3.0, attack_type: Normal, targets: Ground)),
+                  armor_type: Medium, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
+    },
+    // RTS 图无波次：空波次表（director 立即 Done，零行为）。
+    waves: (
+        waves: [],
+        advance: Auto(intermission: 12.0),
+        early_call_bonus: None,
+    ),
+    rules: (
+        leak: Stockpile(cap: 50), // TD 语义占位：无 PathFollower 出怪 → 永不触发
+        build_window: Always,
+        lap_buff: None,
+        win: LastTeamStanding, // MP2：互相敌对的队全灭一支即分胜负
+        sell_refund_pct: 0.7,
+    ),
+    econ_start: (gold: 150, wood: 0, pop_cap: 12),
+    econ_rules: (wood_to_gold: 25, pop_cost_base: 2, pop_cost_growth: 1.5, pop_gain: 2),
+    // RL1 灰盒：护甲矩阵全 1.0（伤害按面板值结算，RL2 交战增量再调）。
+    // 行=攻击类型（Normal/Piercing/Siege/Magic/Hero），列=护甲（Light/Medium/Heavy/Fortified/Hero/Divine）
+    attack_armor: (
+        mult: (
+            (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), // Normal
+            (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), // Piercing
+            (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), // Siege
+            (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), // Magic
+            (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), // Hero
+        ),
+    ),
+    // nav：空旷图，无额外 blocked（周界墙已由 path 段落成）；A* 预算用默认 8。
+    production: (
+        trains: {"main_hall": ["peasant"]},
+        train_times: {"peasant": 5.0},
+    ),
+    teams: (
+        players: [(0, 0), (1, 1)], // P0 队0（玩家） vs P1 队1（敌方）
+        hostile_pairs: [(0, 1)],
+    ),
+)
