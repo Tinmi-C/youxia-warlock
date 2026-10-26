@@ -64,4 +64,13 @@
 | Phase 3 | MOV3-5（软碰撞/命令状态机全表/螺旋阵型散点）· INV1-3（物品/背包/使用走 SkillCast/被动携带/商店/掉落）· FOG2-3（InFog 标记/施法可见性钩子/队视角共享视野/小地图数据）· PRD2-3+MP2（科研三类 grant+marker 实体 source/集结点发 UnitCommand/LastTeamStanding+MatchWinner/经济分域评估卡）· SEL5+RPL2（warden 拾取上收 161 断言零漂移、GroundPlanePicker 透视换缝；loop-td --record/--replay 录像入口含 econ 来源过滤）——**五线并行 38 条新断言** | ✅ 2026-10-23 合并态 workspace **373 全绿**（335+38），warden 161/loop-td 零漂移；全部 27 开发增量落地；坑卡+Entity Ord 复查干净 |
 | Phase 4 | RL0-3 RTS 验收图全部落地：rts-lab 立项+主城/农民/采集/训练切片（RL1，8 测）→ 交战/A·P 定点令/兵营步弓/圣光英雄/科研/掉落物品（RL2）→ 迷雾/小地图/--record·--replay/音效监听（RL3，+11 测）；**抽象有洞 12 条**：RL1 五洞已全部上收基底（平面统一 y=0/左键点选跳/无路径图+starting_forces 段/单主体同帧散点，holefix 6 测），RL2-3 七洞（#6-12）游戏侧补丁+记录在 GDD 待下轮。**方案全部 31 增量完成** | ✅ 2026-10-23 合并态 workspace **398 全绿**（381+6+11），引擎零未授权改动双线自证；⏳ H1 人工试玩清单已备（rts-lab README 1-16 + loop-td） |
 
+## 第二轮扩域（ADR-0018，总规格 docs/topics/engine/warbase-round2-plan.md）
+
+| 增量 | 内容 | 状态 |
+|------|------|------|
+| SEAM2a-d | ADR-0018/方案 v2/loop-td v2 草案；洞 #6-10 上收（SkillCast.target/光环泛化+affects/ModalKeyClaim/skill_levels/信封五变体）；四命令资源翻消息+selection 收口（Pickup/Follow/子组命令/M 键/双击同类）；八新域骨架+Order 三桩+bundle 四段 | ✅ 2026-10-24 合并态 419 绿（398+21） |
+| Phase 1 七线 | HARV（采集循环+Upkeep 三档，6 测）· SKVOC（AOE 圈选/眩晕沉默/召唤租约/攻击前后摇+后摇取消，12 测）· UI-DSGN（UiTheme tokens 可换肤+设计 brief+三套方案 30 张引擎截图，6 测）· HERO（三围换算/祭坛复活复用 Dead/经验范围分享，12 测）· BLDG（工人建造循环/线性加速/取消退款/主城 T1-T3 解锁链，10 测）· CAM（编队双击跳转/F1/边缘滚屏/滚轮缩放/ping，纯逻辑与 ui 分层，15 测）· MAP（野怪营地三态 AI+重生+掉落/昼夜循环+夜晚视野系数，9 测） | ✅ 2026-10-27 通宵三批完成，合并态 workspace **489 全绿**（419+70），warden/loop-td/rts-lab 零漂移；⏳ **H-UI 待拍板**（ui-proposals/ 三套方案）；顺手修 loop-td 两个存量 bug（窗口崩溃/录像首局丢写竞态）+发现 CJK 字体缺失（LT2-UI 前须引入） |
+| Phase 2 | 高地+存档 / LT-ADOPT loop-td 采用改造 / RL4 rts-lab 补丁换基底域 | ⬜ 待派（额度控制节奏） |
+| Phase 3 | LT2 六件纵深 / LT2-UI 新系统实现（依赖 H-UI 拍板）/ WARDEN-SKIN token 换肤 | ⬜ |
+
 > 注：上方「待做」表为 WX 中间态存档（WX6 已全量收口，见消费方表），不再作为待办依据。
