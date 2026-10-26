@@ -20,9 +20,11 @@
 //!   via a hardcoded spatial-grid bucketing (see the constants below);
 //!   track creeps (`PathFollower`) never participate — pinned rule.
 //! - `tick_orders` (Tick): consumes `UnitCommand` messages (D4) — order
-//!   assignment, MOV5 formation scatter, and the per-frame order state
-//!   machine (Move / AttackMove / AttackTarget / HoldPosition / Patrol /
-//!   Stop).
+//!   assignment, MOV5 formation scatter with same-frame per-point
+//!   aggregation (hole-4: independent single-subject commands to one point
+//!   scatter as one group; see the system doc), and the per-frame order
+//!   state machine (Move / AttackMove / AttackTarget / HoldPosition /
+//!   Patrol / Stop).
 //! - `acquire_engagement` (Intent, after combat's `pick_targets`): the
 //!   attack-move/patrol/hold engagement seam — scans the nearest hostile in
 //!   weapon range (combat's own air/ground filter) and writes `CurrentTarget`
@@ -881,12 +883,26 @@ fn formation_slots(center: Vec3, count: usize, spacing: f32) -> Vec<Vec3> {
 /// Tick (before `process_path_requests`): the WC3 command state machine.
 ///
 /// Phase 1 — consume `UnitCommand` messages (arrival order, D4):
-/// - Move / AttackMove: MOV5 scatter (subjects sorted by entity index, slot
-///   i for the i-th subject; single subject = slot 0 = the order point),
-///   seed `waypoints = [slot]` (instant straight-line best-effort, MOV2's
-///   contract) and enqueue the same target through the budgeted
-///   PathRequestQueue — the A* reply overwrites the seed with the true
-///   route.
+/// - Move / AttackMove: MOV5 scatter with SAME-FRAME PER-POINT AGGREGATION
+///   (hole-4 upcast): ALL Move/AttackMove commands arriving in one frame
+///   are grouped by their exact target point (Move and AttackMove to the
+///   same point share a group; commands on different frames never merge),
+///   each group's subjects are unioned, sorted by entity index, deduped,
+///   and assigned hex-ring slots — slot i for the i-th subject, slot 0 =
+///   the order point. This is pinned on purpose: the pre-fix code scattered
+///   PER MESSAGE, so N independent single-subject commands to the same
+///   point (rts-lab's harvest loop issuing per-worker UnitCommands, or N
+///   players clicking the same rally) each took "slot 0" and piled onto the
+///   exact point, standing off short of `arrival_radius` forever (MOV3's
+///   anti-jitter rule freezes >50% piles). A lone single-subject command is
+///   a group of one: slot 0 = the exact order point, behavior unchanged.
+///   Message order is still honored exactly: non-Move commands and repeated
+///   Move commands apply in arrival order over the group-precomputed slots,
+///   so interleavings (Move; Stop; Move) resolve as before.
+/// - Move / AttackMove execution: seed `waypoints = [slot]` (instant
+///   straight-line best-effort, MOV2's contract) and enqueue the same
+///   target through the budgeted PathRequestQueue — the A* reply overwrites
+///   the seed with the true route.
 /// - AttackTarget: assign the order; phase 2 evaluates range this frame.
 /// - HoldPosition: clear waypoints, stand.
 /// - Patrol: seed the first leg (toward_b ? b : a) through the same queue.
@@ -920,34 +936,85 @@ pub fn tick_orders(
     )>,
     others: Query<(&Transform, &Hp), Without<Dead>>,
 ) {
-    // ---- Phase 1: command consumption ----
-    for cmd in commands.read() {
-        match &cmd.order {
-            Order::Move { to } | Order::AttackMove { to } => {
-                let mut subjects: Vec<Entity> = cmd
-                    .subjects
-                    .iter()
-                    .copied()
-                    .filter(|e| agents.get(*e).is_ok())
-                    .collect();
-                if subjects.is_empty() {
-                    continue;
-                }
-                subjects.sort_by_key(|e| e.index_u32());
-                subjects.dedup();
-                // Slot spacing from the subjects' own bodies (MOV5): two radii
-                // must fit between neighbours; floor at the documented default.
-                let max_radius = subjects
-                    .iter()
-                    .filter_map(|e| agents.get(*e).ok().map(|a| a.1.body_radius))
-                    .fold(0.0f32, f32::max)
-                    .max(DEFAULT_BODY_RADIUS);
-                let slots = formation_slots(*to, subjects.len(), 2.0 * max_radius);
-                for (i, &entity) in subjects.iter().enumerate() {
+    // Snapshot the frame's commands (arrival order) so per-point groups can
+    // be built BEFORE applying anything (two-pass; keeps interleaving
+    // semantics identical to the one-message-at-a-time era).
+    let batch: Vec<(Order, Vec<Entity>)> = commands
+        .read()
+        .map(|cmd| (cmd.order.clone(), cmd.subjects.clone()))
+        .collect();
+
+    // ---- Pass 1: same-frame per-point scatter groups (hole-4) ----
+    // groups[i] = (target point, subjects sorted+deduped, max body radius).
+    // Linear scan by exact point equality (first matching group wins) — no
+    // HashMap (D6); group order = first-arrival order of each point.
+    let mut groups: Vec<(Vec3, Vec<Entity>, f32)> = Vec::new();
+    for (order, subjects) in &batch {
+        let to = match order {
+            Order::Move { to } | Order::AttackMove { to } => *to,
+            _ => continue,
+        };
+        // Subjects alive as agents, index-sorted, deduped (same filter the
+        // per-message path applies).
+        let mut live: Vec<Entity> = subjects
+            .iter()
+            .copied()
+            .filter(|e| agents.get(*e).is_ok())
+            .collect();
+        if live.is_empty() {
+            continue;
+        }
+        live.sort_by_key(|e| e.index_u32());
+        live.dedup();
+        let max_radius = live
+            .iter()
+            .filter_map(|e| agents.get(*e).ok().map(|a| a.1.body_radius))
+            .fold(0.0f32, f32::max)
+            .max(DEFAULT_BODY_RADIUS);
+        if let Some(group) = groups.iter_mut().find(|(p, _, _)| *p == to) {
+            group.1.extend_from_slice(&live);
+            group.1.sort_by_key(|e| e.index_u32());
+            group.1.dedup();
+            group.2 = group.2.max(max_radius);
+        } else {
+            groups.push((to, live, max_radius));
+        }
+    }
+    // Precompute the slot table per group (hex rings around the point).
+    let group_slots: Vec<Vec<Vec3>> = groups
+        .iter()
+        .map(|&(to, ref subjects, spacing)| formation_slots(to, subjects.len(), 2.0 * spacing))
+        .collect();
+
+    // ---- Pass 2: apply in arrival order ----
+    for (order, subjects) in &batch {
+        match order {
+            Order::Move { .. } | Order::AttackMove { .. } => {
+                let to = match order {
+                    Order::Move { to } | Order::AttackMove { to } => *to,
+                    _ => unreachable!("matched above"),
+                };
+                let Some(gi) = groups.iter().position(|(p, _, _)| *p == to) else {
+                    continue; // no live subjects — nothing to do
+                };
+                let group_subjects = &groups[gi].1;
+                let slots = &group_slots[gi];
+                // This message's own subjects only (order kind and arrival
+                // order stay per-message); slot INDEX comes from the
+                // same-frame aggregate group. Pre-filter to live agents
+                // (mirror of pass 1) without holding the query borrow.
+                let live: Vec<Entity> = subjects.to_vec();
+                for entity in live {
+                    if agents.get(entity).is_err() {
+                        continue;
+                    }
+                    let Some(i) = group_subjects.iter().position(|&e| e == entity) else {
+                        continue;
+                    };
                     let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
                         continue;
                     };
-                    agent.order = Some(cmd.order.clone());
+                    agent.order = Some(order.clone());
                     agent.waypoints = vec![slots[i]];
                     agent.velocity = Vec3::ZERO;
                     *state = AgentOrderState::Moving;
@@ -955,16 +1022,16 @@ pub fn tick_orders(
                 }
             }
             Order::AttackTarget { .. } => {
-                for &entity in &cmd.subjects {
+                for &entity in subjects {
                     let Ok((_, mut agent, _, _, _)) = agents.get_mut(entity) else {
                         continue;
                     };
-                    agent.order = Some(cmd.order.clone());
+                    agent.order = Some(order.clone());
                     // Range evaluated by phase 2 this same frame.
                 }
             }
             Order::HoldPosition => {
-                for &entity in &cmd.subjects {
+                for &entity in subjects {
                     let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
                         continue;
                     };
@@ -975,7 +1042,7 @@ pub fn tick_orders(
                 }
             }
             Order::Stop => {
-                for &entity in &cmd.subjects {
+                for &entity in subjects {
                     let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
                         continue;
                     };
@@ -986,12 +1053,12 @@ pub fn tick_orders(
                 }
             }
             Order::Patrol { a, b, toward_b } => {
-                for &entity in &cmd.subjects {
+                for &entity in subjects {
                     let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
                         continue;
                     };
                     let dest = if *toward_b { *b } else { *a };
-                    agent.order = Some(cmd.order.clone());
+                    agent.order = Some(order.clone());
                     agent.waypoints = vec![dest];
                     agent.velocity = Vec3::ZERO;
                     *state = AgentOrderState::Moving;
@@ -1000,12 +1067,12 @@ pub fn tick_orders(
             }
             // Parked orders: stored for the future INV/Follow increments.
             Order::Pickup { .. } | Order::Follow { .. } => {
-                for &entity in &cmd.subjects {
+                for &entity in subjects {
                     let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
                         continue;
                     };
                     agent.waypoints.clear();
-                    agent.order = Some(cmd.order.clone());
+                    agent.order = Some(order.clone());
                     *state = AgentOrderState::Idle;
                 }
             }

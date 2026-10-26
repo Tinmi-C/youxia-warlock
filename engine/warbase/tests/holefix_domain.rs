@@ -346,3 +346,54 @@ fn starting_forces_spawn_owned_units_with_derived_allegiance() {
         .count();
     assert_eq!(count, 0, "no starting_forces section -> no spawns (zero drift)");
 }
+// -- ⑤ hole-4: same-frame single-subject scatter --------------------------------
+
+fn spawn_agent(app: &mut App, pos: Vec3) -> Entity {
+    app.world_mut()
+        .spawn((
+            MoveAgent {
+                speed: 1.0,
+                arrival_radius: 0.05,
+                waypoints: Vec::new(),
+                velocity: Vec3::ZERO,
+                body_radius: 0.3,
+                order: None,
+            },
+            AgentOrderState::Idle,
+            Transform::from_translation(pos),
+        ))
+        .id()
+}
+
+/// UT-HOLE-05 (acceptance ⑤): four INDEPENDENT single-subject Move commands
+/// to the same point, all written in one frame, scatter through MOV5 slots —
+/// every pair of first waypoints is >= 0.9 * (0.3 + 0.3) apart, and the
+/// smallest-index subject keeps the exact command point (slot 0).
+#[test]
+fn same_frame_single_subject_moves_scatter() {
+    let mut app = test_app();
+    let mut units: Vec<Entity> = (0..4).map(|i| spawn_agent(&mut app, Vec3::new(i as f32 * 5.0, 0.0, 0.0))).collect();
+    units.sort_by_key(|e| e.index_u32());
+    app.update(); // warm-up frame (ManualDuration dt = 0 on the first)
+
+    let target = Vec3::new(10.0, 0.0, 5.0);
+    for &u in &units {
+        app.world_mut().write_message(UnitCommand {
+            order: Order::Move { to: target },
+            subjects: vec![u],
+        });
+    }
+    app.update(); // one frame consumes all four commands
+
+    let firsts: Vec<Vec3> = units
+        .iter()
+        .map(|&e| app.world().get::<MoveAgent>(e).unwrap().waypoints[0])
+        .collect();
+    assert_eq!(firsts[0], target, "slot 0 (smallest index) IS the command point");
+    for i in 0..4 {
+        for j in (i + 1)..4 {
+            let d = firsts[i].distance(firsts[j]);
+            assert!(d >= 0.9 * (0.3 + 0.3), "waypoints ({i},{j}) only {d} apart");
+        }
+    }
+}
