@@ -40,6 +40,7 @@ fn unit_def(id: &str) -> UnitDef {
         heal: None,
         mana: None,
         skill_levels: vec![],
+        hero_stats: None,
     }
 }
 
