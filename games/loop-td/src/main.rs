@@ -4,6 +4,8 @@
 //! RPL2 flags:
 //! - `--record`                 record the next match -> runs/<ts>.jsonl
 //! - `--replay <file>`          headless replay verification (exit 0/1)
+//! UI-DSGN flag:
+//! - `--ui-mock <A|B|C>`        UI proposal mock scene -> ui-proposals/ PNGs
 //! No flags: the normal game path, unchanged.
 
 fn main() {
@@ -32,6 +34,12 @@ fn main() {
     if args.iter().any(|a| a == "--record") {
         app.add_plugins(loop_td::replay_io::ReplayIoPlugin { map_path: None });
         println!("[loop-td] recording on: the match will be written to runs/<timestamp>.jsonl when it ends");
+    }
+    // --ui-mock <A|B|C>: UI-DSGN proposal shots (frame-scripted, self-exits).
+    if let Some(plan) = arg_value(&args, "--ui-mock") {
+        let plan = plan.chars().next().unwrap_or('A').to_ascii_uppercase();
+        println!("[loop-td] ui-mock: plan {plan} -> ui-proposals/plan-{plan}/");
+        app.add_plugins(loop_td::plugins::ui_mock::UiMockPlugin { plan });
     }
     app.run();
 }
