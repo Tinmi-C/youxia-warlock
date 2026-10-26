@@ -51,6 +51,10 @@ impl Plugin for GamePlugin {
                 gameplay::skill_effects
                     .after(WarbaseSet::Act)
                     .before(WarbaseSet::Resolve),
+                // SFX channel acceptance (RL3): the minimal listener proving
+                // the base SfxRequest stream reaches game side (no assets —
+                // log only; a real audio backend maps SfxKind -> asset here).
+                gameplay::sfx_probe.after(WarbaseSet::Cleanup),
             ),
         );
     }

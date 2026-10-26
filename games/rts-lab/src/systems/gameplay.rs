@@ -261,6 +261,18 @@ pub fn spawn_starting_units(world: &mut World) {
 /// - `Inventory` on heroes and peasants (RL2: walk-over pickup — the base
 ///   `pickup_items` observation seam serves every Inventory carrier; spawn
 ///   attaches it to NOBODY, so the thin wire lives here).
+/// - `VisionSource` (RL3) on the seeing defs — radii are hard-coded GDD
+///   placeholders: hall 8.0, paladin 7.0, footman/archer 5.5 (peasants see
+///   nothing; the fog grid only lights from these sources).
+pub fn vision_radius(def: &str) -> Option<f32> {
+    match def {
+        HALL_DEF => Some(8.0),
+        PALADIN_DEF => Some(7.0),
+        FOOTMAN_DEF | ARCHER_DEF => Some(5.5),
+        _ => None,
+    }
+}
+
 pub fn attach_rts_kit(
     added: Query<(Entity, &UnitInstance), Added<UnitInstance>>,
     registry: Res<UnitRegistry>,
@@ -275,7 +287,12 @@ pub fn attach_rts_kit(
     for (entity, instance) in &added {
         let Some(def) = registry.get(&instance.def) else { continue };
         let mut ec = commands.entity(entity);
-        ec.insert(Selectable);
+        // Visual-side hierarchy correctness: base spawn gives units a bare
+        // Transform; mesh children (visualize_units) carry InheritedVisibility
+        // whose propagation wants the parent to have it too (bevy B0004).
+        // Visibility requires the inherited family — insert once, here, for
+        // every spawn path. Inert headless (no render plugin reads it).
+        ec.insert((Selectable, Visibility::default()));
         if def.attrs.move_speed > 0.0 {
             ec.insert((
                 MoveAgent {
@@ -296,6 +313,9 @@ pub fn attach_rts_kit(
         }
         if def.hero || instance.def == PEASANT_DEF {
             ec.insert(Inventory::default());
+        }
+        if let Some(radius) = vision_radius(&instance.def) {
+            ec.insert(VisionSource { radius });
         }
     }
 }
@@ -533,10 +553,19 @@ pub fn buy_input(world: &mut World) {
     info!("[rts-lab] B: healing_potion bought");
 }
 
+/// SFX channel acceptance (RL3): minimal listener over the base `SfxRequest`
+/// stream (hit/death/research-complete/match-end...). No audio assets in the
+/// greybox — the println-equivalent log line proves the channel is wired; a
+/// real game maps `SfxKind` -> asset/spatialization here.
+pub fn sfx_probe(mut sfx: MessageReader<SfxRequest>) {
+    for request in sfx.read() {
+        info!("[sfx] {:?}", request.kind);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Devotion aura for free agents (channel C patch, hole #7)
 // ---------------------------------------------------------------------------
-
 /// NOTE (hole #7, channel C): the base aura consumers (`buff::apply_auras` /
 /// `apply_follower_auras`) both filter targets to `PathFollower` carriers
 /// (TD creeps). A free-agent RTS has no PathFollower, so the paladin's

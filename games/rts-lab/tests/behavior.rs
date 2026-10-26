@@ -719,3 +719,154 @@ fn shop_buy_charges_gold_and_stows_potion() {
     let inv = app.world().get::<Inventory>(hero).unwrap();
     assert_eq!(inv.slots[0].as_ref().unwrap().def, "healing_potion");
 }
+
+// -- ⑫ RL3: fog of war ----------------------------------------------------------
+
+/// RL3-⑫: with the vision section live (cell 1.0) and VisionSource carriers
+/// (hall 8.0 / paladin 7.0), the far grunts sit outside team-0 vision and
+/// carry `InFog`; walking one into the hall's circle removes the mark the
+/// next Cleanup. Own units are never visually hidden (the dim filter is
+/// enemy-only, visuals.rs) and combat NEVER reads InFog (D5): the marked
+/// grunt still fights (DamageDealt flows) while fogged.
+#[test]
+fn fog_marks_far_enemies_and_clears_when_seen() {
+    let mut app = lab_app();
+    calm_peasants(&mut app);
+    let grunts = units_of(&mut app, "grunt");
+    let far = grunts[0];
+
+    app.update(); // vision grid (Tick) + mark_in_fog (Cleanup)
+    assert!(
+        app.world().get::<InFog>(far).is_some(),
+        "grunt outside all vision circles carries InFog"
+    );
+    for g in &grunts[1..] {
+        assert!(app.world().get::<InFog>(*g).is_some(), "all far grunts fogged");
+    }
+
+    // Walk one into the hall's circle (hall (-5,0) r 8.0; (-2,0) is 3.0 away).
+    *app.world_mut().get_mut::<Transform>(far).unwrap() = Transform::from_xyz(-2.0, 0.0, 0.0);
+    app.update();
+    assert!(app.world().get::<InFog>(far).is_none(), "seen grunt loses the mark");
+    assert!(app.world().get::<InFog>(grunts[1]).is_some(), "far grunts stay fogged");
+
+    // D5 discipline: fog never gates combat — the (now-visible) grunt still
+    // engages a peasant in range; a FOGGED grunt too. Plant a peasant next to
+    // a fogged grunt and watch DamageDealt appear.
+    let peasants = units_of(&mut app, "peasant");
+    let bait = peasants[0];
+    let fogged = grunts[1];
+    let fogged_pos = app.world().get::<Transform>(fogged).unwrap().translation;
+    *app.world_mut().get_mut::<Transform>(bait).unwrap() =
+        Transform::from_translation(fogged_pos + Vec3::new(1.0, 0.0, 0.0));
+    let mut dealt = MessageCursor::<DamageDealt>::default();
+    let mut seen = false;
+    for _ in 0..130 {
+        app.update(); // grunt interval 1.0s = 60 frames
+        let msgs = app.world().resource::<Messages<DamageDealt>>();
+        if dealt.read(msgs).any(|d| d.target == bait) {
+            seen = true;
+            break;
+        }
+    }
+    assert!(seen, "fogged grunt still fires (combat ignores InFog)");
+}
+
+// -- ⑬ RL3: minimap data model ---------------------------------------------------
+
+/// RL3-⑬: MinimapModel blips == exactly the units standing in visible cells
+/// (self-consistent recomputation via point_visible), the paladin flags
+/// is_hero, and the dark mine/grunts leave no blip.
+#[test]
+fn minimap_blips_match_visible_units() {
+    let mut app = lab_app();
+    calm_peasants(&mut app);
+    for _ in 0..3 {
+        app.update(); // vision grid + InFog marking + minimap refresh settle
+    }
+
+    let model = app.world().resource::<MinimapModel>().clone();
+    assert!(!model.map_bounds.is_empty(), "map bounds from the vision grid geometry");
+
+    // Expected set: every live unit whose cell is visible.
+    let grid = app.world().resource::<VisionGrid>().clone();
+    let mut q = app.world_mut().query::<(&UnitInstance, &Transform)>();
+    let mut expected = 0usize;
+    let mut hero_blips = 0;
+    let mut peasant_blips = 0;
+    for (inst, tf) in q.iter(app.world()) {
+        let pos = Vec2::new(tf.translation.x, tf.translation.z);
+        if point_visible(&grid, pos) {
+            expected += 1;
+            match inst.def.as_str() {
+                "paladin" => hero_blips += 1,
+                "peasant" => peasant_blips += 1,
+                _ => {}
+            }
+        }
+    }
+    assert!(expected >= 7, "hall, barracks, shop, paladin, 4 peasants visible ({expected})");
+    assert_eq!(model.blips.len(), expected, "blips == visible units, nothing more");
+    assert_eq!(
+        model.blips.iter().filter(|b| b.is_hero).count(),
+        hero_blips,
+        "paladin is the hero blip"
+    );
+    // Peasant blips are Defender side; fogged enemies are absent.
+    assert!(model
+        .blips
+        .iter()
+        .filter(|b| b.side == Allegiance::Defender)
+        .count() >= peasant_blips);
+    // Sanity: the mine at (5,0) is outside every circle -> no blip there.
+    assert!(!model.blips.iter().any(|b| (b.pos - Vec2::new(5.0, 0.0)).length() < 0.5));
+}
+
+// -- ⑭ RL3: record -> file -> replay ----------------------------------------------
+
+/// RL3-⑭: a recorded lab match (100 frames of the autonomous harvest
+/// economy, seed 42) lands on disk and reconciles through the lab replay
+/// driver: every HASH_INTERVAL checkpoint (incl. frame 0 via the probe)
+/// matches; a tampered checkpoint is caught at the first mismatch.
+#[test]
+fn record_writes_file_and_replay_reconciles() {
+    use rts_lab::systems::replay_io as io;
+    use warbase::prelude::RecordingLog;
+
+    let map = rts_lab::systems::gameplay::default_map_path();
+    let mut app = io::recording_lab(42, &map).expect("arm");
+    for _ in 0..100 {
+        app.update();
+    }
+    let log = app
+        .world_mut()
+        .remove_resource::<RecordingLog>()
+        .expect("recording armed at startup")
+        .log;
+    assert_eq!(log.version, warbase::prelude::INPUT_LOG_VERSION);
+    assert_eq!(log.map_hash, io::map_file_hash(&map).unwrap());
+    assert_eq!(
+        log.hashes.iter().map(|(f, _)| *f).collect::<Vec<_>>(),
+        vec![0, 30, 60, 90],
+        "checkpoint cadence over 100 frames"
+    );
+    assert!(log.frames.is_empty(), "rts-lab command surface records no envelopes (hole #10)");
+
+    // Round trip through disk: write (runs convention) -> replay_file.
+    let dir = std::env::temp_dir();
+    let path = io::write_input_log(&dir, &log).expect("write log");
+    let chain = io::replay_file(&path, &map).expect("replay reconciles");
+    assert_eq!(
+        chain.iter().map(|(f, _)| *f).collect::<Vec<_>>(),
+        vec![0, 30, 60, 90],
+        "frame-0 probe + every cadence checkpoint reconciled"
+    );
+    let _ = std::fs::remove_file(&path);
+
+    // Tamper: flip the frame-30 checkpoint -> the driver must catch it.
+    let bundle = warbase::bundle::load_bundle(&map).unwrap();
+    let mut bad = log.clone();
+    bad.hashes[1].1 ^= 0xdead_beef;
+    let err = io::replay_lab(&bundle, &bad).expect_err("tampered checkpoint detected");
+    assert!(err.contains("frame 30"), "error names the divergent frame: {err}");
+}

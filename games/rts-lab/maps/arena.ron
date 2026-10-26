@@ -90,6 +90,9 @@
         ),
     ),
     // nav：空旷图，无额外 blocked（周界墙已由 path 段落成）；A* 预算用默认 8。
+    // vision（RL3）：fog 网格 cell 1.0（与 build 网格同分辨率；半径是游戏侧
+    // VisionSource 挂接时写死的注释常量，见 attach_rts_kit）。
+    vision: (cell: 1.0),
     // production（RL2 扩容）：主城训农民 / 兵营训步弓；科研 attack_upgrade
     // （Stat grant：footman/archer DamageMult +0.15，同 kind 后研覆盖前研——基底语义）。
     production: (

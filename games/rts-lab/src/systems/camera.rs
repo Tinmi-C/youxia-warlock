@@ -5,11 +5,16 @@
 use bevy::camera::ScalingMode;
 use bevy::prelude::*;
 
+/// Marker for the single top-down ortho camera (minimap click-to-camera).
+#[derive(Component, Debug)]
+pub struct TopDownCamera;
+
 /// The arena is a 24x24 grid centered on the origin (see maps/arena.ron);
 /// show it whole with a one-cell margin on any window aspect.
 pub fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
+        TopDownCamera,
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMax { max_width: 26.0, max_height: 26.0 },
             ..OrthographicProjection::default_3d()

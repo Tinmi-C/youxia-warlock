@@ -39,6 +39,23 @@
   农民/英雄自动拾取（Inventory 游戏侧挂）；选中英雄 1 键用药、B 键
   （商店 3 格内）买药。
 
+## 范围（RL3 增量：迷雾+小地图+录像+音效通道）
+
+- **视野迷雾**：`maps/arena.ron` vision 段（cell 1.0）；VisionSource 挂接走
+  `attach_rts_kit`（半径写死：hall 8.0 / paladin 7.0 / footman·archer 5.5）。
+  基底 FOG1-2 全链：VisionGrid（Tick 重算）→ InFog 标记（Cleanup）。
+  视觉：敌方 InFog 变暗半透明（`sync_fog_tint`，bevy 原生颜色变化，无贴图）；
+  己方单位永亮（友军不参与变暗——基底标记不分队，过滤在游戏侧）。
+- **小地图**：右下角 MinimapPanel（bevy 原生纯色 UI，176px），消费基底
+  `MinimapModel`（FOG3 数据层）画 blip（Defender 蓝 / Attacker 红 / 英雄
+  金色加倍）；点击面板=镜头跳转（`minimap_click_jumps_camera` 移动正交
+  相机 center，不做命令落点）。
+- **录像**：`--record` 自动存 `runs/<时间戳>.jsonl`（loop-td replay_io 模式）；
+  `--replay <file>` 无头校验（对账 `replay_lab`：lab 组合 = test_app +
+  GamePlugin，帧 0 断言经一次性探针系统在记录者位置取指纹——状态闭包
+  持有，不进 World，避免资源实体位错位）。
+- **SFX**：`sfx_probe` 最小监听（log 行）证明 SfxRequest 通道可接，无资产。
+
 ## 数字化验收标准（→ tests/behavior.rs）
 
 1. 装配：arena.ron 载入后 teams/生产表/单位表资源正确；开局实体齐全。
@@ -70,7 +87,16 @@ RL2 追加（tests/behavior.rs ⑦–⑪）：
     Use → potion_heal SkillCast → Hp 100→180；商店：近距 Buy 扣 30 金入包，
     远距被游戏侧门槛拒绝。
 
-## 抽象有洞清单（RL1–RL2 发现，通道 C——全部游戏侧补丁，基底零改动）
+RL3 追加（tests/behavior.rs ⑫–⑭）：
+
+12. 迷雾：远端 grunt InFog；走入主城视野圈 → 标记移除；迷雾中的 grunt
+    照常交战（DamageDealt，D5：战斗不读 InFog）。
+13. 小地图数据：MinimapModel.blips 与「可见单位集」逐一致（point_visible
+    重算对账）；paladin blip 带 is_hero；暗处矿/敌无 blip。
+14. 录像：录制 100 帧（种子 42）→ 哈希检查点 [0,30,60,90] → 落盘 →
+    --replay 对账全过（含帧 0 探针）；篡改 frame-30 哈希 → 精确报错帧。
+
+## 抽象有洞清单（RL1–RL3 发现，通道 C——全部游戏侧补丁，基底零改动）
 
 1. **MapBundle 强制非空 world.paths**（TD 出身）：RTS 图没有出怪轨道。
    补丁：周界封闭 path 兼作竞技场围墙（`maps/arena.ron`）。
@@ -113,9 +139,22 @@ RL2 追加（tests/behavior.rs ⑦–⑪）：
    1 级，Active/Passive 槽 0 级（设计上靠升级点 `spend_skill_point`）。
    验收切片要求开局可用 → 游戏侧布兵时写死全槽 1 级（`gameplay.rs`）。
    （#2b 商店布段缺位已并入 #2：开局内容无 bundle 段，含 Shop stock。）
+10. **录像输入词汇表只覆盖 TD 输入**（RL3）：基底录制器只记录
+    PickAttempt / StartWave / EconCommand 三类消息；rts-lab 的全部命令面
+    （SelectCommand / UnitCommand / TrainCommand / CastSkill / Item·Shop·
+    ResearchCommands）都不产信封 → 本图录像退化为「零输入确定性模拟」
+    （采集经济仍参与哈希对账）。录真实玩家操作需基底扩充
+    CommandEnvelope 词汇表（Entity-free 化的命令信封）。
+11. **（边界记录）整机型日志不可无头校验**（RL3，同 loop-td 立场）：
+    --record 在完整 app（渲染/HUD/小地图实体）上录的日志，其指纹含
+    渲染实体，lab 组合对账必炸——属 RPL3 观战模式范畴；验收 ⑭ 用
+    lab 组合录放对账证明通道成立。
+12. **（软性）B0004：单位实体无可见性组件**（RL3 视觉修正，非洞）：
+    基底 spawn 不带 Visibility 族；RL1 起网格子实体带 InheritedVisibility
+    触发 bevy B0004 警告。游戏侧 attach_rts_kit 补挂 Visibility（不改基底）。
 
 ## 边界（不做）
 
 - 美术/音效资产（D9 灰盒）；矿枯竭；建筑建造（建塔复用 build 域留待
   后续增量）；敌方 AI（Greedy harness 驱动，未排期）；网络（永远不在
-  基底范围，ADR-0017）。
+  基底范围，ADR-0017）；录像观战模式（RPL3+，见洞 #11）。

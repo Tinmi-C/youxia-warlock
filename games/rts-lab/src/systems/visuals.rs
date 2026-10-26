@@ -1,11 +1,22 @@
 //! Greybox visuals (real game only — headless tests never add this plugin):
-//! ground plane, unit meshes by def, square selection outlines (4 beams).
-//! Everything bevy-native, zero assets (D9). 视觉未过人工验收（H1/H3）。
+//! ground plane, unit meshes by def, square selection outlines (4 beams),
+//! fog-of-war tinting (RL3), and the minimap panel. Everything bevy-native,
+//! zero assets (D9). 视觉未过人工验收（H1/H3）。
 
 use bevy::prelude::*;
 use warbase::prelude::*;
 
 use crate::components::{Carrying, SelectionOutline, Visualized};
+
+/// Marker on a unit's body-cube child, linking it back to the unit and
+/// remembering its authored base color (fog tint restore).
+#[derive(Component, Debug)]
+pub struct UnitBody {
+    pub unit: Entity,
+    pub base: Color,
+    /// Current dim state (skip no-op material rewrites).
+    pub dimmed: bool,
+}
 
 /// Graybox visual spec per def: (cube edge, color).
 fn def_visual(def: &str) -> (f32, Color) {
@@ -63,11 +74,13 @@ pub fn visualize_units(
     for (entity, inst, carrying) in &units {
         let (size, color) = def_visual(&inst.def);
         let mut ec = commands.entity(entity);
-        ec.insert(Visualized).with_child((
-            Mesh3d(meshes.add(Cuboid::new(size, size, size))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: color, ..default() })),
-            Transform::from_xyz(0.0, size / 2.0, 0.0),
-        ));
+        ec.insert(Visualized)
+            .with_child((
+                Mesh3d(meshes.add(Cuboid::new(size, size, size))),
+                MeshMaterial3d(materials.add(StandardMaterial { base_color: color, ..default() })),
+                Transform::from_xyz(0.0, size / 2.0, 0.0),
+                UnitBody { unit: entity, base: color, dimmed: false },
+            ));
         if carrying.is_some() {
             // Gold cap riding on top: the "full hands" tell for H1.
             ec.with_child((
@@ -75,6 +88,38 @@ pub fn visualize_units(
                 MeshMaterial3d(materials.add(Color::srgb(1.0, 0.85, 0.2))),
                 Transform::from_xyz(0.0, size + 0.06, 0.0),
             ));
+        }
+    }
+}
+
+/// Fog-of-war tint (RL3, D5 "rendering consumes the mark downstream"): an
+/// ENEMY unit carrying `InFog` dims to 35% brightness + translucency; our
+/// own units stay bright even in dark cells (己方永亮 — the base marks
+/// every UnitInstance, ours included; the friendly filter is game-side).
+/// Each body cube owns a unique material asset (materials.add per spawn),
+/// so mutating the asset can never leak across units.
+pub fn sync_fog_tint(
+    units: Query<(Entity, &Allegiance, Has<InFog>)>,
+    mut bodies: Query<(&mut UnitBody, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (mut body, handle) in &mut bodies {
+        let Ok((_, side, fog)) = units.get(body.unit) else { continue };
+        let dim = fog && matches!(side, Allegiance::Attacker);
+        if dim == body.dimmed {
+            continue;
+        }
+        body.dimmed = dim;
+        if let Some(mut mat) = materials.get_mut(&handle.0) {
+            if dim {
+                let b = body.base.to_srgba();
+                mat.base_color =
+                    Color::srgba(b.red * 0.35, b.green * 0.35, b.blue * 0.35, 0.35);
+                mat.alpha_mode = AlphaMode::Blend;
+            } else {
+                mat.base_color = body.base;
+                mat.alpha_mode = AlphaMode::Opaque;
+            }
         }
     }
 }
