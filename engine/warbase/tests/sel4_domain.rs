@@ -39,11 +39,18 @@ fn registry(defs: &[UnitDef]) -> UnitRegistry {
     UnitRegistry { defs: defs.iter().cloned().map(|d| (d.id.clone(), d)).collect() }
 }
 
-/// Spawn a Selectable Defender unit from a registry def.
+/// Spawn a Selectable Defender unit from a registry def. `pos` is ground
+/// (x, z) — hole-1 plane convention: world Vec3 (x, 0, z).
 fn spawn_with_def(app: &mut App, reg: &UnitRegistry, id: &str, pos: Vec2) -> Entity {
-    let entity =
-        spawn_unit(&mut app.world_mut(), reg, id, pos.extend(0.0), Allegiance::Defender, 1.0)
-            .expect("def present");
+    let entity = spawn_unit(
+        &mut app.world_mut(),
+        reg,
+        id,
+        Vec3::new(pos.x, 0.0, pos.y),
+        Allegiance::Defender,
+        1.0,
+    )
+    .expect("def present");
     app.world_mut().entity_mut(entity).insert(Selectable);
     entity
 }
@@ -167,13 +174,13 @@ fn right_click_hostile_issues_one_attack_command() {
     send(&mut app, SelectCommand::Set(squad.clone()));
 
     // Attacker-side selectable body under the cursor (def-based spawn would
-    // pin it Defender; spawn the marker set by hand).
+    // pin it Defender; spawn the marker set by hand). Ground (x, z) = (5, 0).
     let enemy = app
         .world_mut()
         .spawn((
             Selectable,
             Allegiance::Attacker,
-            Transform::from_translation(Vec2::new(5.0, 0.0).extend(0.0)),
+            Transform::from_translation(Vec3::new(5.0, 0.0, 0.0)),
         ))
         .id();
 
@@ -186,7 +193,8 @@ fn right_click_hostile_issues_one_attack_command() {
 }
 
 /// ④ Smart right-click on open ground: one Move command, to = the pick
-/// point on the z=0 plane; an empty selection issues nothing.
+/// point on the y=0 plane (ground (x, z) -> Vec3 (x, 0, z), hole-1); an
+/// empty selection issues nothing.
 #[test]
 fn right_click_ground_issues_move_to_pick_point() {
     let mut app = test_app();
@@ -199,7 +207,7 @@ fn right_click_ground_issues_move_to_pick_point() {
     send(&mut app, pick(Vec2::new(3.5, -2.0), PickButton::Right));
     assert_eq!(
         drain_commands(&mut app, &mut commands),
-        vec![(Order::Move { to: Vec3::new(3.5, -2.0, 0.0) }, vec![unit])],
+        vec![(Order::Move { to: Vec3::new(3.5, 0.0, -2.0) }, vec![unit])],
         "open ground -> move to the pick point"
     );
 
@@ -253,7 +261,7 @@ fn attack_move_targeting_and_esc_cancel() {
     send(&mut app, pick(Vec2::new(2.0, 3.0), PickButton::Left));
     assert_eq!(
         drain_commands(&mut app, &mut commands),
-        vec![(Order::AttackMove { to: Vec3::new(2.0, 3.0, 0.0) }, vec![unit])],
+        vec![(Order::AttackMove { to: Vec3::new(2.0, 0.0, 3.0) }, vec![unit])],
         "armed click targets the order"
     );
     assert_eq!(pending(&app), PendingTargetOrder::Idle, "cursor back to idle");
@@ -261,15 +269,25 @@ fn attack_move_targeting_and_esc_cancel() {
     send(&mut app, CommandHotkey::AttackMove);
     send(&mut app, CommandHotkey::Cancel);
     assert_eq!(pending(&app), PendingTargetOrder::Idle, "Esc disarms");
+    assert_eq!(
+        app.world().resource::<SelectionState>().entities,
+        vec![unit],
+        "Esc clears the pending state only, never the selection"
+    );
     send(&mut app, pick(Vec2::new(2.0, 3.0), PickButton::Left));
     assert!(
         drain_commands(&mut app, &mut commands).is_empty(),
         "click after cancel fires nothing"
     );
+    // The post-cancel click hit open ground far from the unit: point select
+    // (hole-2) now clears the selection — applied one frame after the pick
+    // (the select applier already ran when the pick resolved). The
+    // targeting machine above is what stayed dead, which is the point.
+    app.update();
     assert_eq!(
         app.world().resource::<SelectionState>().entities,
-        vec![unit],
-        "Esc clears the pending state only, never the selection"
+        Vec::<Entity>::new(),
+        "ground click after cancel deselects (point select)"
     );
 }
 
@@ -297,7 +315,7 @@ fn patrol_needs_two_points_and_esc_cancels() {
     );
     assert_eq!(
         pending(&app),
-        PendingTargetOrder::PatrolSecond { a: Vec3::new(1.0, 1.0, 0.0) },
+        PendingTargetOrder::PatrolSecond { a: Vec3::new(1.0, 0.0, 1.0) },
         "first point parked"
     );
 
@@ -306,7 +324,7 @@ fn patrol_needs_two_points_and_esc_cancels() {
         drain_commands(&mut app, &mut commands),
         vec![(
             Order::Patrol {
-                a: Vec3::new(1.0, 1.0, 0.0),
+                a: Vec3::new(1.0, 0.0, 1.0),
                 b: Vec3::new(2.0, 0.0, 0.0),
                 toward_b: true,
             },

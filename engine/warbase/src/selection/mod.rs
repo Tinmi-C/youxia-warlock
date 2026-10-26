@@ -3,13 +3,21 @@
 //! the input layer (input module, ui feature) translates mouse/keyboard into
 //! the messages defined here; tests inject messages directly.
 //!
+//! PLANE CONTRACT (hole-1 fix): the gameplay plane is **y = 0 (XZ)** and
+//! every `Vec2` below means ground `(x, z)` — bodies hit-test on
+//! `(translation.x, translation.z)`, pick points construct
+//! `Vec3::new(x, 0.0, z)`. Same convention as movement/nav/build/combat.
+//!
 //! Scheduling (D2): `apply_group_commands` -> `apply_select_commands` ->
-//! `resolve_picks` -> `apply_command_hotkeys` -> `issue_targeted_orders` ->
-//! `smart_resolve` -> `cycle_subgroups` -> `fill_panel_data` run chained in
-//! Tick (group recalls emit `SelectCommand::Set` consumed the same frame, so
-//! pick resolution and smart commands see the fresh selection, still before
-//! Intent); `sweep_dead_selection` runs in Cleanup and drops despawned
-//! entities from the selection and all control groups.
+//! `resolve_picks` -> `apply_point_selects` -> `apply_command_hotkeys` ->
+//! `issue_targeted_orders` -> `smart_resolve` -> `cycle_subgroups` ->
+//! `fill_panel_data` run chained in Tick (group recalls emit
+//! `SelectCommand::Set` consumed the same frame, so pick resolution and
+//! smart commands see the fresh selection, still before Intent; point
+//! selects emit `SelectCommand`s consumed the NEXT frame — the select
+//! applier already ran this frame, see `apply_point_selects`);
+//! `sweep_dead_selection` runs in Cleanup and drops despawned entities from
+//! the selection and all control groups.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -165,6 +173,20 @@ fn sorted_dedup(mut entities: Vec<Entity>) -> Vec<Entity> {
     entities
 }
 
+/// Ground-plane position of a transform: `(x, z)` (hole-1 unified base
+/// convention — the world plays on y = 0; the old `truncate()` read
+/// `(x, y)` and collapsed XZ-plane units onto the x axis).
+fn ground_pos(translation: Vec3) -> Vec2 {
+    Vec2::new(translation.x, translation.z)
+}
+
+/// World point on the gameplay plane for a ground `(x, z)` pair:
+/// `Vec3::new(x, 0.0, z)` (hole-1; the old `extend(0.0)` produced
+/// `(x, y, 0)` — off the ground).
+fn ground_vec(p: Vec2) -> Vec3 {
+    Vec3::new(p.x, 0.0, p.y)
+}
+
 /// Body radius of an instance from its def; 0.0 when the entity carries no
 /// UnitInstance/def (point hit) — defensive, selections are def-driven.
 fn body_radius(instance: Option<&UnitInstance>, registry: &UnitRegistry) -> f32 {
@@ -181,6 +203,30 @@ fn disc_hits_rect(center: Vec2, radius: f32, min: Vec2, max: Vec2) -> bool {
         center.y.clamp(min.y, max.y),
     );
     (center - closest).length_squared() <= (radius + AABB_EDGE_EPSILON).powi(2)
+}
+
+/// Selectable bodies whose disc contains the ground point (the pinned SEL1b
+/// rule, hole-1 XZ geometry): `body_radius + edge epsilon`, nearest first,
+/// equal distances broken by Entity index (D6). Shared by `resolve_picks`
+/// and `apply_point_selects` so point select and pick resolution can never
+/// disagree about what a click hit.
+fn point_hits(
+    bodies: &Query<(Entity, &Transform, Option<&UnitInstance>), With<Selectable>>,
+    registry: &UnitRegistry,
+    point: Vec2,
+) -> Vec<Entity> {
+    let mut hits: Vec<(f32, Entity)> = bodies
+        .iter()
+        .filter_map(|(entity, transform, instance)| {
+            let radius = body_radius(instance, registry);
+            let dist = ground_pos(transform.translation).distance(point);
+            (dist <= radius + AABB_EDGE_EPSILON).then_some((dist, entity))
+        })
+        .collect();
+    // Distance ascending (total_cmp: IEEE-total, NaN-safe); ties fall back
+    // to Entity index so the order is fully deterministic.
+    hits.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.index().cmp(&b.1.index())));
+    hits.into_iter().map(|(_, entity)| entity).collect()
 }
 
 /// GroupCommand slot index (groups are 1..=9); None = out of range, ignored.
@@ -308,7 +354,7 @@ fn apply_select_commands(
                     .iter()
                     .filter(|(_, transform, instance)| {
                         disc_hits_rect(
-                            transform.translation.truncate(),
+                            ground_pos(transform.translation),
                             body_radius(*instance, &registry),
                             min,
                             max,
@@ -349,11 +395,12 @@ fn apply_select_commands(
 }
 
 /// Consumes `PickAttempt`s (Tick, after selection settles): resolves each
-/// world pick into a `PickResolved` — Selectable bodies whose disc contains
+/// ground pick into a `PickResolved` — Selectable bodies whose disc contains
 /// the point (`body_radius` + edge epsilon, the same pinned rule as box
 /// select), nearest first with equal distances broken by Entity index (D6),
 /// plus the build-grid cell under the point when a FreeGrid `BuildGrid`
-/// resource is present (Option-gated: gridless apps keep working).
+/// resource is present (Option-gated: gridless apps keep working). Hit
+/// geometry is the XZ ground plane (hole-1).
 fn resolve_picks(
     mut attempts: MessageReader<PickAttempt>,
     mut resolved: MessageWriter<PickResolved>,
@@ -362,23 +409,61 @@ fn resolve_picks(
     grid: Option<Res<BuildGrid>>,
 ) {
     for attempt in attempts.read() {
-        let mut hits: Vec<(f32, Entity)> = bodies
-            .iter()
-            .filter_map(|(entity, transform, instance)| {
-                let radius = body_radius(instance, &registry);
-                let dist = transform.translation.truncate().distance(attempt.world);
-                (dist <= radius + AABB_EDGE_EPSILON).then_some((dist, entity))
-            })
-            .collect();
-        // Distance ascending (total_cmp: IEEE-total, NaN-safe); ties fall
-        // back to Entity index so the order is fully deterministic.
-        hits.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.index().cmp(&b.1.index())));
         resolved.write(PickResolved {
             world: attempt.world,
             button: attempt.button,
-            entities: hits.into_iter().map(|(_, entity)| entity).collect(),
+            entities: point_hits(&bodies, &registry, attempt.world),
             cell: grid.as_deref().and_then(|g| cell_under(g, attempt.world)),
         });
+    }
+}
+
+/// Consumes left-click `PickAttempt`s (Tick, after `resolve_picks`): the
+/// WC3 point-select "last hop" (hole-2 upcast from rts-lab's game-side
+/// bridge) — a single left click on a body selects it, a click on open
+/// ground clears. Pinned semantics (matching the incubated patch):
+/// - plain hit  -> `SelectCommand::Set` (first hit only);
+/// - shift+hit  -> `Add`; ctrl+hit -> `Toggle` (both modifiers -> Toggle);
+/// - open ground -> `Clear`, except shift+ground keeps the selection;
+/// - while a `PendingTargetOrder` is armed the click targets the ORDER
+///   (see `issue_targeted_orders`) and never touches the selection;
+/// - double clicks (click_count > 1, select-same-type) are the input
+///   layer's business (it resolves them to `Set` directly, SEL2).
+/// Scheduling note: this runs after `apply_select_commands`, so the emitted
+/// `SelectCommand` is consumed the NEXT frame — one frame of latency, same
+/// as real input (the bridge writes `PickAttempt`s before Tick anyway).
+fn apply_point_selects(
+    mut attempts: MessageReader<PickAttempt>,
+    bodies: Query<(Entity, &Transform, Option<&UnitInstance>), With<Selectable>>,
+    registry: Res<UnitRegistry>,
+    pending: Res<PendingTargetOrder>,
+    mut select: MessageWriter<SelectCommand>,
+) {
+    if *pending != PendingTargetOrder::Idle {
+        return; // A/P targeting owns left clicks while armed
+    }
+    for attempt in attempts.read() {
+        if attempt.button != PickButton::Left || attempt.click_count != 1 {
+            continue;
+        }
+        let hits = point_hits(&bodies, &registry, attempt.world);
+        match (hits.first(), attempt.ctrl, attempt.shift) {
+            (Some(&first), false, false) => {
+                select.write(SelectCommand::Set(vec![first]));
+            }
+            (Some(&first), false, true) => {
+                select.write(SelectCommand::Add(first));
+            }
+            (Some(&first), true, _) => {
+                select.write(SelectCommand::Toggle(first));
+            }
+            // Shift+ground keeps the current selection (WC3 habit: shift
+            // only ever adds/toggles, never clears).
+            (None, _, true) => {}
+            (None, _, _) => {
+                select.write(SelectCommand::Clear);
+            }
+        }
     }
 }
 
@@ -439,7 +524,7 @@ fn issue_targeted_orders(
             *pending = PendingTargetOrder::Idle;
             continue;
         }
-        let to = attempt.world.extend(0.0); // gameplay plane is z = 0
+        let to = ground_vec(attempt.world); // gameplay plane is y = 0 (XZ)
         *pending = match *pending {
             PendingTargetOrder::Idle => continue,
             PendingTargetOrder::AttackMove => {
@@ -482,7 +567,7 @@ fn smart_resolve(
         let Some(&target) = pick.entities.first() else {
             // Open ground: walk there.
             commands.write(UnitCommand {
-                order: Order::Move { to: pick.world.extend(0.0) },
+                order: Order::Move { to: ground_vec(pick.world) },
                 subjects: state.entities.clone(),
             });
             continue;
@@ -587,6 +672,7 @@ impl Plugin for SelectionPlugin {
                     apply_group_commands,
                     apply_select_commands,
                     resolve_picks,
+                    apply_point_selects,
                     apply_command_hotkeys,
                     issue_targeted_orders,
                     smart_resolve,

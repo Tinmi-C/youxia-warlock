@@ -36,10 +36,17 @@ fn registry(defs: &[UnitDef]) -> UnitRegistry {
 }
 
 /// Spawn a Selectable unit from a registry def (UnitInstance + Hp/MaxHp).
+/// `pos` is ground (x, z) — hole-1 plane convention: world Vec3 (x, 0, z).
 fn spawn_with_def(app: &mut App, reg: &UnitRegistry, id: &str, pos: Vec2) -> Entity {
-    let entity =
-        spawn_unit(&mut app.world_mut(), reg, id, pos.extend(0.0), Allegiance::Defender, 1.0)
-            .expect("def present");
+    let entity = spawn_unit(
+        &mut app.world_mut(),
+        reg,
+        id,
+        Vec3::new(pos.x, 0.0, pos.y),
+        Allegiance::Defender,
+        1.0,
+    )
+    .expect("def present");
     app.world_mut().entity_mut(entity).insert(Selectable);
     entity
 }

@@ -87,6 +87,7 @@ fn bundle_with_towers() -> MapBundle {
         items: Default::default(),
         production: Default::default(),
         teams: Default::default(),
+        starting_forces: Default::default(),
     }
 }
 
