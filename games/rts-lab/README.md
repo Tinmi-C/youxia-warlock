@@ -17,8 +17,10 @@
 
 ```bash
 cargo run -p rts-lab          # 真机灰盒（渲染/HUD 人工验收 H1）
+cargo run -p rts-lab -- --record   # 录像：对局结束自动存 runs/<时间戳>.jsonl
+cargo run -p rts-lab -- --replay runs/<文件>.jsonl   # 无头校验（0/1 退出码）
 cargo test -p rts-lab         # RL 系验收测试（headless）
-cargo test --workspace        # 全仓一击回归（含 warbase 373 基线）
+cargo test --workspace        # 全仓一击回归（含 warbase 基线）
 ```
 
 ## 操作（H1 人工试玩清单）
@@ -35,8 +37,37 @@ H/S/Esc/Tab/数字编队走基底。
 5. **T 键** → 主城训练一个农民（金 -50，5 秒后主城旁刷出新农民，人口 +1）。
 6. 不操作时农民**自动往返矿↔城**采集：搬金时头顶有小金块，每趟 +10
   （HUD 金数上涨）。
-7. （A 攻击移动：基底 A/P 定点令继承平面缝缺陷——RL2 交战增量后补人工项。）
+7. （A 攻击移动：基底 A/P 定点令的平面缝已由游戏侧桥补齐——见下 RL2 清单。）
 8. `F12` 截图到 `./screenshot.png`（验收证据）；`RUST_LOG=info` 看仪表。
+
+RL2 切片（交战 + 技能 + 生产纵深 + 物品）：
+
+9. **A 键攻击移动**：选单位 → 按 `A` → 左键点地 → 单位边走边打（路遇
+   敌兵自动交战、杀完继续走）；`P` 键同式两点巡逻。
+10. **兵营出兵**：左键点兵营（蓝方块旁的深蓝小方块）→ `T` 训步兵
+    （60g/6s）/ `F` 训弓手（70g/7s，箭为追踪投射物）；选主城时 `T` 仍
+    训农民。
+11. **英雄圣光**：选圣骑士（金色大块）→ `Q` → 治疗选择集内受伤最重的
+    盟友（无人受伤则自体）；蓝 100 耗 40、冷却 6s；受伤单位把它和英雄
+    一起框选即可验瞄准策略。
+12. **科研**：`R` 键 → 100g/8s → 步兵弓手攻击 +15%（观察训练出的兵
+    打 grunts 掉血变快；headless 断言在 tests/behavior.rs ⑩）。
+13. **物品**：杀一个 grunt → 尸边掉绿瓶（healing_potion，必掉）；英雄
+    （或农民）走过去自动入包；选英雄按 `1` 用药回 80 血。商店（中央
+    紫方块）：英雄贴近（3 格内）按 `B` 买药 30g（半价回收走基底）。
+
+RL3 切片（迷雾 + 小地图 + 录像）：
+
+14. **战争迷雾**：开局右下敌区 grunt 全部**变暗半透明**（InFog 视觉）；
+    把英雄（视野 7）/步兵（5.5）走过去 → 敌人恢复亮色；己方单位任何
+    时候都是全亮。迷雾不挡战斗：暗处的 grunt 仍会还手。
+15. **小地图**：右下角小地图面板（蓝=己方 blip、红=敌方可见 blip、
+    金色大点=英雄；暗处单位不显示）；**左键点小地图** → 主镜头跳到
+    对应位置（仅镜头，不发命令）。
+16. **录像**：`cargo run -p rts-lab -- --record` 打一局到分胜负 →
+    `runs/` 出现 `<时间戳>.jsonl`；`cargo run -p rts-lab -- --replay
+    runs/<文件>` 无头对账退出码 0（注：真机日志含渲染实体，无头对账
+    属 lab 组合——详见 `src/systems/replay_io.rs` 头注与 GDD 洞 #11）。
 
 ## 目录结构
 
@@ -50,9 +81,10 @@ src/
     game.rs         # GamePlugin：headless-safe 核心（装配/开局/训练/采集）
     visual.rs       # VisualPlugin：灰盒渲染 + HUD（真机专用，测试不加）
     debug.rs        # 日志仪表 + F12 截图
-  systems/          # camera / gameplay / selection / visuals / hud
+  systems/          # camera / gameplay / input_bridge / visuals / hud / minimap / replay_io
 maps/arena.ron      # 地图=自包含数据包（ADR-0013）
 tests/behavior.rs   # RL 系验收测试（headless 驱动）
+runs/               # --record 录像输出（gitignored）
 docs/               # roadmap / GDD
 ```
 

@@ -4,4 +4,6 @@ pub mod camera;
 pub mod gameplay;
 pub mod hud;
 pub mod input_bridge;
+pub mod minimap;
+pub mod replay_io;
 pub mod visuals;

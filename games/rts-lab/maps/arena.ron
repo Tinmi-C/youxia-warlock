@@ -18,20 +18,47 @@
     ),
     units: {
         // ---- P0 侧 ----
-        // 主城：唯一训练建筑（production 段）；建筑无 MoveAgent 语义（move_speed 0）。
+        // 主城：训练建筑（production 段 trains=[peasant]）；建筑无 MoveAgent 语义（move_speed 0）。
         "main_hall": (id: "main_hall", attrs: (hp: 1500, move_speed: 0.0, body_radius: 1.2),
                       armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
+        // 兵营（RL2）：训练 footman/archer（production 段）。
+        "barracks": (id: "barracks", attrs: (hp: 900, move_speed: 0.0, body_radius: 1.0),
+                     armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
         // 农民：MoveAgent 语义（move_speed>0）；50g 训练费（cost_gold 即 PRD1 入队扣费）；
         // 弱近战 kit = 民兵语义，兼作 LastTeamStanding 里队 0 的存活战力
         // （胜负只认 AttackKit/PathFollower 携带者，纯工人会让己方「无人站立」）。
         "peasant": (id: "peasant", attrs: (hp: 45, move_speed: 3.0, body_radius: 0.3),
                     attack: Some((damage: 4, interval: 1.2, range: 1.0, attack_type: Normal, targets: Ground)),
                     armor_type: Light, cost_gold: 50, bounty_gold: 0, grant_xp: 0, traits: []),
+        // 步兵（RL2）：近战 kit，60g。
+        "footman": (id: "footman", attrs: (hp: 120, move_speed: 3.2, body_radius: 0.35),
+                    attack: Some((damage: 12, interval: 1.1, range: 1.0, attack_type: Normal, targets: Ground)),
+                    armor_type: Medium, cost_gold: 60, bounty_gold: 0, grant_xp: 12, traits: []),
+        // 弓手（RL2）：投射物 kit（TargetDomain::Ground + projectile），70g。
+        "archer": (id: "archer", attrs: (hp: 80, move_speed: 3.0, body_radius: 0.3),
+                   attack: Some((damage: 10, interval: 1.4, range: 6.0, attack_type: Piercing, targets: Ground,
+                                 projectile: Some((speed: 16.0)))),
+                   armor_type: Light, cost_gold: 70, bounty_gold: 0, grant_xp: 10, traits: []),
+        // 圣骑士（RL2 英雄）：hero 段挂 XpHolder；skills 两技能（holy_light 主动 /
+        // devotion 被动标记位）；devotion 的效果走 def.auras（DamageTakenMult 光环，
+        // 基底 apply_auras 只作用于 PathFollower，游戏侧补自由单位光环消费——见
+        // gameplay.rs free_agent_auras 注记）；mana 池 100/1.0 每秒。
+        "paladin": (id: "paladin", attrs: (hp: 220, move_speed: 3.4, body_radius: 0.45),
+                    attack: Some((damage: 16, interval: 1.2, range: 1.2, attack_type: Hero, targets: Ground)),
+                    armor_type: Hero, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: [],
+                    hero: true, skills: ["holy_light", "devotion"],
+                    mana: Some((max: 100, regen: 1.0)),
+                    auras: [(radius: 4.0, kind: DamageTakenMult, amount: -0.15)]),
+        // 商店（RL2 RL3 物品链）：中立建筑，挂 Shop 组件的是开局布局（游戏侧，
+        // bundle 无 shop 段——记入 GDD 洞清单）。
+        "shop": (id: "shop", attrs: (hp: 9999, move_speed: 0.0, body_radius: 1.0),
+                 armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
         // 金矿：无 kit（非战斗单位，不参与 LastTeamStanding 计数）；RL1 不枯竭。
         "gold_mine": (id: "gold_mine", attrs: (hp: 9999, move_speed: 0.0, body_radius: 1.0),
                       armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
         // ---- P1 侧（敌） ----
-        // grunt：站桩守卫（move_speed 0 → 不挂 MoveAgent）。
+        // grunt：站桩守卫（move_speed 0 → 不挂 MoveAgent）；死亡掉 healing_potion
+        // （items.drops 段，chance 1.0 保证验收确定性）。
         "grunt": (id: "grunt", attrs: (hp: 120, move_speed: 0.0, body_radius: 0.35),
                   attack: Some((damage: 9, interval: 1.0, range: 3.0, attack_type: Normal, targets: Ground)),
                   armor_type: Medium, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
@@ -63,9 +90,32 @@
         ),
     ),
     // nav：空旷图，无额外 blocked（周界墙已由 path 段落成）；A* 预算用默认 8。
+    // vision（RL3）：fog 网格 cell 1.0（与 build 网格同分辨率；半径是游戏侧
+    // VisionSource 挂接时写死的注释常量，见 attach_rts_kit）。
+    vision: (cell: 1.0),
+    // production（RL2 扩容）：主城训农民 / 兵营训步弓；科研 attack_upgrade
+    // （Stat grant：footman/archer DamageMult +0.15，同 kind 后研覆盖前研——基底语义）。
     production: (
-        trains: {"main_hall": ["peasant"]},
-        train_times: {"peasant": 5.0},
+        trains: {"main_hall": ["peasant"], "barracks": ["footman", "archer"]},
+        train_times: {"peasant": 5.0, "footman": 6.0, "archer": 7.0},
+        research: [
+            (id: "attack_upgrade", cost_gold: 100, time: 8.0,
+             grants: [Stat(unit: "footman", kind: DamageMult, amount: 0.15),
+                      Stat(unit: "archer", kind: DamageMult, amount: 0.15)]),
+        ],
+    ),
+    // items（RL2 RL3 物品链）：healing_potion（消耗品，用=SkillCast potion_heal）
+    // 与 blade_of_valor（被动剑，携带即 DamageTakenMult -0.20）；grunt 必掉药水。
+    items: (
+        items: {
+            "healing_potion": (id: "healing_potion", name: "Healing Potion", kind: Consumable,
+                               charges: None, cooldown: 0.0, effect: Some("potion_heal"),
+                               cost_gold: 30, passive: None),
+            "blade_of_valor": (id: "blade_of_valor", name: "Blade of Valor", kind: Passive,
+                               charges: None, cooldown: 0.0, effect: None,
+                               cost_gold: 90, passive: Some((kind: DamageTakenMult, amount: -0.20))),
+        },
+        drops: {"grunt": [("healing_potion", 1.0)]},
     ),
     teams: (
         players: [(0, 0), (1, 1)], // P0 队0（玩家） vs P1 队1（敌方）

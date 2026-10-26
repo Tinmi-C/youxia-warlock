@@ -14,6 +14,8 @@ bevy = { workspace = true }
 # seams found go to the C channel, not into the engine.
 warbase = { path = "../../engine/warbase" }
 serde = { workspace = true }
+# RL3 replay IO: MatchInputLog round-trips in RON (same format as loop-td).
+ron = { workspace = true }
 
 # NOTE: profiles (dev opt-level / release thin-LTO / release-check) live in
 # the root workspace Cargo.toml — member profiles are ignored in a workspace.
