@@ -189,6 +189,9 @@ impl Plugin for WarbasePlugin {
             .add_message::<build_rts::CancelBuild>()
             .add_message::<build_rts::UpgradeTown>()
             .add_message::<sfx::SfxRequest>()
+            // MAP (round-2 plan §3): day/night phase-change message — the
+            // ONLY message-table line this increment adds.
+            .add_message::<daynight::DayPhaseChanged>()
             .init_resource::<rule::MatchRules>()
             .init_resource::<rule::MatchFlow>()
             .init_resource::<rule::StockCount>()

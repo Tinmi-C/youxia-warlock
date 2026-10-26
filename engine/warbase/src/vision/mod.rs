@@ -266,6 +266,9 @@ fn update_vision_grid(
     mut stats: ResMut<VisionStats>,
     perspective: Res<VisionPerspective>,
     diplomacy: Res<MatchDiplomacy>,
+    // MAP (round-2 plan §3): night vision factor — daynight-owned resource,
+    // 1.0 unless a Night cycle is authored (zero drift for default maps).
+    night_vision: Option<Res<crate::daynight::NightVisionFactor>>,
     sources: Query<(&VisionSource, &Transform, Option<&Owner>, Option<&Allegiance>)>,
 ) {
     // Degenerate geometry (app never assembled a bundle, or a FixedSlots map
@@ -273,6 +276,7 @@ fn update_vision_grid(
     if grid.cell <= 0.0 || grid.cols <= 0 || grid.rows <= 0 {
         return;
     }
+    let night_f = night_vision.map(|f| f.0).unwrap_or(1.0);
 
     // Source-set fingerprint over PERSPECTIVE sources only: count + sorted
     // (cell, radius-bits) entries. Radius rides along so a mid-match radius
@@ -290,7 +294,7 @@ fn update_vision_grid(
             (
                 ((pos.x - grid.origin.x) / grid.cell).floor() as i32,
                 ((pos.y - grid.origin.y) / grid.cell).floor() as i32,
-                v.radius.to_bits(),
+                (v.radius * night_f).to_bits(),
             )
         })
         .collect();
@@ -314,7 +318,8 @@ fn update_vision_grid(
             continue; // zero / negative / NaN radius lights nothing
         }
         let pos = Vec2::new(transform.translation.x, transform.translation.z);
-        let r_cells = vision.radius / grid.cell;
+        let radius = vision.radius * night_f; // MAP: night vision factor
+        let r_cells = radius / grid.cell;
         // Bounding box in cell coords, widened by 1 against floor/ceil edge
         // rounding and clamped to the grid; membership is decided exactly by
         // the center-distance test below, so the box only has to be a
@@ -332,7 +337,7 @@ fn update_vision_grid(
                         (cx as f32 + 0.5) * grid.cell,
                         (cy as f32 + 0.5) * grid.cell,
                     );
-                if pos.distance(center) <= vision.radius {
+                if pos.distance(center) <= radius {
                     grid.visible.insert((cx, cy));
                 }
             }

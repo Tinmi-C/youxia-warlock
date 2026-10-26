@@ -188,9 +188,14 @@ impl Plugin for ReplayIoPlugin {
                 eprintln!("[loop-td] recording not armed: {e}");
             }
         })
-        // After Cleanup: MatchFlow flips inside Cleanup's rules_tick; the
-        // writer must see the flip this very update and still beat the next
-        // frame's hash checkpoint — no post-end fingerprints may leak.
+        // After Cleanup (not merely after Tick): MatchFlow flips in
+        // rules_tick inside Cleanup, and an after(Tick)-only edge leaves the
+        // writer AMBIGUOUS against every Cleanup system — executor order
+        // decided it, and any new base system could flip it the wrong way
+        // (exposed by the round-2 MAP increment's camp/daynight systems).
+        // After Cleanup: MatchFlow has flipped this very update, so the
+        // writer beats the next frame's hash checkpoint — no post-end
+        // fingerprints (end-screen spawns etc.) may leak into the log.
         .add_systems(
             Update,
             write_run_on_match_ended.after(warbase::WarbaseSet::Cleanup),
