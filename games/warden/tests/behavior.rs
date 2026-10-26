@@ -5937,6 +5937,7 @@ mod skills_core {
                 mana_cost: 0.0,
                 cast_time: 0.0,
                 channel: None,
+                area_radius: 0.0, summon: None,
             };
             defs.defs.clear();
             defs.defs.insert("burst".into(), mk("burst", SkillKind::Active, SkillTargetMode::None, 3, 'B'));
@@ -6170,6 +6171,7 @@ mod skills_core {
                 mana_cost: 0.0,
                 cast_time: 0.0,
                 channel: None,
+                area_radius: 0.0, summon: None,
             },
         );
         let mut caster = SkillCaster { slots: vec![] };

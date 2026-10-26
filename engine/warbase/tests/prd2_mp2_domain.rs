@@ -43,6 +43,7 @@ fn armed_def(id: &str) -> UnitDef {
         attack_type: AttackType::Normal,
         targets: TargetDomain::Ground,
         projectile: None,
+        windup_secs: 0.0, backswing_secs: 0.0,
     });
     d
 }

@@ -17,6 +17,7 @@ fn kit(range: f32) -> AttackKit {
             attack_type: AttackType::Normal,
             targets: TargetDomain::Both,
             projectile: None,
+            windup_secs: 0.0, backswing_secs: 0.0,
         },
         priority: TargetingPriority::Nearest,
     }

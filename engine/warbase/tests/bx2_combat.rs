@@ -111,6 +111,7 @@ fn targeting_first_and_last_rank_by_path_progress() {
     tower_def.attack = Some(AttackDef {
         damage: 1.0, interval: 1.0, range: 100.0,
         attack_type: AttackType::Normal, targets: TargetDomain::Both, projectile: None,
+        windup_secs: 0.0, backswing_secs: 0.0,
     });
     let reg2 = registry(vec![tower_def.clone()]);
     let mut tower = spawn_unit(&mut app.world_mut(), &reg2, "tower", Vec3::ZERO, Allegiance::Defender, 1.0).unwrap();
@@ -136,6 +137,7 @@ fn ground_only_attack_skips_air_units() {
     tower_def.attack = Some(AttackDef {
         damage: 10.0, interval: 1.0, range: 100.0,
         attack_type: AttackType::Piercing, targets: TargetDomain::Ground, projectile: None,
+        windup_secs: 0.0, backswing_secs: 0.0,
     });
     let reg2 = registry(vec![tower_def]);
     let tower = spawn_unit(&mut app.world_mut(), &reg2, "tower", Vec3::ZERO, Allegiance::Defender, 1.0).unwrap();
@@ -159,6 +161,7 @@ fn projectile_hits_and_fizzles_on_lost_target() {
         damage: 25.0, interval: 10.0, range: 100.0,
         attack_type: AttackType::Piercing, targets: TargetDomain::Both,
         projectile: Some(ProjDef { speed: 60.0 }),
+        windup_secs: 0.0, backswing_secs: 0.0,
     });
     let reg = registry(vec![grunt, tower_def]);
     let e = spawn_unit(&mut app.world_mut(), &reg, "grunt", Vec3::new(5.0, 0.0, 0.0), Allegiance::Attacker, 1.0).unwrap();

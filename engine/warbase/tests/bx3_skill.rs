@@ -41,6 +41,7 @@ fn cast_validation_and_cooldown() {
                 targeting: SkillTargeting::None,
                 max_level: 3,
                 cooldown: 2.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None,
+                area_radius: 0.0, summon: None,
             },
         );
         defs
@@ -80,7 +81,7 @@ fn autocast_fires_when_ready() {
         let mut defs = SkillDefs::default();
         defs.defs.insert(
             "harden".into(),
-            SkillDef { id: "harden".into(), kind: SkillKind::Autocast, targeting: SkillTargeting::None, max_level: 1, cooldown: 5.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None },
+            SkillDef { id: "harden".into(), kind: SkillKind::Autocast, targeting: SkillTargeting::None, max_level: 1, cooldown: 5.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None, area_radius: 0.0, summon: None },
         );
         defs
     });
@@ -103,6 +104,7 @@ fn killer_xp_levels_and_grows() {
     hero.attack = Some(AttackDef {
         damage: 99.0, interval: 10.0, range: 5.0,
         attack_type: AttackType::Normal, targets: TargetDomain::Both, projectile: None,
+        windup_secs: 0.0, backswing_secs: 0.0,
     });
     let reg = UnitRegistry { defs: [("victim".to_string(), victim), ("hero".to_string(), hero)].into_iter().collect() };
     app.insert_resource(UnitRegistry { defs: reg.defs.clone() });

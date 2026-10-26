@@ -76,6 +76,7 @@ pub fn production_skill_defs() -> SkillDefs {
                 mana_cost: 0.0,
                 cast_time: 0.0,
                 channel: None,
+                area_radius: 0.0, summon: None,
             },
         );
     };
@@ -608,6 +609,9 @@ pub fn handle_cast_requests(
                 });
                 info!("[sk] {} cast (lv {level}), cd {cd:.0}s", def.id);
             }
+            // SKVOC base vocabulary: Area targeting exists in warbase, but
+            // warden authors no Area skills — nothing to aim or cast yet.
+            SkillTargetMode::Area => {}
         }
     }
 }

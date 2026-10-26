@@ -107,6 +107,16 @@ pub struct AttackDef {
     pub attack_type: AttackType,
     pub targets: TargetDomain,
     pub projectile: Option<ProjDef>,
+    /// Attack windup in seconds (SKVOC, plan §3): time between "fire" and
+    /// the damage point. 0 (serde/Rust default — every existing def) =
+    /// fire immediately, the exact pre-SKVOC behavior.
+    #[serde(default)]
+    pub windup_secs: f32,
+    /// Backswing lock in seconds (SKVOC): after the damage point the unit
+    /// cannot START a new windup for this long, unless a fresh order
+    /// cancels the lock (micro-retreat). 0 = no lock (legacy behavior).
+    #[serde(default)]
+    pub backswing_secs: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
