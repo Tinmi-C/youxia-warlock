@@ -810,8 +810,12 @@ use warbase::bundle::{assemble, validate, BuildDomainDef, MapIdentity, WorldDef}
 /// their owning domains land).
 #[test]
 fn new_domain_types_construct() {
-    // harvest
-    let h = HarvestDef { deposits: vec![MineDef { id: "gold".into(), pos: [1.0, 2.0], capacity: 250 }] };
+    // harvest (HARV added per_trip/dropoffs/upkeep_tiers; `..Default::default()`
+    // keeps this seam assertion construction-valid without pinning the new fields)
+    let h = HarvestDef {
+        deposits: vec![MineDef { id: "gold".into(), pos: [1.0, 2.0], capacity: 250 }],
+        ..Default::default()
+    };
     assert_eq!(h.deposits.len(), 1);
     let mine = Mine { deposit: "gold".into(), remaining: 250 };
     assert_eq!(mine.remaining, 250);
@@ -916,6 +920,7 @@ fn new_sections_parse_and_assemble() {
         attack_armor: Default::default(),
         harvest: HarvestDef {
             deposits: vec![MineDef { id: "gold".into(), pos: [2.0, 2.0], capacity: 1500 }],
+            ..Default::default()
         },
         camps: CampsDef {
             camps: vec![CampDef {
