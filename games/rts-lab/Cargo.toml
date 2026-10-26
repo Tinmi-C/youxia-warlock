@@ -1,0 +1,19 @@
+[package]
+name = "rts-lab"
+version = "0.1.0"
+edition = "2021"
+description = "rts-lab —— warbase 基底验收图（ADR-0016 §11 RL 系）：最小 WC3 场景验证「游戏=地图 bundle+薄插件」，非正式游戏"
+
+[dependencies]
+# Versions are pinned once in the root workspace (ADR-0012); members inherit.
+bevy = { workspace = true }
+
+# Warcraft-style battle runtime base (ADR-0012/0013): mechanisms & pipelines.
+# This game exists to ACCEPT the base: maps/arena.ron + thin gameplay plugins
+# only. Zero engine/warbase edits are allowed while doing so (ADR-0012 §6) —
+# seams found go to the C channel, not into the engine.
+warbase = { path = "../../engine/warbase" }
+serde = { workspace = true }
+
+# NOTE: profiles (dev opt-level / release thin-LTO / release-check) live in
+# the root workspace Cargo.toml — member profiles are ignored in a workspace.

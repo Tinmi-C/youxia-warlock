@@ -9,6 +9,7 @@ members = [
     "engine/showroom-viewer",
     "engine/warbase",
     "games/loop-td",
+    "games/rts-lab",
     "games/warden",
 ]
 exclude = [
