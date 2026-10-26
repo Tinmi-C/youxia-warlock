@@ -97,6 +97,10 @@ fn bundle(leak: LeakPolicy, open: bool, waves: usize) -> MapBundle {
         production: Default::default(),
         teams: Default::default(),
         starting_forces: Default::default(),
+    harvest: Default::default(),
+    camps: Default::default(),
+    daynight: Default::default(),
+    terrain: Default::default(),
     }
 }
 
@@ -211,6 +215,10 @@ fn rich_bundle() -> MapBundle {
         production: Default::default(),
         teams: Default::default(),
         starting_forces: Default::default(),
+    harvest: Default::default(),
+    camps: Default::default(),
+    daynight: Default::default(),
+    terrain: Default::default(),
     }
 }
 

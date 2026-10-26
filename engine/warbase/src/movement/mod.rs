@@ -72,6 +72,15 @@ pub enum Order {
     Pickup { item: Entity },
     /// Keep a friendly entity's flank (right-click on a friendly).
     Follow { target: Entity },
+    /// Walk to a resource node and gather from it (SEAM2d stub: stored
+    /// only — execution lands with the harvest domain, Phase-1 HARV).
+    Harvest { target: Entity },
+    /// Haul gathered cargo back to a depot (SEAM2d stub — harvest domain).
+    ReturnCargo { target: Entity },
+    /// Build `what` (a UnitId resolvable by the game's build registry) at
+    /// a ground point (SEAM2d stub — execution lands with the build_rts
+    /// domain, Phase-1 BLDG).
+    Build { what: String, at: Vec3 },
 }
 
 /// Player-facing command broadcast: one order for a set of selected units
@@ -1065,8 +1074,15 @@ pub fn tick_orders(
                     queue.push(entity, dest, frame.0);
                 }
             }
-            // Parked orders: stored for the future INV/Follow increments.
-            Order::Pickup { .. } | Order::Follow { .. } => {
+            // Parked orders: stored only. Pickup/Follow await their INV/
+            // escort increments; Harvest/ReturnCargo/Build are SEAM2d
+            // stubs whose execution belongs to the harvest/build_rts
+            // domains (Phase-1 HARV/BLDG) — movement just parks the agent.
+            Order::Pickup { .. }
+            | Order::Follow { .. }
+            | Order::Harvest { .. }
+            | Order::ReturnCargo { .. }
+            | Order::Build { .. } => {
                 for &entity in subjects {
                     let Ok((_, mut agent, mut state, _, _)) = agents.get_mut(entity) else {
                         continue;
@@ -1132,10 +1148,15 @@ pub fn tick_orders(
             }
             // HoldPosition stands until another order replaces it; Stop was
             // fully handled in phase 1 (defensive clear here); Pickup/Follow
-            // are parked.
+            // and the SEAM2d stub orders (Harvest/ReturnCargo/Build) are
+            // parked — their domains own the advancement.
             Order::HoldPosition => {}
             Order::Stop => agent.order = None,
-            Order::Pickup { .. } | Order::Follow { .. } => {}
+            Order::Pickup { .. }
+            | Order::Follow { .. }
+            | Order::Harvest { .. }
+            | Order::ReturnCargo { .. }
+            | Order::Build { .. } => {}
         }
     }
 }

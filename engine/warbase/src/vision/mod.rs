@@ -92,6 +92,24 @@ impl Default for VisionDef {
     }
 }
 
+/// Map-bundle terrain section (SEAM2d, Phase-2 highland placeholder): the
+/// cells raised to high ground. Vision/attack-bonus consumption lands with
+/// the Phase-2 highland increment (VisionGrid extension); the section is
+/// pinned now so map authors and the bundle schema are stable.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TerrainDef {
+    /// Grid cells on high ground (same lattice as `world.blocked` /
+    /// build-grid coordinates).
+    #[serde(default)]
+    pub high_cells: Vec<[i32; 2]>,
+}
+
+/// Bundle dispatch for the terrain section (SEAM2d placeholder): the
+/// Phase-2 highland increment owns the consumption; empty = flat map.
+pub fn apply_terrain(world: &mut World, bundle: &crate::bundle::MapBundle) {
+    let _ = (world, &bundle.terrain.high_cells);
+}
+
 /// Recompute bookkeeping for the grid update: the source-set fingerprint and
 /// how many full recomputes have run. Tests assert the skip path through
 /// `recomputes`; it doubles as a perf readout on large maps.
@@ -430,7 +448,7 @@ impl Plugin for VisionPlugin {
 
 pub mod prelude {
     pub use super::{
-        point_visible, InFog, MinimapBlip, MinimapModel, VisionDef, VisionGrid, VisionPerspective,
-        VisionPlugin, VisionSource, VisionStats,
+        point_visible, apply_terrain, InFog, MinimapBlip, MinimapModel, TerrainDef, VisionDef,
+        VisionGrid, VisionPerspective, VisionPlugin, VisionSource, VisionStats,
     };
 }

@@ -800,3 +800,155 @@ fn subgroup_cursor_filters_command_subjects() {
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].subjects.len(), 2, "single subgroup: all subjects");
 }
+
+// -- ⑨ SEAM2d: eight domain skeletons + MapBundle sections --------------------
+
+use warbase::bundle::{assemble, validate, BuildDomainDef, MapIdentity, WorldDef};
+
+/// Every pinned skeleton type is constructible through the prelude, and
+/// the Order stubs exist in the movement vocabulary (stored-only until
+/// their owning domains land).
+#[test]
+fn new_domain_types_construct() {
+    // harvest
+    let h = HarvestDef { deposits: vec![MineDef { id: "gold".into(), pos: [1.0, 2.0], capacity: 250 }] };
+    assert_eq!(h.deposits.len(), 1);
+    let mine = Mine { deposit: "gold".into(), remaining: 250 };
+    assert_eq!(mine.remaining, 250);
+    // build_rts
+    let b = BuildOrderDef {
+        time: 6.0,
+        cost_gold: 100,
+        cost_wood: 0,
+        builders_accelerate: true,
+    };
+    assert!(b.builders_accelerate);
+    let tier = TownTier(1);
+    assert_eq!(tier.0, 1);
+    // hero
+    let stats = HeroStats { str: 10, agi: 7, int: 5 };
+    assert_eq!((stats.str, stats.agi, stats.int), (10, 7, 5));
+    let _conv = HeroStatsDef::default();
+    // daynight
+    let clock = DayClock { phase: DayPhase::Night, t: 3.0 };
+    assert_eq!(clock.phase, DayPhase::Night);
+    assert_eq!(DayNightDef::default().night_vision_factor, 1.0, "neutral default");
+    // camera_rts
+    assert_eq!(EdgeScroll::default().speed_px_per_sec, 0.0, "disabled default");
+    let ping = MinimapPing { pos: Vec2::new(1.0, 2.0), team: TeamId(0) };
+    assert_eq!(ping.pos, Vec2::new(1.0, 2.0));
+    // camp
+    let camps = CampsDef {
+        camps: vec![CampDef {
+            id: "troll_hole".into(),
+            pos: [4.0, 4.0],
+            radius: 5.0,
+            respawn_secs: 60.0,
+            drops: vec!["t1_scroll".into()],
+        }],
+    };
+    assert_eq!(camps.camps.len(), 1);
+    // save / spectate
+    let slot = SaveSlot("arena_001".into());
+    assert_eq!(slot.0, "arena_001");
+    assert!(!SpectateDef::default().enabled);
+    // terrain placeholder
+    assert!(TerrainDef::default().high_cells.is_empty());
+    // Order stub variants exist and park (no execution) in tick_orders.
+    let stubs = vec![
+        Order::Harvest { target: Entity::PLACEHOLDER },
+        Order::ReturnCargo { target: Entity::PLACEHOLDER },
+        Order::Build { what: "farm".into(), at: Vec3::ZERO },
+    ];
+    assert_eq!(stubs.len(), 3);
+}
+
+/// MinimapPing round-trips through the registered message stream (send
+/// does not panic; the CAM increment consumes it later).
+#[test]
+fn minimap_ping_message_sendable() {
+    let mut app = test_app();
+    let mut cursor = MessageCursor::<MinimapPing>::default();
+    app.world_mut()
+        .write_message(MinimapPing { pos: Vec2::ONE, team: TeamId(1) });
+    app.update();
+    let msgs = app
+        .world()
+        .resource::<Messages<MinimapPing>>();
+    assert_eq!(cursor.read(msgs).count(), 1, "ping registered and delivered");
+}
+
+/// Old maps load unchanged: a shipped pre-SEAM2d RON (no harvest/camps/
+/// daynight/terrain section anywhere) validates, assembles, and leaves
+/// every new resource at its neutral default.
+#[test]
+fn old_map_loads_without_new_sections() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../games/loop-td/maps/maze.ron");
+    let bundle = warbase::bundle::load_bundle(&path).expect("shipped pre-SEAM2d map loads");
+    validate(&bundle).unwrap();
+    assert!(bundle.harvest.deposits.is_empty());
+    assert!(bundle.camps.camps.is_empty());
+    assert_eq!(bundle.daynight.day_secs, 0.0, "cycle disabled by default");
+    assert_eq!(bundle.daynight.night_vision_factor, 1.0);
+    assert!(bundle.terrain.high_cells.is_empty());
+    let mut app = test_app();
+    assemble(&mut app.world_mut(), &bundle);
+    assert_eq!(app.world().resource::<DayClock>().phase, DayPhase::Day);
+    assert!(!app.world().resource::<SpectateDef>().enabled);
+}
+
+/// Maps WITH the new sections round-trip and assemble (schema superset;
+/// version NOT bumped).
+#[test]
+fn new_sections_parse_and_assemble() {
+    let bundle = warbase::bundle::MapBundle {
+        identity: MapIdentity { id: "seam2d".into(), version: warbase::bundle::MAP_FORMAT_VERSION },
+        world: WorldDef {
+            paths: vec![],
+            build: BuildDomainDef::FreeGrid { cell: 1.0, cols: 8, rows: 8 },
+            blocked: vec![],
+        },
+        units: registry(&[def("grunt")]).defs,
+        waves: Default::default(),
+        rules: MatchRules::default(),
+        econ_start: EconStart { gold: 100, wood: 0, pop_cap: 10 },
+        attack_armor: Default::default(),
+        harvest: HarvestDef {
+            deposits: vec![MineDef { id: "gold".into(), pos: [2.0, 2.0], capacity: 1500 }],
+        },
+        camps: CampsDef {
+            camps: vec![CampDef {
+                id: "gnoll_camp".into(),
+                pos: [5.0, 5.0],
+                radius: 4.0,
+                respawn_secs: 60.0,
+                drops: vec![],
+            }],
+        },
+        daynight: DayNightDef { day_secs: 480.0, night_secs: 240.0, night_vision_factor: 0.6 },
+        terrain: TerrainDef { high_cells: vec![[1, 1], [2, 1]] },
+        econ_rules: Default::default(),
+        nav: Default::default(),
+        vision: Default::default(),
+        items: Default::default(),
+        production: Default::default(),
+        teams: Default::default(),
+        starting_forces: vec![],
+    };
+    validate(&bundle).unwrap();
+    // Serde round-trip of the section-bearing bundle.
+    let text = ron::to_string(&bundle).unwrap();
+    let back: warbase::bundle::MapBundle = ron::from_str(&text).unwrap();
+    assert_eq!(back.harvest.deposits[0].capacity, 1500);
+    assert_eq!(back.camps.camps[0].radius, 4.0);
+    assert_eq!(back.daynight.night_vision_factor, 0.6);
+    assert_eq!(back.terrain.high_cells, vec![[1, 1], [2, 1]]);
+    let mut app = test_app();
+    assemble(&mut app.world_mut(), &back);
+    assert!(app.world().contains_resource::<DayClock>());
+}
+
+fn registry(defs: &[UnitDef]) -> UnitRegistry {
+    UnitRegistry { defs: defs.iter().cloned().map(|d| (d.id.clone(), d)).collect() }
+}

@@ -52,6 +52,15 @@ pub mod prelude {
     pub use crate::selection::prelude::*;
     pub use crate::sfx::prelude::*;
     pub use crate::vision::prelude::*;
+    // SEAM2d domain skeletons (eight new domains, ADR-0018 Phase 1).
+    pub use crate::build_rts::prelude::*;
+    pub use crate::camera_rts::prelude::*;
+    pub use crate::camp::prelude::*;
+    pub use crate::daynight::prelude::*;
+    pub use crate::harvest::prelude::*;
+    pub use crate::hero::prelude::*;
+    pub use crate::save::prelude::*;
+    pub use crate::spectate::prelude::*;
     pub use crate::wave::{
         run_director, Advance, BossTimedOut, DirectorPhase, Paths, SpawnSpec, StartWave,
         WaveCleared, WaveDirector, WaveEntry, WavePreview, WaveStarted, WaveTable, WaveTag,
@@ -74,12 +83,22 @@ mod vision;
 mod buff;
 pub mod build;
 pub mod bundle;
+// SEAM2d domain skeletons (ADR-0018 Phase-1 seams; `build_rts` is named so
+// the frozen TD `build` module stays untouched).
+mod build_rts;
+mod camera_rts;
+mod camp;
+mod daynight;
 mod econ;
 pub mod harness;
+mod harvest;
+mod hero;
 mod rule;
+mod save;
 mod selection;
 mod sfx;
 mod skill;
+mod spectate;
 mod wave;
 
 #[cfg(feature = "fx")]
@@ -238,7 +257,8 @@ impl Plugin for WarbasePlugin {
 
         // Domain plugins (ADR-0016 alignment plan): domain systems register
         // inside their own plugin; lib.rs wires them exactly once. Domain
-        // increments never edit this file.
+        // increments never edit this file. SEAM2d adds the eight skeleton
+        // domains once so Phase-1 parallel lines never touch lib.rs again.
         app.add_plugins(selection::SelectionPlugin)
             .add_plugins(movement::MovementPlugin)
             .add_plugins(vision::VisionPlugin)
@@ -246,6 +266,14 @@ impl Plugin for WarbasePlugin {
             .add_plugins(production::ProductionPlugin)
             .add_plugins(replay::ReplayPlugin)
             .add_plugins(sfx::SfxPlugin)
-            .add_plugins(unit::UnitPlugin);
+            .add_plugins(unit::UnitPlugin)
+            .add_plugins(harvest::HarvestPlugin)
+            .add_plugins(build_rts::BuildRtsPlugin)
+            .add_plugins(hero::HeroPlugin)
+            .add_plugins(daynight::DayNightPlugin)
+            .add_plugins(camera_rts::CameraRtsPlugin)
+            .add_plugins(camp::CampPlugin)
+            .add_plugins(save::SavePlugin)
+            .add_plugins(spectate::SpectatePlugin);
     }
 }
