@@ -850,7 +850,8 @@ fn new_domain_types_construct() {
             pos: [4.0, 4.0],
             radius: 5.0,
             respawn_secs: 60.0,
-            drops: vec!["t1_scroll".into()],
+            drops: vec![("t1_scroll".into(), 0.25)],
+            guards: vec![],
         }],
     };
     assert_eq!(camps.camps.len(), 1);
@@ -931,6 +932,7 @@ fn new_sections_parse_and_assemble() {
                 radius: 4.0,
                 respawn_secs: 60.0,
                 drops: vec![],
+                guards: vec![],
             }],
         },
         daynight: DayNightDef { day_secs: 480.0, night_secs: 240.0, night_vision_factor: 0.6 },
