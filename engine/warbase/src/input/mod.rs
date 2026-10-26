@@ -72,13 +72,18 @@ use crate::WarbaseSet;
 
 /// Screen -> world mapping seam. Games with unusual cameras swap the
 /// resource; the base consumes only `PickAttempt` downstream.
+///
+/// PLANE CONTRACT (hole-1 fix, unified base convention): the gameplay plane
+/// is **y = 0 (XZ)** and every world `Vec2` in the pick/command chain means
+/// ground `(x, z)` — the same convention movement/nav/build/combat and
+/// warden's perspective picker already use.
 pub trait WorldPicker: Send + Sync + 'static {
-    /// Map a pointer position (window pixel coords) to world XY. None when
-    /// the pointer is off the playable plane.
+    /// Map a pointer position (window pixel coords) to ground (x, z). None
+    /// when the pointer is off the playable plane.
     fn screen_to_world(&self, world: &World, screen: Vec2) -> Option<Vec2>;
 }
 
-/// Test/default implementation: identity mapping (screen == world XY).
+/// Test/default implementation: identity mapping (screen == ground (x, z)).
 /// Handy for headless harnesses driving picks directly.
 #[derive(Resource, Debug, Default)]
 pub struct IdentityPicker;
@@ -90,8 +95,9 @@ impl WorldPicker for IdentityPicker {
 }
 
 /// Default world strategy for WC3-style maps: top-down orthographic camera,
-/// gameplay on the z=0 plane. Linear unprojection via the camera inverse
-/// (works for panned/zoomed ortho views without any picking backend).
+/// gameplay on the y=0 plane (XZ ground, hole-1 unified convention). Linear
+/// unprojection via the camera inverse (works for panned/zoomed ortho views
+/// without any picking backend).
 #[derive(Resource, Debug, Default)]
 pub struct OrthoTopDownPicker;
 
@@ -129,14 +135,20 @@ impl WorldPicker for OrthoTopDownPicker {
         {
             return None;
         }
-        // Ray through the pixel, intersected with the z=0 gameplay plane.
+        // Ray through the pixel, intersected with the y=0 gameplay plane
+        // (hole-1: base-wide XZ convention — a straight-down camera has
+        // direction.y ~ -1 and lands here; the old z=0 test returned None
+        // for every pixel of a top-down view).
         let ray = cam.viewport_to_world(transform, screen).ok()?;
-        if ray.direction.z.abs() < 1e-6 {
+        if ray.direction.y.abs() < 1e-6 {
             return None; // view direction parallel to the ground plane
         }
-        let t = -ray.origin.z / ray.direction.z;
+        let t = -ray.origin.y / ray.direction.y;
+        if t < 0.0 {
+            return None; // the ground is behind the camera
+        }
         let point = ray.origin + ray.direction * t;
-        Some(point.truncate())
+        Some(Vec2::new(point.x, point.z))
     }
 }
 

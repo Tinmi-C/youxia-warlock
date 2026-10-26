@@ -88,6 +88,7 @@ fn scenario_bundle(
         items: Default::default(),
         production: Default::default(),
         teams: Default::default(),
+        starting_forces: Default::default(),
     }
 }
 

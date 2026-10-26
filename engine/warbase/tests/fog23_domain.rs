@@ -85,6 +85,7 @@ fn sample_bundle() -> MapBundle {
         items: Default::default(),
         production: Default::default(),
         teams: Default::default(),
+        starting_forces: Default::default(),
     }
 }
 

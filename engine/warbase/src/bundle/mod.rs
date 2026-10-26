@@ -34,11 +34,31 @@ pub enum BuildDomainDef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldDef {
+    /// Creep tracks. May be EMPTY on non-TD maps (hole-3 upcast: the old
+    /// "must not be empty" rule was the TD heritage — RTS/skirmish maps
+    /// have no creep lanes; the wave table must then be empty too, see
+    /// `validate`).
     pub paths: Vec<PathDef>,
     pub build: BuildDomainDef,
     /// Grid cells blocked by scenery/paths, in grid coordinates.
     #[serde(default)]
     pub blocked: Vec<[i32; 2]>,
+}
+
+/// One authored opening unit group (hole-3 upcast from rts-lab's game-side
+/// `STARTING_LAYOUT`): `count` copies of def `unit` at ground `(x, z)`,
+/// owned by player `owner` (None = unowned; unowned folds to the Defender
+/// side, MP1's lossy view). Spawned by `assemble` at match start; the
+/// game-side kit (Selectable, MoveAgent, ...) stays the game's to attach.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartingForce {
+    pub unit: UnitId,
+    /// Copies to spawn (validate rejects 0).
+    pub count: u8,
+    /// Ground (x, z) — the hole-1 XZ convention; spawned at Vec3 (x, 0, z).
+    pub pos: [f32; 2],
+    /// Owning player slot; None = unowned (Defender side, no Owner marker).
+    pub owner: Option<u8>,
 }
 
 /// The map file. All content numbers live here (ADR-0013 narrowed ADR-0008);
@@ -73,6 +93,10 @@ pub struct MapBundle {
     /// Player/team layout (MP1; defaults = single player vs environment).
     #[serde(default)]
     pub teams: crate::unit::TeamsDef,
+    /// Authored opening units (hole-3; defaults empty — old maps load and
+    /// spawn nothing, exactly as before).
+    #[serde(default)]
+    pub starting_forces: Vec<StartingForce>,
 }
 
 #[derive(Debug)]
@@ -125,8 +149,24 @@ pub fn validate(bundle: &MapBundle) -> Result<(), MapError> {
             return invalid(format!("units key '{key}' != def.id '{}'", def.id));
         }
     }
-    if bundle.world.paths.is_empty() {
-        return invalid("world.paths must not be empty".into());
+    // Hole-3: `world.paths` may be empty (non-TD maps — RTS/skirmish lanes
+    // live in `starting_forces`, not creep tracks). The wave table guards
+    // below already reject any spawn that would reference a path index out
+    // of range, so "empty paths" is legal exactly while "no spawns" holds
+    // (hole-5: empty wave table + empty paths = a valid skirmish map).
+    for (i, force) in bundle.starting_forces.iter().enumerate() {
+        if !bundle.units.contains_key(&force.unit) {
+            return invalid(format!(
+                "starting_forces {i}: unknown unit '{}'",
+                force.unit
+            ));
+        }
+        if force.count == 0 {
+            return invalid(format!("starting_forces {i}: count must be > 0"));
+        }
+        if !force.pos.iter().all(|v| v.is_finite()) {
+            return invalid(format!("starting_forces {i}: pos must be finite"));
+        }
     }
     for (i, wave) in bundle.waves.waves.iter().enumerate() {
         for (j, spec) in wave.spawns.iter().enumerate() {
@@ -170,23 +210,30 @@ pub fn validate(bundle: &MapBundle) -> Result<(), MapError> {
 
 /// Derive the build grid from the map's world def: FreeGrid bounds get
 /// centered on the path bounding box (signed-coordinate maps), path cells
-/// are blocked; FixedSlots pass through as slot centers.
+/// are blocked; FixedSlots pass through as slot centers. A pathless world
+/// (hole-3: RTS/skirmish maps) centers the FreeGrid on the origin (0, 0)
+/// instead — there is no bbox to align with, and origin-centering keeps
+/// signed-coordinate gameplay (arena around (0, 0)) symmetric.
 pub fn build_grid(world: &WorldDef) -> crate::build::BuildGrid {
     use crate::build::{BuildGrid, Cell};
     match &world.build {
         BuildDomainDef::FreeGrid { cell, cols, rows } => {
             let mut grid = BuildGrid::free_grid(*cell, *cols, *rows);
-            let mut min = Vec2::splat(f32::MAX);
-            let mut max = Vec2::splat(f32::MIN);
-            for path in &world.paths {
-                for p in &path.points {
-                    min.x = min.x.min(p[0]);
-                    min.y = min.y.min(p[1]);
-                    max.x = max.x.max(p[0]);
-                    max.y = max.y.max(p[1]);
+            let center = if world.paths.is_empty() {
+                Vec2::ZERO
+            } else {
+                let mut min = Vec2::splat(f32::MAX);
+                let mut max = Vec2::splat(f32::MIN);
+                for path in &world.paths {
+                    for p in &path.points {
+                        min.x = min.x.min(p[0]);
+                        min.y = min.y.min(p[1]);
+                        max.x = max.x.max(p[0]);
+                        max.y = max.y.max(p[1]);
+                    }
                 }
-            }
-            let center = (min + max) * 0.5;
+                (min + max) * 0.5
+            };
             grid.origin = center - Vec2::new(*cols as f32 * cell / 2.0, *rows as f32 * cell / 2.0);
             for path in &world.paths {
                 let len = path.length();
@@ -250,6 +297,37 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     crate::item::apply_items(world, bundle);
     crate::production::apply_production(world, bundle);
     crate::unit::apply_teams(world, bundle);
+
+    // Starting forces (hole-3): spawn the authored opening units AFTER the
+    // domain dispatch so the fresh diplomacy (apply_teams) derives each
+    // side. Vec order is authored order (deterministic); unknown ids are
+    // unreachable through `load_bundle` (validate rejects them) and simply
+    // skip on direct construction. Owner -> derived Allegiance via MP1's
+    // lossy view (hostile to team 0 = Attacker, else Defender); None =
+    // unowned, no marker (folds Defender). Population is NOT booked here —
+    // pop accounting is a game economy decision (rts-lab books its own).
+    {
+        let registry = world.resource::<crate::unit::UnitRegistry>().clone();
+        let diplomacy = world.resource::<crate::unit::MatchDiplomacy>().clone();
+        for force in &bundle.starting_forces {
+            let side = force
+                .owner
+                .map(|p| diplomacy.allegiance_of(crate::unit::PlayerId(p)))
+                .unwrap_or(crate::unit::Allegiance::Defender);
+            for _ in 0..force.count {
+                let pos = Vec3::new(force.pos[0], 0.0, force.pos[1]);
+                if let Some(entity) =
+                    crate::unit::spawn_unit(world, &registry, &force.unit, pos, side, 1.0)
+                {
+                    if let Some(owner) = force.owner {
+                        world
+                            .entity_mut(entity)
+                            .insert(crate::unit::Owner(crate::unit::PlayerId(owner)));
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ---------- art-needs projection (ADR-0015) ----------

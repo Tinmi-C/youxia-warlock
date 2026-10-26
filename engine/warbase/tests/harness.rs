@@ -95,6 +95,7 @@ fn bundle(leak: LeakPolicy, open: bool, waves: usize) -> MapBundle {
         items: Default::default(),
         production: Default::default(),
         teams: Default::default(),
+        starting_forces: Default::default(),
     }
 }
 
@@ -208,6 +209,7 @@ fn rich_bundle() -> MapBundle {
         items: Default::default(),
         production: Default::default(),
         teams: Default::default(),
+        starting_forces: Default::default(),
     }
 }
 
