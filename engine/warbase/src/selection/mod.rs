@@ -23,6 +23,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::build::{BuildGrid, BuildMode};
+use crate::item::GroundItem;
 use crate::movement::{Order, UnitCommand};
 use crate::unit::{Allegiance, Hostility, Hp, MaxHp, UnitId, UnitInstance, UnitRegistry};
 
@@ -82,6 +83,11 @@ pub enum CommandHotkey {
     Stop,
     /// P: arm Patrol targeting — two left clicks (point a, then point b).
     Patrol,
+    /// M (SEAM2c): arm explicit Move targeting — the next left click issues
+    /// a plain `Order::Move` to that point (WC3's M-key two-state machine;
+    /// distinct from a right-click smart-move only in that it ignores what
+    /// is under the cursor).
+    Move,
     /// Esc: cancel any pending targeting state (never touches the selection
     /// set itself — Clear owns that, SEL2).
     Cancel,
@@ -101,10 +107,13 @@ pub enum PendingTargetOrder {
     PatrolFirst,
     /// Point a captured: waiting for the second click (point b).
     PatrolSecond { a: Vec3 },
+    /// M pressed (SEAM2c): the next left click issues a plain Move there.
+    Move,
 }
 
-/// Selection set mutations. `SameTypeOnScreen` is resolved by the input
-/// layer (it owns screen space) into `Set` before reaching here.
+/// Selection set mutations. Double-click select-same-type resolves inside
+/// `apply_point_selects` (SEAM2c) against the camera-visible AABB
+/// (`SelectionScreenRect`); the input layer only reports click counts.
 #[derive(Message, Debug, Clone)]
 pub enum SelectCommand {
     Set(Vec<Entity>),
@@ -278,6 +287,50 @@ fn subgroup_keys(state: &SelectionState, instances: &Query<&UnitInstance>) -> Ve
     keys
 }
 
+/// Ground-space AABB of what the camera currently shows (SEAM2c
+/// double-click same-type scope). Written by the ui-feature input layer
+/// from the camera each frame; the default rect is INFINITE — "no camera
+/// layer, everything counts as on screen" — so headless apps keep
+/// same-type selection working world-wide.
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct SelectionScreenRect {
+    pub min: Vec2,
+    pub max: Vec2,
+}
+
+impl Default for SelectionScreenRect {
+    fn default() -> Self {
+        Self { min: Vec2::splat(f32::MIN), max: Vec2::splat(f32::MAX) }
+    }
+}
+
+/// Subjects for a command issued from the current selection (WC3 subgroup
+/// semantics, SEAM2c): when the selection spans several def-id subgroups,
+/// orders apply only to the subgroup `subgroup_cursor` points at (Tab
+/// cycles it); a single-subgroup (or empty) selection commands everyone.
+/// PINNED CONTRACT for `UnitCommand` consumers: selection-layer writers
+/// (`smart_resolve`, hotkey fires, targeted orders) pre-filter subjects
+/// through this — movement/consumers must NOT re-derive subgroups.
+fn command_subjects(state: &SelectionState, instances: &Query<&UnitInstance>) -> Vec<Entity> {
+    let keys = subgroup_keys(state, instances);
+    if keys.len() <= 1 {
+        return state.entities.clone();
+    }
+    let key = keys[state.subgroup_cursor.min(keys.len() - 1)].clone();
+    state
+        .entities
+        .iter()
+        .copied()
+        .filter(|&e| {
+            instances
+                .get(e)
+                .map(|i| i.def.clone())
+                .unwrap_or_default()
+                == key
+        })
+        .collect()
+}
+
 /// Read-only subgroup partition of the current selection for tests/UI: the
 /// def ids present, ascending (Tab cycles buckets in this order).
 pub fn selection_subgroups(world: &World, state: &SelectionState) -> Vec<UnitId> {
@@ -441,8 +494,10 @@ fn resolve_picks(
 /// - open ground -> `Clear`, except shift+ground keeps the selection;
 /// - while a `PendingTargetOrder` is armed the click targets the ORDER
 ///   (see `issue_targeted_orders`) and never touches the selection;
-/// - double clicks (click_count > 1, select-same-type) are the input
-///   layer's business (it resolves them to `Set` directly, SEL2).
+/// - DOUBLE CLICKS (click_count >= 2, SEAM2c): select-same-type — every
+///   Selectable body of the clicked body's def id whose disc touches the
+///   camera-visible ground AABB (`SelectionScreenRect`, infinite default
+///   headless) joins the new set.
 /// Scheduling note: this runs after `apply_select_commands`, so the emitted
 /// `SelectCommand` is consumed the NEXT frame — one frame of latency, same
 /// as real input (the bridge writes `PickAttempt`s before Tick anyway).
@@ -451,16 +506,48 @@ fn apply_point_selects(
     bodies: Query<(Entity, &Transform, Option<&UnitInstance>), With<Selectable>>,
     registry: Res<UnitRegistry>,
     pending: Res<PendingTargetOrder>,
+    screen: Res<SelectionScreenRect>,
     mut select: MessageWriter<SelectCommand>,
 ) {
     if *pending != PendingTargetOrder::Idle {
-        return; // A/P targeting owns left clicks while armed
+        return; // A/P/M targeting owns left clicks while armed
     }
     for attempt in attempts.read() {
-        if attempt.button != PickButton::Left || attempt.click_count != 1 {
+        if attempt.button != PickButton::Left {
             continue;
         }
         let hits = point_hits(&bodies, &registry, attempt.world);
+        // Select-same-type (double click): all on-screen bodies of the
+        // clicked body's def id (hole-1 XZ geometry helpers reused: the
+        // disc-vs-rect test is the same one box select applies).
+        if attempt.click_count > 1 {
+            let Some(&clicked) = hits.first() else {
+                continue; // same-type needs a body under the cursor
+            };
+            let Some(def_id) = bodies
+                .get(clicked)
+                .ok()
+                .and_then(|(_, _, instance)| instance.map(|i| i.def.clone()))
+            else {
+                select.write(SelectCommand::Set(vec![clicked]));
+                continue; // non-unit selectable (shop/item): plain select
+            };
+            let same_type: Vec<Entity> = bodies
+                .iter()
+                .filter(|(_, transform, instance)| {
+                    instance.is_some_and(|i| i.def == def_id)
+                        && disc_hits_rect(
+                            ground_pos(transform.translation),
+                            body_radius(*instance, &registry),
+                            screen.min,
+                            screen.max,
+                        )
+                })
+                .map(|(entity, _, _)| entity)
+                .collect();
+            select.write(SelectCommand::Set(same_type));
+            continue;
+        }
         match (hits.first(), attempt.ctrl, attempt.shift) {
             (Some(&first), false, false) => {
                 select.write(SelectCommand::Set(vec![first]));
@@ -501,6 +588,9 @@ fn apply_command_hotkeys(
             CommandHotkey::Patrol if !state.entities.is_empty() => {
                 *pending = PendingTargetOrder::PatrolFirst;
             }
+            CommandHotkey::Move if !state.entities.is_empty() => {
+                *pending = PendingTargetOrder::Move;
+            }
             CommandHotkey::Hold if !state.entities.is_empty() => {
                 commands.write(UnitCommand {
                     order: Order::HoldPosition,
@@ -521,9 +611,10 @@ fn apply_command_hotkeys(
 /// Consumes left-click `PickAttempt`s while a `PendingTargetOrder` is armed
 /// (Tick): the click targets the pending order instead of selecting — A
 /// fires AttackMove at the point; P is a two-click machine (first parks a,
-/// second fires Patrol{a, b}); Esc (see `apply_command_hotkeys`) cancels.
-/// A selection emptied between arming and clicking disarms the cursor
-/// instead of issuing an empty command.
+/// second fires Patrol{a, b}); M (SEAM2c) fires a plain Move to the point;
+/// Esc (see `apply_command_hotkeys`) cancels. A selection emptied between
+/// arming and clicking disarms the cursor instead of issuing an empty
+/// command.
 fn issue_targeted_orders(
     mut attempts: MessageReader<PickAttempt>,
     state: Res<SelectionState>,
@@ -548,6 +639,13 @@ fn issue_targeted_orders(
                 });
                 PendingTargetOrder::Idle
             }
+            PendingTargetOrder::Move => {
+                commands.write(UnitCommand {
+                    order: Order::Move { to },
+                    subjects: state.entities.clone(),
+                });
+                PendingTargetOrder::Idle
+            }
             PendingTargetOrder::PatrolFirst => PendingTargetOrder::PatrolSecond { a: to },
             PendingTargetOrder::PatrolSecond { a } => {
                 commands.write(UnitCommand {
@@ -561,46 +659,64 @@ fn issue_targeted_orders(
 }
 
 /// Consumes right-click `PickResolved`s (Tick, before Intent): the WC3 smart
-/// command — exactly one `UnitCommand` per right click, the whole selection
-/// as subjects (formation scatter is MOV5's business at consumption). The
-/// first hit decides: a hostile body -> AttackTarget; open ground -> Move to
-/// the pick point. Commander side = the first subject's Allegiance
-/// (selections are single-side; MP1 re-derives this via Owner/diplomacy
-/// inside the `Hostility` oracle, not here).
+/// command — exactly one `UnitCommand` per right click, subjects = the
+/// CURRENT SUBGROUP only (SEAM2c: `command_subjects` — WC3 issues orders to
+/// the Tab-selected subgroup, not the whole multi-type selection; pinned
+/// contract for `UnitCommand` consumers, see `command_subjects`). The first
+/// hit decides: a ground item -> Pickup; a hostile body -> AttackTarget; a
+/// friendly Selectable -> Follow; open ground -> Move to the pick point.
+/// Commander side = the first subject's Allegiance (selections are
+/// single-side; MP1 re-derives this via Owner/diplomacy inside the
+/// `Hostility` oracle, not here).
 fn smart_resolve(
     mut picks: MessageReader<PickResolved>,
     state: Res<SelectionState>,
     hostility: Res<Hostility>,
     sides: Query<&Allegiance>,
+    grounds: Query<Entity, With<GroundItem>>,
+    instances: Query<&UnitInstance>,
     mut commands: MessageWriter<UnitCommand>,
 ) {
     for pick in picks.read() {
         if pick.button != PickButton::Right || state.entities.is_empty() {
             continue;
         }
+        let subjects = command_subjects(&state, &instances);
         let Some(&target) = pick.entities.first() else {
             // Open ground: walk there.
             commands.write(UnitCommand {
                 order: Order::Move { to: ground_vec(pick.world) },
-                subjects: state.entities.clone(),
+                subjects,
             });
             continue;
         };
+        // SEAM2c hole收口: a GroundItem hit is a Pickup order (ground items
+        // appear in `entities` only when the game marks them Selectable).
+        if grounds.get(target).is_ok() {
+            commands.write(UnitCommand {
+                order: Order::Pickup { item: target },
+                subjects,
+            });
+            continue;
+        }
         let side = sides
-            .get(state.entities[0])
+            .get(subjects[0])
             .copied()
             .unwrap_or(Allegiance::Defender);
         let target_side = sides.get(target).copied().unwrap_or(Allegiance::Defender);
         if hostility.hostile(side, target_side) {
             commands.write(UnitCommand {
                 order: Order::AttackTarget { target },
-                subjects: state.entities.clone(),
+                subjects,
             });
         } else {
-            // TODO(SEL4->INV): a GroundItem hit resolves to Order::Pickup
-            // once ground-item entities exist in the item domain.
-            // TODO(SEL4->MOV): a friendly Selectable hit resolves to
-            // Order::Follow; until then friendly hits issue nothing.
+            // SEAM2c hole收口: a friendly Selectable hit is a Follow order
+            // (right-click escort; executed by the parked Follow arm in
+            // movement until a dedicated increment lands).
+            commands.write(UnitCommand {
+                order: Order::Follow { target },
+                subjects,
+            });
         }
     }
 }
@@ -681,6 +797,7 @@ impl Plugin for SelectionPlugin {
         app.add_message::<CommandHotkey>()
             .init_resource::<PendingTargetOrder>()
             .init_resource::<ModalKeyClaim>()
+            .init_resource::<SelectionScreenRect>()
             .add_systems(
                 Update,
                 (
@@ -704,8 +821,8 @@ impl Plugin for SelectionPlugin {
 pub mod prelude {
     pub use super::{
         AABB_EDGE_EPSILON, CommandHotkey, ControlGroups, CycleSubgroups, GroupCommand,
-        ModalKeyClaim, PendingTargetOrder, PickAttempt, PickButton, PickResolved, SelectCommand,
-        Selectable, Selected, SelectionDetail, SelectionPanelData, SelectionPlugin, SelectionState,
-        selection_subgroups,
+        ModalKeyClaim, PendingTargetOrder, PickAttempt, PickButton, PickResolved,
+        SelectionScreenRect, SelectCommand, Selectable, Selected, SelectionDetail,
+        SelectionPanelData, SelectionPlugin, SelectionState, selection_subgroups,
     };
 }

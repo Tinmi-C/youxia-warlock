@@ -486,3 +486,317 @@ fn command_envelope_new_variants_roundtrip() {
     assert_eq!(log.frames, back.frames, "frames round-trip (MatchInputLog has no PartialEq; element-wise)");
     assert_eq!(log.hashes, back.hashes);
 }
+
+// -- ⑥ SEAM2c: command messages registered + consumed ------------------------
+
+/// All four flipped command messages can be sent without panic and drive
+/// their consumption chains end-to-end: rally attaches a RallyPoint,
+/// research enqueues + charges, an item use fires its SkillCast effect, a
+/// shop buy charges gold and stows the stack.
+#[test]
+fn command_messages_send_and_consume() {
+    let mut app = test_app();
+
+    // Rally: Set on a fresh builder inserts the component (insert path —
+    // commands are deferred, so check after the update).
+    let builder = app.world_mut().spawn_empty().id();
+    app.world_mut().write_message(RallyCommands(RallyCommand::Set {
+        builder,
+        order: Order::Move { to: Vec3::new(1.0, 0.0, 2.0) },
+    }));
+    app.update();
+    assert_eq!(
+        app.world().get::<RallyPoint>(builder).and_then(|r| r.0.clone()),
+        Some(Order::Move { to: Vec3::new(1.0, 0.0, 2.0) }),
+        "rally Set consumed"
+    );
+
+    // Research: a table entry starts and charges on the same update.
+    app.world_mut().insert_resource(ResearchTable(
+        [(
+            "atk-up".to_string(),
+            ResearchDef {
+                id: "atk-up".into(),
+                cost_gold: 50,
+                time: 10.0,
+                grants: vec![],
+            },
+        )]
+        .into_iter()
+        .collect(),
+    ));
+    app.world_mut().resource_mut::<Resources>().gold = 100;
+    app.world_mut()
+        .write_message(ResearchCommands(ResearchCommand::Start { id: "atk-up".into() }));
+    app.update();
+    assert_eq!(app.world().resource::<ResearchState>().entries.len(), 1);
+    assert_eq!(app.world().resource::<Resources>().gold, 50, "research charged");
+
+    // Item use: a charged potion with a registered effect fires SkillCast.
+    let potion = ItemDef {
+        id: "potion".into(),
+        name: "Potion".into(),
+        kind: ItemKind::Consumable,
+        charges: Some(1),
+        cooldown: 0.0,
+        effect: Some("potion_heal".into()),
+        cost_gold: 30,
+        passive: None,
+    };
+    app.world_mut()
+        .insert_resource(ItemRegistry { defs: [("potion".into(), potion)].into_iter().collect() });
+    app.world_mut()
+        .resource_mut::<SkillDefs>()
+        .defs
+        .insert("potion_heal".into(), skill("potion_heal", SkillKind::Active));
+    let hero = app
+        .world_mut()
+        .spawn((
+            Inventory::default(),
+            StatMods::default(),
+            Transform::default(),
+        ))
+        .id();
+    app.world_mut().get_mut::<Inventory>(hero).unwrap().slots[0] =
+        Some(ItemStack { def: "potion".into(), charges: 1, cooldown: 0.0 });
+    let mut casts = MessageCursor::<SkillCast>::default();
+    app.world_mut()
+        .write_message(ItemCommands(ItemCommand::Use { user: hero, slot: 0 }));
+    app.update();
+    let fired: Vec<SkillCast> = {
+        let msgs = app.world().resource::<Messages<SkillCast>>();
+        casts.read(msgs).cloned().collect()
+    };
+    assert_eq!(fired.len(), 1, "item use fires its effect cast");
+    assert_eq!(fired[0].skill, "potion_heal");
+    assert!(app.world().get::<Inventory>(hero).unwrap().slots[0].is_none(), "spent");
+
+    // Shop buy: stock + funds + free slot -> charge + stow.
+    let shop = app
+        .world_mut()
+        .spawn((Shop { stock: vec!["potion".into()] }, Transform::default()))
+        .id();
+    let buyer = app
+        .world_mut()
+        .spawn((Inventory::default(), StatMods::default(), Transform::default()))
+        .id();
+    app.world_mut().resource_mut::<Resources>().gold = 100;
+    app.world_mut().write_message(ShopCommands(ShopCommand::Buy {
+        buyer,
+        shop,
+        item: "potion".into(),
+    }));
+    app.update();
+    assert_eq!(app.world().resource::<Resources>().gold, 70, "buy charged 30");
+    assert_eq!(
+        app.world().get::<Inventory>(buyer).unwrap().slots[0]
+            .as_ref()
+            .unwrap()
+            .def,
+        "potion"
+    );
+}
+
+// -- ⑦ SEAM2c: selection收口 ---------------------------------------------------
+
+fn selectable_unit(world: &mut World, def: &str, pos: Vec2, side: Allegiance) -> Entity {
+    world
+        .spawn((
+            Selectable,
+            side,
+            Transform::from_translation(Vec3::new(pos.x, 0.0, pos.y)),
+            UnitInstance { def: def.into(), level: 1 },
+        ))
+        .id()
+}
+
+fn right_click(app: &mut App, at: Vec2) -> Vec<UnitCommand> {
+    let mut attempts = MessageCursor::<PickAttempt>::default();
+    let _ = &mut attempts;
+    app.world_mut().write_message(PickAttempt {
+        world: at,
+        button: PickButton::Right,
+        click_count: 1,
+        ctrl: false,
+        shift: false,
+    });
+    let mut cursor = MessageCursor::<UnitCommand>::default();
+    app.update();
+    let msgs = app.world().resource::<Messages<UnitCommand>>();
+    cursor.read(msgs).cloned().collect()
+}
+
+/// Right-click a (Selectable) GroundItem -> Order::Pickup.
+#[test]
+fn right_click_ground_item_pickup() {
+    let mut app = test_app();
+    let worker = selectable_unit(app.world_mut(), "peasant", Vec2::new(0.0, 2.0), Allegiance::Defender);
+    let item = app
+        .world_mut()
+        .spawn((
+            Selectable,
+            GroundItem { def: "potion".into(), grace: 0.0 },
+            Transform::default(),
+        ))
+        .id();
+    app.world_mut()
+        .write_message(SelectCommand::Set(vec![worker]));
+    app.update(); // selection settles
+
+    let commands = right_click(&mut app, Vec2::ZERO);
+    assert_eq!(commands.len(), 1);
+    assert!(
+        matches!(commands[0].order, Order::Pickup { item: e } if e == item),
+        "hole-2/INV收口: {:?}",
+        commands[0].order
+    );
+}
+
+/// Right-click a friendly Selectable -> Order::Follow (was a silent no-op).
+#[test]
+fn right_click_friendly_follows() {
+    let mut app = test_app();
+    let worker = selectable_unit(app.world_mut(), "peasant", Vec2::new(0.0, 2.0), Allegiance::Defender);
+    let hero = selectable_unit(app.world_mut(), "paladin", Vec2::ZERO, Allegiance::Defender);
+    app.world_mut()
+        .write_message(SelectCommand::Set(vec![worker]));
+    app.update();
+
+    let commands = right_click(&mut app, Vec2::ZERO);
+    assert_eq!(commands.len(), 1);
+    assert!(
+        matches!(commands[0].order, Order::Follow { target: t } if t == hero),
+        "SEAM2c: {:?}",
+        commands[0].order
+    );
+}
+
+/// M-key two-state machine: M arms Move targeting; the next left click
+/// issues a plain Move to that point and disarms; while armed, a left
+/// click never touches the selection set.
+#[test]
+fn m_key_arms_explicit_move() {
+    let mut app = test_app();
+    let unit = selectable_unit(app.world_mut(), "footman", Vec2::new(0.0, 5.0), Allegiance::Defender);
+    app.world_mut()
+        .write_message(SelectCommand::Set(vec![unit]));
+    app.update();
+
+    app.world_mut().write_message(CommandHotkey::Move);
+    app.update();
+    assert_eq!(
+        app.world().resource::<PendingTargetOrder>().clone(),
+        PendingTargetOrder::Move,
+        "M arms the cursor"
+    );
+
+    // Left click targets the order (not a select).
+    app.world_mut().write_message(PickAttempt {
+        world: Vec2::new(3.0, 4.0),
+        button: PickButton::Left,
+        click_count: 1,
+        ctrl: false,
+        shift: false,
+    });
+    let mut cursor = MessageCursor::<UnitCommand>::default();
+    app.update();
+    let commands: Vec<UnitCommand> = {
+        let msgs = app.world().resource::<Messages<UnitCommand>>();
+        cursor.read(msgs).cloned().collect()
+    };
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].order, Order::Move { to: Vec3::new(3.0, 0.0, 4.0) });
+    assert_eq!(
+        app.world().resource::<PendingTargetOrder>().clone(),
+        PendingTargetOrder::Idle,
+        "cursor disarmed after issuing"
+    );
+    assert_eq!(
+        app.world().resource::<SelectionState>().entities,
+        vec![unit],
+        "targeting click never touches the selection"
+    );
+}
+
+/// Double-click selects every on-screen body of the clicked def id: the
+/// camera-visible AABB (`SelectionScreenRect`) bounds "on screen" — the
+/// default infinite rect selects world-wide; a narrow rect clips.
+#[test]
+fn double_click_selects_same_type_on_screen() {
+    let mut app = test_app();
+    let near = selectable_unit(app.world_mut(), "footman", Vec2::new(0.0, 0.0), Allegiance::Defender);
+    let far = selectable_unit(app.world_mut(), "footman", Vec2::new(50.0, 50.0), Allegiance::Defender);
+    let other = selectable_unit(app.world_mut(), "archer", Vec2::new(1.0, 0.0), Allegiance::Defender);
+
+    // Infinite default rect: both footmen, no archer.
+    app.world_mut().write_message(PickAttempt {
+        world: Vec2::ZERO,
+        button: PickButton::Left,
+        click_count: 2,
+        ctrl: false,
+        shift: false,
+    });
+    app.update(); // point select emits Set ...
+    app.update(); // ... consumed next frame
+    let mut selected = app.world().resource::<SelectionState>().entities.clone();
+    selected.sort_by_key(|e| e.index());
+    let mut expected = vec![near, far];
+    expected.sort_by_key(|e| e.index());
+    assert_eq!(selected, expected, "default rect: same-type world-wide");
+
+    // Narrow rect around the origin: only the near footman qualifies
+    // ("on screen" per the camera-visible AABB).
+    app.world_mut().insert_resource(SelectionScreenRect {
+        min: Vec2::new(-5.0, -5.0),
+        max: Vec2::new(5.0, 5.0),
+    });
+    app.world_mut().write_message(PickAttempt {
+        world: Vec2::ZERO,
+        button: PickButton::Left,
+        click_count: 2,
+        ctrl: false,
+        shift: false,
+    });
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world().resource::<SelectionState>().entities,
+        vec![near],
+        "narrow rect clips same-type to the visible AABB"
+    );
+    let _ = other;
+}
+
+// -- ⑧ SEAM2c: subgroup command filtering --------------------------------------
+
+/// Three units, two subgroups: with the Tab cursor on the footman bucket,
+/// a right-click order's subjects contain ONLY the footmen (WC3: orders go
+/// to the active subgroup). A single-subgroup selection commands everyone.
+#[test]
+fn subgroup_cursor_filters_command_subjects() {
+    let mut app = test_app();
+    let f1 = selectable_unit(app.world_mut(), "footman", Vec2::new(0.0, 3.0), Allegiance::Defender);
+    let f2 = selectable_unit(app.world_mut(), "footman", Vec2::new(1.0, 3.0), Allegiance::Defender);
+    let archer = selectable_unit(app.world_mut(), "archer", Vec2::new(2.0, 3.0), Allegiance::Defender);
+    // Sorted subgroup keys: ["archer", "footman"] — cursor 1 = footmen.
+    app.world_mut()
+        .write_message(SelectCommand::Set(vec![f1, f2, archer]));
+    app.update();
+    app.world_mut().resource_mut::<SelectionState>().subgroup_cursor = 1;
+
+    let commands = right_click(&mut app, Vec2::new(10.0, 10.0));
+    assert_eq!(commands.len(), 1);
+    let mut subjects = commands[0].subjects.clone();
+    subjects.sort_by_key(|e| e.index());
+    let mut expected = vec![f1, f2];
+    expected.sort_by_key(|e| e.index());
+    assert_eq!(subjects, expected, "cursor on footman bucket: only footmen move");
+
+    // Single subgroup: everyone commands (cursor irrelevant).
+    app.world_mut()
+        .write_message(SelectCommand::Set(vec![f1, f2]));
+    app.update();
+    let commands = right_click(&mut app, Vec2::new(-10.0, -10.0));
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].subjects.len(), 2, "single subgroup: all subjects");
+}

@@ -52,12 +52,12 @@ fn research_def(id: &str, cost_gold: u32, time: f32, grants: Vec<ResearchGrant>)
 }
 
 fn push_research(app: &mut App, cmd: ResearchCommand) {
-    app.world_mut().resource_mut::<ResearchCommands>().0.push_back(cmd);
+    app.world_mut().write_message(ResearchCommands(cmd));
     app.update();
 }
 
 fn push_rally(app: &mut App, cmd: RallyCommand) {
-    app.world_mut().resource_mut::<RallyCommands>().0.push_back(cmd);
+    app.world_mut().write_message(RallyCommands(cmd));
     app.update();
 }
 

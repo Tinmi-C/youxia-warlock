@@ -124,11 +124,11 @@ fn stow_directly(app: &mut App, holder: Entity, slot: usize, def_id: &str) {
 }
 
 fn push_cmd(app: &mut App, cmd: ItemCommand) {
-    app.world_mut().resource_mut::<ItemCommands>().0.push(cmd);
+    app.world_mut().write_message(ItemCommands(cmd));
 }
 
 fn push_shop(app: &mut App, cmd: ShopCommand) {
-    app.world_mut().resource_mut::<ShopCommands>().0.push(cmd);
+    app.world_mut().write_message(ShopCommands(cmd));
 }
 
 /// Persistent-cursor collection over `frames` updates (the double-buffer

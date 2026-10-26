@@ -77,7 +77,7 @@ pub enum Order {
 /// Player-facing command broadcast: one order for a set of selected units
 /// (formation offsets are assigned by MOV5 at consumption). Consumed in Tick
 /// by MOV4 `tick_orders` (not shipped yet).
-#[derive(Message, Debug)]
+#[derive(Message, Debug, Clone)]
 pub struct UnitCommand {
     pub order: Order,
     pub subjects: Vec<Entity>,

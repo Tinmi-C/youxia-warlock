@@ -12,12 +12,11 @@
 //! same `used >= cap` gate try_place applies, re-checked every frame so a
 //! full cap PAUSES training instead of rejecting the enqueue (WC3).
 //!
-//! PRD2/PRD3 resource-queue note: `StartResearch`/`CancelResearch` and
-//! `set_rally` travel as RESOURCE command queues (`ResearchCommands`,
-//! `RallyCommands`), not `Messages` — registering a new message type needs
-//! a `lib.rs` `add_message` line, and lib.rs is frozen for parallel domain
-//! increments (plan D3). The queues are drained in Tick; headless tests and
-//! UI layers push commands into the resource directly.
+//! PRD2/PRD3 message note (SEAM2c flip): `StartResearch`/`CancelResearch`
+//! and rally set/clear travel as MESSAGES (`ResearchCommands`/
+//! `RallyCommands`, one command per message, registered in lib.rs), drained
+//! in Tick in arrival order; headless tests and UI layers write messages
+//! between updates — the exact visibility a resource push had.
 //!
 //! ---------------------------------------------------------------------------
 //! MP2 ECONOMY PER-PLAYER EVALUATION CARD (evaluation only — decided
@@ -145,8 +144,7 @@ impl Default for ResearchState {
     }
 }
 
-/// Player research commands (resource queue, NOT Messages — see the module
-/// header note about the frozen lib.rs registration list).
+/// Player research commands (SEAM2c message flip).
 #[derive(Debug, Clone)]
 pub enum ResearchCommand {
     /// Start researching `id` (validated: def exists, gold suffices, the
@@ -157,9 +155,10 @@ pub enum ResearchCommand {
     Cancel,
 }
 
-/// Drained every Tick by [`consume_research_commands`].
-#[derive(Resource, Debug, Default)]
-pub struct ResearchCommands(pub VecDeque<ResearchCommand>);
+/// One queued research command as a message, drained every Tick by
+/// [`consume_research_commands`] (SEAM2c).
+#[derive(Message, Debug, Clone)]
+pub struct ResearchCommands(pub ResearchCommand);
 
 /// One stable `ModEntry::source` for every research stat grant (pinned
 /// design): a bare marker entity spawned once in `ProductionPlugin::build`
@@ -203,7 +202,7 @@ pub fn is_skill_unlocked(unlocks: &Unlocks, id: &str) -> bool {
     unlocks.skills.contains(id)
 }
 
-/// Player rally commands (PRD3; resource queue — see module header).
+/// Player rally commands (PRD3; SEAM2c message flip).
 #[derive(Debug, Clone)]
 pub enum RallyCommand {
     /// Point freshly trained units at an order (typically Move/AttackMove
@@ -213,9 +212,10 @@ pub enum RallyCommand {
     Clear { builder: Entity },
 }
 
-/// Drained every Tick by [`consume_rally_commands`].
-#[derive(Resource, Debug, Default)]
-pub struct RallyCommands(pub VecDeque<RallyCommand>);
+/// One queued rally command as a message, drained every Tick by
+/// [`consume_rally_commands`] (SEAM2c).
+#[derive(Message, Debug, Clone)]
+pub struct RallyCommands(pub RallyCommand);
 
 /// Map-bundle production/research section (SEAM0d; optional, defaults
 /// empty). `research` is the per-map tech tree; queues live on entities.
@@ -417,12 +417,12 @@ pub fn advance_production_queues(
 /// Setting on an entity without the component inserts it; clearing writes
 /// `None` (component stays, readable "no rally" state).
 pub fn consume_rally_commands(
-    mut queue: ResMut<RallyCommands>,
+    mut queue: MessageReader<RallyCommands>,
     mut builders: Query<&mut RallyPoint>,
     mut commands: Commands,
 ) {
-    while let Some(cmd) = queue.0.pop_front() {
-        match cmd {
+    for wrapped in queue.read() {
+        match wrapped.0.clone() {
             RallyCommand::Set { builder, order } => match builders.get_mut(builder) {
                 Ok(mut rally) => rally.0 = Some(order),
                 Err(_) => {
@@ -443,15 +443,15 @@ pub fn consume_rally_commands(
 /// room -> gold suffices), then pay & enqueue; `Cancel` refunds the active
 /// research 100%. Rejections skip silently, matching the train consumer.
 pub fn consume_research_commands(
-    mut queue: ResMut<ResearchCommands>,
+    mut queue: MessageReader<ResearchCommands>,
     table: Res<ResearchTable>,
     mut state: ResMut<ResearchState>,
     mut res: ResMut<Resources>,
     pop: Res<Population>,
     mut changed: MessageWriter<EconChanged>,
 ) {
-    while let Some(cmd) = queue.0.pop_front() {
-        match cmd {
+    for wrapped in queue.read() {
+        match wrapped.0.clone() {
             ResearchCommand::Start { id } => {
                 let Some(def) = table.0.get(&id) else { continue };
                 if state.entries.len() >= state.cap as usize {
@@ -573,8 +573,6 @@ impl Plugin for ProductionPlugin {
             .init_resource::<TrainTimes>()
             .init_resource::<ResearchTable>()
             .init_resource::<ResearchState>()
-            .init_resource::<ResearchCommands>()
-            .init_resource::<RallyCommands>()
             .init_resource::<TypeModifiers>()
             .init_resource::<Unlocks>()
             .add_systems(

@@ -154,6 +154,12 @@ impl Plugin for WarbasePlugin {
             .add_message::<movement::UnitCommand>()
             .add_message::<production::TrainCommand>()
             .add_message::<production::CancelTrain>()
+            // SEAM2c message flip: the four command queues that lived as
+            // polled resources while lib.rs was frozen are Messages now.
+            .add_message::<item::ItemCommands>()
+            .add_message::<item::ShopCommands>()
+            .add_message::<production::ResearchCommands>()
+            .add_message::<production::RallyCommands>()
             .add_message::<sfx::SfxRequest>()
             .init_resource::<rule::MatchRules>()
             .init_resource::<rule::MatchFlow>()

@@ -362,8 +362,8 @@ pub fn train_input(world: &mut World) {
 }
 
 /// R key -> StartResearch("attack_upgrade") on the player research column
-/// (base ResearchCommands resource queue — PRD2's frozen-lib.rs seam; the
-/// consumer validates gold/cap). Headless no-op.
+/// (base ResearchCommands message — SEAM2c flip; the consumer validates
+/// gold/cap). Headless no-op.
 pub fn research_input(world: &mut World) {
     let Some(keys) = world.get_resource::<ButtonInput<KeyCode>>().cloned() else {
         return;
@@ -371,10 +371,9 @@ pub fn research_input(world: &mut World) {
     if !keys.just_pressed(KeyCode::KeyR) {
         return;
     }
-    world
-        .resource_mut::<ResearchCommands>()
-        .0
-        .push_back(ResearchCommand::Start { id: "attack_upgrade".into() });
+    world.write_message(ResearchCommands(ResearchCommand::Start {
+        id: "attack_upgrade".into(),
+    }));
     info!("[rts-lab] research attack_upgrade started");
 }
 
@@ -511,10 +510,7 @@ pub fn item_input(world: &mut World) {
     let Some(hero) = first_selected(world, |e| world.get::<Inventory>(e).is_some()) else {
         return;
     };
-    world
-        .resource_mut::<ItemCommands>()
-        .0
-        .push(ItemCommand::Use { user: hero, slot: 0 });
+    world.write_message(ItemCommands(ItemCommand::Use { user: hero, slot: 0 }));
     info!("[rts-lab] 1: use item slot 0 on {hero:?}");
 }
 
@@ -542,14 +538,11 @@ pub fn buy_input(world: &mut World) {
         info!("[rts-lab] B: shop out of range");
         return;
     }
-    world
-        .resource_mut::<ShopCommands>()
-        .0
-        .push(ShopCommand::Buy {
-            buyer: hero,
-            shop,
-            item: "healing_potion".into(),
-        });
+    world.write_message(ShopCommands(ShopCommand::Buy {
+        buyer: hero,
+        shop,
+        item: "healing_potion".into(),
+    }));
     info!("[rts-lab] B: healing_potion bought");
 }
 
