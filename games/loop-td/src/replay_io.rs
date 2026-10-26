@@ -188,12 +188,12 @@ impl Plugin for ReplayIoPlugin {
                 eprintln!("[loop-td] recording not armed: {e}");
             }
         })
-        // After Tick: MatchFlow has flipped this very update, so the writer
-        // beats the next frame's hash checkpoint — no post-end fingerprints
-        // (end-screen spawns etc.) may leak into the log.
+        // After Cleanup: MatchFlow flips inside Cleanup's rules_tick; the
+        // writer must see the flip this very update and still beat the next
+        // frame's hash checkpoint — no post-end fingerprints may leak.
         .add_systems(
             Update,
-            write_run_on_match_ended.after(warbase::WarbaseSet::Tick),
+            write_run_on_match_ended.after(warbase::WarbaseSet::Cleanup),
         );
     }
 }
