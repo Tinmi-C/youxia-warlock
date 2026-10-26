@@ -73,7 +73,7 @@ pub fn apply_driver_action(world: &mut World, action: &DriverAction) -> bool {
                 Some((caster, slot)) => {
                     world
                         .resource_mut::<Messages<crate::skill::CastSkill>>()
-                        .write(crate::skill::CastSkill { caster, slot });
+                        .write(crate::skill::CastSkill { caster, slot, target: None });
                     true
                 }
                 None => false,

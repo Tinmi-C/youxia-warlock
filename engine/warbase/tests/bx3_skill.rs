@@ -22,6 +22,7 @@ fn def(id: &str, hp: f32) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 
@@ -55,7 +56,7 @@ fn cast_validation_and_cooldown() {
     app.world_mut().get_mut::<SkillCaster>(caster).unwrap().slots[0].level = 0;
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<CastSkill>>()
-        .write(CastSkill { caster, slot: 0 });
+        .write(CastSkill { caster, slot: 0, target: None });
     app.update();
     assert_eq!(count_over_frames::<SkillCast>(&mut app, 1), 0);
 
@@ -63,10 +64,10 @@ fn cast_validation_and_cooldown() {
     app.world_mut().get_mut::<SkillCaster>(caster).unwrap().slots[0].level = 1;
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<CastSkill>>()
-        .write(CastSkill { caster, slot: 0 });
+        .write(CastSkill { caster, slot: 0, target: None });
     app.world_mut()
         .resource_mut::<bevy::ecs::message::Messages<CastSkill>>()
-        .write(CastSkill { caster, slot: 0 });
+        .write(CastSkill { caster, slot: 0, target: None });
     let casts = count_over_frames::<SkillCast>(&mut app, 2);
     assert_eq!(casts, 1, "second cast blocked by cooldown");
 }
@@ -137,6 +138,8 @@ fn aura_slows_inside_radius_only() {
             Transform::default(),
             StatMods::default(),
             Allegiance::Attacker,
+            // SEAM2b hole-7: aura targets are any UnitInstance carrier.
+            UnitInstance { def: "creep".into(), level: 1 },
         ))
         .id();
     let slow_tower = app
@@ -144,7 +147,9 @@ fn aura_slows_inside_radius_only() {
         .spawn((
             Transform::from_xyz(0.0, 0.0, 0.0),
             Allegiance::Defender,
-            Auras(vec![AuraDef { radius: 4.0, kind: StatKind::MoveSpeedMult, amount: -0.5 }]),
+            Auras(vec![AuraDef { radius: 4.0, kind: StatKind::MoveSpeedMult, amount: -0.5, affects: AuraAffects::Enemies }]),
+            // SEAM2b hole-7: aura sources are any UnitInstance carrier.
+            UnitInstance { def: "slow_tower".into(), level: 1 },
         ))
         .id();
 
@@ -176,7 +181,8 @@ fn damage_taken_auras_stack_into_resolve() {
         app.world_mut().spawn((
             Transform::from_xyz(0.0, 0.0, 0.0),
             Allegiance::Defender,
-            Auras(vec![AuraDef { radius: 4.0, kind: StatKind::DamageTakenMult, amount }]),
+            Auras(vec![AuraDef { radius: 4.0, kind: StatKind::DamageTakenMult, amount, affects: AuraAffects::Enemies }]),
+            UnitInstance { def: "aura_tower".into(), level: 1 },
         ));
     }
     app.update();

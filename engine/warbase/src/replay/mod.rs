@@ -61,6 +61,19 @@ pub const ECON_KIND: &str = "econ";
 
 /// One recorded player input (frame index lives in the log entry).
 /// RPL1 may refine variants, but they stay serde-only, Entity-free.
+///
+/// ENTITY-FREE CONTRACT (hole-10, SEAM2b — pinned on the enum): command
+/// messages (`UnitCommand` & co.) carry `Entity` subjects/targets which are
+/// neither serializable nor stable across runs. The recorder therefore
+/// encodes every command by SELECTION SEMANTICS: subjects are re-derived at
+/// replay time from the replayer's own `SelectionState` (the current
+/// selection set / its first entity / the subgroup `subgroup_cursor` points
+/// at — the same derivation `selection::smart_resolve` applies), and
+/// targets ride as ground points (`to`) or authored ids (`kind`/`unit`/
+/// `id`/`slot`). What those resolve to must be a pure function of the
+/// replayed world state, which determinism (D6) guarantees. The vocabulary
+/// below is the pinned surface; the full recorder/replayer wiring for these
+/// variants is RPL follow-up — SEAM only nails the words.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CommandEnvelope {
     Pick {
@@ -74,6 +87,37 @@ pub enum CommandEnvelope {
         code: String,
     },
     WaveStart,
+    /// Selection-set operation. `op` is a small stable opcode: 0 = clear,
+    /// 1 = select same type on screen (double-click), 2 = box select
+    /// follows as a `Pick` pair in a later revision; game-specific ops
+    /// start at 16. Subjects/extent are re-derived from selection state.
+    Select {
+        op: u8,
+    },
+    /// A unit order issued to the current selection (subjects = the
+    /// replayer's current selection, filtered like smart_resolve).
+    /// `kind` is the order word: "move", "attack_move", "attack_target",
+    /// "hold", "stop", "patrol", "pickup", "follow", "harvest",
+    /// "return_cargo", "build" (SEAM2d Order vocabulary); `to` is the
+    /// ground point (or the ordered pair's first point for patrol).
+    Order {
+        kind: String,
+        to: [f32; 2],
+    },
+    /// Enqueue training of `unit` on the CURRENT SELECTION's first
+    /// production building (re-derived at replay time).
+    Train {
+        unit: String,
+    },
+    /// Start research `id` on the player research column.
+    Research {
+        id: String,
+    },
+    /// Use inventory `slot` of the current selection's first inventory
+    /// holder.
+    UseItem {
+        slot: u8,
+    },
     /// Escape hatch for domain-specific inputs until RPL1 finalizes the
     /// vocabulary (kind + RON/JSON payload string).
     Ext { kind: String, payload: String },
@@ -237,6 +281,24 @@ fn apply_envelope(world: &mut World, env: &CommandEnvelope) -> Result<(), String
         }
         CommandEnvelope::Key { code } => {
             return Err(format!("unhandled envelope Key({code}) — RPL1 records no keys"));
+        }
+        // Hole-10 vocabulary: serde-stable and round-trip pinned, but no
+        // recorder writes them yet — replaying one is a loud error rather
+        // than silent divergence (the RPL follow-up wires both ends).
+        CommandEnvelope::Select { op } => {
+            return Err(format!("unhandled envelope Select({op}) — vocabulary pinned, recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::Order { kind, .. } => {
+            return Err(format!("unhandled envelope Order({kind}) — vocabulary pinned, recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::Train { unit } => {
+            return Err(format!("unhandled envelope Train({unit}) — vocabulary pinned, recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::Research { id } => {
+            return Err(format!("unhandled envelope Research({id}) — vocabulary pinned, recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::UseItem { slot } => {
+            return Err(format!("unhandled envelope UseItem({slot}) — vocabulary pinned, recorder lands with RPL follow-up"));
         }
         CommandEnvelope::WaveStart => {
             world.write_message(StartWave);

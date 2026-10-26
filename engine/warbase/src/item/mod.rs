@@ -8,15 +8,14 @@
 //! `WarbaseSet::Cleanup` (drops ordered `before(combat::cleanup_dead)` so
 //! the corpse's Transform is still readable).
 //!
-//! SEAM notes (domain increments may not edit lib.rs, D3):
-//! - `ItemEvents` (rejections) and `ItemCommands` / `ShopCommands`
-//!   (requests) are polled Vec RESOURCES, not messages: registering a new
-//!   message type needs `add_message` in lib.rs, which is frozen for domain
-//!   increments. Games push commands before their update and drain events
-//!   after it (`std::mem::take`). The pickup seam is observation-only on
-//!   purpose: MOV4's `Order::Pickup` execution lives in the movement
-//!   module; here a carrier within `body_radius + PICKUP_MARGIN` of a
-//!   ground item auto-stows it, so the two compose without coupling.
+//! SEAM notes:
+//! - `ItemEvents` (rejections) is still a polled Vec RESOURCE on purpose
+//!   (game UI drains it with `std::mem::take`); the request side flipped to
+//!   MESSAGES in SEAM2c (`ItemCommands`/`ShopCommands`, one command per
+//!   message, registered in lib.rs). The pickup seam stays
+//!   observation-only: MOV4's `Order::Pickup` execution lives in the
+//!   movement module; here a carrier within `body_radius + PICKUP_MARGIN`
+//!   of a ground item auto-stows it, so the two compose without coupling.
 //! - Passive carry uses the HOLDER entity as the ModEntry source, so two
 //!   carried passives with the same StatKind overwrite each other (upsert
 //!   is keyed on (source, kind)) and a hero's level-growth DamageMult
@@ -172,9 +171,9 @@ pub enum ItemReject {
 #[derive(Resource, Debug, Default)]
 pub struct ItemEvents(pub Vec<ItemReject>);
 
-/// Player-facing item requests, same resource-event seam as ItemEvents:
-/// games push before their update; the Tick consumer drains in arrival
-/// order (the message-arrival-order semantics of D4 without lib.rs).
+/// Player-facing item requests (SEAM2c message flip): one message per
+/// command, arrival order preserved by the message stream. The Tick
+/// consumer drains them in arrival order (D4 semantics unchanged).
 #[derive(Debug, Clone)]
 pub enum ItemCommand {
     /// Use the stack in `slot` (charges + cooldown gated; fires SkillCast).
@@ -183,8 +182,11 @@ pub enum ItemCommand {
     Drop { holder: Entity, slot: usize },
 }
 
-#[derive(Resource, Debug, Default)]
-pub struct ItemCommands(pub Vec<ItemCommand>);
+/// One queued item command as a message (SEAM2c: the polled Vec resource
+/// became a Message now that lib.rs registration is unlocked; the plural
+/// name is kept so consumer call sites read the same).
+#[derive(Message, Debug, Clone)]
+pub struct ItemCommands(pub ItemCommand);
 
 /// Shop stock list (INV3): item ids this shop sells at their ItemDef
 /// `cost_gold`; selling refunds cost_gold / SELL_REFUND_DIVISOR.
@@ -193,7 +195,8 @@ pub struct Shop {
     pub stock: Vec<String>,
 }
 
-/// Player-facing shop requests (resource-event seam as above).
+/// Player-facing shop requests (SEAM2c message flip, same shape as
+/// ItemCommands).
 #[derive(Debug, Clone)]
 pub enum ShopCommand {
     /// Buy `item` from `shop` into the buyer's first free slot (charged on
@@ -203,8 +206,9 @@ pub enum ShopCommand {
     Sell { seller: Entity, slot: usize },
 }
 
-#[derive(Resource, Debug, Default)]
-pub struct ShopCommands(pub Vec<ShopCommand>);
+/// One queued shop command as a message (SEAM2c).
+#[derive(Message, Debug, Clone)]
+pub struct ShopCommands(pub ShopCommand);
 
 // ---------------------------------------------------------------------------
 // Helpers shared by the pickup/use/shop flows
@@ -373,7 +377,7 @@ pub fn tick_item_timers(time: Res<Time>, mut invs: Query<&mut Inventory>, mut gr
 /// the passive entry. Cooldown-gated uses skip silently (no reject
 /// vocabulary for it — same stance as refused casts in the skill module).
 pub fn consume_item_commands(
-    mut commands_in: ResMut<ItemCommands>,
+    mut commands_in: MessageReader<ItemCommands>,
     registry: Res<ItemRegistry>,
     skill_defs: Res<SkillDefs>,
     mut holders: Query<&mut Inventory>,
@@ -383,7 +387,8 @@ pub fn consume_item_commands(
     mut casts: MessageWriter<SkillCast>,
     mut commands: Commands,
 ) {
-    for cmd in std::mem::take(&mut commands_in.0) {
+    for wrapped in commands_in.read() {
+        let cmd = wrapped.0.clone();
         match cmd {
             ItemCommand::Use { user, slot } => {
                 let Ok(mut inv) = holders.get_mut(user) else { continue };
@@ -417,6 +422,7 @@ pub fn consume_item_commands(
                             caster: user,
                             skill: effect.clone(),
                             level: 1,
+                            target: None,
                             point: None,
                         });
                     }
@@ -448,7 +454,7 @@ pub fn consume_item_commands(
 /// sellback). Gold mutations publish an `EconChanged` snapshot like every
 /// other direct Resources writer in the base.
 pub fn consume_shop_commands(
-    mut commands_in: ResMut<ShopCommands>,
+    mut commands_in: MessageReader<ShopCommands>,
     registry: Res<ItemRegistry>,
     mut res: ResMut<Resources>,
     pop: Res<Population>,
@@ -459,7 +465,8 @@ pub fn consume_shop_commands(
     mut changed: MessageWriter<EconChanged>,
     mut commands: Commands,
 ) {
-    for cmd in std::mem::take(&mut commands_in.0) {
+    for wrapped in commands_in.read() {
+        let cmd = wrapped.0.clone();
         match cmd {
             ShopCommand::Buy { buyer, shop, item } => {
                 let Ok(shop) = shops.get(shop) else { continue };
@@ -539,8 +546,6 @@ pub struct ItemPlugin;
 impl Plugin for ItemPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ItemEvents>()
-            .init_resource::<ItemCommands>()
-            .init_resource::<ShopCommands>()
             .init_resource::<DropTable>()
             .add_systems(
                 Update,

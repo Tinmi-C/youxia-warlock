@@ -583,9 +583,9 @@ fn research_attack_upgrade_buffs_old_and_new_footmen() {
     app.update(); // attach_rts_kit day-one kit
 
     app.world_mut()
-        .resource_mut::<ResearchCommands>()
-        .0
-        .push_back(ResearchCommand::Start { id: "attack_upgrade".into() });
+        .write_message(ResearchCommands(ResearchCommand::Start {
+            id: "attack_upgrade".into(),
+        }));
     app.update(); // Tick consumer drains: validate + pay + enqueue
     assert_eq!(app.world().resource::<Resources>().gold, 200, "paid on start");
     assert_eq!(app.world().resource::<ResearchState>().entries.len(), 1);
@@ -669,9 +669,7 @@ fn grunt_drops_potion_hero_picks_up_and_uses_it() {
     // Use it: hp 100 -> +80.
     app.world_mut().get_mut::<Hp>(hero).unwrap().0 = 100.0;
     app.world_mut()
-        .resource_mut::<ItemCommands>()
-        .0
-        .push(ItemCommand::Use { user: hero, slot: 0 });
+        .write_message(ItemCommands(ItemCommand::Use { user: hero, slot: 0 }));
     app.update(); // Use -> SkillCast(potion_heal) -> HealRequest -> resolve_heals
     assert_eq!(app.world().get::<Hp>(hero).unwrap().0, 180.0, "potion healed 80");
     let inv = app.world().get::<Inventory>(hero).unwrap();
@@ -701,7 +699,14 @@ fn shop_buy_charges_gold_and_stows_potion() {
     far.press(KeyCode::KeyB);
     app.world_mut().insert_resource(far);
     rts_lab::systems::gameplay::buy_input(app.world_mut());
-    assert!(app.world().resource::<ShopCommands>().0.is_empty(), "far buy refused game-side");
+    // SEAM2c: command queues are messages now — count what the game layer
+    // wrote this frame through a fresh cursor (far buy = nothing written).
+    let mut far_cursor = bevy::ecs::message::MessageCursor::<ShopCommands>::default();
+    app.update();
+    {
+        let msgs = app.world().resource::<bevy::ecs::message::Messages<ShopCommands>>();
+        assert_eq!(far_cursor.read(msgs).count(), 0, "far buy refused game-side");
+    }
 
     // B in range -> Buy pushed -> base consumer charges + stows. The pressed
     // key is reset BEFORE update() so the scheduled input system does not
@@ -713,8 +718,12 @@ fn shop_buy_charges_gold_and_stows_potion() {
     app.world_mut().insert_resource(near);
     rts_lab::systems::gameplay::buy_input(app.world_mut());
     app.world_mut().insert_resource(ButtonInput::<KeyCode>::default());
-    assert_eq!(app.world().resource::<ShopCommands>().0.len(), 1);
+    let mut near_cursor = bevy::ecs::message::MessageCursor::<ShopCommands>::default();
     app.update();
+    {
+        let msgs = app.world().resource::<bevy::ecs::message::Messages<ShopCommands>>();
+        assert_eq!(near_cursor.read(msgs).count(), 1, "near buy written once");
+    }
     assert_eq!(app.world().resource::<Resources>().gold, 170, "potion charged 30");
     let inv = app.world().get::<Inventory>(hero).unwrap();
     assert_eq!(inv.slots[0].as_ref().unwrap().def, "healing_potion");

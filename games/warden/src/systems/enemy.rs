@@ -116,6 +116,7 @@ pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
                 auras: vec![],
                 hero: false,
                 skills: vec![],
+                skill_levels: vec![],
                 upgrade_to: None,
                 // EN5 numbers (radius/period/amount above) move into the def
                 // row — data-driven like everything else on the unit.

@@ -51,14 +51,13 @@
 //! - Digit 1..=9, non-modal       -> `GroupCommand::Recall(digit)`
 //! - Ctrl  + digit                -> `GroupCommand::Bind(digit)`
 //! - Shift + digit                -> `GroupCommand::Insert(digit)`
+//! - While `selection::ModalKeyClaim` is Some (hole-8): digits are YIELDED
+//!   to the claiming modal — no GroupCommand is written; the claim owner
+//!   reads ButtonInput itself. Tab / letters / Esc stay live.
 //! - Tab                          -> `selection::CycleSubgroups`
-//! - A / H / S / P / Esc          -> `selection::CommandHotkey` (SEL4: A/P
+//! - A / H / S / P / M / Esc      -> `selection::CommandHotkey` (SEL4: A/P/M
 //!   arm `PendingTargetOrder` targeting, H/S fire at once, Esc cancels the
 //!   pending state only — the selection set is untouched)
-//! - While a modal card is open (build placement / skill target), digits
-//!   belong to the modal, not to groups; group keys resume once it closes.
-//!   Game-level modals own their keys by disabling/swapping this bridge —
-//!   the same seam pattern as `ActiveWorldPicker`.
 
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
@@ -170,6 +169,21 @@ pub struct PointerDrag {
     pub anchor: Option<Vec2>,
 }
 
+/// Double-click bookkeeping (SEAM2c select-same-type): the last left click
+/// (virtual time, cursor position). A click within
+/// [`DOUBLE_CLICK_WINDOW`] seconds and [`DOUBLE_CLICK_SLOP_PX`] pixels of
+/// the previous one reports `click_count: 2`.
+#[derive(Resource, Debug, Default)]
+pub struct ClickTracker {
+    pub last: Option<(f32, Vec2)>,
+}
+
+/// Virtual-time window inside which two left clicks count as a double
+/// click (interaction constant, same class as `DRAG_THRESHOLD_PX`).
+const DOUBLE_CLICK_WINDOW: f32 = 0.3;
+/// Cursor travel tolerance between the two clicks of a double click.
+const DOUBLE_CLICK_SLOP_PX: f32 = 6.0;
+
 /// Press+release travel below this many pixels counts as a click, not a box.
 const DRAG_THRESHOLD_PX: f32 = 4.0;
 
@@ -237,11 +251,28 @@ fn pointer_bridge(world: &mut World) {
             continue;
         }
         if let Some(point) = map_to_world(world, cursor) {
-            // Single clicks only; double-click (select-same-type) is SEL4.
+            // Click count: a left click close enough in time and space to
+            // the previous one is a double click (select-same-type, SEAM2c);
+            // everything else is a single click.
+            let mut click_count = 1;
+            if button == MouseButton::Left {
+                let now = world.resource::<Time>().elapsed_secs();
+                let mut tracker = world.resource_mut::<ClickTracker>();
+                click_count = match tracker.last {
+                    Some((t, pos))
+                        if now - t <= DOUBLE_CLICK_WINDOW
+                            && (pos - cursor).length() <= DOUBLE_CLICK_SLOP_PX =>
+                    {
+                        2
+                    }
+                    _ => 1,
+                };
+                tracker.last = Some((now, cursor));
+            }
             world.write_message(PickAttempt {
                 world: point,
                 button: pick_button,
-                click_count: 1,
+                click_count,
                 ctrl,
                 shift,
             });
@@ -292,8 +323,10 @@ const DIGIT_KEYS: [(KeyCode, u8); 9] = [
 ];
 
 /// Raw keyboard bridge (SEL4): the HOTKEY SEMANTICS table above as code —
-/// A/H/S/P/Esc -> `CommandHotkey`, Tab -> `CycleSubgroups`, digits (with
-/// Ctrl/Shift) -> `GroupCommand`. The state machine behind those messages
+/// A/H/S/P/M/Esc -> `CommandHotkey`, Tab -> `CycleSubgroups`, digits (with
+/// Ctrl/Shift) -> `GroupCommand`. Hole-8: while `ModalKeyClaim` is Some the
+/// digit translation is SKIPPED (digits belong to the claiming modal);
+/// every other key stays live. The state machine behind those messages
 /// stays in `selection` (headless-testable); this is raw-key translation
 /// only. Exclusive like the pointer bridge (reads ButtonInput + writes
 /// messages). No-ops whenever raw input resources are absent (headless;
@@ -304,6 +337,10 @@ fn keyboard_bridge(world: &mut World) {
     };
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    // Hole-8 yield seam: a claimed keyboard means digits are the modal's.
+    let modal_claims_digits = world
+        .get_resource::<crate::selection::ModalKeyClaim>()
+        .is_some_and(|claim| claim.0.is_some());
 
     if keys.just_pressed(KeyCode::Escape) {
         world.write_message(CommandHotkey::Cancel);
@@ -320,8 +357,14 @@ fn keyboard_bridge(world: &mut World) {
     if keys.just_pressed(KeyCode::KeyP) {
         world.write_message(CommandHotkey::Patrol);
     }
+    if keys.just_pressed(KeyCode::KeyM) {
+        world.write_message(CommandHotkey::Move);
+    }
     if keys.just_pressed(KeyCode::Tab) {
         world.write_message(CycleSubgroups);
+    }
+    if modal_claims_digits {
+        return; // digits belong to the modal (see ModalKeyClaim contract)
     }
     for (code, digit) in DIGIT_KEYS {
         if !keys.just_pressed(code) {
@@ -338,6 +381,61 @@ fn keyboard_bridge(world: &mut World) {
     }
 }
 
+/// Refreshes [`selection::SelectionScreenRect`] from the topmost
+/// orthographic camera (SEAM2c): the ground (y=0) AABB under the camera's
+/// logical viewport — corner rays intersected with the gameplay plane,
+/// min/max over the four corners (rotation-tolerant). No camera (headless)
+/// leaves the default infinite rect: everything is "on screen".
+fn refresh_screen_rect(world: &mut World) {
+    let mut best: Option<(isize, &Camera, &GlobalTransform)> = None;
+    for entity in world.iter_entities() {
+        let (Some(cam), Some(transform), Some(projection)) = (
+            entity.get::<Camera>(),
+            entity.get::<GlobalTransform>(),
+            entity.get::<Projection>(),
+        ) else {
+            continue;
+        };
+        if !matches!(projection, Projection::Orthographic(_)) {
+            continue;
+        }
+        if best.map_or(true, |(order, _, _)| cam.order > order) {
+            best = Some((cam.order, cam, transform));
+        }
+    }
+    let Some((cam, transform)) = best.map(|(_, c, t)| (c, t)) else {
+        return; // headless: keep the default infinite rect
+    };
+    let Some(rect) = cam.logical_viewport_rect() else { return };
+    let corners = [
+        rect.min,
+        Vec2::new(rect.max.x, rect.min.y),
+        Vec2::new(rect.min.x, rect.max.y),
+        rect.max,
+    ];
+    let mut min = Vec2::splat(f32::MAX);
+    let mut max = Vec2::splat(f32::MIN);
+    let mut seen = false;
+    for corner in corners {
+        let Ok(ray) = cam.viewport_to_world(transform, corner) else { continue };
+        if ray.direction.y.abs() < 1e-6 {
+            continue; // view direction parallel to the ground plane
+        }
+        let t = -ray.origin.y / ray.direction.y;
+        if t < 0.0 {
+            continue; // ground behind the camera
+        }
+        let p = ray.origin + ray.direction * t;
+        min = min.min(Vec2::new(p.x, p.z));
+        max = max.max(Vec2::new(p.x, p.z));
+        seen = true;
+    }
+    if seen {
+        world.resource_mut::<crate::selection::SelectionScreenRect>().min = min;
+        world.resource_mut::<crate::selection::SelectionScreenRect>().max = max;
+    }
+}
+
 /// Domain systems (ui feature; registered once by WarbasePlugin).
 pub struct InputPlugin;
 
@@ -345,11 +443,12 @@ impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveWorldPicker>()
             .init_resource::<PointerDrag>()
+            .init_resource::<ClickTracker>()
             // D2: raw input translation runs at the very front of Update,
             // before WarbaseSet::Tick consumes the translated messages.
             .add_systems(
                 Update,
-                (pointer_bridge, keyboard_bridge)
+                (pointer_bridge, keyboard_bridge, refresh_screen_rect)
                     .chain()
                     .before(WarbaseSet::Tick),
             );
@@ -358,7 +457,7 @@ impl Plugin for InputPlugin {
 
 pub mod prelude {
     pub use super::{
-        ActiveWorldPicker, IdentityPicker, InputPlugin, OrthoTopDownPicker, PointerDrag,
-        WorldPicker,
+        ActiveWorldPicker, ClickTracker, IdentityPicker, InputPlugin, OrthoTopDownPicker,
+        PointerDrag, WorldPicker,
     };
 }

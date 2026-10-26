@@ -5961,7 +5961,7 @@ mod skills_core {
     fn request_cast(app: &mut App, caster: Entity, slot: usize) {
         app.world_mut()
             .resource_mut::<Messages<CastSkill>>()
-            .write(CastSkill { caster, slot });
+            .write(CastSkill { caster, slot, target: None });
     }
 
     /// Messages are double-buffered: `len()` flips with the buffer, so count
@@ -6741,6 +6741,7 @@ mod skills_archer {
             .write(CastSkill {
                 caster: tower,
                 slot,
+                target: None,
             });
     }
 
@@ -7068,7 +7069,7 @@ mod skills_fusion {
         let slot = slot_of(app, tower, def);
         app.world_mut()
             .resource_mut::<Messages<CastSkill>>()
-            .write(CastSkill { caster: tower, slot });
+            .write(CastSkill { caster: tower, slot, target: None });
         app.update();
         assert_eq!(
             app.world().resource::<SkillAiming>().0,
@@ -7104,7 +7105,7 @@ mod skills_fusion {
         let slot = slot_of(app, tower, def);
         app.world_mut()
             .resource_mut::<Messages<CastSkill>>()
-            .write(CastSkill { caster: tower, slot });
+            .write(CastSkill { caster: tower, slot, target: None });
         app.update();
     }
 

@@ -410,6 +410,7 @@ pub fn tower_unit_registry(
             auras: vec![],
             hero: false,
             skills: vec![],
+            skill_levels: vec![],
             upgrade_to: None,
             heal: None,
             leak: 1,

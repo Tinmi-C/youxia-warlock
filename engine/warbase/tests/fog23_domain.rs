@@ -40,6 +40,7 @@ fn sample_bundle() -> MapBundle {
             upgrade_to: None,
             heal: None,
             mana: None,
+        skill_levels: vec![],
         },
     );
     MapBundle {
@@ -86,6 +87,10 @@ fn sample_bundle() -> MapBundle {
         production: Default::default(),
         teams: Default::default(),
         starting_forces: Default::default(),
+    harvest: Default::default(),
+    camps: Default::default(),
+    daynight: Default::default(),
+    terrain: Default::default(),
     }
 }
 
@@ -109,6 +114,7 @@ fn grunt_def(id: &str, hp: f32, hero: bool) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 
@@ -140,6 +146,7 @@ fn tower_def(id: &str) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 

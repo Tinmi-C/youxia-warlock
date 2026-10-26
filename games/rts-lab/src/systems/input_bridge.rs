@@ -173,6 +173,11 @@ pub fn pending_click_transition(
             PendingTargetOrder::Idle,
             Some(Order::Patrol { a, b: on_plane(ground), toward_b: true }),
         ),
+        // SEAM2c M-key: same shape as AttackMove, plain Move flavor.
+        PendingTargetOrder::Move => (
+            PendingTargetOrder::Idle,
+            Some(Order::Move { to: on_plane(ground) }),
+        ),
     }
 }
 

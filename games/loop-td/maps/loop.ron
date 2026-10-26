@@ -78,7 +78,9 @@
                    heal: Some((amount: 8, interval: 1.5, radius: 3.0))),
         "shaman": (id: "shaman", attrs: (hp: 90, move_speed: 0.9, body_radius: 0.35),
                    armor_type: Heavy, cost_gold: 0, bounty_gold: 8, grant_xp: 3, traits: [],
-                   auras: [(radius: 3.5, kind: DamageTakenMult, amount: -0.25)]),
+                   // SEAM2b hole-7: affects: Allies keeps the shaman's aura on its
+                   // own creeps (the pre-generalization follower-aura semantics).
+                   auras: [(radius: 3.5, kind: DamageTakenMult, amount: -0.25, affects: Allies)]),
         "boss":   (id: "boss",   attrs: (hp: 900, move_speed: 0.6, body_radius: 0.8),
                    armor_type: Heavy, cost_gold: 0, bounty_gold: 60, grant_xp: 20, traits: []),
     },

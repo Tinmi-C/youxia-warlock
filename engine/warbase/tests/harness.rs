@@ -41,6 +41,7 @@ fn unit(id: &str, hp: f32, armor: ArmorType, dmg: f32, cost: u32) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 
@@ -96,6 +97,10 @@ fn bundle(leak: LeakPolicy, open: bool, waves: usize) -> MapBundle {
         production: Default::default(),
         teams: Default::default(),
         starting_forces: Default::default(),
+    harvest: Default::default(),
+    camps: Default::default(),
+    daynight: Default::default(),
+    terrain: Default::default(),
     }
 }
 
@@ -210,6 +215,10 @@ fn rich_bundle() -> MapBundle {
         production: Default::default(),
         teams: Default::default(),
         starting_forces: Default::default(),
+    harvest: Default::default(),
+    camps: Default::default(),
+    daynight: Default::default(),
+    terrain: Default::default(),
     }
 }
 
@@ -223,14 +232,15 @@ fn driver_wordlist_executes() {
     assemble(&mut app.world_mut(), &b);
     app.insert_resource(build_grid(&b.world));
     // Register the hero's skill so the slot spawns learned (spawn reads
-    // SkillDefs; any kind makes it level 1).
+    // SkillDefs; SEAM2b hole-9 rule: only Autocast slots spawn at 1 —
+    // Active/Passive need authored skill_levels or a spent point).
     {
         let mut defs = SkillDefs::default();
         defs.defs.insert(
             "snipe".into(),
             SkillDef {
                 id: "snipe".into(),
-                kind: SkillKind::Active,
+                kind: SkillKind::Autocast,
                 targeting: SkillTargeting::None,
                 max_level: 3,
                 cooldown: 5.0,

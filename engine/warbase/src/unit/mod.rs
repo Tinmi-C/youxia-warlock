@@ -138,6 +138,15 @@ pub struct UnitDef {
     /// Skill ids to attach at spawn (looked up in SkillDefs).
     #[serde(default)]
     pub skills: Vec<UnitId>,
+    /// Initial level per skill slot at spawn (hole-9 upcast, SEAM2b).
+    /// COMPATIBILITY RULE (pinned): zipped against `skills` positionally —
+    /// equal length covers slot-for-slot; a shorter vec pads with 0; an
+    /// Autocast-kind slot whose resolved level is 0 is raised to 1 (the
+    /// pre-existing "autocast starts learned" semantics, now expressible as
+    /// "explicit 1" or default). Empty vec (serde default) = all slots 0
+    /// except Autocast -> 1: bit-identical to the pre-SEAM2b spawn behavior.
+    #[serde(default)]
+    pub skill_levels: Vec<u8>,
     /// Next tier def id (TO3 upgrade chain); cost is the target def's own
     /// cost_gold. None = max tier.
     #[serde(default)]
@@ -558,12 +567,24 @@ pub fn spawn_unit(
             .skills
             .iter()
             .zip(known_skills)
-            .map(|(id, autocast)| crate::skill::SkillSlot {
-                skill: id.clone(),
-                level: u8::from(autocast.is_some()),
-                cooldown: 0.0,
-                // Autocast-kind skills start ON (WC3 habit); players toggle.
-                autocast_on: autocast.unwrap_or(false),
+            .enumerate()
+            .map(|(i, (id, autocast))| {
+                // Hole-9: authored initial level per slot (positional zip,
+                // short vecs pad 0); Autocast slots resolve 0 -> 1 so the
+                // legacy "autocast starts learned and ON" survives authored
+                // omissions. See UnitDef::skill_levels for the full rule.
+                // (`autocast` here is Option<bool> = "known && is-autocast";
+                // only the Some(true) case bumps.)
+                let authored = def.skill_levels.get(i).copied().unwrap_or(0);
+                let is_autocast = autocast.unwrap_or(false);
+                let level = if is_autocast && authored == 0 { 1 } else { authored };
+                crate::skill::SkillSlot {
+                    skill: id.clone(),
+                    level,
+                    cooldown: 0.0,
+                    // Autocast-kind skills start ON (WC3 habit); players toggle.
+                    autocast_on: is_autocast,
+                }
             })
             .collect();
         e.insert(crate::skill::SkillCaster { slots });

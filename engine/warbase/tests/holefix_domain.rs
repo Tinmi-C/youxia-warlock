@@ -44,6 +44,7 @@ fn def(id: &str, body_radius: f32) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 
@@ -82,6 +83,10 @@ fn pathless_bundle() -> MapBundle {
         production: Default::default(),
         teams: Default::default(),
         starting_forces: Default::default(),
+    harvest: Default::default(),
+    camps: Default::default(),
+    daynight: Default::default(),
+    terrain: Default::default(),
     }
 }
 

@@ -237,6 +237,7 @@ pub fn archer_autocast_fire_arrows(
                 requests.write(CastSkill {
                     caster: eid,
                     slot: slot_idx,
+                    target: None,
                 });
             }
         }

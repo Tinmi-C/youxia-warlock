@@ -97,6 +97,18 @@ pub struct MapBundle {
     /// spawn nothing, exactly as before).
     #[serde(default)]
     pub starting_forces: Vec<StartingForce>,
+    /// Resource deposits (SEAM2d; defaults empty — old maps unchanged).
+    #[serde(default)]
+    pub harvest: crate::harvest::HarvestDef,
+    /// Neutral camps (SEAM2d; defaults empty).
+    #[serde(default)]
+    pub camps: crate::camp::CampsDef,
+    /// Day/night cycle (SEAM2d; defaults = disabled, matches sit-in-Day).
+    #[serde(default)]
+    pub daynight: crate::daynight::DayNightDef,
+    /// Terrain / high ground (SEAM2d placeholder; defaults = flat map).
+    #[serde(default)]
+    pub terrain: crate::vision::TerrainDef,
 }
 
 #[derive(Debug)]
@@ -294,9 +306,14 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     crate::movement::apply_nav(world, bundle);
     crate::selection::apply_selection(world, bundle);
     crate::vision::apply_vision(world, bundle);
+    crate::vision::apply_terrain(world, bundle);
     crate::item::apply_items(world, bundle);
     crate::production::apply_production(world, bundle);
     crate::unit::apply_teams(world, bundle);
+    // SEAM2d sections (skeleton dispatch; the owning increments consume).
+    crate::harvest::apply_harvest(world, bundle);
+    crate::camp::apply_camps(world, bundle);
+    crate::daynight::apply_daynight(world, bundle);
 
     // Starting forces (hole-3): spawn the authored opening units AFTER the
     // domain dispatch so the fresh diplomacy (apply_teams) derives each

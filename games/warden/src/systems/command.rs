@@ -1262,6 +1262,7 @@ pub fn handle_command_buttons(
                 card.cast_requests.write(CastSkill {
                     caster: e,
                     slot: slot_idx,
+                    target: None,
                 });
             }
             CommandAction::SkillUpgrade => {

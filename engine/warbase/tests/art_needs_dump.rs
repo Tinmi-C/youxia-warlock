@@ -32,6 +32,7 @@ fn unit(id: &str, cost: u32, bounty: u32, upgrade_to: Option<&str>) -> UnitDef {
         upgrade_to: upgrade_to.map(Into::into),
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 
@@ -88,6 +89,10 @@ fn bundle_with_towers() -> MapBundle {
         production: Default::default(),
         teams: Default::default(),
         starting_forces: Default::default(),
+    harvest: Default::default(),
+    camps: Default::default(),
+    daynight: Default::default(),
+    terrain: Default::default(),
     }
 }
 

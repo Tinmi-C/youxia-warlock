@@ -84,11 +84,18 @@ pub struct SkillSlot {
     pub autocast_on: bool,
 }
 
-/// Request (UI / autocast) -> validated here.
-#[derive(Message, Debug)]
+/// Request (UI / autocast / game aiming layers) -> validated here.
+/// `target` (hole-6 upcast, SEAM2b) is the aimed unit for
+/// `SkillTargeting::Unit` casts, filled by the game's aiming layer; the base
+/// validates and stores it opaquely (timed casts park it on `Casting`) and
+/// passes it through to the fired `SkillCast`. `None` = no unit target
+/// (None/Point targeting, autocast, legacy callers) — exact pre-SEAM2b
+/// behavior.
+#[derive(Message, Debug, Clone, Copy)]
 pub struct CastSkill {
     pub caster: Entity,
     pub slot: usize,
+    pub target: Option<Entity>,
 }
 
 /// Interrupt an in-progress cast (stun/silence archetype effects; SPL2's
@@ -111,8 +118,10 @@ pub struct Casting {
     pub skill: String,
     pub elapsed: f32,
     pub total: f32,
-    /// Reserved for targeting layers (point/unit casts); the base's own
-    /// pipeline currently starts untimed-slot casts with no target.
+    /// Aimed unit for Unit-target casts (hole-6): copied from the
+    /// `CastSkill` request at cast start and passed through to the fired
+    /// `SkillCast` at completion. The base never reads or validates it —
+    /// targeting semantics belong to game aiming layers.
     pub target: Option<Entity>,
     pub point: Option<Vec3>,
 }
@@ -130,12 +139,16 @@ pub struct Channeling {
 /// Emitted after validation; game-side effect systems dispatch by skill id.
 /// `point` is Some only when a game-side aiming layer confirmed a
 /// Point-target cast (the base validates and fires immediately; games that
-/// defer to a pick write the confirmed ground point here).
+/// defer to a pick write the confirmed ground point here). `target`
+/// (hole-6) is Some only when a game-side aiming layer confirmed a
+/// Unit-target cast — it rides `CastSkill` -> `Casting` -> here, untouched
+/// by base logic.
 #[derive(Message, Debug, Clone)]
 pub struct SkillCast {
     pub caster: Entity,
     pub skill: String,
     pub level: u8,
+    pub target: Option<Entity>,
     pub point: Option<Vec3>,
 }
 
@@ -164,7 +177,7 @@ pub fn run_autocast(casters: Query<(Entity, &SkillCaster)>, mut requests: Messag
     for (e, caster) in &casters {
         for (i, slot) in caster.slots.iter().enumerate() {
             if slot.autocast_on && slot.level > 0 && slot.cooldown <= 0.0 {
-                requests.write(CastSkill { caster: e, slot: i });
+                requests.write(CastSkill { caster: e, slot: i, target: None });
             }
         }
     }
@@ -276,7 +289,7 @@ pub fn process_casts(
                 // The request frame counts as the first casting frame.
                 elapsed: dt,
                 total: def.cast_time,
-                target: None,
+                target: req.target,
                 point: None,
             });
         } else {
@@ -285,6 +298,7 @@ pub fn process_casts(
                 caster: entity,
                 skill,
                 level,
+                target: req.target,
                 point: None,
             });
             if let Some(d) = def.channel {
@@ -303,6 +317,7 @@ pub fn process_casts(
         }
         let skill = c.skill.clone();
         let point = c.point;
+        let target = c.target;
         // FOG2 visibility gate (D5, ADR-0016 §9): a manual Point-targeted
         // cast must land inside the observer team's vision. Ground points
         // only ever reach this pipeline through `Casting.point`, set by
@@ -330,7 +345,7 @@ pub fn process_casts(
             .map(|s| s.level)
             .unwrap_or(1);
         start_slot_cooldown(&mut caster, &defs, &skill);
-        casts.write(SkillCast { caster: entity, skill: skill.clone(), level, point });
+        casts.write(SkillCast { caster: entity, skill: skill.clone(), level, target, point });
         commands.entity(entity).remove::<Casting>();
         if let Some(d) = defs.get(&skill).and_then(|d| d.channel) {
             commands.entity(entity).insert(Channeling { skill, remaining: d });
