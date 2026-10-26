@@ -104,6 +104,7 @@ fn upgrade_swaps_tier_in_place() {
             damage: 12.0, interval: 0.8, range: 5.0,
             attack_type: AttackType::Piercing, targets: TargetDomain::Both,
             projectile: Some(ProjDef { speed: 20.0 }),
+            windup_secs: 0.0, backswing_secs: 0.0,
         }),
         armor_type: ArmorType::Fortified,
         cost_gold: cost, cost_wood: 0,

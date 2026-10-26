@@ -44,6 +44,8 @@ fn skill_def(id: &str, cooldown: f32, mana_cost: f32) -> SkillDef {
         mana_cost,
         cast_time: 0.0,
         channel: None,
+        area_radius: 0.0,
+        summon: None,
     }
 }
 

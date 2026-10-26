@@ -19,9 +19,9 @@ pub mod prelude {
     };
     pub use crate::combat::{
         cleanup_dead, fire_attacks, healer_tick, move_projectiles, pick_targets, resolve_damage,
-        resolve_heals, tick_cooldowns, AttackCooldown, AttackKit, CurrentTarget, DamageDealt,
-        DamageOrigin, DamageRequest, Dead, HealRequest, Healer, Projectile, TargetingPriority,
-        UnitDied,
+        resolve_heals, tick_cooldowns, AttackCooldown, AttackKit, AttackLock, AttackWindup,
+        CurrentTarget, DamageDealt, DamageOrigin, DamageRequest, Dead, HealRequest, Healer,
+        Projectile, TargetingPriority, UnitDied,
     };
     pub use crate::econ::{
         apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,
@@ -34,9 +34,10 @@ pub mod prelude {
         MatchFlow, MatchRules, StockCount, WinCondition,
     };
     pub use crate::skill::{
-        distribute_xp, process_casts, run_autocast, spend_skill_point, tick_skill_cooldowns,
-        CastSkill, Casting, Channeling, InterruptCast, SkillCast, SkillCaster, SkillDef, SkillDefs,
-        SkillKind, SkillSlot, SkillTargeting,
+        area_targets, distribute_xp, process_casts, run_autocast, spend_skill_point,
+        tick_skill_cooldowns, ApplyStatus, CastSkill, Casting, Channeling, InterruptCast,
+        Silenced, SkillCast, SkillCaster, SkillDef, SkillDefs, SkillKind, SkillSlot,
+        SkillTargeting, StatusKind, Stunned, SummonSpec, Summoned,
     };
     pub use crate::unit::{
         spawn_unit, spawn_unit_deferred, sync_allegiance, AirUnit, Allegiance, Armor, ArmorType,
@@ -164,6 +165,9 @@ impl Plugin for WarbasePlugin {
             .add_message::<skill::CastSkill>()
             .add_message::<skill::SkillCast>()
             .add_message::<skill::InterruptCast>()
+            // SKVOC (round-2 plan §3): status-effect request message. The
+            // ONLY message-table line this increment adds.
+            .add_message::<skill::ApplyStatus>()
             .add_message::<combat::HealRequest>()
             .add_message::<selection::PickAttempt>()
             .add_message::<selection::PickResolved>()

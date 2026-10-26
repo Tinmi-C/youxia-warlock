@@ -653,11 +653,12 @@ pub fn move_agents(
         &mut AgentOrderState,
         &mut Transform,
         Option<&EffectiveStats>,
+        Option<&crate::skill::Stunned>,
     )>,
     followers: Query<(Entity, &PathFollower)>,
 ) {
     let dt = time.delta_secs();
-    for (entity, mut agent, mut state, mut tf, eff) in &mut agents {
+    for (entity, mut agent, mut state, mut tf, eff, stunned) in &mut agents {
         if followers.get(entity).is_ok() {
             // Mutually exclusive by contract: track creeps vs free agents.
             // debug builds halt, release builds skip the entity.
@@ -665,6 +666,16 @@ pub fn move_agents(
                 false,
                 "MoveAgent and PathFollower are mutually exclusive (entity {entity:?})"
             );
+            continue;
+        }
+        // SKVOC stun freeze: a Stunned agent stands still (waypoints and
+        // order are preserved — the route resumes when the stun expires;
+        // the state label is left untouched for the same reason Engaging
+        // does). Track creeps are NOT frozen here (their advance system is
+        // the path domain's; this is the pinned move_agents observation
+        // point only).
+        if stunned.is_some() {
+            agent.velocity = Vec3::ZERO;
             continue;
         }
         // Engaging units hold position (MOV4's attack-move pause / chase in

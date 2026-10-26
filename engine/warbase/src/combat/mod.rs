@@ -6,7 +6,9 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::movement::UnitCommand;
 use crate::path::PathFollower;
+use crate::skill::Stunned;
 use crate::unit::{AirUnit, Allegiance, Armor, ArmorType, AttackArmorTable, AttackDef, AttackType, Hp, Hostility, MaxHp, TargetDomain, UnitId, UnitInstance};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +38,26 @@ pub struct CurrentTarget(pub Option<Entity>);
 
 #[derive(Component, Debug)]
 pub struct Dead;
+
+/// In-flight attack windup (SKVOC, plan §3): a hit committed at the damage
+/// point but not yet delivered. Carries its own target (retargeting never
+/// diverts a committed swing). Cancelled — no damage, no cooldown burn —
+/// when the target is lost/dead or the ATTACKER gets stunned; the slot
+/// cooldown starts only at the damage point (phase 1 of `fire_attacks`).
+#[derive(Component, Debug)]
+pub struct AttackWindup {
+    pub remaining: f32,
+    pub target: Entity,
+}
+
+/// Post-hit backswing lock (SKVOC): while present the unit cannot START a
+/// new windup (the damage itself already resolved). Released early by any
+/// fresh `UnitCommand` naming the unit — the micro-retreat cancel; see
+/// `fire_attacks` phase 0 for the pinned semantics.
+#[derive(Component, Debug)]
+pub struct AttackLock {
+    pub remaining: f32,
+}
 
 #[derive(Message, Debug, Clone, Copy)]
 pub struct DamageRequest {
@@ -205,13 +227,73 @@ pub fn pick_targets(
     }
 }
 
-/// Act: fire when the cooldown is ready. Instant hits emit DamageRequest
-/// now; projectile attacks spawn a homing logic entity at the attacker.
+/// SKVOC damage-point emitter, shared by the windup-completion path and the
+/// legacy immediate path: instant hits write a DamageRequest now; projectile
+/// attacks spawn a homing logic entity at the attacker.
+fn emit_hit(
+    commands: &mut Commands,
+    requests: &mut MessageWriter<DamageRequest>,
+    attacker: Entity,
+    def: &AttackDef,
+    pos: &Transform,
+    target: Entity,
+    damage: f32,
+) {
+    match &def.projectile {
+        None => {
+            requests.write(DamageRequest {
+                target,
+                source: DamageOrigin::Attack(attacker),
+                amount: damage,
+                attack_type: def.attack_type,
+                crit: false,
+            });
+        }
+        Some(proj) => {
+            commands.spawn((
+                Projectile {
+                    target,
+                    source: DamageOrigin::Attack(attacker),
+                    speed: proj.speed,
+                    damage,
+                    attack_type: def.attack_type,
+                },
+                *pos,
+            ));
+        }
+    }
+}
+
+/// Act: fire when the cooldown is ready. SKVOC (plan §3) two-phased shape:
+///
+/// Phase 0 — backswing cancel (minimal pinned semantics): ANY fresh
+/// `UnitCommand` naming an `AttackLock`ed unit releases the lock — orders
+/// are the only way commanded movement starts, so "order received" IS the
+/// "wants to move" signal. Watching `AgentOrderState` for the same signal
+/// is useless: `move_agents` rewrites it unconditionally every frame, so
+/// its change tick never distinguishes a real Move. Removal is deferred,
+/// so the released unit's next windup can start the FOLLOWING frame.
+///
+/// Phase 1 — advance in-flight `AttackWindup`s and `AttackLock`s. A
+/// stunned attacker cancels its windup (no damage, no cooldown burn) and
+/// freezes its lock timer; a lost/dead target cancels the windup the same
+/// way. On the damage point the hit emits exactly as the legacy code did
+/// (via `emit_hit`), the cooldown starts from that moment, and a
+/// backswing > 0 attaches `AttackLock`.
+///
+/// Phase 2 — the legacy loop: cooldown ready + valid live hostile target
+/// -> fire NOW when `windup_secs == 0` (byte-for-byte the pre-SKVOC
+/// behavior; defaults keep every existing def identical), or attach an
+/// `AttackWindup` when `windup_secs > 0` (this frame counts as the first
+/// windup frame). A pending windup or an unexpired lock defers the next
+/// swing; a stunned attacker enters nothing.
 #[allow(clippy::type_complexity)]
 pub fn fire_attacks(
+    time: Res<Time>,
     hostility: Res<Hostility>,
     mut commands: Commands,
     mut requests: MessageWriter<DamageRequest>,
+    mut orders: MessageReader<UnitCommand>,
     mut attackers: Query<
         (
             Entity,
@@ -221,43 +303,106 @@ pub fn fire_attacks(
             &CurrentTarget,
             &mut AttackCooldown,
             Option<&crate::buff::EffectiveStats>,
+            Option<&mut AttackWindup>,
+            Option<&mut AttackLock>,
+            Option<&Stunned>,
         ),
         Without<Dead>,
     >,
     targets: Query<(&Hp, &Allegiance), Without<Dead>>,
 ) {
-    for (entity, kit, pos, side, target, mut cd, eff) in &mut attackers {
+    let dt = time.delta_secs();
+    // Same half-frame completion tolerance as the skill pipeline (exact
+    // frame counts at fixed steps, f32-accumulation-proof).
+    let half_frame = dt * 0.5;
+
+    // Phase 0 — order-cancel of backswing locks (see doc comment).
+    for cmd in orders.read() {
+        for &subject in &cmd.subjects {
+            let locked = attackers.get(subject).is_ok_and(|a| a.8.is_some());
+            if locked {
+                commands.entity(subject).remove::<AttackLock>();
+            }
+        }
+    }
+
+    // Phase 1 — advance committed swings and backswing locks.
+    for (entity, kit, pos, _side, _target, mut cd, eff, windup, lock, stunned) in &mut attackers {
+        // Lock timer: frozen while stunned; natural expiry is removal.
+        if let Some(mut l) = lock {
+            if stunned.is_none() {
+                l.remaining = (l.remaining - dt).max(0.0);
+                if l.remaining <= half_frame {
+                    commands.entity(entity).remove::<AttackLock>();
+                }
+            }
+        }
+        let Some(mut w) = windup else { continue };
+        if stunned.is_some() {
+            commands.entity(entity).remove::<AttackWindup>();
+            continue;
+        }
+        // Damage point requires a living target: lost/despawned/zero-hp
+        // targets cancel the committed swing (no damage, no cooldown).
+        let target_lost = match targets.get(w.target) {
+            Ok((hp, _side)) => hp.0 <= 0.0,
+            Err(_) => true,
+        };
+        if target_lost {
+            commands.entity(entity).remove::<AttackWindup>();
+            continue;
+        }
+        w.remaining -= dt;
+        if w.remaining > half_frame {
+            continue;
+        }
+        // Damage point: identical hit + cooldown semantics to the legacy
+        // fire, just arriving at the windup's end instead of instantly.
+        let eff = eff.copied().unwrap_or_else(crate::buff::EffectiveStats::neutral);
+        let damage = kit.def.damage * eff.damage_mult.max(0.0);
+        emit_hit(&mut commands, &mut requests, entity, &kit.def, pos, w.target, damage);
+        cd.0 = kit.def.interval * eff.interval_mult.max(0.05);
+        commands.entity(entity).remove::<AttackWindup>();
+        if kit.def.backswing_secs > 0.0 {
+            commands.entity(entity).insert(AttackLock {
+                // The fire frame counts as the first locked frame.
+                remaining: (kit.def.backswing_secs - dt).max(0.0),
+            });
+        }
+    }
+
+    // Phase 2 — start new attacks (legacy loop + SKVOC gates).
+    for (entity, kit, pos, side, target, mut cd, eff, windup, lock, stunned) in &mut attackers {
+        // One attack phase at a time: a pending windup or an unexpired
+        // backswing lock defers the next swing; stun freezes everything.
+        if stunned.is_some() || windup.is_some() || lock.is_some() {
+            continue;
+        }
         let Some(t) = target.0 else { continue };
         let Ok((hp, tside)) = targets.get(t) else { continue };
         if hp.0 <= 0.0 || !hostility.hostile(*side, *tside) || cd.0 > 0.0 {
             continue;
         }
+        if kit.def.windup_secs > 0.0 {
+            // Committed swing: hit lands at the damage point (phase 1).
+            commands.entity(entity).insert(AttackWindup {
+                // This frame counts as the first windup frame (the same
+                // convention as `Casting::elapsed`).
+                remaining: (kit.def.windup_secs - dt).max(0.0),
+                target: t,
+            });
+            continue;
+        }
+        // windup == 0: the exact legacy immediate fire.
         let eff = eff.copied().unwrap_or_else(crate::buff::EffectiveStats::neutral);
         let damage = kit.def.damage * eff.damage_mult.max(0.0);
-        match &kit.def.projectile {
-            None => {
-                requests.write(DamageRequest {
-                    target: t,
-                    source: DamageOrigin::Attack(entity),
-                    amount: damage,
-                    attack_type: kit.def.attack_type,
-                    crit: false,
-                });
-            }
-            Some(proj) => {
-                commands.spawn((
-                    Projectile {
-                        target: t,
-                        source: DamageOrigin::Attack(entity),
-                        speed: proj.speed,
-                        damage,
-                        attack_type: kit.def.attack_type,
-                    },
-                    *pos,
-                ));
-            }
-        }
+        emit_hit(&mut commands, &mut requests, entity, &kit.def, pos, t, damage);
         cd.0 = kit.def.interval * eff.interval_mult.max(0.05);
+        if kit.def.backswing_secs > 0.0 {
+            commands.entity(entity).insert(AttackLock {
+                remaining: (kit.def.backswing_secs - dt).max(0.0),
+            });
+        }
     }
 }
 

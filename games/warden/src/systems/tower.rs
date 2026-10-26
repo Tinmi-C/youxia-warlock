@@ -399,6 +399,8 @@ pub fn tower_unit_registry(
                 targets: warbase::prelude::TargetDomain::Ground,
                 projectile: projectile
                     .then(|| warbase::prelude::ProjDef { speed: crate::resources::PROJECTILE_SPEED }),
+                windup_secs: 0.0,
+                backswing_secs: 0.0,
             }),
             armor_type: warbase::prelude::ArmorType::Fortified,
             cost_gold: cost,

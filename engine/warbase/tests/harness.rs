@@ -24,6 +24,7 @@ fn unit(id: &str, hp: f32, armor: ArmorType, dmg: f32, cost: u32) -> UnitDef {
                 attack_type: AttackType::Magic,
                 targets: TargetDomain::Both,
                 projectile: Some(ProjDef { speed: 60.0 }),
+                windup_secs: 0.0, backswing_secs: 0.0,
             })
         } else {
             None
@@ -249,6 +250,7 @@ fn driver_wordlist_executes() {
                 mana_cost: 0.0,
                 cast_time: 0.0,
                 channel: None,
+                area_radius: 0.0, summon: None,
             },
         );
         app.insert_resource(defs);

@@ -39,6 +39,7 @@ fn scenario_bundle(
             Some(AttackDef {
                 damage: dmg, interval: 0.3, range: 12.0, attack_type: AttackType::Magic,
                 targets: TargetDomain::Both, projectile: Some(ProjDef { speed: 60.0 }),
+                windup_secs: 0.0, backswing_secs: 0.0,
             })
         } else { None },
         armor_type: armor,
@@ -515,7 +516,7 @@ fn hero_snipe_autocasts_and_points_level_it() {
             kind: SkillKind::Autocast,
             targeting: SkillTargeting::None,
             max_level: 3,
-            cooldown: 6.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None,
+            cooldown: 6.0, badge: None, hotkey: None, mana_cost: 0.0, cast_time: 0.0, channel: None, area_radius: 0.0, summon: None,
         },
     );
     app.insert_resource(defs);

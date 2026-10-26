@@ -49,6 +49,7 @@ pub fn fusion_skill_defs(balance: &SkillBalance) -> [SkillDef; 4] {
         mana_cost: 0.0,
         cast_time: 0.0,
         channel: None,
+        area_radius: 0.0, summon: None,
     };
     [
         mk(
