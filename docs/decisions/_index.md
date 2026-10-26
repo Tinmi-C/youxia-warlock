@@ -29,3 +29,4 @@
 | [[decisions/0015-art-needs-demand-integration\|ADR-0015]] | 游戏侧美术需求接入——art-needs 工具与三文件契约（art-needs.json / art-mapping.json / art-assets.json demand 回链） | accepted | 2026-10-09 |
 | [[decisions/0016-warbase-wc3-alignment-expansion\|ADR-0016]] | warbase 基底范围扩域——WC3 交互模板九域（选择/移动/寻路/生产/物品/视野/多玩家/录像/音效通道；修订 ADR-0012 范围条；总规格=warbase-wc3-alignment-plan） | accepted | 2026-10-22 |
 | [[decisions/0017-multiplayer-data-layer\|ADR-0017]] | 多玩家数据层——玩家/队伍/外交矩阵，Hostility 唯一敌我判定缝（不含 netcode；经济分域暂缓） | accepted | 2026-10-22 |
+| [[decisions/0018-warbase-round2-rpg-depth-and-ui-system\|ADR-0018]] | warbase 第二轮扩域——RPG 纵深全量补齐（采集/建造/技能词汇/英雄/镜头/野怪昼夜/高地/存档/观战）+ UI 设计系统进基底 + 循环圈纵深 v2 第二验收图（修订 ADR-0016 范围条） | accepted | 2026-10-24 |

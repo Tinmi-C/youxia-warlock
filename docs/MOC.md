@@ -40,6 +40,9 @@ updated: 2026-10-06
 
 ## 近期更新
 
+- [[decisions/0018-warbase-round2-rpg-depth-and-ui-system|ADR-0018 warbase 第二轮扩域]]（新增，accepted：全量 A 层 RPG 纵深 + UI 设计系统进基底 + 循环圈纵深 v2 第二验收图；用户 UI 四项全否转负面约束；看图拍板 H-UI 关）
+- [[topics/engine/warbase-round2-plan|warbase 第二轮扩域方案 v2]]（新增，accepted：SEAM2+七线/三线/三线四批 34-38 增量；第一轮方案标 done）
+- [[topics/game-design/loop-td-v2-rpg-proposal|loop-td 循环圈纵深 v2 需求草案]]（新增，draft：装备/神器/挑战/挖宝/羁绊/双人漏怪六件，验收数字化）
 - [[topics/engine/bevy-resource-registration-entity-shift-pitfall|Bevy 0.19 首次注册资源分配簿记实体→index 偏移]]（新增，pitfall done：录像指纹对账第 0 帧即差；正解=对账世界资源集与时序同构）
 - [[topics/engine/multi-worktree-shared-target-pitfall|同包多 worktree 共享 CARGO_TARGET_DIR 互踩]]（新增，pitfall done：并行批次两线踩中「源码完好却编译报错」假象；正解=每 worktree 私有 target）
 - [[topics/engine/warbase-wc3-alignment-plan|warbase 魔兽式底座补全方案 v0.1]]（新增，draft：WC3 交互模板扩域总规格——九域 ×27 增量（SEL 选择编队/MOV 移动寻路/SPL 法力施法/MP 阵营/PRD 生产科研/INV 物品/FOG 视野/AUD 音效/RPL 录像 + SEAM 接缝）；D1–D10 横切决策；Phase 0–4 并行批次图 + 子智能体任务包模板；待评审与 ADR-0016/0017 拍板）
