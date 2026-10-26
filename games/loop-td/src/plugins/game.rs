@@ -10,6 +10,9 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        // hud::refresh_hud takes Res<SelectedTower>; nothing else inserts it
+        // (BX4b card-switch leftover) — windowed runs panicked at startup.
+        app.insert_resource(gameplay::SelectedTower(String::new()));
         app.add_systems(Startup, gameplay::load_map)
             .add_systems(Startup, gameplay::load_meta_startup)
             .add_systems(Startup, hud::spawn_hud)
