@@ -55,6 +55,7 @@ fn carrier_unit_def() -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 

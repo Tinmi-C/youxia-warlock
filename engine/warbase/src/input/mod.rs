@@ -51,14 +51,13 @@
 //! - Digit 1..=9, non-modal       -> `GroupCommand::Recall(digit)`
 //! - Ctrl  + digit                -> `GroupCommand::Bind(digit)`
 //! - Shift + digit                -> `GroupCommand::Insert(digit)`
+//! - While `selection::ModalKeyClaim` is Some (hole-8): digits are YIELDED
+//!   to the claiming modal — no GroupCommand is written; the claim owner
+//!   reads ButtonInput itself. Tab / letters / Esc stay live.
 //! - Tab                          -> `selection::CycleSubgroups`
 //! - A / H / S / P / Esc          -> `selection::CommandHotkey` (SEL4: A/P
 //!   arm `PendingTargetOrder` targeting, H/S fire at once, Esc cancels the
 //!   pending state only — the selection set is untouched)
-//! - While a modal card is open (build placement / skill target), digits
-//!   belong to the modal, not to groups; group keys resume once it closes.
-//!   Game-level modals own their keys by disabling/swapping this bridge —
-//!   the same seam pattern as `ActiveWorldPicker`.
 
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
@@ -293,7 +292,9 @@ const DIGIT_KEYS: [(KeyCode, u8); 9] = [
 
 /// Raw keyboard bridge (SEL4): the HOTKEY SEMANTICS table above as code —
 /// A/H/S/P/Esc -> `CommandHotkey`, Tab -> `CycleSubgroups`, digits (with
-/// Ctrl/Shift) -> `GroupCommand`. The state machine behind those messages
+/// Ctrl/Shift) -> `GroupCommand`. Hole-8: while `ModalKeyClaim` is Some the
+/// digit translation is SKIPPED (digits belong to the claiming modal);
+/// every other key stays live. The state machine behind those messages
 /// stays in `selection` (headless-testable); this is raw-key translation
 /// only. Exclusive like the pointer bridge (reads ButtonInput + writes
 /// messages). No-ops whenever raw input resources are absent (headless;
@@ -304,6 +305,10 @@ fn keyboard_bridge(world: &mut World) {
     };
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    // Hole-8 yield seam: a claimed keyboard means digits are the modal's.
+    let modal_claims_digits = world
+        .get_resource::<crate::selection::ModalKeyClaim>()
+        .is_some_and(|claim| claim.0.is_some());
 
     if keys.just_pressed(KeyCode::Escape) {
         world.write_message(CommandHotkey::Cancel);
@@ -322,6 +327,9 @@ fn keyboard_bridge(world: &mut World) {
     }
     if keys.just_pressed(KeyCode::Tab) {
         world.write_message(CycleSubgroups);
+    }
+    if modal_claims_digits {
+        return; // digits belong to the modal (see ModalKeyClaim contract)
     }
     for (code, digit) in DIGIT_KEYS {
         if !keys.just_pressed(code) {

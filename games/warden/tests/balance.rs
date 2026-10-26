@@ -209,7 +209,7 @@ fn cast_ready_none_skills(app: &mut App) {
             for (slot, s) in caster.slots.iter().enumerate() {
                 let none_targeted = matches!(s.skill.as_str(), SKILL_MULTISHOT | SKILL_DEADEYE | SKILL_WAR_FRENZY);
                 if none_targeted && s.cooldown <= 0.0 {
-                    requests.push(CastSkill { caster: e, slot });
+                    requests.push(CastSkill { caster: e, slot, target: None });
                 }
             }
         }
@@ -351,7 +351,7 @@ fn cast_commander_meteor(app: &mut App) {
     };
     app.world_mut()
         .resource_mut::<Messages<CastSkill>>()
-        .write(CastSkill { caster: cmd, slot });
+        .write(CastSkill { caster: cmd, slot, target: None });
     app.update();
     if app.world().resource::<SkillAiming>().0.is_none() {
         return; // validation refused (dead/paused) — drop it

@@ -39,6 +39,7 @@ fn grunt(id: &str) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 

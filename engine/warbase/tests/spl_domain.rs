@@ -28,6 +28,7 @@ fn def(id: &str, hp: f32) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 
@@ -104,7 +105,7 @@ fn spawn_with_slot(
 fn cast(app: &mut App, caster: Entity, slot: usize) {
     app.world_mut()
         .resource_mut::<Messages<CastSkill>>()
-        .write(CastSkill { caster, slot });
+        .write(CastSkill { caster, slot, target: None });
 }
 
 fn mana_of(app: &App, e: Entity) -> f32 {

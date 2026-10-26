@@ -48,7 +48,7 @@
                     armor_type: Hero, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: [],
                     hero: true, skills: ["holy_light", "devotion"],
                     mana: Some((max: 100, regen: 1.0)),
-                    auras: [(radius: 4.0, kind: DamageTakenMult, amount: -0.15)]),
+                    auras: [(radius: 4.0, kind: DamageTakenMult, amount: -0.15, affects: Allies)]),
         // 商店（RL2 RL3 物品链）：中立建筑，挂 Shop 组件的是开局布局（游戏侧，
         // bundle 无 shop 段——记入 GDD 洞清单）。
         "shop": (id: "shop", attrs: (hp: 9999, move_speed: 0.0, body_radius: 1.0),

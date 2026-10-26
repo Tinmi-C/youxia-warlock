@@ -417,6 +417,7 @@ pub fn consume_item_commands(
                             caster: user,
                             skill: effect.clone(),
                             level: 1,
+                            target: None,
                             point: None,
                         });
                     }

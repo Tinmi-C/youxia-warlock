@@ -452,7 +452,7 @@ pub fn cast_holy_light(world: &mut World) {
         .unwrap();
     let target = aim_holy_light(world, hero);
     world.entity_mut(hero).insert(HolyLightAim(target));
-    world.write_message(CastSkill { caster: hero, slot });
+    world.write_message(CastSkill { caster: hero, slot, target: None });
     info!("[rts-lab] Q: holy_light cast requested by {hero:?} at {target:?}");
 }
 

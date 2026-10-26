@@ -51,6 +51,7 @@ fn scenario_bundle(
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     };
     let mut units = std::collections::HashMap::new();
     units.insert("grunt".into(), unit("grunt", 40.0, ArmorType::Heavy, 0.0));

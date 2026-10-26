@@ -786,6 +786,7 @@ pub fn skill_card_shots(
         requests.write(CastSkill {
             caster: tower,
             slot,
+            target: None,
         });
         Some(())
     };
@@ -826,7 +827,7 @@ pub fn skill_card_shots(
                         .iter()
                         .position(|s| s.skill == crate::systems::skills::SKILL_FROST_NOVA);
                     if let Some(slot) = slot {
-                        requests.write(CastSkill { caster: cmd, slot });
+                        requests.write(CastSkill { caster: cmd, slot, target: None });
                     }
                 }
             }
@@ -880,6 +881,7 @@ pub fn skill_card_shots(
                 requests.write(CastSkill {
                     caster: bastion,
                     slot: 0,
+                    target: None,
                 });
                 info!("[dash] fusion segment: bastion placed, concussion aiming");
             }

@@ -14,8 +14,8 @@ pub mod prelude {
     pub use crate::build::{try_place, try_sell, try_upgrade, Buildable, BuildGrid, BuildMode, BuildReject, Cell};
     pub use crate::bundle::build_grid;
     pub use crate::buff::{
-        aggregate_stats, apply_auras, AuraDef, Auras, EffectiveStats, ModEntry, StatKind,
-        StatMods,
+        aggregate_stats, apply_auras, AuraAffects, AuraDef, Auras, EffectiveStats, ModEntry,
+        StatKind, StatMods,
     };
     pub use crate::combat::{
         cleanup_dead, fire_attacks, healer_tick, move_projectiles, pick_targets, resolve_damage,

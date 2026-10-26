@@ -40,6 +40,7 @@ fn sample_bundle() -> MapBundle {
             upgrade_to: None,
             heal: None,
             mana: None,
+        skill_levels: vec![],
         },
     );
     MapBundle {

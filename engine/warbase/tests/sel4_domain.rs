@@ -32,6 +32,7 @@ fn def(id: &str, body_radius: f32) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 

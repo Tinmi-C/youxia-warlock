@@ -134,6 +134,20 @@ pub enum GroupCommand {
     Insert(u8),
 }
 
+/// Modal keyboard claim (hole-8 upcast, SEAM2b): while `Some(owner)`, the
+/// ui-feature keyboard bridge SKIPS its digit -> `GroupCommand` translation
+/// (digits belong to the modal UI — build placement, skill targeting,
+/// inventory hotbars); Tab and the letter hotkeys (A/H/S/P/M/Esc) stay
+/// live. CONTRACT: the module that opens a modal writes
+/// `ModalKeyClaim(Some("its id"))` and MUST clear it back to `None` on
+/// close (cancel, confirm, or despawn) — the base never releases a claim
+/// on anyone's behalf. Stashing the previous value on claim and restoring
+/// it on release keeps nested modals well-behaved. Headless logic never
+/// reads this (domain messages are injected directly); it exists purely as
+/// the bridge's yield seam, so tests drive it through the keyboard bridge.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ModalKeyClaim(pub Option<&'static str>);
+
 /// Control-group storage (keys 1..=9; dead entities are swept in Cleanup).
 #[derive(Resource, Debug, Default)]
 pub struct ControlGroups {
@@ -666,6 +680,7 @@ impl Plugin for SelectionPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<CommandHotkey>()
             .init_resource::<PendingTargetOrder>()
+            .init_resource::<ModalKeyClaim>()
             .add_systems(
                 Update,
                 (
@@ -689,8 +704,8 @@ impl Plugin for SelectionPlugin {
 pub mod prelude {
     pub use super::{
         AABB_EDGE_EPSILON, CommandHotkey, ControlGroups, CycleSubgroups, GroupCommand,
-        PendingTargetOrder, PickAttempt, PickButton, PickResolved, SelectCommand, Selectable,
-        Selected, SelectionDetail, SelectionPanelData, SelectionPlugin, SelectionState,
+        ModalKeyClaim, PendingTargetOrder, PickAttempt, PickButton, PickResolved, SelectCommand,
+        Selectable, Selected, SelectionDetail, SelectionPanelData, SelectionPlugin, SelectionState,
         selection_subgroups,
     };
 }

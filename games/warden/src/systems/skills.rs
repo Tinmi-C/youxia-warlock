@@ -331,6 +331,7 @@ pub fn skill_hotkeys(
                 requests.write(CastSkill {
                     caster: commander,
                     slot: slot_idx,
+                    target: None,
                 });
             }
         }
@@ -357,6 +358,7 @@ pub fn handle_skill_buttons(
             requests.write(CastSkill {
                 caster: commander,
                 slot: btn.slot,
+                target: None,
             });
         }
     }
@@ -601,6 +603,7 @@ pub fn handle_cast_requests(
                     caster: req.caster,
                     skill: skill_id,
                     level,
+                    target: None,
                     point: None,
                 });
                 info!("[sk] {} cast (lv {level}), cd {cd:.0}s", def.id);
@@ -784,6 +787,7 @@ pub fn update_aim_picking(
                 caster: caster_e,
                 skill: def_id.clone(),
                 level,
+                target: None,
                 point: Some(point),
             });
             aiming.0 = None;

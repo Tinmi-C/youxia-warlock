@@ -40,6 +40,7 @@ fn sample_bundle() -> MapBundle {
             upgrade_to: None,
             heal: None,
             mana: None,
+        skill_levels: vec![],
         },
     );
     MapBundle {
@@ -109,6 +110,7 @@ fn grunt_def(id: &str, hp: f32, hero: bool) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 
@@ -140,6 +142,7 @@ fn tower_def(id: &str) -> UnitDef {
         upgrade_to: None,
         heal: None,
         mana: None,
+    skill_levels: vec![],
     }
 }
 

@@ -283,6 +283,23 @@ fn apply_envelope(world: &mut World, env: &warbase::prelude::CommandEnvelope) ->
         CommandEnvelope::Key { code } => {
             return Err(format!("unhandled envelope Key({code}) — RPL1 records no keys"));
         }
+        // SEAM2b hole-10 vocabulary: serde-stable but no recorder writes
+        // them yet (RPL follow-up wires both ends).
+        CommandEnvelope::Select { op } => {
+            return Err(format!("unhandled envelope Select({op}) — recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::Order { kind, .. } => {
+            return Err(format!("unhandled envelope Order({kind}) — recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::Train { unit } => {
+            return Err(format!("unhandled envelope Train({unit}) — recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::Research { id } => {
+            return Err(format!("unhandled envelope Research({id}) — recorder lands with RPL follow-up"));
+        }
+        CommandEnvelope::UseItem { slot } => {
+            return Err(format!("unhandled envelope UseItem({slot}) — recorder lands with RPL follow-up"));
+        }
         CommandEnvelope::WaveStart => {
             world.write_message(warbase::prelude::StartWave);
         }
