@@ -11,6 +11,7 @@ use warbase::testing::test_app;
 
 fn unit(id: &str, cost: u32, bounty: u32, upgrade_to: Option<&str>) -> UnitDef {
     UnitDef {
+        hero_stats: None,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes {

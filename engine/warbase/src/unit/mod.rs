@@ -173,6 +173,13 @@ pub struct UnitDef {
     /// load unchanged (`#[serde(default)]`).
     #[serde(default)]
     pub mana: Option<ManaDef>,
+    /// Hero primary attributes (HERO, round-2 plan §3): spawn inserts
+    /// `HeroStats` and applies the `HeroStatsDef` conversion table on top
+    /// of the base fields above (additive layer — see
+    /// `hero::apply_attribute_bonuses`). None (serde default) = plain
+    /// unit, zero drift for every existing def/bundle.
+    #[serde(default)]
+    pub hero_stats: Option<crate::hero::HeroStats>,
 }
 
 fn default_leak() -> u32 {
@@ -599,7 +606,14 @@ pub fn spawn_unit(
             .collect();
         e.insert(crate::skill::SkillCaster { slots });
     }
-    Some(e.id())
+    // HERO (round-2 plan §3): three primary attributes, conversion applied
+    // at spawn ("spawn 时算定" — see hero::apply_attribute_bonuses).
+    let id = e.id();
+    if let Some(stats) = def.hero_stats {
+        world.entity_mut(id).insert(stats);
+        crate::hero::apply_attribute_bonuses(world, id);
+    }
+    Some(id)
 }
 
 /// Commands-based variant of [`spawn_unit`] for use inside systems (the
@@ -647,6 +661,13 @@ pub fn spawn_unit_deferred(
     }
     if let Some(m) = def.mana {
         ec.insert((Mana(m.max), MaxMana(m.max), ManaRegen(m.regen)));
+    }
+    // HERO: attributes ride along; the conversion table is a resource and
+    // Commands cannot read resources mid-system, so deferred heroes carry
+    // `HeroStatsRaw` and the hero Tick converts them on the first frame
+    // after materialization (World-variant spawns convert at spawn).
+    if let Some(stats) = def.hero_stats {
+        ec.insert((stats, crate::hero::HeroStatsRaw));
     }
     // Skill slots stay exclusive to the World variant: assembling them needs
     // a SkillDefs read, which Commands cannot do mid-system.

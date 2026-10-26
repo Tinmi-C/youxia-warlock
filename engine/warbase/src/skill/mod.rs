@@ -633,11 +633,47 @@ pub fn spend_skill_point(world: &mut World, entity: Entity, slot: usize) -> Resu
 #[derive(Resource, Default)]
 pub struct XpEventCursor(pub bevy::ecs::message::MessageCursor<UnitDied>);
 
+/// Kill-xp credit for ONE recipient: add the xp, drain level-ups (each
+/// grants a point), and refresh the permanent DamageMult growth entry
+/// (+5% per level above 1) — the hero-tower growth seam. Extracted from
+/// the old killer-only loop verbatim so the share path (below) credits
+/// every recipient identically.
+fn grant_xp(world: &mut World, hero: Entity, amount: u32) {
+    let Ok(mut holder) = world.get_entity_mut(hero) else { return };
+    let Some(mut xp) = holder.get_mut::<XpHolder>() else { return };
+    xp.xp += amount;
+    while xp.xp >= xp.next_level_xp {
+        xp.xp -= xp.next_level_xp;
+        xp.level += 1;
+        xp.points += 1;
+        xp.next_level_xp = (xp.next_level_xp as f32 * 2.0) as u32;
+    }
+    let level = xp.level;
+    let entry = holder.entry::<StatMods>().or_default();
+    entry.into_mut().upsert(ModEntry {
+        source: hero,
+        kind: StatKind::DamageMult,
+        amount: 0.05 * (level - 1) as f32,
+        expires_at: None,
+        from_aura: false,
+    });
+}
+
 /// Cleanup (exclusive): kill xp feeds the killer's XpHolder; each level
 /// grants a point and refreshes a permanent DamageMult growth entry
 /// (+5% per level above 1) — the hero-tower growth seam. Also the skill
 /// domain's SKVOC Cleanup step: expired summons (`Summoned` leases ticked
 /// to zero by the Tick phase) despawn here.
+///
+/// HERO xp share (round-2 plan §3): the split happens HERE, before the
+/// credit lands ("入袋前") — `HeroRules::share_radius` <= 0 takes the exact
+/// legacy killer-only path (zero drift); > 0 splits the bounty evenly
+/// among allied `XpHolder` heroes within the radius of the killer's
+/// position (killer included when it qualifies; dead heroes never leech —
+/// `Without<Dead>`, so a reviving hero waits out its timer first). The
+/// integer remainder goes to the lowest Entity index (deterministic, D6).
+/// A despawned/positionless killer (cleanup_dead runs first in this set)
+/// falls back to the legacy credit, exactly as before.
 pub fn distribute_xp(world: &mut World) {
     // SKVOC: despawn expired summons (see doc; leases tick in Tick).
     {
@@ -657,27 +693,56 @@ pub fn distribute_xp(world: &mut World) {
             cursor.0.read(msgs).cloned().collect()
         })
     };
+    // HERO share policy; a missing resource (apps wiring this system
+    // standalone without the hero plugin, e.g. warden) = 0 = the exact
+    // legacy killer-only credit — never a panic.
+    let share_radius = world
+        .get_resource::<crate::hero::HeroRules>()
+        .map(|rules| rules.share_radius)
+        .unwrap_or(0.0);
     for death in events {
         let Some(crate::combat::DamageOrigin::Attack(killer)) = death.killer else {
             continue; // skill/system kills don't feed tower xp in v1
         };
-        let Ok(mut holder) = world.get_entity_mut(killer) else { continue };
-        let Some(mut xp) = holder.get_mut::<XpHolder>() else { continue };
-        xp.xp += death.xp;
-        while xp.xp >= xp.next_level_xp {
-            xp.xp -= xp.next_level_xp;
-            xp.level += 1;
-            xp.points += 1;
-            xp.next_level_xp = (xp.next_level_xp as f32 * 2.0) as u32;
+        if share_radius <= 0.0 {
+            // Exact pre-HERO path (zero drift).
+            grant_xp(world, killer, death.xp);
+            continue;
         }
-        let level = xp.level;
-        let entry = holder.entry::<StatMods>().or_default();
-        entry.into_mut().upsert(ModEntry {
-            source: killer,
-            kind: StatKind::DamageMult,
-            amount: 0.05 * (level - 1) as f32,
-            expires_at: None,
-            from_aura: false,
-        });
+        let (Some(killer_side), Some(killer_tf)) =
+            (world.get::<Allegiance>(killer).copied(), world.get::<Transform>(killer).copied())
+        else {
+            // Killer gone/positionless: legacy fallback.
+            grant_xp(world, killer, death.xp);
+            continue;
+        };
+        let hostility = world.resource::<Hostility>().clone();
+        let mut sharers = world.query_filtered::<
+            (Entity, &Transform, &Allegiance),
+            (With<XpHolder>, Without<Dead>),
+        >();
+        let mut recipients: Vec<Entity> = sharers
+            .iter(world)
+            .filter(|&(_e, tf, side)| {
+                hostility.allied(killer_side, *side)
+                    && tf.translation.distance(killer_tf.translation) <= share_radius
+            })
+            .map(|(e, _tf, _side)| e)
+            .collect();
+        recipients.sort_by_key(|e| e.index_u32());
+        let n = recipients.len();
+        if n == 0 {
+            // No eligible sharer: legacy credit (no-ops without an XpHolder).
+            grant_xp(world, killer, death.xp);
+            continue;
+        }
+        let each = death.xp / n as u32;
+        let remainder = death.xp % n as u32;
+        for (i, &hero) in recipients.iter().enumerate() {
+            let amount = each + if i == 0 { remainder } else { 0 };
+            if amount > 0 {
+                grant_xp(world, hero, amount);
+            }
+        }
     }
 }

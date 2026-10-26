@@ -99,6 +99,7 @@ pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
         out.insert(
             def.name.to_string(),
             warbase::prelude::UnitDef {
+                hero_stats: None,
                 id: def.name.to_string(),
                 attrs: warbase::prelude::BaseAttributes {
                     hp: def.hp,

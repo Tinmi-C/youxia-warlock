@@ -22,6 +22,7 @@ const LOOP_MAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/maps/loop.ron");
 
 fn grunt(id: &str) -> UnitDef {
     UnitDef {
+        hero_stats: None,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp: 40.0, move_speed: 4.0, body_radius: 0.3 },

@@ -504,7 +504,13 @@ pub fn resolve_damage(
     }
 }
 
-pub fn cleanup_dead(mut commands: Commands, q: Query<Entity, With<Dead>>) {
+/// HERO revive exemption (the ONLY revive-driven change in combat, plan
+/// §3): a hero carrying `hero::Reviving` keeps its `Dead` marker (dead
+/// semantics ARE the revive window's invisibility/invulnerability — every
+/// targeting/attack/heal query already excludes `Dead`) and must NOT be
+/// despawned; the hero domain resurrects it when the timer expires. Every
+/// other Dead entity despawns exactly as before.
+pub fn cleanup_dead(mut commands: Commands, q: Query<Entity, (With<Dead>, Without<crate::hero::Reviving>)>) {
     for e in &q {
         commands.entity(e).despawn();
     }
