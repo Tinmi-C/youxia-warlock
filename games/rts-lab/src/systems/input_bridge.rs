@@ -17,8 +17,11 @@
 //! pointer layer (via the documented `ActiveWorldPicker` swap seam) and
 //! bridges pointer input itself with XZ geometry, driving the base's
 //! plane-free command messages (`SelectCommand` / `UnitCommand` — D4).
-//! The base KEYBOARD bridge stays: H/S/Esc/Tab/digits are plane-free. (The
-//! A/P targeted-order path inherits the plane bug — RL2 scope.)
+//! The base KEYBOARD bridge stays: A/H/S/P/Esc/Tab/digits are plane-free
+//! (A/P arm the base `PendingTargetOrder` resource). RL2 closes the A/P
+//! targeting leg game-side: this bridge consumes the armed state with XZ
+//! geometry (see [`pending_click_transition`]) instead of the base's
+//! z=0-plane `issue_targeted_orders`.
 
 use bevy::picking::hover::HoverMap;
 use bevy::picking::pointer::PointerId;
@@ -144,6 +147,35 @@ pub fn right_click_order(hit: Option<Entity>, hostile: bool, ground: Vec2) -> Op
     }
 }
 
+/// Pure transition (unit-tested headlessly) for the base `PendingTargetOrder`
+/// state machine (A/P keys; the base `apply_command_hotkeys` arms it, the
+/// base `issue_targeted_orders` consumes PickAttempts — with the z=0 plane
+/// bug, hole #4). This is the game-side, plane-correct leg: a left click on
+/// XZ ground while targeting armed advances the machine —
+/// AttackMove fires at once, Patrol parks point a then fires {a, b} — and
+/// returns the order to broadcast (None while still targeting).
+pub fn pending_click_transition(
+    pending: PendingTargetOrder,
+    ground: Vec2,
+) -> (PendingTargetOrder, Option<Order>) {
+    let on_plane = |p: Vec2| Vec3::new(p.x, 0.0, p.y);
+    match pending {
+        PendingTargetOrder::Idle => (pending, None),
+        PendingTargetOrder::AttackMove => (
+            PendingTargetOrder::Idle,
+            Some(Order::AttackMove { to: on_plane(ground) }),
+        ),
+        PendingTargetOrder::PatrolFirst => (
+            PendingTargetOrder::PatrolSecond { a: on_plane(ground) },
+            None,
+        ),
+        PendingTargetOrder::PatrolSecond { a } => (
+            PendingTargetOrder::Idle,
+            Some(Order::Patrol { a, b: on_plane(ground), toward_b: true }),
+        ),
+    }
+}
+
 /// Exclusive pointer bridge: raw mouse -> XZ geometry -> base command
 /// messages. Left click = select (Shift add / Ctrl toggle / ground clears);
 /// >= threshold drag = box select; right click = smart order for the whole
@@ -179,6 +211,32 @@ pub fn rts_pointer_bridge(world: &mut World) {
 
     for button in [MouseButton::Left, MouseButton::Right] {
         if !buttons.just_released(button) {
+            continue;
+        }
+        // A/P targeting cursor (RL2): while the base `PendingTargetOrder` is
+        // armed (base keyboard bridge: A/P -> CommandHotkey -> the resource),
+        // a left click TARGETS the order (plane-correct game-side leg of the
+        // base state machine — the base's own consumer has the z=0 bug) and
+        // never selects; a right click cancels targeting (WC3 habit).
+        let pending = *world.resource::<PendingTargetOrder>();
+        if pending != PendingTargetOrder::Idle {
+            if button == MouseButton::Right {
+                world.resource_mut::<PendingTargetOrder>().set_if_neq(PendingTargetOrder::Idle);
+                continue;
+            }
+            if ui_blocks_world_pick(world) {
+                continue;
+            }
+            if let Some(point) = xz_at(world, cursor) {
+                let (next, order) = pending_click_transition(pending, point);
+                world.resource_mut::<PendingTargetOrder>().set_if_neq(next);
+                if let Some(order) = order {
+                    let selected = world.resource::<SelectionState>().entities.clone();
+                    if !selected.is_empty() {
+                        world.write_message(UnitCommand { order, subjects: selected });
+                    }
+                }
+            }
             continue;
         }
         // Press->release spanning >= threshold pixels is a box select.

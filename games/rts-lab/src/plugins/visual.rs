@@ -14,7 +14,12 @@ impl Plugin for VisualPlugin {
         app.add_systems(Startup, (camera::spawn_camera, visuals::spawn_scene, hud::spawn_hud))
             .add_systems(
                 Update,
-                (visuals::visualize_units, visuals::sync_selection_outlines, hud::refresh_hud),
+                (
+                    visuals::visualize_units,
+                    visuals::visualize_ground_items,
+                    visuals::sync_selection_outlines,
+                    hud::refresh_hud,
+                ),
             );
     }
 }

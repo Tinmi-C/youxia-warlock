@@ -67,7 +67,7 @@ pub fn refresh_hud(
             None => String::new(),
         };
         let next = format!(
-            "金 {}  人口 {}/{}  |  选中：{}{}  |  T 训练农民 · 右键移动 · 拖框选 · A 攻击移动(RL2 后补){}",
+            "金 {}  人口 {}/{}  |  选中：{}{}  |  右键移动 · A 攻击移动 · P 巡逻 · T/F 训练(选建筑) · Q 圣光 · R 科研 · 1 用药 · B 买药{}",
             key.gold,
             key.used,
             key.cap,

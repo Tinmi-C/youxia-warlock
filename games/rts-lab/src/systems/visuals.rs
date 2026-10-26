@@ -11,8 +11,13 @@ use crate::components::{Carrying, SelectionOutline, Visualized};
 fn def_visual(def: &str) -> (f32, Color) {
     match def {
         "main_hall" => (2.2, Color::srgb(0.20, 0.45, 0.95)),
+        "barracks" => (1.6, Color::srgb(0.15, 0.35, 0.75)),
         "gold_mine" => (1.8, Color::srgb(0.95, 0.72, 0.15)),
         "peasant" => (0.55, Color::srgb(0.55, 0.80, 1.00)),
+        "footman" => (0.65, Color::srgb(0.85, 0.85, 0.55)),
+        "archer" => (0.55, Color::srgb(0.60, 0.85, 0.50)),
+        "paladin" => (0.85, Color::srgb(1.00, 0.90, 0.40)), // hero: bigger, gold
+        "shop" => (1.4, Color::srgb(0.55, 0.30, 0.70)),
         "grunt" => (0.70, Color::srgb(0.80, 0.18, 0.15)),
         _ => (0.60, Color::srgb(0.80, 0.80, 0.80)),
     }
@@ -71,6 +76,30 @@ pub fn visualize_units(
                 Transform::from_xyz(0.0, size + 0.06, 0.0),
             ));
         }
+    }
+}
+
+/// Ground items (RL2): a small green flask-cube riding on every fresh
+/// `GroundItem`; pickup/drop despawns the entity, children go with it.
+pub fn visualize_ground_items(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    items: Query<Entity, (With<GroundItem>, Without<Visualized>)>,
+) {
+    for entity in &items {
+        commands
+            .entity(entity)
+            .insert(Visualized)
+            .with_child((
+                Mesh3d(meshes.add(Cuboid::new(0.3, 0.35, 0.3))),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.2, 0.95, 0.4),
+                    emissive: LinearRgba::rgb(0.05, 0.4, 0.1),
+                    ..default()
+                })),
+                Transform::from_xyz(0.0, 0.18, 0.0),
+            ));
     }
 }
 
