@@ -183,6 +183,11 @@ impl Plugin for WarbasePlugin {
             .add_message::<item::ShopCommands>()
             .add_message::<production::ResearchCommands>()
             .add_message::<production::RallyCommands>()
+            // BLDG (round-2 plan §3): explicit build-cancel and town-upgrade
+            // commands — the ONLY message-table lines this increment adds
+            // (exception-authorized alongside the SEAM2c precedent above).
+            .add_message::<build_rts::CancelBuild>()
+            .add_message::<build_rts::UpgradeTown>()
             .add_message::<sfx::SfxRequest>()
             .init_resource::<rule::MatchRules>()
             .init_resource::<rule::MatchFlow>()
