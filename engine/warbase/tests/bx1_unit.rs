@@ -41,6 +41,7 @@ fn grunt_registry() -> UnitRegistry {
     defs.insert(
         "grunt".into(),
         UnitDef {
+            hero_stats: None,
             leak: 1,
             id: "grunt".into(),
             attrs: BaseAttributes { hp: 120.0, move_speed: 2.0, body_radius: 0.4 },

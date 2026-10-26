@@ -23,6 +23,7 @@ fn sample_bundle() -> MapBundle {
     units.insert(
         "grunt".to_string(),
         UnitDef {
+            hero_stats: None,
             leak: 1,
             id: "grunt".into(),
             attrs: BaseAttributes { hp: 50.0, move_speed: 0.0, body_radius: 0.3 },
@@ -97,6 +98,7 @@ fn sample_bundle() -> MapBundle {
 /// Unit def with explicit hp / hero flag (grunt shape: no attack, no mana).
 fn grunt_def(id: &str, hp: f32, hero: bool) -> UnitDef {
     UnitDef {
+        hero_stats: None,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: 0.0, body_radius: 0.3 },
@@ -122,6 +124,7 @@ fn grunt_def(id: &str, hp: f32, hero: bool) -> UnitDef {
 /// past it (the D5 construct — range must outrun the tower's own sight).
 fn tower_def(id: &str) -> UnitDef {
     UnitDef {
+        hero_stats: None,
         leak: 0,
         id: id.into(),
         attrs: BaseAttributes { hp: 100.0, move_speed: 0.0, body_radius: 0.5 },

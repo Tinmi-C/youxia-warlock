@@ -265,6 +265,7 @@ fn no_harvest_section_zero_drift() {
 
 fn unit_def(id: &str) -> UnitDef {
     UnitDef {
+        hero_stats: None,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp: 10.0, move_speed: 1.0, body_radius: 0.3 },

@@ -385,6 +385,7 @@ pub fn tower_unit_registry(
         projectile: bool,
     ) -> warbase::prelude::UnitDef {
         warbase::prelude::UnitDef {
+            hero_stats: None,
             id: name.to_string(),
             attrs: warbase::prelude::BaseAttributes {
                 hp: 0.0,

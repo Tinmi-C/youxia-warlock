@@ -19,6 +19,7 @@ use warbase::testing::{test_app, STEP};
 
 fn def(id: &str) -> UnitDef {
     UnitDef {
+        hero_stats: None,
         id: id.to_string(),
         attrs: BaseAttributes { hp: 100.0, move_speed: 3.0, body_radius: 0.3 },
         attack: None,
