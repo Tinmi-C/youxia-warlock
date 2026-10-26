@@ -35,6 +35,8 @@ fn unit_def(id: &str) -> UnitDef {
         traits: vec![],
         auras: vec![],
         hero: false,
+        // HERO-line field (post-BLDG-branch merge): no attributes here.
+        hero_stats: None,
         skills: vec![],
         upgrade_to: None,
         heal: None,
