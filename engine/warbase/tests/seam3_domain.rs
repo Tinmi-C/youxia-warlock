@@ -617,3 +617,149 @@ fn orphaned_stacks_are_swept_with_their_holder() {
         "orphaned stack swept with its holder"
     );
 }
+
+// ---------------------------------------------------------------------------
+// SEAM3c — spectate replay reconciliation: a session recorded on a driven
+// app re-simulates through the SPECTATE driver (PreUpdate re-injection) and
+// every recorded hash checkpoint aligns — 对账 without opening a window.
+// ---------------------------------------------------------------------------
+
+/// Record a short driven match: one manual wave start, a card action and a
+/// raw-key envelope (the game-side LT2 vocabulary), then replay it through
+/// `SpectateSession` on an identical composition.
+#[test]
+fn spectate_session_reconciles_the_recorded_hash_chain() {
+    fn tiny_bundle() -> warbase::bundle::MapBundle {
+        let mut units = std::collections::HashMap::new();
+        units.insert("grunt".into(), unit_def("grunt", 40.0, 0.0, 0.0));
+        warbase::bundle::MapBundle {
+            identity: warbase::bundle::MapIdentity { id: "seam3-spec".into(), version: 1 },
+            world: warbase::bundle::WorldDef {
+                paths: vec![PathDef::closed_loop(vec![[-6.0, -4.0], [6.0, -4.0], [6.0, 4.0], [-6.0, 4.0]])],
+                build: warbase::bundle::BuildDomainDef::FreeGrid { cell: 1.0, cols: 16, rows: 12 },
+                blocked: vec![],
+            },
+            units,
+            waves: WaveTable {
+                waves: vec![WaveEntry {
+                    spawns: vec![SpawnSpec {
+                        unit: "grunt".into(),
+                        count: 2,
+                        interval: 0.5,
+                        path: 0,
+                        delay: 0.0,
+                        hp_scale: 1.0,
+                    }],
+                    boss_timeout: None,
+                    preview: "2 grunts".into(),
+                    reward_gold: 0,
+                    challenge: false,
+                }],
+                advance: Advance::Manual,
+                early_call_bonus: None,
+            },
+            rules: MatchRules {
+                leak: LeakPolicy::Stockpile { cap: 50 },
+                build_window: BuildWindow::Always,
+                lap_buff: None,
+                win: WinCondition::Endless,
+                sell_refund_pct: 0.7,
+            },
+            econ_start: EconStart { gold: 100, wood: 0, pop_cap: 8 },
+            econ_rules: EconRules::default(),
+            attack_armor: AttackArmorTable::default(),
+            nav: Default::default(),
+            vision: Default::default(),
+            items: Default::default(),
+            production: Default::default(),
+            teams: Default::default(),
+            starting_forces: Default::default(),
+            harvest: Default::default(),
+            camps: Default::default(),
+            daynight: Default::default(),
+            terrain: Default::default(),
+        }
+    }
+    const FRAMES: u32 = 90; // 1.5s: wave spawns, 3 hash checkpoints (0/30/60)
+
+    // --- recording app: drive inputs, harvest the log --------------------
+    let bundle = tiny_bundle();
+    let mut rec_app = test_app();
+    rec_app.insert_resource(MatchRng::seeded(77));
+    warbase::bundle::assemble(&mut rec_app.world_mut(), &bundle);
+    {
+        let mut rec = RecordingLog::default();
+        rec.log.version = INPUT_LOG_VERSION;
+        rec.log.seed = 77;
+        rec.log.map_hash = 1; // fingerprint unused by the driver
+        rec_app.insert_resource(rec);
+    }
+    // Frame 10: start the wave (message between updates, like real input).
+    for _ in 0..9 {
+        rec_app.update();
+    }
+    rec_app
+        .world_mut()
+        .write_message(StartWave);
+    // Frame 20: a card action dispatch (recorded by the ui recorder) and a
+    // raw-key envelope (the game-side LT2 vocabulary, appended directly).
+    for _ in 0..10 {
+        rec_app.update();
+    }
+    rec_app.world_mut().write_message(warbase::ui::CommandCardAction {
+        action: warbase::ui::CommandAction::Custom("dig".into()),
+        selection: warbase::ui::SelectionMode::Build,
+    });
+    {
+        let mut rec = rec_app
+            .world_mut()
+            .remove_resource::<RecordingLog>()
+            .unwrap();
+        append_envelope(&mut rec, CommandEnvelope::Key { code: "KeyE".into() });
+        rec_app.insert_resource(rec);
+    }
+    for _ in 0..(FRAMES - 20) {
+        rec_app.update();
+    }
+    let log = rec_app
+        .world_mut()
+        .remove_resource::<RecordingLog>()
+        .unwrap()
+        .log;
+    assert!(
+        log.frames.iter().any(|(f, envs)| *f == 10
+            && envs.iter().any(|e| matches!(e, CommandEnvelope::WaveStart))),
+        "wave start recorded at its frame: {:?}",
+        log.frames
+    );
+    assert!(
+        log.frames.iter().any(|(f, envs)| *f == 20
+            && envs.iter().any(|e| matches!(e, CommandEnvelope::Card { action } if action == "custom:dig"))
+            && envs.iter().any(|e| matches!(e, CommandEnvelope::Key { code } if code == "KeyE"))),
+        "card + key envelopes recorded (same-frame merge): {:?}",
+        log.frames
+    );
+    assert!(log.hashes.len() >= 3, "hash checkpoints recorded: {:?}", log.hashes);
+
+    // --- spectate app: same composition, SpectateSession instead ---------
+    let mut spec_app = test_app();
+    spec_app.insert_resource(MatchRng::seeded(77));
+    warbase::bundle::assemble(&mut spec_app.world_mut(), &bundle);
+    spec_app.insert_resource(SpectateSession::new(log.clone()));
+    for _ in 0..FRAMES {
+        spec_app.update();
+    }
+    let session = spec_app.world().resource::<SpectateSession>();
+    assert!(session.finished, "driver replays to the log's end");
+    assert!(
+        session.divergences.is_empty(),
+        "every recorded checkpoint reconciles: {:?}",
+        session.divergences
+    );
+
+    // Behavioral reconciliation (对账): the spectated match followed the
+    // same wave state as the recording.
+    let rec_waves = rec_app.world().resource::<WaveDirector>().next_wave;
+    let spec_waves = spec_app.world().resource::<WaveDirector>().next_wave;
+    assert_eq!(rec_waves, spec_waves, "wave progression matches the recording");
+}

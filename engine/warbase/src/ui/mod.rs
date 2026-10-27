@@ -32,6 +32,38 @@ pub enum CommandAction {
     Custom(String),
 }
 
+impl CommandAction {
+    /// Stable replay-envelope word (SEAM3c): "build:<id>" / "upgrade" /
+    /// "sell" / "cast:<slot>" / "custom:<id>". Entity-free by construction;
+    /// the codec lives with the vocabulary it encodes.
+    pub fn envelope_word(&self) -> String {
+        match self {
+            CommandAction::Build(id) => format!("build:{id}"),
+            CommandAction::Upgrade => "upgrade".into(),
+            CommandAction::Sell => "sell".into(),
+            CommandAction::Cast(slot) => format!("cast:{slot}"),
+            CommandAction::Custom(id) => format!("custom:{id}"),
+        }
+    }
+
+    /// Decode an envelope word; None on anything this vocabulary never
+    /// wrote (the replayer surfaces it as a loud error, never silence).
+    pub fn from_envelope_word(word: &str) -> Option<Self> {
+        let (head, tail) = match word.split_once(':') {
+            Some((h, t)) => (h, Some(t)),
+            None => (word, None),
+        };
+        match (head, tail) {
+            ("build", Some(id)) => Some(CommandAction::Build(id.to_string())),
+            ("upgrade", None) => Some(CommandAction::Upgrade),
+            ("sell", None) => Some(CommandAction::Sell),
+            ("cast", Some(slot)) => slot.parse::<usize>().ok().map(CommandAction::Cast),
+            ("custom", Some(id)) => Some(CommandAction::Custom(id.to_string())),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CommandSlotDef {
     pub label: String,
@@ -447,6 +479,23 @@ pub fn command_clicks(
     }
 }
 
+/// SEAM3c recorder extension: every dispatched card action lands in the
+/// input log as a `Card` envelope word (selection is dropped — the
+/// replayer re-derives it, keeping the envelope Entity-free). No-op
+/// without a `RecordingLog` (one lookup, zero drift).
+pub fn record_card_actions(
+    mut reader: MessageReader<CommandCardAction>,
+    log: Option<ResMut<crate::replay::RecordingLog>>,
+) {
+    let Some(mut log) = log else { return };
+    for msg in reader.read() {
+        crate::replay::append_envelope(
+            &mut log,
+            crate::replay::CommandEnvelope::Card { action: msg.action.envelope_word() },
+        );
+    }
+}
+
 /// Marker on the hover tooltip's text (WX3).
 #[derive(Component, Debug)]
 pub struct TooltipText;
@@ -719,6 +768,9 @@ impl Plugin for UiPlugin {
                 (
                     command_input,
                     command_clicks,
+                    // SEAM3c: record dispatched card actions after the two
+                    // dispatchers (same-frame message visibility).
+                    record_card_actions.after(command_input).after(command_clicks),
                     refresh_command_panel,
                     refresh_tooltip,
                 ),

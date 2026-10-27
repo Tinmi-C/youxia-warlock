@@ -187,6 +187,17 @@ pub fn equip_input(world: &mut World) {
     if !keys.just_pressed(KeyCode::KeyE) {
         return;
     }
+    // SEAM3c (LT2 key envelope): record the raw E press when recording is
+    // armed — game-side vocabulary the base recorder does not know (same
+    // precedent as the game-side econ filtering). The envelope re-injects
+    // as a KeyboardInput message, so a replay/spectate run re-fires this
+    // exact path in the same frame.
+    if let Some(mut rec) = world.get_resource_mut::<RecordingLog>() {
+        append_envelope(
+            &mut rec,
+            CommandEnvelope::Key { code: "KeyE".into() },
+        );
+    }
     let cell = world.resource::<crate::systems::gameplay::BuildCursor>().0;
     let Some(hero) = world.resource::<BuildGrid>().occupant(cell) else { return };
     if world.get::<EquipSlots>(hero).is_none() {

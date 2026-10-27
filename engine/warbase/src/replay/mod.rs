@@ -50,7 +50,10 @@ use crate::selection::{PickAttempt, PickButton};
 use crate::unit::Hp;
 use crate::wave::StartWave;
 
-/// Version of the input-log format itself (bump on envelope changes).
+/// Version of the input-log format itself. SEAM3c kept it at 1: the
+/// envelope vocabulary only GREW (`Key` became live, `Card` added) — a
+/// superset, so pre-SEAM3c logs still verify byte for byte; bump only on a
+/// breaking (re-encoding) change.
 pub const INPUT_LOG_VERSION: u32 = 1;
 
 /// Hash checkpoint cadence, in frames (plan §10 RPL1: every 30 frames).
@@ -58,6 +61,50 @@ pub const HASH_INTERVAL: u32 = 30;
 
 /// `CommandEnvelope::Ext` kind tag for econ commands (RON payload).
 pub const ECON_KIND: &str = "econ";
+
+/// Parse a recorded key word ("KeyE" / "Digit1" / "Space"...) back into a
+/// `KeyCode` (SEAM3c): covers the letters, digits and the LT2 navigation
+/// specials — the vocabulary the recorder writes. Unknown words return None
+/// (the replayer reports a loud error, never a silent drop).
+pub fn parse_key_code(code: &str) -> Option<KeyCode> {
+    let letters = [
+        ("KeyA", KeyCode::KeyA), ("KeyB", KeyCode::KeyB), ("KeyC", KeyCode::KeyC),
+        ("KeyD", KeyCode::KeyD), ("KeyE", KeyCode::KeyE), ("KeyF", KeyCode::KeyF),
+        ("KeyG", KeyCode::KeyG), ("KeyH", KeyCode::KeyH), ("KeyI", KeyCode::KeyI),
+        ("KeyJ", KeyCode::KeyJ), ("KeyK", KeyCode::KeyK), ("KeyL", KeyCode::KeyL),
+        ("KeyM", KeyCode::KeyM), ("KeyN", KeyCode::KeyN), ("KeyO", KeyCode::KeyO),
+        ("KeyP", KeyCode::KeyP), ("KeyQ", KeyCode::KeyQ), ("KeyR", KeyCode::KeyR),
+        ("KeyS", KeyCode::KeyS), ("KeyT", KeyCode::KeyT), ("KeyU", KeyCode::KeyU),
+        ("KeyV", KeyCode::KeyV), ("KeyW", KeyCode::KeyW), ("KeyX", KeyCode::KeyX),
+        ("KeyY", KeyCode::KeyY), ("KeyZ", KeyCode::KeyZ),
+        ("Digit1", KeyCode::Digit1), ("Digit2", KeyCode::Digit2),
+        ("Digit3", KeyCode::Digit3), ("Digit4", KeyCode::Digit4),
+        ("Digit5", KeyCode::Digit5), ("Digit6", KeyCode::Digit6),
+        ("Digit7", KeyCode::Digit7), ("Digit8", KeyCode::Digit8),
+        ("Digit9", KeyCode::Digit9), ("Digit0", KeyCode::Digit0),
+        ("Space", KeyCode::Space), ("Enter", KeyCode::Enter),
+        ("Escape", KeyCode::Escape), ("Tab", KeyCode::Tab),
+        ("ArrowUp", KeyCode::ArrowUp), ("ArrowDown", KeyCode::ArrowDown),
+        ("ArrowLeft", KeyCode::ArrowLeft), ("ArrowRight", KeyCode::ArrowRight),
+    ];
+    letters
+        .iter()
+        .find(|(word, _)| *word == code)
+        .map(|(_, k)| *k)
+}
+
+/// Append one envelope to a recording log at the CURRENT frame (SEAM3c):
+/// same-frame entries merge into one list (the replay driver applies one
+/// entry per frame). Game-side recorders use this for vocabulary the base
+/// recorder does not know (loop-td's E key) — same precedent as the
+/// game-side econ filtering at write time.
+pub fn append_envelope(log: &mut RecordingLog, env: CommandEnvelope) {
+    let frame = log.frame + 1; // 1-based number of THIS update
+    match log.log.frames.last_mut() {
+        Some((f, envs)) if *f == frame => envs.push(env),
+        _ => log.log.frames.push((frame, vec![env])),
+    }
+}
 
 /// One recorded player input (frame index lives in the log entry).
 /// RPL1 may refine variants, but they stay serde-only, Entity-free.
@@ -83,8 +130,21 @@ pub enum CommandEnvelope {
         ctrl: bool,
         shift: bool,
     },
+    /// A raw key press (SEAM3c, the LT2 letter keys E/Q/C/V vocabulary and
+    /// any game key a game-side recorder appends). Re-injected as a
+    /// `KeyboardInput` MESSAGE — bevy's own PreUpdate input system turns it
+    /// into the same `ButtonInput::just_pressed` the original run saw, so
+    /// game consumers observe the press in the SAME numbered frame.
     Key {
         code: String,
+    },
+    /// A command-card action dispatch (SEAM3c): the ui vocabulary's
+    /// `CommandAction` encoded as a stable word ("build:arrow" / "upgrade"
+    /// / "sell" / "cast:2" / "custom:dig") — see `ui::CommandAction`'s word
+    /// codec. Selection is re-derived from the replayer's own `Selection`
+    /// resource at apply time (the envelope stays Entity-free).
+    Card {
+        action: String,
     },
     WaveStart,
     /// Selection-set operation. `op` is a small stable opcode: 0 = clear,
@@ -267,8 +327,11 @@ fn record_inputs(
 }
 
 /// Convert an envelope back into its message and write it for the upcoming
-/// update (the same visibility the original consumer saw).
-fn apply_envelope(world: &mut World, env: &CommandEnvelope) -> Result<(), String> {
+/// update (the same visibility the original consumer saw). SEAM3c: pub —
+/// the spectate driver reuses exactly this re-injection; `Key` rides a
+/// `KeyboardInput` message (real-input channel, see the variant docs) and
+/// `Card` re-dispatches through the ui command stream.
+pub fn apply_envelope(world: &mut World, env: &CommandEnvelope) -> Result<(), String> {
     match env {
         CommandEnvelope::Pick { world: pos, button, clicks, ctrl, shift } => {
             world.write_message(PickAttempt {
@@ -280,7 +343,34 @@ fn apply_envelope(world: &mut World, env: &CommandEnvelope) -> Result<(), String
             });
         }
         CommandEnvelope::Key { code } => {
-            return Err(format!("unhandled envelope Key({code}) — RPL1 records no keys"));
+            let key = parse_key_code(code)
+                .ok_or_else(|| format!("unknown key word {code:?} (vocabulary: KeyA-Z/Digit0-9/space-enter-escape-tab-arrows)"))?;
+            world.write_message(bevy::input::keyboard::KeyboardInput {
+                key_code: key,
+                logical_key: bevy::input::keyboard::Key::Character(code.clone().into()),
+                state: bevy::input::ButtonState::Pressed,
+                window: bevy::ecs::entity::Entity::PLACEHOLDER,
+                text: None,
+                repeat: false,
+            });
+        }
+        CommandEnvelope::Card { action } => {
+            #[cfg(feature = "ui")]
+            {
+                let action = crate::ui::CommandAction::from_envelope_word(action)
+                    .ok_or_else(|| format!("unknown card action word {action:?}"))?;
+                let selection = world
+                    .get_resource::<crate::ui::Selection>()
+                    .map(|s| s.mode.clone())
+                    .unwrap_or_default();
+                world.write_message(crate::ui::CommandCardAction { action, selection });
+            }
+            #[cfg(not(feature = "ui"))]
+            {
+                return Err(format!(
+                    "unhandled envelope Card({action}) — replay needs the ui feature"
+                ));
+            }
         }
         // Hole-10 vocabulary: serde-stable and round-trip pinned, but no
         // recorder writes them yet — replaying one is a loud error rather
@@ -407,6 +497,11 @@ pub struct ReplayPlugin;
 
 impl Plugin for ReplayPlugin {
     fn build(&self, app: &mut App) {
+        // SEAM3c: the raw-key re-injection channel — registered here so
+        // `apply_envelope(Key)` is writable on ANY composition (headless
+        // test apps never add bevy's InputPlugin; the message just sits
+        // unread there, harmless).
+        app.add_message::<bevy::input::keyboard::KeyboardInput>();
         // Hash first (it snapshots the PREVIOUS update's settled state under
         // the pre-increment frame counter), then inputs (which advance it).
         app.add_systems(
@@ -420,7 +515,7 @@ impl Plugin for ReplayPlugin {
 
 pub mod prelude {
     pub use super::{
-        replay, state_hash, CommandEnvelope, ECON_KIND, HASH_INTERVAL, MatchInputLog, RecordingLog,
-        ReplayPlugin, INPUT_LOG_VERSION,
+        append_envelope, apply_envelope, parse_key_code, replay, state_hash, CommandEnvelope,
+        ECON_KIND, HASH_INTERVAL, MatchInputLog, RecordingLog, ReplayPlugin, INPUT_LOG_VERSION,
     };
 }

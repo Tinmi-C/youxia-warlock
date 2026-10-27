@@ -4,6 +4,7 @@
 //! RPL2 flags:
 //! - `--record`                 record the next match -> runs/<ts>.jsonl
 //! - `--replay <file>`          headless replay verification (exit 0/1)
+//! - `--spectate <file> [--speed N]`  real-render replay viewer (SEAM3c)
 //! UI-DSGN flags:
 //! - `--ui-mock <A|B|C>`        UI proposal mock scene -> ui-proposals/ PNGs
 //! - `--ui-mock v2`             LT2-UI acceptance shots -> ui-proposals/lt2-final/
@@ -29,6 +30,20 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        return;
+    }
+    // --spectate <file> [--speed N]: the real-render replay viewer (SEAM3c).
+    if let Some(file) = arg_value(&args, "--spectate") {
+        let speed: f32 = arg_value(&args, "--speed")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1.0);
+        let mut app = loop_td::build_app();
+        app.add_plugins(loop_td::plugins::spectate::SpectateIoPlugin {
+            log_path: std::path::PathBuf::from(file),
+            speed,
+        });
+        println!("[loop-td] spectate: re-simulating the recording at x{speed} (keys 1/2/3 change speed)");
+        app.run();
         return;
     }
     let mut app = loop_td::build_app();
