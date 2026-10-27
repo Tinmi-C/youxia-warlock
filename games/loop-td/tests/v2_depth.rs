@@ -5,7 +5,7 @@
 //! Everything here drives the REAL game composition (GamePlugin on the base
 //! test app), same stance as tests/adopt_domain.rs.
 
-use bevy::ecs::message::{MessageCursor, Messages};
+use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use loop_td::plugins::game::GamePlugin;
 use loop_td::systems::gameplay::try_place;
@@ -571,4 +571,74 @@ fn dig_equipment_lands_in_a_hero_bag_or_on_the_ground() {
         }
     }
     assert!(dropped, "some seed drops equipment within 50 tries");
+}
+
+// ---------------------------------------------------------------------------
+// LT2-5: tower bonds — the game-side maps/bonds.ron table maps tower-type
+// counts on the field to a StatMods grant on EVERY tower (marker source per
+// bond); selling below the threshold withdraws it.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bonds_link_tower_combos_to_all_tower_stats() {
+    use loop_td::systems::bonds::apply_bonds;
+
+    let mut app = game_app();
+    // 2 arrows + 1 ice satisfies "arrow_ice" (arrow x2 + ice x1).
+    app.world_mut().resource_mut::<Resources>().gold += 200; // 2x50 + 60 ice
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let mut cells = (0..grid.cols)
+        .flat_map(|x| (0..grid.rows).map(move |y| Cell(x, y)))
+        .filter(|c| grid.check(*c).is_ok());
+    let arrow_cells: Vec<Cell> = cells.by_ref().take(2).collect();
+    let ice_cell = cells.next().unwrap();
+    for &c in &arrow_cells {
+        try_place(&mut app.world_mut(), "arrow", c).expect("place arrow");
+    }
+    let ice = try_place(&mut app.world_mut(), "ice", ice_cell).expect("place ice");
+    let arrows: Vec<Entity> = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(Entity, &Allegiance), With<UnitInstance>>();
+        let world = app.world_mut();
+        q.iter(world)
+            .filter(|&(_, side)| *side == Allegiance::Defender)
+            .map(|(e, _)| e)
+            .collect()
+    };
+    assert_eq!(arrows.len(), 3, "2 arrows + 1 ice on the field");
+
+    // Bond satisfied -> EVERY tower (ice included) at +10% damage.
+    apply_bonds(&mut app.world_mut());
+    app.update();
+    app.update();
+    for tower in &arrows {
+        let eff = app.world().get::<EffectiveStats>(*tower).unwrap();
+        assert!((eff.damage_mult - 1.10).abs() < 1e-5, "tower at {}", eff.damage_mult);
+    }
+
+    // The bond entry rides a marker source distinct from other writers:
+    // equipping on a hero coexists rather than overwriting.
+    // (covered by composition; here: sell one arrow -> threshold broken.)
+    try_sell(&mut app.world_mut(), arrow_cells[0]).expect("sell one arrow");
+    apply_bonds(&mut app.world_mut());
+    app.update();
+    app.update();
+    let survivors: Vec<Entity> = arrows
+        .iter()
+        .copied()
+        .filter(|e| app.world().get::<UnitInstance>(*e).is_some())
+        .collect();
+    assert_eq!(survivors.len(), 2, "ice + one arrow remain");
+    for tower in &survivors {
+        let eff = app.world().get::<EffectiveStats>(*tower).unwrap();
+        assert!((eff.damage_mult - 1.0).abs() < 1e-5, "bond withdrawn: {}", eff.damage_mult);
+    }
+    // No stale entries from the withdrawn bond remain anywhere.
+    let mods = app.world().get::<StatMods>(ice).unwrap();
+    assert!(
+        mods.entries.iter().all(|e| e.amount != 0.10),
+        "ice carries no stale bond entry: {:?}",
+        mods.entries
+    );
 }

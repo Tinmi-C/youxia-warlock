@@ -1,5 +1,6 @@
 pub mod adopt;
 pub mod artifact;
+pub mod bonds;
 pub mod camera;
 pub mod challenge;
 pub mod dig;

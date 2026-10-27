@@ -80,6 +80,8 @@ pub fn load_map(world: &mut World) {
         );
         world.insert_resource(defs);
     }
+    // LT2-5: game-side bond table (maps/bonds.ron) + per-bond marker sources.
+    crate::systems::bonds::load_bonds(world);
     info!("[loop-td] map loaded: {}", path.display());
 }
 
