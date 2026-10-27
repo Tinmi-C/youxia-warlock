@@ -1,8 +1,11 @@
-//! HIGHLAND acceptance (round-2 plan §4 line 1): authored high ground
-//! occludes the VisionGrid itself (physical line of sight, WC3 cliff
-//! semantics) and grants a high->low attack bonus at the damage
+//! HIGHLAND + SAVE acceptance (round-2 plan §4 line 1): authored high
+//! ground occludes the VisionGrid itself (physical line of sight, WC3
+//! cliff semantics) and grants a high->low attack bonus at the damage
 //! computation point; D5 stays untouched (tower auto-targeting ignores
-//! fog AND occlusion — range is the only input).
+//! fog AND occlusion — range is the only input). Plus the world-snapshot
+//! save/load roundtrip whose strongest form is the StateHash anchor:
+//! save at frame N, load into a fresh world, advance — bit-identical to
+//! the never-interrupted run at N+k.
 //!
 //! Same geometry trick as fog23_domain.rs: the 16x16/1.0 FreeGrid over
 //! the 0..15 path loop lands the origin on (-0.5, -0.5), so every cell
@@ -127,6 +130,14 @@ fn tower_def(id: &str, interval: f32) -> UnitDef {
         heal: None,
         mana: None,
         skill_levels: vec![],
+    }
+}
+
+/// Mana-carrying def (SPL1 shape) for the save roundtrip.
+fn caster_def(id: &str) -> UnitDef {
+    UnitDef {
+        mana: Some(ManaDef { max: 50.0, regen: 5.0 }),
+        ..grunt_def(id, 120.0)
     }
 }
 
@@ -285,4 +296,241 @@ fn d5_targeting_ignores_highland_occlusion() {
         460.0,
         "low attacker => no bonus even against a dark high target (4 x 10)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// SAVE: snapshot roundtrip
+// ---------------------------------------------------------------------------
+
+/// Scenario entities for the save tests (indices into the world).
+struct Scenario {
+    app: App,
+    creep: Entity,
+    tower: Entity,
+    caster: Entity,
+    worker: Entity,
+}
+
+/// The save scenario: a creep circling the loop under fire from a
+/// long-cooldown tower, a mana caster regenerating, and a worker hauling
+/// cargo on a fresh Move order. No deaths (unfragmented entity space —
+/// the bit-identical reload contract), no projectiles, no waves spawning.
+fn scenario() -> Scenario {
+    let mut bundle = sample_bundle();
+    // Slow tower (1 hit/second): damage flows, creep survives, cooldown
+    // rides mid-cycle at the save frame. The bundle's registry (installed
+    // by assemble) is authoritative; direct spawns read it back.
+    bundle.units.insert("tower".into(), tower_def("tower", 1.0));
+    bundle.units.insert("caster".into(), caster_def("caster"));
+    let mut app = test_app();
+    app.insert_resource(MatchRng::seeded(7));
+    assemble(&mut app.world_mut(), &bundle);
+    let reg = app.world().resource::<UnitRegistry>().clone();
+
+    // Creep on the track, mid-lap, tagged as wave 0.
+    let creep = spawn_at(&mut app, &reg, "grunt", 0.0, 0.0, Allegiance::Attacker);
+    let path0 = app.world().resource::<Paths>().0[0];
+    app.world_mut().entity_mut(creep).insert(PathFollower {
+        path: path0,
+        progress: 12.3,
+        laps: 1,
+        finished: false,
+    }).insert(WaveTag(0));
+
+    // Tower with vision (explored grows) shooting the creep on cooldown.
+    let tower = spawn_at(&mut app, &reg, "tower", 12.0, 4.0, Allegiance::Defender);
+    app.world_mut().entity_mut(tower).insert(VisionSource { radius: 6.0 });
+
+    // Caster mid-mana.
+    let caster = spawn_at(&mut app, &reg, "caster", 1.0, 2.0, Allegiance::Defender);
+    app.world_mut().entity_mut(caster).insert(Mana(23.5));
+
+    // Worker under a Move order, hauling 7 cargo.
+    let worker = spawn_at(&mut app, &reg, "grunt", 1.0, 1.0, Allegiance::Defender);
+    app.world_mut().entity_mut(worker).insert(MoveAgent {
+        speed: 2.0,
+        arrival_radius: 0.1,
+        waypoints: vec![Vec3::new(4.0, 0.0, 6.0)], // 6.4 away at speed 2: still walking at frame 120
+        velocity: Vec3::ZERO,
+        body_radius: 0.3,
+        order: Some(Order::Move { to: Vec3::new(4.0, 0.0, 6.0) }),
+    }).insert(AgentOrderState::Moving).insert(Carrying(7));
+
+    Scenario { app, creep, tower, caster, worker }
+}
+
+/// Drive the scenario to frame 120 with two econ commands applied early.
+fn run_to_save(sc: &mut Scenario) -> SaveGame {
+    sc.app.world_mut().write_message(EconCommand::Grant { gold: 33, wood: 4 });
+    sc.app.world_mut().write_message(EconCommand::PopUse { delta: 3 });
+    for _ in 0..120 {
+        sc.app.update();
+    }
+    save_game(sc.app.world())
+}
+
+/// UT-SAVE-01 (the anchor): save at frame 120, load into a fresh world —
+/// state_hash matches the never-interrupted run at 120+k for k = 1 (the
+/// fx healthbar settles on the first post-load update) and the three
+/// k >= 30 sample points. Strongest form of save correctness the base can
+/// assert: bit-identical futures.
+#[test]
+fn save_load_roundtrip_is_bit_identical() {
+    let mut a = scenario();
+    let save = run_to_save(&mut a);
+    assert_eq!(save.units.len(), 4, "creep + tower + caster + worker");
+    assert!(
+        save.units.windows(2).all(|w| w[0].index < w[1].index),
+        "units saved in ascending entity-index order (D6)"
+    );
+    assert_eq!(save.version, SAVE_FORMAT_VERSION);
+    assert_eq!(save.seed, 7);
+
+    let mut c = scenario();
+    load_game(&mut c.app.world_mut(), &save);
+
+    let mut prev = 0u32;
+    for k in [1u32, 30, 60, 90] {
+        for _ in 0..(k - prev) {
+            a.app.update();
+        }
+        for _ in 0..(k - prev) {
+            c.app.update();
+        }
+        prev = k;
+        assert_eq!(
+            state_hash(a.app.world()),
+            state_hash(c.app.world()),
+            "frame 120+{k}: loaded world must hash equal to the uninterrupted run"
+        );
+    }
+}
+
+/// UT-SAVE-02: every pinned snapshot field roundtrips EXACTLY (read from
+/// the original world at the save frame, compared on the loaded one
+/// before any update mutates them).
+#[test]
+fn save_load_restores_unit_state_exactly() {
+    let mut a = scenario();
+    let save = run_to_save(&mut a);
+
+    // Original live values at the save frame.
+    let a_creep = (
+        a.app.world().get::<Hp>(a.creep).unwrap().0,
+        a.app.world().get::<PathFollower>(a.creep).unwrap().progress,
+        a.app.world().get::<PathFollower>(a.creep).unwrap().laps,
+    );
+    let a_cd = a.app.world().get::<AttackCooldown>(a.tower).unwrap().0;
+    let a_mana = a.app.world().get::<Mana>(a.caster).unwrap().0;
+    let a_worker = a.app.world().get::<MoveAgent>(a.worker).unwrap();
+    let a_order = a_worker.order.clone();
+    let a_waypoints = a_worker.waypoints.clone();
+    let a_pos = a.app.world().get::<Transform>(a.worker).unwrap().translation;
+    let a_director = {
+        let d = a.app.world().resource::<WaveDirector>();
+        (d.phase_timer, d.next_wave, d.running, format!("{:?}", d.phase))
+    };
+    let a_explored = a.app.world().resource::<VisionGrid>().explored.clone();
+
+    let mut c = scenario();
+    load_game(&mut c.app.world_mut(), &save);
+
+    // Units are re-spawned fresh (different Entity handles); identify by
+    // composition: tower/caster by def id, and the two "grunt"-def units
+    // by their distinguishing components (follower = creep, cargo = worker).
+    let mut q = c
+        .app
+        .world_mut()
+        .query::<(Entity, &UnitInstance)>();
+    let mut tower = None;
+    let mut caster = None;
+    for (e, inst) in q.iter(&c.app.world()) {
+        match inst.def.as_str() {
+            "tower" => tower = Some(e),
+            "caster" => caster = Some(e),
+            _ => {}
+        }
+    }
+    let tower = tower.expect("tower reloaded");
+    let caster = caster.expect("caster reloaded");
+    let creep = c
+        .app
+        .world()
+        .iter_entities()
+        .find(|e| e.get::<PathFollower>().is_some())
+        .map(|e| e.id())
+        .expect("creep = the path follower");
+    let worker = c
+        .app
+        .world()
+        .iter_entities()
+        .find(|e| e.get::<Carrying>().is_some())
+        .map(|e| e.id())
+        .expect("worker = the cargo hauler");
+
+    // Creep: hp mid-damage, follower mid-lap, wave tag.
+    assert_eq!(c.app.world().get::<Hp>(creep).unwrap().0, a_creep.0, "hp");
+    let f = c.app.world().get::<PathFollower>(creep).unwrap();
+    assert_eq!(f.progress, a_creep.1, "path progress (f32-exact)");
+    assert_eq!(f.laps, a_creep.2, "laps");
+    assert_eq!(c.app.world().get::<WaveTag>(creep).unwrap().0, 0, "wave tag");
+
+    // Tower: mid-cycle cooldown.
+    assert_eq!(
+        c.app.world().get::<AttackCooldown>(tower).unwrap().0,
+        a_cd,
+        "attack cooldown (f32-exact)"
+    );
+
+    // Caster: mana value at save.
+    assert_eq!(c.app.world().get::<Mana>(caster).unwrap().0, a_mana, "mana");
+
+    // Worker: order + waypoints + cargo + position.
+    let agent = c.app.world().get::<MoveAgent>(worker).unwrap();
+    assert_eq!(agent.order, a_order, "order");
+    assert_eq!(agent.waypoints, a_waypoints, "waypoints");
+    assert_eq!(
+        c.app.world().get::<Carrying>(worker).unwrap().0,
+        7,
+        "carried cargo"
+    );
+    assert_eq!(
+        c.app.world().get::<Transform>(worker).unwrap().translation,
+        a_pos,
+        "position"
+    );
+
+    // Econ + wave + fog memory.
+    let res = c.app.world().resource::<Resources>();
+    assert_eq!((res.gold, res.wood), (153, 9), "granted econ roundtrips");
+    let pop = c.app.world().resource::<Population>();
+    assert_eq!((pop.used, pop.cap), (3, 8), "population roundtrips");
+    let d = c.app.world().resource::<WaveDirector>();
+    assert_eq!(
+        (d.phase_timer, d.next_wave, d.running, format!("{:?}", d.phase)),
+        a_director,
+        "wave director public state"
+    );
+    assert_eq!(
+        c.app.world().resource::<VisionGrid>().explored,
+        a_explored,
+        "explored fog memory"
+    );
+    assert_eq!(c.app.world().resource::<MatchRng>().seed(), 7, "seed");
+}
+
+/// UT-SAVE-03: the snapshot is a serde document (RON roundtrip preserves
+/// it bit-for-bit) and the frame counter rides along when a RecordingLog
+/// is present.
+#[test]
+fn save_serializes_ron_roundtrip() {
+    let mut a = scenario();
+    // Opt-in frame counting (the base itself is frame-counter-free).
+    a.app.insert_resource(RecordingLog::default());
+    let save = run_to_save(&mut a);
+    assert_eq!(save.frame, 120, "RecordingLog counts completed updates");
+
+    let text = ron::to_string(&save).expect("save serializes to RON");
+    let back: SaveGame = ron::from_str(&text).expect("save parses from RON");
+    assert_eq!(back, save, "RON roundtrip is value-identical");
 }
