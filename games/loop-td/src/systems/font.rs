@@ -37,18 +37,24 @@ pub fn setup_ui_font(
     mut commands: Commands,
     mut fonts: Option<ResMut<Assets<Font>>>,
 ) {
-    let source = if let Some(fonts) = fonts.as_mut() {
+    // (source for this game's panels, shared handle for the base tooltip
+    // seam — MMP tooltip CJK: same Noto face through warbase::ui::UiFont).
+    let (source, shared) = if let Some(fonts) = fonts.as_mut() {
         match std::fs::read(font_file()) {
-            Ok(bytes) => FontSource::Handle(fonts.add(Font::from_bytes(bytes))),
+            Ok(bytes) => {
+                let handle = fonts.add(Font::from_bytes(bytes));
+                (FontSource::Handle(handle.clone()), Some(handle))
+            }
             Err(e) => {
                 info!("[loop-td] shared ui font unreadable ({e}) — default fallback");
-                FontSource::default()
+                (FontSource::default(), None)
             }
         }
     } else {
-        FontSource::default()
+        (FontSource::default(), None)
     };
     commands.insert_resource(UiFont(source));
+    commands.insert_resource(warbase::ui::UiFont(shared));
     info!(
         "[loop-td] ui font ready ({})",
         if fonts.is_some() { "shared NotoSansSC" } else { "default fallback" }

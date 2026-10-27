@@ -18,6 +18,8 @@ impl Plugin for VisualPlugin {
                 visuals::spawn_scene,
                 hud::spawn_hud,
                 minimap::spawn_minimap,
+                // MMP: shared CJK font onto the base tooltip seam (one line).
+                minimap::setup_shared_ui_font,
             ),
         )
         .add_systems(
@@ -29,9 +31,13 @@ impl Plugin for VisualPlugin {
                 visuals::sync_fog_tint,
                 minimap::refresh_minimap_view,
                 hud::refresh_hud,
-                // Click-to-camera reads raw mouse before the world-pick bridge
-                // could consume the same click (the panel swallows it).
-                minimap::minimap_click_jumps_camera.before(crate::systems::input_bridge::rts_pointer_bridge),
+                // MMP ripples: spawn then animate, in order, so a ping draws
+                // on its landing frame already at age-zero size/alpha.
+                (minimap::spawn_minimap_pings, minimap::animate_minimap_pings).chain(),
+                // Panel clicks (jump / Alt-ping / right-click order) read raw
+                // mouse before the world-pick bridge could consume the same
+                // click (the panel swallows it).
+                minimap::minimap_clicks.before(crate::systems::input_bridge::rts_pointer_bridge),
             ),
         );
     }
