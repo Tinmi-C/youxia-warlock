@@ -51,3 +51,4 @@ ECS、场景图、资源管理、事件系统、生命周期、模块边界。
 - [[topics/engine/bevy-messages-double-buffer-drain-pitfall|Bevy Messages 双缓冲只留最近一帧——跨帧断言必须逐帧 drain]]（medium，待团队 review）：跨帧统一 read 拿 0 事件、`len()` 翻转后归零不能当累计器；正解=帧循环内 `MessageCursor` 逐帧 drain 累加（沉淀为测试文件级助手）。
 - [[topics/engine/bevy-system-param-limits-pitfall|Bevy 系统参数两堵墙——元组 16 上限与 SystemParam derive 不收 mut Query]]（medium，待团队 review）：19 参系统排序 API 消失（报错点≠病根）、derive 束含 mut Query 报 'static；正解=Res/MessageWriter 捆 SystemParam 束、可变查询留独立参数；参数超 ~12 先问系统是否管太多。
 - [[topics/engine/bevy-startup-ambiguity-flake|Bevy 同调度段系统无显式序=并行歧义=偶发闪挂]]（pitfall：数据顺序语义必须显式声明；单跑绿并发挂是指纹）
+| [[topics/engine/warbase-round3-plan\|warbase 第三轮方案 v3——成熟度收口 + 军团战争图]] | reference | accepted | 八项清债（StatKind+Range/WaveTag 变体/CommandAction 注册缝/PassToNeighbor 基底化/ItemStack 实体化/热换肤/共享 CJK）+观战回放；呈现层三线（飘字/状态图标/ping 渲染）；军团图 LG0-3 含 KPI 度量（对比 rts-lab 复用效率）；18-22 增量 |

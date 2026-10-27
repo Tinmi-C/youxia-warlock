@@ -27,3 +27,4 @@
 ## 相关踩坑
 
 搜索 `type:pitfall #game-design`（或在标签页过滤）。
+| [[topics/game-design/legion-td-proposal\|军团战争图需求草案——第三张验收图（多人对抗半区）]] | reference | draft | 回合制建造期 30s→自动战斗→结算；4 人 2v2 各一路 12 格；雇佣兵 6 种/买兵 30-120 金/发兵 25 金递增 10%/命 20；LG0-3 含复用效率 KPI 记录；netcode 不做 |
