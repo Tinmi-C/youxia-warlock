@@ -18,3 +18,5 @@ related: ["[[topics/engine/warbase-wc3-alignment-plan|warbase 魔兽式底座补
 **解决**：每条并行线用 worktree 私有 target（`wt-<domain>/target`，gitignored）；共享缓存只在「串行或同 feature」场景成立。
 
 **反思**：并行批次的基建（编译缓存策略）要预先验证，不能沿用串行时代的省磁盘直觉——「正确性优先于磁盘」。AI 并行开发工作流里，这类「环境级故障伪装成代码级故障」的坑尤其危险：agent 容易往源码上叠补丁。两次失败纪律（停下排查环境而不是改代码）在这两线上都正确触发了。
+
+**变种二（2026-10-28 实证，更隐蔽）**：全局 `~/.cargo/config.toml` 的共享 target 会缓存**任何 worktree 里编译的成员包二进制**，而 `env!("CARGO_MANIFEST_DIR")` 在编译期烙死绝对路径——worktree 删除后，主仓跑 `cargo test` 可能复用陈旧二进制，测试进程里的地图/字体路径指向已删除目录，表现为「241 个测试集体地图加载失败」但单跑该测试全绿。指纹不区分源码路径时必然踩中。**解法**：`cargo clean -p <全部成员包>` 清缓存重编（46.8GiB 一起清掉）；根治=凡多 worktree 并行，编译一律显式私有 target（已入 AGENTS.md 纪律），协调者的主仓回归也不例外。
