@@ -1,0 +1,50 @@
+# legion（军团战争图）
+
+> 第三张 warbase 验收图：多人对抗半区（2v2）。本项目是**基底复用效率的
+> 度量对象**——每增量记录行数/耗时/新洞（[docs/kpi.md](docs/kpi.md)），
+> 与 rts-lab 对比出复用效率曲线（ADR-0019）。
+> 项目级 AI 约定见 [AGENTS.md](AGENTS.md)；需求锚点见 vault
+> `docs/topics/game-design/legion-td-proposal.md`。
+
+## 快速开始
+
+```bash
+cargo run -p legion -j4          # 真机灰盒（共享机纪律：合并到必要节点跑）
+cargo test -p legion -j4         # 本项目回归（headless）
+cargo test --workspace -j4       # 一击全量回归（增量门禁）
+```
+
+## 玩法（LG1 起可玩）
+
+- 建造期 30 秒：左键点自家布阵格选中 → 数字键 1-6 雇兵（def 表即价格）→ 兵落格上。
+- 战斗期自动：雇佣兵沿路 AttackMove 至对家底线，路上自动交战；抵达底线=漏怪，对家命 -1。
+- 命 20 起扣尽出局；场上只剩一队战力时 LastTeamStanding 定胜负。
+- 回合结算：+50 金 + 击杀赏金。
+
+## 操作
+
+| 键 | 动作 |
+|---|---|
+| 左键 | 选中布阵格/单位 |
+| 1-6 | 建造期：往选中格雇佣对应兵种（cheap/swarm/tank/ranged/aoe/support） |
+| Space | 建造期秒进战斗期（跳过等待） |
+
+## H1 人工清单（LG0/LG1 段）
+
+- [ ] 四条 lane 灰盒可见（队色区分），48 布阵格垫板可见
+- [ ] 四家主城在底线后侧，HUD 显示四家金数
+- [ ] 建造期买兵：金币扣减、兵落选中格
+- [ ] 战斗期兵沿路对进、交战有来有回（伤害飘字/掉血）
+- [ ] 漏怪扣命可见；命尽出局；LastTeamStanding 出胜负横幅
+- [ ] 结算 +50 金入账可见
+
+## 目录结构
+
+```
+src/               # 薄插件（回合层/商店/漏怪/结算），机制全部来自 warbase
+maps/arena.ron     # 地图=自包含数据包（lane/布阵格/雇佣兵表/队伍/主城）
+tests/behavior.rs  # 验收断言（headless）
+docs/kpi.md        # 复用效率 KPI 台账（行数/耗时/新洞）——一级产出
+docs/GDD.md        # 本游戏设计文档（数值表）
+docs/roadmap.md    # LG 系路线图
+```
