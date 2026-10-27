@@ -500,6 +500,16 @@ pub fn record_card_actions(
 #[derive(Component, Debug)]
 pub struct TooltipText;
 
+/// The font face base-rendered UI text uses (MMP tooltip CJK seam): `None`
+/// (the default) = bevy's default font — zero drift for apps that never
+/// wire one; `Some(handle)` swaps the tooltip onto that face (bevy's default
+/// font ships no CJK glyphs — Chinese tooltips render as tofu without
+/// this). Games load the shared Noto Sans SC once at Startup and insert this
+/// resource (warden/loop-td `setup_ui_font`, rts-lab minimap wiring); the
+/// same one-handle pattern their own panels already use.
+#[derive(Resource, Debug, Default, Clone)]
+pub struct UiFont(pub Option<Handle<Font>>);
+
 /// WX3 tooltip: hovering a slot shows its def-provided tooltip string in a
 /// panel above the bar; leaving despawns it. Content is the game's business
 /// (labels/tooltips arrive localized in the card def); the base only owns
@@ -525,11 +535,18 @@ pub fn refresh_tooltip(
     if let Some(text) = hovered {
         commands.queue(move |world: &mut World| {
             let theme = world.resource::<UiTheme>().clone();
+            // MMP: the tooltip's face follows the UiFont seam — None keeps
+            // `TextFont::default()`'s font source exactly (zero drift).
+            let font = match world.resource::<UiFont>().0.clone() {
+                Some(handle) => bevy::text::FontSource::Handle(handle),
+                None => bevy::text::FontSource::default(),
+            };
             let s = &theme.spacing;
             world.spawn((
                 TooltipText,
                 Text::new(text),
                 TextFont {
+                    font,
                     font_size: FontSize::Px(theme.typography.font_tooltip),
                     ..default()
                 },
@@ -762,6 +779,7 @@ impl Plugin for UiPlugin {
             .init_resource::<PanelKey>()
             .init_resource::<PanelVersion>()
             .init_resource::<UiTheme>()
+            .init_resource::<UiFont>()
             .add_systems(Startup, spawn_command_panel)
             .add_systems(
                 Update,
