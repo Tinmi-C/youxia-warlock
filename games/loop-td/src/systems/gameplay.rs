@@ -43,37 +43,41 @@ pub fn default_map_path() -> std::path::PathBuf {
 /// Exclusive startup: load + validate + assemble + build grid + cursor.
 pub fn load_map(world: &mut World) {
     let path = default_map_path();
-    let mut bundle = match load_bundle(&path) {
+    let bundle = match load_bundle(&path) {
         Ok(b) => b,
         Err(e) => panic!("[loop-td] failed to load map {}: {e}", path.display()),
     };
-    // LT2: merge the game-side equipment table into the IN-MEMORY bundle
-    // (the shipped loop.ron stays item-less — the engine seam test pins
-    // shipped maps free of the items section; CurrentMap carries the merge
-    // so restarts keep the equipment).
-    {
-        let eq_path =
-            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/maps/equipment.ron"));
-        match std::fs::read_to_string(&eq_path) {
-            Ok(text) => {
-                let extra: ItemsDef = ron::from_str(&text).unwrap_or_else(|e| {
-                    panic!("[loop-td] equipment table {} failed to parse: {e}", eq_path.display())
-                });
-                bundle.items.items.extend(extra.items);
-            }
-            Err(_) => info!("[loop-td] no equipment table at {}", eq_path.display()),
-        }
-    }
+    // SEAM3b: the equipment table ships INSIDE loop.ron's items section (the
+    // shipped-map items-section ban is lifted; the separate equipment.ron +
+    // load-time merge is gone). CurrentMap carries the parsed bundle, so
+    // restarts keep the equipment for free.
     assemble(world, &bundle);
     let grid = warbase::bundle::build_grid(&bundle.world);
     world.insert_resource(grid);
     world.insert_resource(CurrentMap(bundle));
     world.insert_resource(BuildCursor(Cell(10, 8)));
-    // Command card (BX4b): auto-generated build menu from the map's defs.
+    // Command card (BX4b): auto-generated build menu from the map's defs,
+    // plus the three LT2 custom entries (SEAM3b CommandAction::Custom
+    // seam): dig / challenge / artifact ride the card with their legacy
+    // hotkeys preserved (V / C / Q) — the raw-key input systems retired.
     {
-        let card = warbase::ui::build_card_from_registry(
+        let mut card = warbase::ui::build_card_from_registry(
             world.resource::<UnitRegistry>(),
         );
+        for (id, label, tooltip, key) in [
+            ("dig", "挖宝", "花50金挖一次（波间）", KeyCode::KeyV),
+            ("challenge", "挑战波", "下一波 hp x2 / 奖励 x3", KeyCode::KeyC),
+            ("artifact", "神器", "完成任务链后认领全队光环", KeyCode::KeyQ),
+        ] {
+            card.slots.push(warbase::ui::CommandSlotDef {
+                label: label.into(),
+                hotkey: warbase::ui::Hotkey::Key(key),
+                tooltip: tooltip.into(),
+                action: warbase::ui::CommandAction::Custom(id.into()),
+                enabled: true,
+                badge: Some(format!("{key:?}").trim_start_matches("Key").to_string().chars().next().unwrap_or('?')),
+            });
+        }
         world.resource_mut::<warbase::ui::CommandCards>()
             .cards
             .insert(warbase::ui::BUILD_CARD.to_string(), card);
@@ -652,6 +656,31 @@ pub fn command_dispatch(world: &mut World) {    let events: Vec<warbase::ui::Com
                 }
             }
             warbase::ui::CommandAction::Cast(_) => {}
+            // LT2 custom entries (SEAM3b): the card carries the ids, the
+            // game owns the vocabulary. Same guards the retired raw-key
+            // systems applied (flow/intermission/milestone checks live in
+            // the callees).
+            warbase::ui::CommandAction::Custom(id) => match id.as_str() {
+                "dig" => {
+                    if let Err(e) = crate::systems::dig::dig(world) {
+                        info!("[loop-td] dig: {e}");
+                    }
+                }
+                "challenge" => {
+                    if let Err(e) = crate::systems::challenge::arm_challenge(world) {
+                        info!("[loop-td] challenge: {e}");
+                    }
+                }
+                "artifact" => {
+                    if *world.resource::<MatchFlow>() != MatchFlow::Running {
+                        return; // match over: no claims (artifact_input's guard)
+                    }
+                    if let Err(e) = crate::systems::artifact::claim_artifact(world) {
+                        info!("[loop-td] artifact: {e}");
+                    }
+                }
+                other => info!("[loop-td] unknown custom action '{other}'"),
+            },
         }
     }
 }

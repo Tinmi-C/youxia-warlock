@@ -326,3 +326,81 @@ fn challenge_entry_flags_spawn_tag_kind() {
     };
     assert!(tags.contains(&WaveTag::Challenge(1)), "flagged wave tags Challenge: {tags:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Debt 4 — CommandAction::Custom registry seam: game-defined slots dispatch
+// through the SAME card pipeline (hotkey + click -> CommandCardAction).
+// ---------------------------------------------------------------------------
+
+/// A Custom slot on the active card dispatches via the card hotkey path and
+/// arrives as `CommandAction::Custom(id)` — the game-side dispatch arm.
+#[test]
+fn custom_action_dispatches_through_the_card() {
+    use warbase::ui::{
+        CommandCardDef, CommandCards, CommandSlotDef, Hotkey, Selection, SelectionMode,
+        BUILD_CARD,
+    };
+    let mut app = test_app();
+    let mut cards = CommandCards::default();
+    cards.cards.insert(
+        BUILD_CARD.to_string(),
+        CommandCardDef {
+            slots: vec![CommandSlotDef {
+                label: "dig".into(),
+                hotkey: Hotkey::Key(KeyCode::KeyV),
+                tooltip: "dig once".into(),
+                action: warbase::ui::CommandAction::Custom("dig".into()),
+                enabled: true,
+                badge: Some('V'),
+            }],
+        },
+    );
+    app.insert_resource(cards)
+        .insert_resource(Selection { mode: SelectionMode::Build })
+        .init_resource::<ButtonInput<KeyCode>>();
+    // Press V: the base command_input bridge fires the action message.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyV);
+    app.update();
+    let mut cursor = bevy::ecs::message::MessageCursor::<
+        warbase::ui::CommandCardAction,
+    >::default();
+    let actions: Vec<_> = {
+        let msgs = app
+            .world()
+            .resource::<Messages<warbase::ui::CommandCardAction>>();
+        cursor.read(msgs).cloned().collect()
+    };
+    assert_eq!(actions.len(), 1, "hotkey dispatch fires once");
+    assert_eq!(
+        actions[0].action,
+        warbase::ui::CommandAction::Custom("dig".into())
+    );
+    assert_eq!(actions[0].selection, SelectionMode::Build);
+
+    // Disabled custom slots stay inert (WX3 semantics cover customs too).
+    let mut cards = app.world_mut().resource_mut::<CommandCards>();
+    cards.cards.get_mut(BUILD_CARD).unwrap().slots[0].enabled = false;
+    drop(cards);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+    app.update();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyV);
+    app.update();
+    let fired: usize = {
+        let msgs = app
+            .world()
+            .resource::<Messages<warbase::ui::CommandCardAction>>();
+        cursor.read(msgs).count()
+    };
+    assert_eq!(fired, 0, "a disabled custom slot never dispatches");
+
+    // CommandAction is serde (SEAM3c envelope payload prerequisite).
+    let text = ron::to_string(&warbase::ui::CommandAction::Custom("dig".into())).unwrap();
+    let back: warbase::ui::CommandAction = ron::from_str(&text).unwrap();
+    assert_eq!(back, warbase::ui::CommandAction::Custom("dig".into()));
+}

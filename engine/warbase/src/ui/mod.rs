@@ -16,12 +16,20 @@ pub enum Hotkey {
 
 /// What a slot does. `Build` carries the unit def id; `Cast` carries the
 /// SkillCaster slot index; Upgrade/Sell apply to the selected buildable.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `Custom` (SEAM3b registry seam) carries a game-owned action id: the base
+/// card framework (def/hotkey/dispatch/enabled) is generic and games
+/// register their own entries without engine vocabulary. Chosen over a
+/// registration-map resource because the break surface is one match arm —
+/// exhaustive consumers just grow a `Custom(_)` case.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CommandAction {
     Build(String),
     Upgrade,
     Sell,
     Cast(usize),
+    /// Game-registered action id (e.g. loop-td's "dig"/"challenge"/
+    /// "artifact"); the game dispatches it, the base only carries it.
+    Custom(String),
 }
 
 #[derive(Debug, Clone)]

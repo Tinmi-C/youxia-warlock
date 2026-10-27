@@ -125,20 +125,6 @@ fn grant_equipment(world: &mut World, item: &str) {
     ));
 }
 
-/// Minimal input entry: V digs once during the intermission.
-pub fn dig_input(world: &mut World) {
-    if !world.contains_resource::<ButtonInput<KeyCode>>() {
-        return;
-    }
-    let keys = world.resource::<ButtonInput<KeyCode>>().clone();
-    if !keys.just_pressed(KeyCode::KeyV) {
-        return;
-    }
-    if let Err(e) = dig(world) {
-        info!("[loop-td] dig: {e}");
-    }
-}
-
 /// Run-restart hook: per-run dig statistics reset with the match.
 pub fn reset(world: &mut World) {
     world.remove_resource::<DigStats>();

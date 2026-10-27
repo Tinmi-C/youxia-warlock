@@ -140,20 +140,6 @@ fn drop_guaranteed_equipment(world: &mut World) {
     ));
 }
 
-/// Minimal input entry: C arms the challenge when offered.
-pub fn challenge_input(world: &mut World) {
-    if !world.contains_resource::<ButtonInput<KeyCode>>() {
-        return;
-    }
-    let keys = world.resource::<ButtonInput<KeyCode>>().clone();
-    if !keys.just_pressed(KeyCode::KeyC) {
-        return;
-    }
-    if let Err(e) = arm_challenge(world) {
-        info!("[loop-td] challenge: {e}");
-    }
-}
-
 /// Run-restart hook: forget the arm/offer bookkeeping (re-assembly restores
 /// the pristine table anyway; an armed-but-unstarted challenge must not
 /// survive into a fresh match).
