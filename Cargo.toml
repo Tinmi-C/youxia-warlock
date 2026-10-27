@@ -8,6 +8,7 @@ resolver = "2"
 members = [
     "engine/showroom-viewer",
     "engine/warbase",
+    "games/legion",
     "games/loop-td",
     "games/rts-lab",
     "games/warden",

@@ -1,0 +1,18 @@
+[package]
+name = "legion"
+version = "0.1.0"
+edition = "2021"
+description = "legion —— 军团战争图（第三张 warbase 验收图）：多人对抗半区，验证基底 MP/生产/经济在对抗编排下的复用效率（KPI 对比 rts-lab）"
+
+[dependencies]
+# Versions are pinned once in the root workspace (ADR-0012); members inherit.
+bevy = { workspace = true }
+
+# Warcraft-style battle runtime base (ADR-0012/0013): mechanisms & pipelines.
+# This game exists to MEASURE base reuse: maps/arena.ron + thin gameplay
+# plugins only. Zero engine/warbase edits are allowed (ADR-0012 §6) —
+# seams found go to the C channel (docs/kpi.md), not into the engine.
+warbase = { path = "../../engine/warbase" }
+
+# NOTE: profiles (dev opt-level / release thin-LTO / release-check) live in
+# the root workspace Cargo.toml — member profiles are ignored in a workspace.

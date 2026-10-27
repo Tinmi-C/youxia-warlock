@@ -1,0 +1,117 @@
+// legion 军团战争图（LG0，ADR-0013 —— 地图=自包含数据包）。
+// 四人各一路 2v2 对抗：P0+P2（队0） vs P1+P3（队1）。
+// 每条 path 一端=己方布阵区（12 格），另一端=对家底线（漏怪点）。
+// 数值锚点见 vault docs/topics/game-design/legion-td-proposal.md §2。
+//
+// NOTE (hole L1, channel C): 路径在基底 build_grid 里被硬当成「出怪轨道」
+// （FreeGrid 时 path 格全部落成阻挡）。军团图的 lane 是纯路由数据（要能走），
+// 所以 build 域选 FixedSlots —— build_grid 的 FixedSlots 分支不处理 path，
+// lane 因此保持可走；代价是 48 个布阵格坐标全部显式列在 RON 里。
+(
+    identity: (id: "arena", version: 1),
+    world: (
+        // 四条水平 lane（开链）：path i = 玩家 i 的发兵路，起点=自家布阵区，
+        // 终点=对家底线（漏怪点）。配对共享走廊：P0/P1 同走 z=-4 走廊相向
+        // 而行（对头 clash），P2/P3 同走 z=4 走廊。
+        paths: [
+            (points: [(-13.0, -4.0), (13.0, -4.0)], closed: false), // P0 -> P1 底线
+            (points: [(13.0, -4.0), (-13.0, -4.0)], closed: false), // P1 -> P0 底线
+            (points: [(-13.0, 4.0), (13.0, 4.0)], closed: false),   // P2 -> P3 底线
+            (points: [(13.0, 4.0), (-13.0, 4.0)], closed: false),   // P3 -> P2 底线
+        ],
+        // 48 个布阵格（每路 12 格，4 列 x 3 行，间距 1.0），按 lane 顺序分组。
+        build: FixedSlots(slots: [
+            // ---- P0 布阵区（lane 0 起点 (-13,-4) 附近） ----
+            (-12.0, -5.0), (-11.0, -5.0), (-10.0, -5.0), (-9.0, -5.0),
+            (-12.0, -4.0), (-11.0, -4.0), (-10.0, -4.0), (-9.0, -4.0),
+            (-12.0, -3.0), (-11.0, -3.0), (-10.0, -3.0), (-9.0, -3.0),
+            // ---- P1 布阵区（lane 1 起点 (13,-4) 附近） ----
+            (12.0, -5.0), (11.0, -5.0), (10.0, -5.0), (9.0, -5.0),
+            (12.0, -4.0), (11.0, -4.0), (10.0, -4.0), (9.0, -4.0),
+            (12.0, -3.0), (11.0, -3.0), (10.0, -3.0), (9.0, -3.0),
+            // ---- P2 布阵区（lane 2 起点 (-13,4) 附近） ----
+            (-12.0, 3.0), (-11.0, 3.0), (-10.0, 3.0), (-9.0, 3.0),
+            (-12.0, 4.0), (-11.0, 4.0), (-10.0, 4.0), (-9.0, 4.0),
+            (-12.0, 5.0), (-11.0, 5.0), (-10.0, 5.0), (-9.0, 5.0),
+            // ---- P3 布阵区（lane 3 起点 (13,4) 附近） ----
+            (12.0, 3.0), (11.0, 3.0), (10.0, 3.0), (9.0, 3.0),
+            (12.0, 4.0), (11.0, 4.0), (10.0, 4.0), (9.0, 4.0),
+            (12.0, 5.0), (11.0, 5.0), (10.0, 5.0), (9.0, 5.0),
+        ]),
+        blocked: [],
+    ),
+    units: {
+        // ---- 主城（每家一座，底线后侧；无 kit —— 不算 LastTeamStanding
+        // 战力，命尽出局走游戏侧 LivesBoard）。 ----
+        "keep": (id: "keep", attrs: (hp: 1500, move_speed: 0.0, body_radius: 1.2),
+                 armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
+        // ---- 雇佣兵 6 种（proposal §2：30-120 金，人口 1-4） ----
+        // 人口占用无 bundle 字段（hole L3）：游戏侧 POP_COST 表记账。
+        // cheap：便宜近战填线。
+        "merc_cheap": (id: "merc_cheap", attrs: (hp: 90, move_speed: 3.2, body_radius: 0.3),
+                       attack: Some((damage: 8, interval: 1.0, range: 1.0, attack_type: Normal, targets: Ground)),
+                       armor_type: Light, cost_gold: 30, bounty_gold: 4, grant_xp: 0, traits: []),
+        // swarm：快速轻兵，抢线牵制。
+        "merc_swarm": (id: "merc_swarm", attrs: (hp: 55, move_speed: 4.2, body_radius: 0.25),
+                       attack: Some((damage: 5, interval: 0.8, range: 1.0, attack_type: Normal, targets: Ground)),
+                       armor_type: Light, cost_gold: 45, bounty_gold: 5, grant_xp: 0, traits: [Fast]),
+        // tank：重甲肉盾，慢速高血（验收锚点：120 金一口清空钱包）。
+        "merc_tank": (id: "merc_tank", attrs: (hp: 420, move_speed: 2.4, body_radius: 0.5),
+                      attack: Some((damage: 14, interval: 1.4, range: 1.1, attack_type: Normal, targets: Ground)),
+                      armor_type: Heavy, cost_gold: 120, bounty_gold: 15, grant_xp: 0, traits: []),
+        // ranged：穿刺远程（投射物），克轻甲。
+        "merc_ranged": (id: "merc_ranged", attrs: (hp: 70, move_speed: 3.0, body_radius: 0.3),
+                        attack: Some((damage: 11, interval: 1.3, range: 5.5, attack_type: Piercing, targets: Ground,
+                                      projectile: Some((speed: 16.0)))),
+                        armor_type: Light, cost_gold: 70, bounty_gold: 8, grant_xp: 0, traits: []),
+        // aoe：攻城型范围威胁占位（基底无溅射缝 —— hole L4，先按 Siege 攻型结算）。
+        "merc_aoe": (id: "merc_aoe", attrs: (hp: 130, move_speed: 2.8, body_radius: 0.35),
+                     attack: Some((damage: 9, interval: 1.6, range: 4.5, attack_type: Siege, targets: Ground)),
+                     armor_type: Medium, cost_gold: 100, bounty_gold: 12, grant_xp: 0, traits: []),
+        // support：弱近战 + 周期治疗（基底 Healer 域，光环随行奶）。
+        "merc_support": (id: "merc_support", attrs: (hp: 80, move_speed: 3.2, body_radius: 0.3),
+                         attack: Some((damage: 4, interval: 1.5, range: 1.0, attack_type: Normal, targets: Ground)),
+                         heal: Some((amount: 8, interval: 1.5, radius: 3.5)),
+                         armor_type: Light, cost_gold: 60, bounty_gold: 6, grant_xp: 0, traits: [Healer]),
+    },
+    // 军团图无环境波次（发兵是玩家行为，LG2）：空波次表。
+    waves: (
+        waves: [],
+        advance: Auto(intermission: 12.0),
+        early_call_bonus: None,
+    ),
+    rules: (
+        leak: Lives(lives: 20), // 全局占位：真漏怪走游戏侧 LivesBoard（hole L2）
+        build_window: Always,
+        lap_buff: None,
+        win: LastTeamStanding, // 命尽出局后场上只余一队战力 -> 分胜负
+        sell_refund_pct: 0.7,
+    ),
+    econ_start: (gold: 120, wood: 0, pop_cap: 15), // 每家钱包的起始值（游戏侧读取）
+    econ_rules: (wood_to_gold: 25, pop_cost_base: 2, pop_cost_growth: 1.5, pop_gain: 2),
+    // 攻甲克制（proposal §2「攻甲矩阵克制」）：Normal 克建筑、Piercing 克轻甲、
+    // Siege 克重甲/建筑。行=攻击类型，列=护甲（Light/Medium/Heavy/Fortified/Hero/Divine）。
+    attack_armor: (
+        mult: (
+            (1.0, 1.0, 0.9, 0.7, 1.0, 1.0), // Normal
+            (1.3, 1.0, 0.8, 0.6, 1.0, 1.0), // Piercing
+            (0.9, 1.1, 1.0, 1.3, 1.0, 1.0), // Siege
+            (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), // Magic
+            (1.0, 1.0, 1.0, 1.0, 1.0, 1.0), // Hero
+        ),
+    ),
+    // nav：FixedSlots 地图基底 NavGrid 保持空默认（无几何 = 直线兜底，见
+    // movement::process_path_requests）；lane 可走性由此保住（hole L1 注记）。
+    vision: (cell: 1.0),
+    teams: (
+        players: [(0, 0), (1, 1), (2, 0), (3, 1)], // P0+P2 队0 vs P1+P3 队1
+        hostile_pairs: [(0, 1)],
+    ),
+    // 开局四家主城（底线后侧；owner 决定归属与 Allegiance 派生）。
+    starting_forces: [
+        (unit: "keep", count: 1, pos: (-14.5, -4.0), owner: Some(0)), // P0 底线后
+        (unit: "keep", count: 1, pos: (14.5, -4.0), owner: Some(1)),  // P1 底线后
+        (unit: "keep", count: 1, pos: (-14.5, 4.0), owner: Some(2)),  // P2 底线后
+        (unit: "keep", count: 1, pos: (14.5, 4.0), owner: Some(3)),   // P3 底线后
+    ],
+)
