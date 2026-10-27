@@ -372,6 +372,7 @@ pub fn restart_run(world: &mut World) {
     world.remove_resource::<RunBanked>();
     // v2 per-match state resets (LT2 lines own their hooks).
     crate::systems::artifact::reset(world);
+    crate::systems::challenge::reset(world);
     let bonus = world.resource::<MetaState>().start_gold_bonus;
     world.resource_mut::<Resources>().gold += bonus;
     info!("[loop-td] run restarted (+{bonus} meta gold)");

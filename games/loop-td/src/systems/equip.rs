@@ -58,6 +58,20 @@ fn range_affix(item: &str) -> f32 {
     RANGE_AFFIXES.iter().find(|(id, _)| *id == item).map(|(_, r)| *r).unwrap_or(0.0)
 }
 
+/// All equipment-class item ids in the registry, sorted (deterministic
+/// picks for random-equipment rewards — challenge drops, treasure digs).
+pub fn equipment_ids(world: &mut World) -> Vec<String> {
+    let mut ids: Vec<String> = world
+        .resource::<ItemRegistry>()
+        .defs
+        .values()
+        .filter(|d| d.kind == ItemKind::Passive)
+        .map(|d| d.id.clone())
+        .collect();
+    ids.sort();
+    ids
+}
+
 /// Recompute the tower's attack range: registry base + sum of equipped range
 /// affixes (call after ANY equip-slot change).
 fn refresh_range(world: &mut World, tower: Entity) {

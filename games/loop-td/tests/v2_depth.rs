@@ -9,6 +9,7 @@ use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::prelude::*;
 use loop_td::plugins::game::GamePlugin;
 use loop_td::systems::gameplay::try_place;
+use warbase::bundle::MapBundle;
 use warbase::prelude::*;
 use warbase::testing::test_app;
 
@@ -229,6 +230,15 @@ fn artifact_quest_gates_claim_and_grants_team_aura() {
         }
     }
     assert!(checked >= 2, "both pre-claim towers covered ({checked})");
+    for tower in [arrow, hero] {
+        let eff = app.world().get::<EffectiveStats>(tower).unwrap();
+        assert!(
+            (eff.damage_mult - (1.0 + ARTIFACT_AURA_AMOUNT)).abs() < 1e-5,
+            "tower {:?} at {}",
+            tower,
+            eff.damage_mult
+        );
+    }
 
     // A tower placed AFTER the claim joins the aura on the next pass.
     let cell_b = first_free_cell(app.world().resource::<BuildGrid>());
@@ -242,4 +252,205 @@ fn artifact_quest_gates_claim_and_grants_team_aura() {
 
     // Team-unique: a second claim refuses.
     assert!(claim_artifact(&mut app.world_mut()).is_err(), "artifact is unique");
+}
+
+// ---------------------------------------------------------------------------
+// LT2-3: challenge waves — every 10th wave milestone offers one optional
+// challenge during the intermission (key C): the next wave's hp_scale is
+// doubled and its reward tripled; clearing it restores the table and drops
+// exactly one guaranteed equipment GroundItem.
+// ---------------------------------------------------------------------------
+
+/// Scenario bundle for the challenge mechanism: 12 tiny waves (reward 10,
+/// bounty-free grunts), equipment in the item table, fast intermission.
+fn challenge_bundle() -> MapBundle {
+    let unit = |id: &str, hp: f32, dmg: f32| UnitDef {
+        hero_stats: None,
+        leak: 1,
+        id: id.into(),
+        attrs: BaseAttributes { hp, move_speed: 1.0, body_radius: 0.3 },
+        attack: if dmg > 0.0 {
+            Some(AttackDef {
+                damage: dmg, interval: 0.3, range: 12.0, attack_type: AttackType::Magic,
+                targets: TargetDomain::Both, projectile: Some(ProjDef { speed: 60.0 }),
+                windup_secs: 0.0, backswing_secs: 0.0,
+            })
+        } else { None },
+        armor_type: ArmorType::Heavy,
+        cost_gold: 50, cost_wood: 0,
+        bounty_gold: 0, bounty_wood: 0, grant_xp: 0,
+        traits: vec![], auras: vec![], hero: false, skills: vec![],
+        upgrade_to: None, heal: None, mana: None, skill_levels: vec![],
+    };
+    let mut units = std::collections::HashMap::new();
+    units.insert("grunt".into(), unit("grunt", 40.0, 0.0));
+    units.insert("tower".into(), unit("tower", 80.0, 20.0));
+    let mut items = std::collections::HashMap::new();
+    items.insert(
+        "blade08".into(),
+        ItemDef {
+            id: "blade08".into(), name: "制式利刃".into(), kind: ItemKind::Passive,
+            charges: None, cooldown: 0.0, effect: None, cost_gold: 60,
+            passive: Some(PassiveStat { kind: StatKind::DamageMult, amount: 0.08 }),
+        },
+    );
+    MapBundle {
+        identity: warbase::bundle::MapIdentity { id: "lt2-challenge".into(), version: 1 },
+        world: warbase::bundle::WorldDef {
+            paths: vec![PathDef::closed_loop(vec![[-6.0, -4.0], [6.0, -4.0], [6.0, 4.0], [-6.0, 4.0]])],
+            build: warbase::bundle::BuildDomainDef::FreeGrid { cell: 1.0, cols: 16, rows: 12 },
+            blocked: vec![],
+        },
+        units,
+        waves: WaveTable {
+            waves: (0..12)
+                .map(|i| WaveEntry {
+                    spawns: vec![SpawnSpec {
+                        unit: "grunt".into(), count: 2, interval: 0.1, path: 0,
+                        delay: 0.0, hp_scale: 1.0 + i as f32 * 0.1,
+                    }],
+                    boss_timeout: None,
+                    preview: format!("wave {i}"),
+                    reward_gold: 10,
+                })
+                .collect(),
+            advance: Advance::Auto { intermission: 0.1 },
+            early_call_bonus: None,
+        },
+        rules: MatchRules {
+            leak: LeakPolicy::Stockpile { cap: 50 },
+            build_window: BuildWindow::Always,
+            lap_buff: None,
+            win: WinCondition::SurviveWaves { waves: 12 },
+            sell_refund_pct: 0.7,
+        },
+        econ_start: warbase::prelude::EconStart { gold: 200, wood: 0, pop_cap: 8 },
+        econ_rules: EconRules::default(),
+        attack_armor: AttackArmorTable::default(),
+        nav: Default::default(),
+        vision: Default::default(),
+        items: warbase::prelude::ItemsDef { items, drops: Default::default() },
+        production: Default::default(),
+        teams: Default::default(),
+        starting_forces: Default::default(),
+        harvest: Default::default(),
+        camps: Default::default(),
+        daynight: Default::default(),
+        terrain: Default::default(),
+    }
+}
+
+#[test]
+fn challenge_wave_doubles_hp_triples_reward_and_drops_equipment() {
+    use loop_td::systems::challenge::{
+        arm_challenge, challenge_progress, ChallengeSpawn, CHALLENGE_HP_MULT,
+        CHALLENGE_MILESTONE, CHALLENGE_REWARD_MULT,
+    };
+
+    let bundle = challenge_bundle();
+    let mut app = test_app();
+    app.insert_resource(MatchRng::seeded(3));
+    warbase::bundle::assemble(&mut app.world_mut(), &bundle);
+    app.insert_resource(loop_td::systems::gameplay::build_grid_from(&bundle));
+    let base_hp_scale = bundle.waves.waves[10].spawns[0].hp_scale;
+    let base_reward = bundle.waves.waves[10].reward_gold;
+
+    // Guards: no offer outside a 10-wave milestone, none while spawning,
+    // none once this milestone's challenge was already taken.
+    app.world_mut().resource_mut::<WaveDirector>().next_wave = 9;
+    app.world_mut().resource_mut::<WaveDirector>().phase = DirectorPhase::Intermission;
+    assert!(arm_challenge(&mut app.world_mut()).is_err(), "not a milestone");
+
+    let mut dir = app.world_mut().resource_mut::<WaveDirector>();
+    dir.next_wave = CHALLENGE_MILESTONE;
+    dir.phase = DirectorPhase::Spawning;
+    drop(dir);
+    assert!(arm_challenge(&mut app.world_mut()).is_err(), "no offer while a wave runs");
+
+    app.world_mut().resource_mut::<WaveDirector>().phase = DirectorPhase::Intermission;
+    let w = arm_challenge(&mut app.world_mut()).expect("arm at the milestone");
+    assert_eq!(w, CHALLENGE_MILESTONE);
+
+    // Table mutation: hp x2, reward x3 — asserted against the shipped values.
+    let entry = &app.world().resource::<WaveTable>().waves[w];
+    assert!((entry.spawns[0].hp_scale - base_hp_scale * CHALLENGE_HP_MULT).abs() < 1e-6);
+    assert_eq!(entry.reward_gold, base_reward * CHALLENGE_REWARD_MULT);
+
+    // The challenge wave actually spawns doubled-hp units tagged as challenges.
+    app.world_mut()
+        .resource_mut::<Messages<StartWave>>()
+        .write(StartWave);
+    let mut saw_challenge_unit = false;
+    for _ in 0..30 {
+        app.update();
+        challenge_progress(&mut app.world_mut());
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&MaxHp, (With<WaveTag>, With<ChallengeSpawn>)>();
+        if let Some(max) = q.iter(app.world()).next() {
+            assert!((max.0 - 40.0 * base_hp_scale * CHALLENGE_HP_MULT).abs() < 1e-4, "hp {}", max.0);
+            saw_challenge_unit = true;
+            break;
+        }
+    }
+    assert!(saw_challenge_unit, "challenge unit spawned and tagged");
+
+    // Clear the wave by hand; the reward grant is EXACTLY 3x (bounty-free
+    // creeps) and exactly one equipment GroundItem lands.
+    let gold_before = app.world().resource::<Resources>().gold;
+    for _ in 0..600 {
+        // Kill every live attacker of the wave.
+        let victims: Vec<Entity> = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<(Entity, &Allegiance), With<PathFollower>>();
+            let world = app.world_mut();
+            q.iter(world)
+                .filter(|&(_, side)| *side == Allegiance::Attacker)
+                .map(|(e, _)| e)
+                .collect()
+        };
+        for v in victims {
+            app.world_mut()
+                .resource_mut::<Messages<DamageRequest>>()
+                .write(DamageRequest {
+                    target: v,
+                    source: DamageOrigin::System,
+                    amount: 999_999.0,
+                    attack_type: AttackType::Magic,
+                    crit: false,
+                });
+        }
+        app.update();
+        challenge_progress(&mut app.world_mut());
+        let restored = &app.world().resource::<WaveTable>().waves[w];
+        if (restored.spawns[0].hp_scale - base_hp_scale).abs() < 1e-9 {
+            break; // restore ran => wave cleared
+        }
+    }
+    // The director writes the reward as an EconCommand on the clear frame;
+    // apply_econ settles it on the NEXT frame's Tick.
+    for _ in 0..3 {
+        app.update();
+    }
+    let gold_after = app.world().resource::<Resources>().gold;
+    assert_eq!(gold_after - gold_before, base_reward * CHALLENGE_REWARD_MULT, "exactly 3x reward");
+    let entry = &app.world().resource::<WaveTable>().waves[w];
+    assert!((entry.spawns[0].hp_scale - base_hp_scale).abs() < 1e-9, "table restored");
+    assert_eq!(entry.reward_gold, base_reward, "reward restored");
+    let ground: Vec<&str> = {
+        let mut q = app.world_mut().query_filtered::<&GroundItem, ()>();
+        let world = app.world();
+        q.iter(world).map(|g| g.def.as_str()).collect()
+    };
+    assert_eq!(ground.len(), 1, "exactly one guaranteed drop: {ground:?}");
+    assert!(matches!(ground[0], "blade08"), "drop is equipment");
+
+    // The milestone's offer is spent (same milestone re-visited refuses).
+    {
+        let mut dir = app.world_mut().resource_mut::<WaveDirector>();
+        dir.next_wave = CHALLENGE_MILESTONE;
+        dir.phase = DirectorPhase::Intermission;
+    }
+    assert!(arm_challenge(&mut app.world_mut()).is_err(), "one challenge per milestone");
 }

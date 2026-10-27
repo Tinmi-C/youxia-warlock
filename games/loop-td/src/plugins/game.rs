@@ -34,6 +34,14 @@ impl Plugin for GamePlugin {
                     crate::systems::artifact::artifact_input,
                 ),
             )
+            // LT2-3: challenge-wave offer (C), tagging, restore + drop.
+            .add_systems(
+                Update,
+                (
+                    crate::systems::challenge::challenge_progress,
+                    crate::systems::challenge::challenge_input,
+                ),
+            )
             .add_systems(Update, gameplay::build_input)
             .add_systems(Update, gameplay::command_dispatch)
             .add_systems(Update, gameplay::snipe_effect)
