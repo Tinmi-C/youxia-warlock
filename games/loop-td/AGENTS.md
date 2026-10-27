@@ -63,7 +63,8 @@ assets/{models,textures,audio,fonts,ui}/
 
 （进行中的功能、已知问题、近期目标——每次开工前更新）
 
-- LT-ADOPT 已落地（v2 前置采用改造）：鼠标选择链（塔 Selectable + 基底 Pick/Select/Aabb/右键智能命令）、数字键模态让渡（`systems/adopt.rs`，建造菜单模态期基底键盘桥不产 GroupCommand）、英雄塔 6 槽 Inventory。键盘光标为并存输入模式，行为零漂移。LT2 六件纵深可在此之上开工（见 `docs/topics/game-design/loop-td-v2-rpg-proposal.md` §2）。
+- LT-ADOPT 已落地（v2 前置采用改造）：鼠标选择链（塔 Selectable + 基底 Pick/Select/Aabb/右键智能命令）、数字键模态让渡（`systems/adopt.rs`，建造菜单模态期基底键盘桥不产 GroupCommand）、英雄塔 6 槽 Inventory。键盘光标为并存输入模式，行为零漂移。
+- **LT2 六件纵深已落地**（`tests/v2_depth.rs` 8 测试，规格：`docs/topics/game-design/loop-td-v2-rpg-proposal.md` §2）：装备上塔（`systems/equip.rs`，3 槽 + 每槽独立 source）/ 神器任务链（`systems/artifact.rs`）/ 挑战波（`systems/challenge.rs`）/ 挖宝（`systems/dig.rs`，V 键——G 已被 HR2 加点占用）/ 羁绊（`systems/bonds.rs` + `maps/bonds.ron`）/ 多人漏怪（`systems/multiplayer.rs`，双环仅测试场景）。键位：E 装备、Q 神器、C 挑战、V 挖宝。完整面板归 LT2-UI 线。已知基底洞（记于代码注释与最终报告）：StatKind 无射程项、WaveTag 无变体位、命令卡无自定义 action——射程词缀/挑战标记均走游戏侧。
 
 ## 项目专属规则
 
