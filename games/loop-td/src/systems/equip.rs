@@ -56,7 +56,10 @@ pub fn attach_equip_slots(
     }
 }
 
-fn range_affix(item: &str) -> f32 {
+/// Flat range bonus of an item id (0.0 when none) — the game-side table the
+/// engine stat vocabulary cannot express. Public since LT2-UI reads it for
+/// the 射程+X affix summaries.
+pub fn range_affix(item: &str) -> f32 {
     RANGE_AFFIXES.iter().find(|(id, _)| *id == item).map(|(_, r)| *r).unwrap_or(0.0)
 }
 

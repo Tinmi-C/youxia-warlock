@@ -10,10 +10,15 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        // LT2-UI: the boarded Plan-A "Iron & Gold" skin — every panel (these
+        // and the warbase command surfaces) reads tokens from it; swapping
+        // the resource/RON re-skins the whole HUD with zero code change.
+        app.insert_resource(crate::systems::theme::plan_a());
         // hud::refresh_hud takes Res<SelectedTower>; nothing else inserts it
         // (BX4b card-switch leftover) — windowed runs panicked at startup.
-    app.insert_resource(gameplay::SelectedTower(String::new()));
-    app.add_systems(Startup, gameplay::load_map)
+    app.insert_resource(gameplay::SelectedTower(String::new()))
+            .add_plugins(crate::systems::panels::PanelsPlugin)
+            .add_systems(Startup, gameplay::load_map)
             .add_systems(Startup, gameplay::load_meta_startup)
             .add_systems(Startup, hud::spawn_hud)
             // LT-ADOPT: digit-row modal yield runs before the base input
