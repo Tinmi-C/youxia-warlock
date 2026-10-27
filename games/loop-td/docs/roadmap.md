@@ -27,6 +27,12 @@
 | BAL1 | 锚点 A1–A3 收敛 | ✅ 读数：A1 存量峰值 6/10（贪心箭塔基线过 5 波不死）；A2 注入 20 翻盘（峰值 24、终局 Won）；A3 BOSS 38.2s ∈ [36,54]（标准 3×arrow3 沿环分布，boss hp×1.25） |
 | SMK1 | 迷宫冒烟（maps/maze-smoke.ron + `--map`） | ✅ headless 全链路（Lives/Manual/开链对照图）；真机 `--map` 演示 ⏸ H1 |
 | LT-ADOPT | 采用改造（v2 前置）：基底鼠标链接入（塔挂 Selectable→点选/框选/右键智能命令，键盘光标并存）+ 数字键模态让渡（建造菜单开=claim/关=release，模态期基底桥不产 GroupCommand）+ 英雄塔 Inventory（6 槽空，LT2 装备铺路） | ✅ tests/adopt_domain.rs（7 测试：模态让渡/召回恢复/点选+面板/Aabb×3/右键 UnitCommand/英雄 Inventory/怪不可选） |
+| LT2-1 | v2 装备上塔：英雄塔 3 装备槽（EquipSlots 独立组件），词缀经 StatMods 注入、source=每槽独立 marker 实体（规避 INV 同 source 覆盖缺陷），同槽替换撤旧回包（E 键从包内上装） | ✅ tests/v2_depth.rs（攻+12%→1.12/撤回 1.0/同槽换装 1.08 且旧件回包/间隔-10%/射程+1.5 直改 AttackKit.range/守卫断言）——射程词缀为已记洞：基底 StatKind 无射程项，走游戏侧 RANGE_AFFIXES 表；装备表在 maps/equipment.ron（装载期并入内存 bundle；shipped loop.ron 的 items 节被引擎 seam 测试钉死为空，不可入正文） |
+| LT2-2 | v2 神器任务链：清波 10 + BOSS 击杀 2 → 领取（全队唯一，Q 键），领取后场上全塔获永久光环 entry（source=神器实体，每帧幂等 upsert，新塔次帧入光环） | ✅ tests/v2_depth.rs（达成前双缺口拒领/领取后全塔 +15% damage_mult/领取后新塔入光环/二次领取唯一性拒绝）——光环 +15% 为游戏侧起点值（地图无神器节，缝扩展后进 RON） |
+| LT2-3 | v2 挑战波：每 10 波里程碑波间可选（C 键，一次一里程碑），下一波 hp_scale×2.0 + reward_gold×3.0（表快照/清波还原，基底 director 原路出怪发奖），清波必掉 1 件装备 GroundItem（MatchRng 种子挑选） | ✅ tests/v2_depth.rs（非里程碑/出怪中拒开/表 hp×2 断言/挑战怪 MaxHp=40×hp×2 且带 ChallengeSpawn 标/奖励恰 3×30 金/表还原/恰 1 GroundItem/同里程碑二次拒开）——WaveTag=usize 无变体位为已记洞：Challenge 标记走游戏侧 ChallengeSpawn 组件 |
+| LT2-4 | v2 挖宝：波间 50 金一挖（V 键；G 已被 HR2 加点占用），MatchRng 单掷 50% 空/35% 金 80/15% 随机装备，装备入英雄包（按实体序首个有空位英雄）否则落地 GroundItem | ✅ tests/v2_depth.rs（同 seed 20 掷序列全等/金结果恰 80 且扣费精确/500 掷 EV∈31.5±5/装备入包/无英雄落地为 GroundItem/守卫断言） |
+| LT2-5 | v2 羁绊：游戏侧 maps/bonds.ron 组合表（塔型计数≥阈值→StatKind+amount），每帧检测全场→全塔 StatMods 联动注入/撤除（source=每羁绊独立 marker 实体） | ✅ tests/v2_depth.rs（2 箭+1 冰→全塔含冰塔 damage_mult 1.10/卖 1 箭→回落 1.0 且无残留 entry）——计数按 def 精确匹配（升级后算新 def，bonds.ron 注释已记） |
+| LT2-6 | v2 多人漏怪：激活基底预留 LeakPolicy::PassToNeighbor 缝（闭环图上跑完一圈=漏），漏怪传下家环（path 索引+1 回绕，同 def/同 Hp/WaveTag 保留），双环场景 bundle（P0/P1 同队 0 vs 环境队 1，单 WaveTable 驱动双环） | ✅ tests/v2_depth.rs（shipped loop.ron 仍 Stockpile 钉死/双玩家外交与双塔同侧断言/A 环漏 1→B 环同型+1 且 A 环存量清零/MatchFlow 保持 Running）——基底 rules_tick 对 PassToNeighbor 无行为（预留缝原文如此），传递逻辑全在游戏侧 |
 
 ## 待人工关卡（后置清单）
 

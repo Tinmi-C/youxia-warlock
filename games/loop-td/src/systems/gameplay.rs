@@ -43,10 +43,27 @@ pub fn default_map_path() -> std::path::PathBuf {
 /// Exclusive startup: load + validate + assemble + build grid + cursor.
 pub fn load_map(world: &mut World) {
     let path = default_map_path();
-    let bundle = match load_bundle(&path) {
+    let mut bundle = match load_bundle(&path) {
         Ok(b) => b,
         Err(e) => panic!("[loop-td] failed to load map {}: {e}", path.display()),
     };
+    // LT2: merge the game-side equipment table into the IN-MEMORY bundle
+    // (the shipped loop.ron stays item-less — the engine seam test pins
+    // shipped maps free of the items section; CurrentMap carries the merge
+    // so restarts keep the equipment).
+    {
+        let eq_path =
+            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/maps/equipment.ron"));
+        match std::fs::read_to_string(&eq_path) {
+            Ok(text) => {
+                let extra: ItemsDef = ron::from_str(&text).unwrap_or_else(|e| {
+                    panic!("[loop-td] equipment table {} failed to parse: {e}", eq_path.display())
+                });
+                bundle.items.items.extend(extra.items);
+            }
+            Err(_) => info!("[loop-td] no equipment table at {}", eq_path.display()),
+        }
+    }
     assemble(world, &bundle);
     let grid = warbase::bundle::build_grid(&bundle.world);
     world.insert_resource(grid);
@@ -80,6 +97,8 @@ pub fn load_map(world: &mut World) {
         );
         world.insert_resource(defs);
     }
+    // LT2-5: game-side bond table (maps/bonds.ron) + per-bond marker sources.
+    crate::systems::bonds::load_bonds(world);
     info!("[loop-td] map loaded: {}", path.display());
 }
 
@@ -370,6 +389,10 @@ pub fn restart_run(world: &mut World) {
     world.insert_resource(grid);
     world.insert_resource(BuildCursor(Cell(10, 8)));
     world.remove_resource::<RunBanked>();
+    // v2 per-match state resets (LT2 lines own their hooks).
+    crate::systems::artifact::reset(world);
+    crate::systems::challenge::reset(world);
+    crate::systems::dig::reset(world);
     let bonus = world.resource::<MetaState>().start_gold_bonus;
     world.resource_mut::<Resources>().gold += bonus;
     info!("[loop-td] run restarted (+{bonus} meta gold)");

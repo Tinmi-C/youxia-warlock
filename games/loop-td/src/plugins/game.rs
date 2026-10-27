@@ -22,7 +22,33 @@ impl Plugin for GamePlugin {
             // hero Inventory) for the base mouse chain.
             .add_systems(PreUpdate, crate::systems::adopt::sync_modal_claim)
             .add_systems(Update, crate::systems::adopt::attach_td_kit)
+            // LT2-1: hero towers carry a 3-slot equipment rack (E equips
+            // from the bag at the build cursor).
+            .add_systems(Update, (crate::systems::equip::attach_equip_slots, crate::systems::equip::equip_input))
+            // LT2-2: artifact quest progress + team-wide aura + Q to claim.
+            .add_systems(
+                Update,
+                (
+                    crate::systems::artifact::track_artifact_progress,
+                    crate::systems::artifact::apply_artifact_aura,
+                    crate::systems::artifact::artifact_input,
+                ),
+            )
+            // LT2-3: challenge-wave offer (C), tagging, restore + drop.
+            .add_systems(
+                Update,
+                (
+                    crate::systems::challenge::challenge_progress,
+                    crate::systems::challenge::challenge_input,
+                ),
+            )
             .add_systems(Update, gameplay::build_input)
+            // LT2-5: tower-combo bonds re-resolve every frame.
+            .add_systems(Update, crate::systems::bonds::apply_bonds)
+            // LT2-6: multiplayer leak pass (no-op outside PassToNeighbor).
+            .add_systems(Update, crate::systems::multiplayer::pass_leaks_to_neighbor)
+            // LT2-4: treasure dig during intermissions (V).
+            .add_systems(Update, crate::systems::dig::dig_input)
             .add_systems(Update, gameplay::command_dispatch)
             .add_systems(Update, gameplay::snipe_effect)
             .add_systems(Update, gameplay::hero_talents)

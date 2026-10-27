@@ -1,0 +1,11 @@
+// LT2-5 羁绊表（游戏侧配置）：场上塔型计数达到组合条件 → 全塔获得
+// StatKind 加成（每帧检测，注入/撤除联动；同 id 计数按 def 精确匹配，
+// 升级后的塔按新 def 计）。
+(
+    bonds: [
+        // 箭雨急冻：2 箭 + 1 冰 → 全体攻 +10%（v2 草案 §2 示例）
+        (id: "arrow_ice", requires: [("arrow", 2), ("ice", 1)], kind: DamageMult, amount: 0.10),
+        // 机动哨卫：1 炮 + 2 哨 → 全体攻速 +8%（间隔 -0.08）
+        (id: "cannon_sentry", requires: [("cannon", 1), ("sentry", 2)], kind: AttackIntervalMult, amount: -0.08),
+    ],
+)

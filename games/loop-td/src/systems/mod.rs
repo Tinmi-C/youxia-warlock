@@ -1,5 +1,11 @@
 pub mod adopt;
+pub mod artifact;
+pub mod bonds;
 pub mod camera;
+pub mod challenge;
+pub mod dig;
+pub mod equip;
 pub mod gameplay;
 pub mod hud;
+pub mod multiplayer;
 pub mod visuals;
