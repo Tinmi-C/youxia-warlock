@@ -60,7 +60,8 @@ fn bundle_with_towers() -> MapBundle {
                     boss_timeout: None,
                     preview: "6 grunts".into(),
                     reward_gold: 25,
-                },
+                    challenge: false,
+                    },
                 WaveEntry {
                     spawns: vec![SpawnSpec {
                         unit: "grunt".into(), count: 4, interval: 0.5,
@@ -69,7 +70,8 @@ fn bundle_with_towers() -> MapBundle {
                     boss_timeout: None,
                     preview: "4 grunts".into(),
                     reward_gold: 30,
-                },
+                    challenge: false,
+                    },
             ],
             advance: Advance::Auto { intermission: 1.0 },
             early_call_bonus: Some(10),

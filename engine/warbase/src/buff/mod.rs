@@ -30,6 +30,11 @@ pub enum StatKind {
     DamageTakenMult,
     /// >0 = slower attacks (interval x (1+sum)).
     AttackIntervalMult,
+    /// Attack range multiplier delta (SEAM3b): 0.3 = +30% base range. The
+    /// game-side flat-range affix tables are retired — range now rides the
+    /// same StatMods pipeline every other affix uses (base range stays in
+    /// the unit def; `combat::attack_range` folds the two).
+    RangeMult,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,11 +74,18 @@ pub struct EffectiveStats {
     pub damage_mult: f32,
     pub damage_taken_mult: f32,
     pub interval_mult: f32,
+    pub range_mult: f32,
 }
 
 impl EffectiveStats {
     pub fn neutral() -> Self {
-        Self { move_mult: 1.0, damage_mult: 1.0, damage_taken_mult: 1.0, interval_mult: 1.0 }
+        Self {
+            move_mult: 1.0,
+            damage_mult: 1.0,
+            damage_taken_mult: 1.0,
+            interval_mult: 1.0,
+            range_mult: 1.0,
+        }
     }
 }
 
@@ -136,6 +148,7 @@ fn fold(mods: &StatMods, eff: &mut EffectiveStats, now: f32) {
             StatKind::DamageMult => eff.damage_mult += entry.amount,
             StatKind::DamageTakenMult => eff.damage_taken_mult += entry.amount,
             StatKind::AttackIntervalMult => eff.interval_mult += entry.amount,
+            StatKind::RangeMult => eff.range_mult += entry.amount,
         }
     }
 }

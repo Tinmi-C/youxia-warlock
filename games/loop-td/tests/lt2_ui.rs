@@ -353,7 +353,7 @@ fn equip_rack_and_hero_panel_reflect_the_rack() {
     assert!(equip.contains("精锻利刃"), "item display name: {equip}");
     assert!(equip.contains("攻+12%"), "damage affix: {equip}");
     assert!(equip.contains("观测镜"), "range item: {equip}");
-    assert!(equip.contains("射程+1.5"), "range affix: {equip}");
+    assert!(equip.contains("射程+30%"), "range affix: {equip}");
     assert!(equip.contains("空 · [E] 上装"), "empty-slot hint: {equip}");
 
     // Hero panel: bars + the equip affix summary lines (⑥).
@@ -362,7 +362,7 @@ fn equip_rack_and_hero_panel_reflect_the_rack() {
     assert!(hero_txt.contains("LV"), "level badge: {hero_txt}");
     assert!(hero_txt.contains("生命"), "hp bar: {hero_txt}");
     assert!(hero_txt.contains("精锻利刃"), "affix line: {hero_txt}");
-    assert!(hero_txt.contains("射程+1.5"), "range affix line: {hero_txt}");
+    assert!(hero_txt.contains("射程+30%"), "range affix line: {hero_txt}");
 
     // Deselect: both panels hide.
     app.world_mut()

@@ -58,7 +58,8 @@ pub fn base_wave_table(schedule: &WaveSchedule, defs: &EnemyDefs) -> warbase::pr
                     boss_timeout: None,
                     preview: String::new(),
                     reward_gold: w.reward,
-                }
+                    challenge: false,
+                    }
             })
             .collect(),
         advance: warbase::prelude::Advance::Manual,

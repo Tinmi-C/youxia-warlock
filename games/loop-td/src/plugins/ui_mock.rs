@@ -1488,7 +1488,7 @@ fn start_mock_combat(world: &mut World) {
         ) {
             let _ = world.entity_mut(u).insert((
                 PathFollower { path: path_e, progress: *progress, laps: 0, finished: false },
-                WaveTag(7),
+                WaveTag::Normal(7),
             ));
             if *hp_frac < 1.0 {
                 if let Some(max) = world.get::<MaxHp>(u).map(|m| m.0) {

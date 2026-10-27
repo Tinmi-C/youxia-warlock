@@ -260,7 +260,7 @@ pub fn debug_cheat_executor(
                         core
                             .commands
                             .entity(e)
-                            .insert(warbase::prelude::WaveTag(tag));
+                            .insert(warbase::prelude::WaveTag::Normal(tag));
                         spawned += 1;
                     }
                 }

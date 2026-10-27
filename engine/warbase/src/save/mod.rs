@@ -437,7 +437,7 @@ pub fn save_game(world: &World) -> SaveGame {
                 laps: f.laps,
                 finished: f.finished,
             }),
-            wave_tag: tag.map(|t| t.0),
+            wave_tag: tag.map(|t| t.index()),
             attack_cooldown: cd.map(|c| c.0),
             xp: xp.map(|x| SavedXp {
                 xp: x.xp,
@@ -693,7 +693,7 @@ pub fn load_game(world: &mut World, save: &SaveGame) {
             em.insert(AttackCooldown(cd));
         }
         if let Some(tag) = su.wave_tag {
-            em.insert(WaveTag(tag));
+            em.insert(WaveTag::Normal(tag));
         }
         if let Some(x) = &su.xp {
             em.insert(XpHolder {

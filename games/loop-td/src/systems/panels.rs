@@ -35,7 +35,7 @@ use warbase::ui::{
     SelectionMode, UiTheme,
 };
 
-use crate::systems::equip::{range_affix, EquipSlots, EQUIP_SLOTS};
+use crate::systems::equip::{EquipSlots, EQUIP_SLOTS};
 use crate::systems::font::UiFont;
 
 // ---------------------------------------------------------------------------
@@ -365,23 +365,22 @@ fn stat_label(kind: StatKind, amount: f32) -> String {
         StatKind::AttackIntervalMult => format!("全体间{:+.0}%", amount * 100.0),
         StatKind::MoveSpeedMult => format!("全体速{:+.0}%", amount * 100.0),
         StatKind::DamageTakenMult => format!("全体承伤{:+.0}%", amount * 100.0),
+        StatKind::RangeMult => format!("全体射程{:+.0}%", amount * 100.0),
     }
 }
 
-/// One equipment piece's affix summary: 攻+12% / 间-10% / 射程+1.5 (the
-/// proposal §2 vocabulary).
+/// One equipment piece's affix summary: 攻+12% / 间-10% / 射程+30% (the
+/// proposal §2 vocabulary; range rides StatKind::RangeMult since SEAM3b).
 pub fn affix_label(item_id: &str, def: &ItemDef) -> String {
+    let _ = item_id;
     if let Some(p) = &def.passive {
         return match p.kind {
             StatKind::DamageMult => format!("攻{:+.0}%", p.amount * 100.0),
             StatKind::AttackIntervalMult => format!("间{:+.0}%", p.amount * 100.0),
             StatKind::MoveSpeedMult => format!("速{:+.0}%", p.amount * 100.0),
             StatKind::DamageTakenMult => format!("伤{:+.0}%", p.amount * 100.0),
+            StatKind::RangeMult => format!("射程{:+.0}%", p.amount * 100.0),
         };
-    }
-    let range = range_affix(item_id);
-    if range > 0.0 {
-        return format!("射程+{range:.1}");
     }
     String::new()
 }
@@ -1502,10 +1501,12 @@ mod tests {
         };
         let blade = mk(Some(PassiveStat { kind: StatKind::DamageMult, amount: 0.12 }));
         let quiver = mk(Some(PassiveStat { kind: StatKind::AttackIntervalMult, amount: -0.10 }));
-        let scope = mk(None);
+        // SEAM3b: the scope's range affix rides StatKind::RangeMult (the
+        // retired game-side +1.5 flat = +30% on the 5.0 base range).
+        let scope = mk(Some(PassiveStat { kind: StatKind::RangeMult, amount: 0.30 }));
         assert_eq!(affix_label("blade12", &blade), "攻+12%");
         assert_eq!(affix_label("quiver", &quiver), "间-10%");
-        assert_eq!(affix_label("scope", &scope), "射程+1.5");
+        assert_eq!(affix_label("scope", &scope), "射程+30%");
     }
 
     /// Hotkey badges strip the KeyCode prefixes (Digit1 -> "1", KeyQ -> "Q").

@@ -78,7 +78,8 @@ fn bundle(leak: LeakPolicy, open: bool, waves: usize) -> MapBundle {
                     boss_timeout: None,
                     preview: "2 grunts".into(),
                     reward_gold: 0,
-                })
+                    challenge: false,
+                    })
                 .collect(),
             advance: Advance::Auto { intermission: 0.5 },
             early_call_bonus: None,
@@ -190,7 +191,8 @@ fn rich_bundle() -> MapBundle {
         boss_timeout: None,
         preview: "2 grunts".into(),
         reward_gold: 0,
-    });
+        challenge: false,
+        });
     waves.advance = Advance::Manual;
     MapBundle {
         identity: warbase::bundle::MapIdentity { id: "rich".into(), version: 1 },

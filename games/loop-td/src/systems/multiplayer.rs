@@ -52,7 +52,7 @@ pub fn pass_leaks_to_neighbor(world: &mut World) {
         let def = inst.def.clone();
         let hp = world.get::<Hp>(unit).map(|h| h.0);
         let max = world.get::<MaxHp>(unit).map(|m| m.0);
-        let wave_tag = world.get::<WaveTag>(unit).map(|t| t.0);
+        let wave_tag = world.get::<WaveTag>(unit).map(|t| t.index());
 
         // Move the entity: despawn on the leaking ring, twin on the neighbor.
         if let Ok(mut em) = world.get_entity_mut(unit) {
@@ -89,7 +89,7 @@ pub fn pass_leaks_to_neighbor(world: &mut World) {
         em.insert(PathFollower { path: neighbor, progress: 0.0, laps: 0, finished: false })
             .insert(TransferredLeak);
         if let Some(w) = wave_tag {
-            em.insert(WaveTag(w));
+            em.insert(WaveTag::Normal(w));
         }
         info!(
             "[loop-td] leak pass: '{def}' ring {idx} -> ring {} (lap {lap})",

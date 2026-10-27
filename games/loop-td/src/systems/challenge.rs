@@ -1,15 +1,16 @@
 //! LT2-3 challenge waves (v2 proposal §2 #3): after every
 //! `CHALLENGE_MILESTONE` waves cleared, the intermission offers ONE optional
-//! challenge (key C): the NEXT wave's spawn hp_scale is multiplied by
-//! `CHALLENGE_HP_MULT` and its `reward_gold` by `CHALLENGE_REWARD_MULT`
-//! (the base director spawns and grants through its normal path — the game
-//! only mutates the wave-table entry and snapshots the original). Clearing
-//! the challenge wave restores the entry and drops exactly one guaranteed
-//! equipment `GroundItem` at the ring start (seeded pick through `MatchRng`).
+//! challenge (key C on the build command card): the NEXT wave's spawn
+//! hp_scale is multiplied by `CHALLENGE_HP_MULT` and its `reward_gold` by
+//! `CHALLENGE_REWARD_MULT` (the base director spawns and grants through its
+//! normal path — the game only mutates the wave-table entry and snapshots
+//! the original). Clearing the challenge wave restores the entry and drops
+//! exactly one guaranteed equipment `GroundItem` at the ring start (seeded
+//! pick through `MatchRng`).
 //!
-//! ENGINE HOLE (recorded for the C-channel): the base `WaveTag` is a plain
-//! wave index (usize) with no variant slot, so the Challenge distinction is
-//! a game-side `ChallengeSpawn` marker inserted on the armed wave's units.
+//! SEAM3b: the challenge distinction rides the base vocabulary — arming sets
+//! `WaveEntry::challenge`, the director tags spawns `WaveTag::Challenge`,
+//! and the retired game-side `ChallengeSpawn` marker is gone.
 
 use bevy::prelude::*;
 use warbase::prelude::*;
@@ -30,10 +31,6 @@ pub struct ChallengeState {
     /// Milestones (next_wave / CHALLENGE_MILESTONE) already spent.
     pub offered: Vec<usize>,
 }
-
-/// Marker on units spawned by an armed challenge wave.
-#[derive(Component, Debug)]
-pub struct ChallengeSpawn;
 
 #[derive(Resource, Default)]
 struct ClearCursor(bevy::ecs::message::MessageCursor<WaveCleared>);
@@ -76,6 +73,9 @@ pub fn arm_challenge(world: &mut World) -> Result<usize, String> {
         }
         entry.reward_gold *= CHALLENGE_REWARD_MULT;
         entry.preview = format!("挑战! {}", entry.preview);
+        // SEAM3b: the base director tags this wave's spawns
+        // WaveTag::Challenge while the flag is set (restored on clear).
+        entry.challenge = true;
         snapshot
     };
     let mut state = world.resource_mut::<ChallengeState>();
@@ -86,32 +86,12 @@ pub fn arm_challenge(world: &mut World) -> Result<usize, String> {
     Ok(w)
 }
 
-/// Update: while the armed wave runs, tag its units; on its clear, restore
-/// the table entry and drop one guaranteed equipment GroundItem.
+/// Update: on the armed wave's clear, restore the table entry and drop one
+/// guaranteed equipment GroundItem. (Spawn tagging is the base director's
+/// job now — `WaveTag::Challenge` via `WaveEntry::challenge`.)
 pub fn challenge_progress(world: &mut World) {
     world.get_resource_or_insert_with(ChallengeState::default);
     world.get_resource_or_insert_with(ClearCursor::default);
-    let armed = world.resource::<ChallengeState>().armed;
-
-    // Tag the armed wave's live units (marker survives until they die).
-    if let Some(w) = armed {
-        if world.resource::<WaveDirector>().running == Some(w) {
-            let mut targets: Vec<Entity> = Vec::new();
-            {
-                let mut q = world.query_filtered::<(Entity, &WaveTag), Without<ChallengeSpawn>>();
-                for (e, tag) in q.iter(&*world) {
-                    if tag.0 == w {
-                        targets.push(e);
-                    }
-                }
-            }
-            for e in targets {
-                if let Ok(mut em) = world.get_entity_mut(e) {
-                    em.insert(ChallengeSpawn);
-                }
-            }
-        }
-    }
 
     // Restore + guaranteed drop on clear.
     let cleared_here: Vec<usize> = world.resource_scope(|w, mut c: Mut<ClearCursor>| {

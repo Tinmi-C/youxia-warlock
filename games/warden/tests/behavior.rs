@@ -178,7 +178,7 @@ fn hold_combat(app: &mut App) -> bevy::ecs::entity::Entity {
             warbase::prelude::Hp(1.0),
             warbase::prelude::MaxHp(1.0),
             Transform::from_xyz(500.0, 0.4, 500.0),
-            warbase::prelude::WaveTag(w),
+            warbase::prelude::WaveTag::Normal(w),
         ))
         .id()
 }
@@ -2532,7 +2532,7 @@ fn wave_end_clears_in_flight_projectiles() {
             warbase::prelude::Hp(100.0),
             warbase::prelude::MaxHp(100.0),
             Transform::from_xyz(90.0, 0.4, 90.0),
-            warbase::prelude::WaveTag(0),
+            warbase::prelude::WaveTag::Normal(0),
         ))
         .id();
     app.update();
@@ -4452,7 +4452,8 @@ fn enemy_assembly_is_pinned() {
                 boss_timeout: None,
                 preview: String::new(),
                 reward_gold: 0,
-            }],
+                challenge: false,
+                }],
             advance: Advance::Manual,
             early_call_bonus: None,
         });

@@ -48,7 +48,8 @@ fn sample_bundle() -> MapBundle {
                 boss_timeout: None,
                 preview: "1 grunt".into(),
                 reward_gold: 0,
-            }],
+                challenge: false,
+                }],
             advance: Advance::Auto { intermission: 600.0 },
             early_call_bonus: None,
         },
@@ -335,7 +336,7 @@ fn scenario() -> Scenario {
         progress: 12.3,
         laps: 1,
         finished: false,
-    }).insert(WaveTag(0));
+    }).insert(WaveTag::Normal(0));
 
     // Tower with vision (explored grows) shooting the creep on cooldown.
     let tower = spawn_at(&mut app, &reg, "tower", 12.0, 4.0, Allegiance::Defender);
@@ -473,7 +474,7 @@ fn save_load_restores_unit_state_exactly() {
     let f = c.app.world().get::<PathFollower>(creep).unwrap();
     assert_eq!(f.progress, a_creep.1, "path progress (f32-exact)");
     assert_eq!(f.laps, a_creep.2, "laps");
-    assert_eq!(c.app.world().get::<WaveTag>(creep).unwrap().0, 0, "wave tag");
+    assert_eq!(c.app.world().get::<WaveTag>(creep).unwrap().index(), 0, "wave tag");
 
     // Tower: mid-cycle cooldown.
     assert_eq!(
