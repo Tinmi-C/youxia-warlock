@@ -155,3 +155,7 @@
 2. 换肤断言测试：mutate `UiTheme` → 面板 `BackgroundColor` 查询变化，渲染代码零改动。
 3. `ui-proposals/plan-{A,B,C}/` 各 ≥8 张 PNG（1280×720，引擎内截图）：全景×2 + 各面板特写。
 4. 本 brief + 每方案一页说明（`ui-proposals/README.md`）→ **H-UI 看图拍板** → 《UI 设计系统规格》入库（拍板后）。
+
+## 拍板记录（H-UI，2026-10-27）
+
+用户看过三套方案（ui-proposals/ 各 10 张引擎真截图）后拍板：**方案 A · 铁金条约**——经典魔兽暗铁+金控制台布局为 loop-td v2 及后续面板的基准设计。B/C 的可取元素（B 的克制强调色、C 的战场净空比例）作为 A 演进时的备选 token 融入，不整体采用。此决策即 LT2-UI / WARDEN-SKIN 增量的样式权威依据。
