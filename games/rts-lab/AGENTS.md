@@ -15,9 +15,10 @@
    临时补丁是什么。这正是本项目的核心产出（通道 C 信号）。
 2. 游戏侧薄插件里写补丁逻辑是允许且预期的（C 通道孵化）——补丁系统
    必须带注释标明它补的是哪条缝。
-3. 地图内容（单位表/队伍/生产表/规则）一律进 `maps/arena.ron`
-  （ADR-0013），不硬编码；开局兵力是基底缝缺失的例外（见报告），暂在
-   游戏侧 `STARTING_LAYOUT`。
+3. 地图内容（单位表/队伍/生产表/规则/开局兵力/矿床）一律进
+   `maps/arena.ron`（ADR-0013），不硬编码。开局兵力走 `starting_forces`
+   段、采集走 `harvest` 段（RL4 起，原游戏侧 STARTING_LAYOUT 与采集循环
+   已被基底域取代）。
 4. 规格-测试-小步提交（ADR-0014）：验收断言全部落 `tests/behavior.rs`，
    headless 驱动；`cargo test --workspace` 一击全绿是每增量门禁。
 5. 真机灰盒（渲染/HUD）无法 headless 断言 → H1 人工清单进 README，

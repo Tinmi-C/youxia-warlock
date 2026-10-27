@@ -1,6 +1,11 @@
 //! rts-lab RL1-RL2 acceptance battery (ADR-0016 §11, GDD「数字化验收标准」):
 //! headless apps drive the thin game layer over warbase mechanisms.
 //!
+//! RL4 (C->A second pass): the harvest loop, free-agent auras, and the
+//! starting layout are BASE-domain consumers now (harvest section +
+//! Order::Harvest cycle, generalized follower auras, starting_forces) — the
+//! assertions keep their RL1/RL2 semantics on the base vocabulary.
+//!
 //! RL1
 //! ① map/teams/production assemble + starting layout kits
 //! ② train: pay -> 300 frames -> +1 peasant / gold spent / pop +1
@@ -23,7 +28,6 @@
 
 use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::prelude::*;
-use rts_lab::components::{Carrying, GoldMine, HarvestRoute, MainHall};
 use rts_lab::resources::CurrentMap;
 use warbase::prelude::*;
 use warbase::testing::{send, test_app};
@@ -61,12 +65,12 @@ fn stop_units(app: &mut App, entities: &[Entity]) {
 }
 
 /// Freeze the peasants AND take them off the harvest loop (static dolls for
-/// pick/move assertions; no income side effects).
+/// pick/move assertions; no income side effects). Under the base harvest
+/// domain the loop IS the order — clearing `MoveAgent::order` exits it.
 fn calm_peasants(app: &mut App) -> Vec<Entity> {
     let peasants = units_of(app, "peasant");
     for e in &peasants {
         let Ok(mut em) = app.world_mut().get_entity_mut(*e) else { continue };
-        em.remove::<HarvestRoute>();
         if let Some(mut agent) = em.get_mut::<MoveAgent>() {
             agent.order = None;
             agent.waypoints.clear();
@@ -121,16 +125,32 @@ fn arena_map_assembles_with_teams_production_and_kit() {
         assert!(app.world().get::<Selectable>(e).is_some(), "def-spawned units are selectable");
     }
 
-    // Peasant kit: free agent + harvest route bound to the single hall/mine.
+    // Peasant kit: free agents on the BASE harvest loop (RL4: the game-side
+    // HarvestRoute/Carrying/GoldMine/MainHall markers are gone — the order
+    // itself binds the peasant to the base Mine, and the harvest section
+    // carries the deposit/dropoff/upkeep numbers as map content).
     let hall = units_of(&mut app, "main_hall")[0];
-    let mine = units_of(&mut app, "gold_mine")[0];
     assert!(app.world().get::<ProductionQueue>(hall).is_some(), "queue attached");
+    let harvest = app.world().resource::<HarvestDef>();
+    assert_eq!(harvest.deposits.len(), 1, "one authored deposit");
+    assert_eq!(harvest.deposits[0].id, "gold_mine");
+    assert_eq!(harvest.deposits[0].capacity, 5000);
+    assert_eq!(harvest.dropoffs, vec!["main_hall".to_string()], "hall is the dropoff");
+    assert_eq!(harvest.per_trip, 10, "per-trip 10 (RL1 zero-drift)");
+    assert!(harvest.upkeep_tiers.is_empty(), "no upkeep ladder (RL1 zero-drift)");
+    let mine = {
+        let mut q = app.world_mut().query::<(Entity, &Mine)>();
+        let list: Vec<(Entity, &Mine)> = q.iter(app.world()).collect();
+        assert_eq!(list.len(), 1, "one base Mine spawned from the section");
+        assert_eq!((list[0].1.deposit.as_str(), list[0].1.remaining), ("gold_mine", 5000));
+        list[0].0
+    };
     for &p in &peasants {
-        assert!(app.world().get::<MoveAgent>(p).is_some(), "peasant moves");
-        let route = app.world().get::<HarvestRoute>(p).expect("peasant on a harvest route");
-        assert_eq!((route.mine, route.hall), (mine, hall));
-        assert!(app.world().get::<GoldMine>(mine).is_some());
-        assert!(app.world().get::<MainHall>(hall).is_some());
+        let agent = app.world().get::<MoveAgent>(p).expect("peasant moves");
+        assert!(
+            matches!(agent.order, Some(Order::Harvest { target }) if target == mine),
+            "peasant on the base harvest loop at the mine"
+        );
     }
     // Grunts: armed guards that stay put (no MoveAgent).
     for &g in &grunts {
@@ -170,14 +190,19 @@ fn train_command_pays_and_spawns_after_300_frames() {
     let mut peasants = units_of(&mut app, "peasant");
     peasants.sort_by_key(|e| e.index_u32());
     let p = *peasants.last().unwrap();
-    assert!(app.world().get::<MoveAgent>(p).is_some());
-    assert!(app.world().get::<HarvestRoute>(p).is_some());
+    let agent = app.world().get::<MoveAgent>(p).expect("graduate moves");
+    assert!(
+        matches!(agent.order, Some(Order::Harvest { .. })),
+        "graduate joins the base harvest loop"
+    );
 }
 
 // -- ③ harvest loop ---------------------------------------------------------
 
-/// RL1-③: a lone peasant parked beside the mine loads Carrying(10), walks
-/// home, deposits +10, and loops — two full trips add exactly +20 gold.
+/// RL1-③ (RL4: base harvest-domain semantics): a lone peasant ordered at
+/// the base Mine loads Carrying(10), hauls home, banks exactly +10 through
+/// the economy seam (no upkeep ladder), and loops — two full trips add
+/// exactly +20 gold and cut the deposit by exactly 20.
 #[test]
 fn harvest_loop_two_trips_deposit_twenty() {
     let mut app = lab_app();
@@ -188,15 +213,25 @@ fn harvest_loop_two_trips_deposit_twenty() {
     let worker = peasants[0];
     stop_units(&mut app, &[worker]);
     set_gold(&mut app, 0);
-    // Park the worker within HARVEST_RADIUS of the mine (mine sits at (5, 0)).
+    // Park the worker within GATHER_RANGE of the deposit (mine at (5, 0)).
     *app.world_mut().get_mut::<Transform>(worker).unwrap() =
         Transform::from_xyz(4.0, 0.0, 0.0);
-
-    app.update(); // idle at the mine -> load + walk home
+    // Re-enter the loop the way any commander would (stop_units cleared the
+    // auto-issued order): Order::Harvest at the base Mine entity.
+    let mine = {
+        let mut q = app.world_mut().query_filtered::<Entity, With<Mine>>();
+        q.iter(app.world()).next().expect("one authored deposit")
+    };
+    send(&mut app, UnitCommand { order: Order::Harvest { target: mine }, subjects: vec![worker] });
     assert_eq!(
         app.world().get::<Carrying>(worker).map(|c| c.0),
         Some(10),
         "loaded at the mine"
+    );
+    assert_eq!(
+        app.world().get::<Mine>(mine).unwrap().remaining,
+        5000 - 10,
+        "the load cut the deposit"
     );
 
     // Leg time: 10 world units @ speed 3.0 = 200 frames; two round trips
@@ -214,6 +249,11 @@ fn harvest_loop_two_trips_deposit_twenty() {
     assert!(
         frames > 400,
         "two full mine<->hall round trips must take real travel time ({frames})"
+    );
+    assert_eq!(
+        app.world().get::<Mine>(mine).unwrap().remaining,
+        5000 - 20,
+        "two trips cut the deposit by exactly 20"
     );
 }
 
@@ -878,4 +918,48 @@ fn record_writes_file_and_replay_reconciles() {
     bad.hashes[1].1 ^= 0xdead_beef;
     let err = io::replay_lab(&bundle, &bad).expect_err("tampered checkpoint detected");
     assert!(err.contains("frame 30"), "error names the divergent frame: {err}");
+}
+
+// -- ⑮ RL4: devotion aura via the base generalized follower auras -------------
+
+/// RL4-⑮ (hole #7 closed, SEAM2b): the paladin's devotion aura (def.auras,
+/// `affects: Allies`) is consumed by the BASE `apply_follower_auras` — the
+/// game-side free_agent_auras incubator is deleted (grep-clean). An allied
+/// unit inside the 4.0 radius folds -15% damage taken into EffectiveStats,
+/// the paladin itself included (WC3 devotion semantics), an ENEMY inside
+/// the radius is untouched, and walking out reverts the next frame
+/// (per-frame rebuild).
+#[test]
+fn devotion_aura_buffs_allies_and_self_not_enemies() {
+    let mut app = lab_app();
+    calm_peasants(&mut app);
+    let hero = units_of(&mut app, "paladin")[0];
+    let ally = units_of(&mut app, "peasant")[0];
+    let grunt = units_of(&mut app, "grunt")[0];
+    let hero_pos = pos_of(&app, hero);
+
+    // Ally and enemy both INSIDE the 4.0 radius, on opposite sides so they
+    // never engage (grunt range 3.0 < 4.5 separation).
+    *app.world_mut().get_mut::<Transform>(ally).unwrap() =
+        Transform::from_translation(hero_pos + Vec3::new(-1.0, 0.0, 0.0));
+    *app.world_mut().get_mut::<Transform>(grunt).unwrap() =
+        Transform::from_translation(hero_pos + Vec3::new(3.5, 0.0, 0.0));
+    for _ in 0..2 {
+        app.update(); // aura rebuild (Tick) + EffectiveStats fold
+    }
+
+    let take = |app: &App, e: Entity| {
+        app.world().get::<EffectiveStats>(e).unwrap().damage_taken_mult
+    };
+    assert!((take(&app, ally) - 0.85).abs() < 1e-6, "allied unit -15% damage taken");
+    assert!((take(&app, hero) - 0.85).abs() < 1e-6, "devotion includes its carrier");
+    assert!((take(&app, grunt) - 1.0).abs() < 1e-6, "enemy inside the radius is untouched");
+
+    // Walk the ally out: the base per-frame rebuild drops the grant.
+    *app.world_mut().get_mut::<Transform>(ally).unwrap() =
+        Transform::from_translation(hero_pos + Vec3::new(6.0, 0.0, 0.0));
+    for _ in 0..2 {
+        app.update();
+    }
+    assert!((take(&app, ally) - 1.0).abs() < 1e-6, "out of range: grant gone next rebuild");
 }

@@ -41,8 +41,8 @@
                    armor_type: Light, cost_gold: 70, bounty_gold: 0, grant_xp: 10, traits: []),
         // 圣骑士（RL2 英雄）：hero 段挂 XpHolder；skills 两技能（holy_light 主动 /
         // devotion 被动标记位）；devotion 的效果走 def.auras（DamageTakenMult 光环，
-        // 基底 apply_auras 只作用于 PathFollower，游戏侧补自由单位光环消费——见
-        // gameplay.rs free_agent_auras 注记）；mana 池 100/1.0 每秒。
+        // affects: Allies——SEAM2b 光环泛化后基底 apply_follower_auras 直接覆盖
+        // 自由单位，载体自身包含在内，WC3 语义）；mana 池 100/1.0 每秒。
         "paladin": (id: "paladin", attrs: (hp: 220, move_speed: 3.4, body_radius: 0.45),
                     attack: Some((damage: 16, interval: 1.2, range: 1.2, attack_type: Hero, targets: Ground)),
                     armor_type: Hero, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: [],
@@ -120,5 +120,31 @@
     teams: (
         players: [(0, 0), (1, 1)], // P0 队0（玩家） vs P1 队1（敌方）
         hostile_pairs: [(0, 1)],
+    ),
+    // starting_forces（hole-3 上收，RL4）：开局布兵 = 地图内容，全部进 bundle
+    // （原游戏侧 STARTING_LAYOUT 常量退役）。顺序即原 spawn 顺序；peasant 各自
+    // 独立条目保住逐点站位。矿/商店 owner None（无主，Defender 侧，不挂 Owner）。
+    starting_forces: [
+        (unit: "main_hall", count: 1, pos: (-5.0, 0.0), owner: Some(0)),
+        (unit: "barracks", count: 1, pos: (-5.0, 4.5), owner: Some(0)),
+        (unit: "gold_mine", count: 1, pos: (5.0, 0.0), owner: None),
+        (unit: "shop", count: 1, pos: (0.0, 0.0), owner: None),
+        (unit: "paladin", count: 1, pos: (-4.5, -2.8), owner: Some(0)),
+        (unit: "peasant", count: 1, pos: (-3.5, 1.5), owner: Some(0)),
+        (unit: "peasant", count: 1, pos: (-3.5, -1.5), owner: Some(0)),
+        (unit: "peasant", count: 1, pos: (-2.5, 3.0), owner: Some(0)),
+        (unit: "peasant", count: 1, pos: (-2.5, -3.0), owner: Some(0)),
+        (unit: "grunt", count: 1, pos: (9.5, -6.0), owner: Some(1)),
+        (unit: "grunt", count: 1, pos: (11.0, -7.5), owner: Some(1)),
+        (unit: "grunt", count: 1, pos: (8.0, -8.5), owner: Some(1)),
+    ],
+    // harvest（HARV 上收，RL4）：机制矿（裸 Mine 实体，pos 与上方 gold_mine 视觉
+    // 单位同心）+ 单趟能量 + 交付建筑表。upkeep_tiers 空 = 无维持费——每趟全额
+    // +10，与 RL1 游戏侧循环语义零漂移。
+    harvest: (
+        deposits: [(id: "gold_mine", pos: (5.0, 0.0), capacity: 5000)],
+        per_trip: 10,
+        dropoffs: ["main_hall"],
+        upkeep_tiers: [],
     ),
 )
