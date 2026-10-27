@@ -62,45 +62,11 @@ const CANVAS: (f32, f32) = (1280.0, 720.0);
 /// Plan A "Iron & Gold" — the classic WC3 console: one chunky bottom
 /// console (portrait | commands | items), resource plaque TL, minimap TR.
 /// Dark iron surfaces, gold accent, 2px borders, near-square corners.
+/// LT2-UI: the tokens now ship as data (assets/ui/plan-a.ron via
+/// systems/theme.rs) — the mock reads the exact bytes the game ships, so
+/// the proposal shots and the shipped HUD can never drift apart.
 fn plan_a() -> PlanSpec {
-    let mut theme = UiTheme::default();
-    theme.revision = 1;
-    theme.palette = warbase::ui::UiPalette {
-        panel_bg: ThemeColor::rgba(0.10, 0.09, 0.08, 0.94),
-        panel_raised: ThemeColor::rgba(0.18, 0.16, 0.13, 1.0),
-        panel_border: ThemeColor::rgb(0.52, 0.40, 0.18),
-        text_primary: ThemeColor::rgb(0.98, 0.95, 0.86),
-        text_secondary: ThemeColor::rgb(0.76, 0.70, 0.58),
-        text_dim: ThemeColor::rgb(0.46, 0.42, 0.36),
-        accent: ThemeColor::rgb(1.0, 0.80, 0.28),
-    };
-    theme.state_colors.slot_disabled_bg = ThemeColor::rgba(0.13, 0.12, 0.11, 1.0);
-    theme.state_colors.tooltip_bg = ThemeColor::rgba(0.07, 0.06, 0.05, 0.96);
-    theme.typography = warbase::ui::UiTypography {
-        font_value: 22.0,
-        font_label: 15.0,
-        font_caption: 11.0,
-        font_badge: 10.0,
-        font_tooltip: 13.0,
-        font_title: 16.0,
-    };
-    theme.spacing = warbase::ui::UiSpacing {
-        panel_margin: 6.0,
-        panel_gap: 5.0,
-        slot_w: 78.0,
-        slot_h: 38.0,
-        slot_pad: 4.0,
-        panel_border_w: 2.0,
-        slot_border_w: 1.0,
-        tooltip_bottom: 0.0,
-        tooltip_left: 0.0,
-        tooltip_pad: 7.0,
-        badge_top: 1.0,
-        badge_right: 3.0,
-        bar_h: 12.0,
-        icon_size: 16.0,
-    };
-    theme.radius = warbase::ui::UiRadius { panel: 3.0, slot: 2.0, pill: 999.0 };
+    let theme = crate::systems::theme::plan_a();
     PlanSpec {
         id: 'A',
         theme,
@@ -339,6 +305,9 @@ impl Plugin for UiMockPlugin {
         // longer inserts it (pre-existing gap, harmless headless, panics on
         // the real path). The mock provides it so the windowed app boots.
         app.insert_resource(crate::systems::gameplay::SelectedTower(String::new()))
+            // LT2-UI: the real Plan-A panels also spawn in this app (they ride
+            // GamePlugin) — hide them; the proposal mocks own the screen.
+            .insert_resource(crate::systems::panels::PanelsHidden)
             .insert_resource(spec.theme.clone())
             .insert_resource(spec)
             .insert_resource(MockFrame(0))
