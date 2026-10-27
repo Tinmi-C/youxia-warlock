@@ -45,6 +45,8 @@ impl Plugin for GamePlugin {
             .add_systems(Update, gameplay::build_input)
             // LT2-5: tower-combo bonds re-resolve every frame.
             .add_systems(Update, crate::systems::bonds::apply_bonds)
+            // LT2-6: multiplayer leak pass (no-op outside PassToNeighbor).
+            .add_systems(Update, crate::systems::multiplayer::pass_leaks_to_neighbor)
             // LT2-4: treasure dig during intermissions (V).
             .add_systems(Update, crate::systems::dig::dig_input)
             .add_systems(Update, gameplay::command_dispatch)

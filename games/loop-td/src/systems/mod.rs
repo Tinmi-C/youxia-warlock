@@ -7,4 +7,5 @@ pub mod dig;
 pub mod equip;
 pub mod gameplay;
 pub mod hud;
+pub mod multiplayer;
 pub mod visuals;

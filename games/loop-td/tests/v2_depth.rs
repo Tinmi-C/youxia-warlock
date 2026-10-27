@@ -9,7 +9,7 @@ use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use loop_td::plugins::game::GamePlugin;
 use loop_td::systems::gameplay::try_place;
-use warbase::bundle::MapBundle;
+use warbase::bundle::{load_bundle, MapBundle};
 use warbase::prelude::*;
 use warbase::testing::test_app;
 
@@ -640,5 +640,198 @@ fn bonds_link_tower_combos_to_all_tower_stats() {
         mods.entries.iter().all(|e| e.amount != 0.10),
         "ice carries no stale bond entry: {:?}",
         mods.entries
+    );
+}
+
+// ---------------------------------------------------------------------------
+// LT2-6: multiplayer leak pass — a dual-ring scenario bundle (paths 0/1,
+// P0/P1 on team 0 vs the environment team 1, LeakPolicy::PassToNeighbor
+// activated) proves the reserved seam: a creep lapping ring A (P0's ring)
+// transfers to ring B — same def, same hp — leaving A's stock at zero.
+// The SHIPPED loop.ron stays single-player (Stockpile) — untouched.
+// ---------------------------------------------------------------------------
+
+fn dual_ring_bundle() -> MapBundle {
+    let unit = |id: &str, hp: f32, speed: f32, dmg: f32| UnitDef {
+        hero_stats: None,
+        leak: 1,
+        id: id.into(),
+        attrs: BaseAttributes { hp, move_speed: speed, body_radius: 0.3 },
+        attack: if dmg > 0.0 {
+            Some(AttackDef {
+                damage: dmg, interval: 0.3, range: 12.0, attack_type: AttackType::Magic,
+                targets: TargetDomain::Both, projectile: Some(ProjDef { speed: 60.0 }),
+                windup_secs: 0.0, backswing_secs: 0.0,
+            })
+        } else { None },
+        armor_type: ArmorType::Heavy,
+        cost_gold: 50, cost_wood: 0,
+        bounty_gold: 0, bounty_wood: 0, grant_xp: 0,
+        traits: vec![], auras: vec![], hero: false, skills: vec![],
+        upgrade_to: None, heal: None, mana: None, skill_levels: vec![],
+    };
+    let mut units = std::collections::HashMap::new();
+    units.insert("grunt".into(), unit("grunt", 40.0, 4.0, 0.0));
+    // Ownership probes only (no attack): the leak pass must not depend on
+    // towers killing anything.
+    units.insert("tower".into(), unit("tower", 80.0, 0.0, 0.0));
+    MapBundle {
+        identity: warbase::bundle::MapIdentity { id: "lt2-dual".into(), version: 1 },
+        world: warbase::bundle::WorldDef {
+            // Two identical rings (perimeter 28): A around (-8, 0), B around (8, 0).
+            paths: vec![
+                PathDef::closed_loop(vec![[-12.0, -3.0], [-4.0, -3.0], [-4.0, 3.0], [-12.0, 3.0]]),
+                PathDef::closed_loop(vec![[4.0, -3.0], [12.0, -3.0], [12.0, 3.0], [4.0, 3.0]]),
+            ],
+            build: warbase::bundle::BuildDomainDef::FreeGrid { cell: 1.0, cols: 30, rows: 10 },
+            blocked: vec![],
+        },
+        units,
+        waves: WaveTable {
+            // ONE table, ONE entry drives BOTH rings (WaveTable reuse).
+            waves: vec![WaveEntry {
+                spawns: vec![
+                    SpawnSpec { unit: "grunt".into(), count: 1, interval: 0.2, path: 0, delay: 0.0, hp_scale: 1.0 },
+                    SpawnSpec { unit: "grunt".into(), count: 1, interval: 0.2, path: 1, delay: 3.0, hp_scale: 1.0 },
+                ],
+                boss_timeout: None,
+                preview: "dual ring".into(),
+                reward_gold: 0,
+            }],
+            advance: Advance::Auto { intermission: 0.5 },
+            early_call_bonus: None,
+        },
+        rules: MatchRules {
+            leak: LeakPolicy::PassToNeighbor,
+            build_window: BuildWindow::Always,
+            lap_buff: None,
+            win: WinCondition::Endless,
+            sell_refund_pct: 0.7,
+        },
+        econ_start: warbase::prelude::EconStart { gold: 200, wood: 0, pop_cap: 8 },
+        econ_rules: EconRules::default(),
+        attack_armor: AttackArmorTable::default(),
+        nav: Default::default(),
+        vision: Default::default(),
+        items: Default::default(),
+        production: Default::default(),
+        teams: warbase::prelude::TeamsDef {
+            players: vec![(0, 0), (1, 0)], // P0/P1 SAME team 0 ...
+            hostile_pairs: vec![(0, 1)],  // ... both hostile to env team 1
+        },
+        starting_forces: Default::default(),
+        harvest: Default::default(),
+        camps: Default::default(),
+        daynight: Default::default(),
+        terrain: Default::default(),
+    }
+}
+
+#[test]
+fn dual_ring_leaks_pass_to_the_neighbor_ring() {
+    use loop_td::systems::multiplayer::{pass_leaks_to_neighbor, TransferredLeak};
+
+    // The shipped map stays single-player (Stockpile) — pinned here so the
+    // dual-ring proof can never leak back into loop.ron.
+    let shipped = load_bundle(std::path::Path::new(LOOP_MAP)).unwrap();
+    assert!(
+        matches!(shipped.rules.leak, LeakPolicy::Stockpile { .. }),
+        "loop.ron keeps its single-player leak policy"
+    );
+
+    let bundle = dual_ring_bundle();
+    assert_eq!(
+        bundle.waves.waves.len(), 1,
+        "one WaveTable entry drives both rings"
+    );
+    let mut app = test_app();
+    warbase::bundle::assemble(&mut app.world_mut(), &bundle);
+    app.insert_resource(loop_td::systems::gameplay::build_grid_from(&bundle));
+
+    // Diplomacy: P0/P1 share team 0; the environment team is 1.
+    {
+        let dip = app.world().resource::<MatchDiplomacy>();
+        assert_eq!(dip.team_of(PlayerId(0)), Some(TeamId(0)));
+        assert_eq!(dip.team_of(PlayerId(1)), Some(TeamId(0)));
+        assert!(dip.teams_hostile(TeamId(0), TeamId(1)), "env team hostile");
+        assert!(!dip.teams_hostile(TeamId(0), TeamId(0)), "teammates never hostile");
+    }
+
+    // One owned tower per player near their own ring.
+    let grid = app.world().resource::<BuildGrid>().clone();
+    let (cell_a, cell_b) = {
+        let a = grid.world_to_cell(Vec2::new(-8.0, -4.5));
+        let b = grid.world_to_cell(Vec2::new(8.0, 4.5));
+        (a, b)
+    };
+    let tower_a = try_place(&mut app.world_mut(), "tower", cell_a).expect("P0 tower");
+    let tower_b = try_place(&mut app.world_mut(), "tower", cell_b).expect("P1 tower");
+    app.world_mut().entity_mut(tower_a).insert(Owner(PlayerId(0)));
+    app.world_mut().entity_mut(tower_b).insert(Owner(PlayerId(1)));
+    app.update(); // sync_allegiance (Cleanup) derives the sides
+    assert_eq!(*app.world().get::<Allegiance>(tower_a).unwrap(), Allegiance::Defender);
+    assert_eq!(*app.world().get::<Allegiance>(tower_b).unwrap(), Allegiance::Defender);
+
+    // Start the wave: both rings receive their grunt from the SAME entry.
+    app.world_mut()
+        .resource_mut::<Messages<StartWave>>()
+        .write(StartWave);
+    let (path_a, path_b) = {
+        let paths = app.world().resource::<Paths>().0.clone();
+        (paths[0], paths[1])
+    };
+    let followers_on = |app: &mut App, path: Entity| -> usize {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(Entity, &PathFollower, &Allegiance), ()>();
+        let world = app.world_mut();
+        q.iter(world)
+            .filter(|&(_, f, side)| f.path == path && *side == Allegiance::Attacker)
+            .count()
+    };
+    for _ in 0..300 {
+        app.update(); // A's grunt at t=0, B's at t=3s
+        pass_leaks_to_neighbor(&mut app.world_mut());
+    }
+    assert_eq!(followers_on(&mut app, path_a), 1, "ring A stocked");
+    assert_eq!(followers_on(&mut app, path_b), 1, "ring B stocked");
+
+    // Ring A's grunt laps first (t=7s < B's t=10s): the leak PASSES —
+    // same-def twin on ring B, A's stock zeroed, nothing duplicated.
+    let mut transferred = false;
+    for _ in 0..60 * 11 {
+        app.update();
+        pass_leaks_to_neighbor(&mut app.world_mut());
+        let leaks: usize = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<Entity, With<TransferredLeak>>();
+            let world = app.world_mut();
+            q.iter(world).count()
+        };
+        if leaks > 0 {
+            transferred = true;
+            break;
+        }
+    }
+    assert!(transferred, "ring A's grunt lapped and transferred");
+    assert_eq!(followers_on(&mut app, path_a), 0, "A's stock cleared");
+    assert_eq!(followers_on(&mut app, path_b), 2, "B carries its own + the leak");
+    let twin = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(&UnitInstance, &MaxHp, &PathFollower), With<TransferredLeak>>();
+        let world = app.world_mut();
+        q.iter(world)
+            .find(|(_, _, f)| f.path == path_b)
+            .map(|(inst, max, _)| (inst.def.clone(), max.0))
+            .expect("the transferred unit rides ring B")
+    };
+    assert_eq!(twin.0, "grunt", "same def passes");
+    assert!((twin.1 - 40.0).abs() < 1e-4, "same hp passes ({})", twin.1);
+    assert_eq!(
+        *app.world().resource::<MatchFlow>(),
+        MatchFlow::Running,
+        "PassToNeighbor never loses the match by stock alone"
     );
 }
