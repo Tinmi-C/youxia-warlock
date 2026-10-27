@@ -6,8 +6,10 @@
 //! warbase command card now reads, so what gets shot is what would ship.
 //!
 //! Frame script (60fps): build-mode panorama -> wave starts + hero selected
-//! -> per-panel solo close-ups -> tooltip demo -> self-exit. Screenshots land
-//! in <repo>/ui-proposals/plan-{A,B,C}/ regardless of the working directory.
+//! -> per-panel solo close-ups -> tooltip demo -> FXP evidence (engine
+//! damage-float/status/kill FX, plan-independent) -> self-exit. Screenshots
+//! land in <repo>/ui-proposals/plan-{A,B,C}/ (panels) and
+//! <repo>/ui-proposals/fx-preview/ (FXP) regardless of the working directory.
 //!
 //! Everything here is design-proposal tooling, not shipping gameplay; normal
 //! runs never add this plugin.
@@ -298,6 +300,19 @@ fn shots() -> Vec<(u64, &'static str, ShotMode)> {
         (228, "09-minimap", ShotMode::Solo(Minimap)),
         (244, "10-tooltip", ShotMode::Solo(TooltipDemo)),
     ]
+}
+
+/// FXP evidence shots (round-3 plan Phase 1): engine combat FX staged at
+/// frame 248, captured twice into `ui-proposals/fx-preview/` — once with the
+/// kill-burst still pulsing and floats fresh, once after the burst (floats
+/// risen/faded further, status diamonds holding). Plan-independent.
+fn fx_shots() -> Vec<(u64, &'static str)> {
+    vec![(254, "fx-1-live"), (288, "fx-2-tail")]
+}
+
+/// <crate>/../../ui-proposals/fx-preview — like out_dir, plan-independent.
+fn fx_out_dir() -> String {
+    format!("{}/../../ui-proposals/fx-preview", env!("CARGO_MANIFEST_DIR"))
 }
 
 impl Plugin for UiMockPlugin {
@@ -1383,6 +1398,12 @@ fn mock_frame_driver(world: &mut World) {
         start_mock_combat(world);
     }
 
+    // FXP evidence staging (after the last panel shot at 244; shots at
+    // 254/288 see the burst live / gone).
+    if f == 248 {
+        stage_fx_evidence(world);
+    }
+
     // Stage switches 12 frames before each shot.
     let shots = shots();
     for (frame_at, _, mode) in &shots {
@@ -1427,7 +1448,20 @@ fn mock_frame_driver(world: &mut World) {
         }
     }
 
-    if f >= 258 {
+    // FXP evidence screenshots (separate dir, plan-independent).
+    let fx_dir = fx_out_dir();
+    std::fs::create_dir_all(&fx_dir).ok();
+    for (frame_at, stem) in fx_shots() {
+        if f == frame_at {
+            let path = format!("{fx_dir}/{stem}.png");
+            info!("[ui-mock] fx shot -> {path}");
+            world
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(path));
+        }
+    }
+
+    if f >= 292 {
         info!("[ui-mock] done — exiting");
         world.write_message(AppExit::Success);
     }
@@ -1506,6 +1540,54 @@ fn start_mock_combat(world: &mut World) {
     world.insert_resource(Selection { mode: SelectionMode::Unit(hero) });
     rebuild_card_face(world, "hunter");
     info!("[ui-mock] combat staged: wave 8 running, hero selected");
+}
+
+/// FXP evidence (round-3 plan Phase 1): three durable grunts at screen
+/// center feed the REAL engine FX pipeline — authored hits for the two
+/// float tiers (37 normal / 214 crit), stun + silence diamonds, and one
+/// LETHAL DamageRequest so resolve_damage itself emits the kill burst
+/// (DamageDealt -> float, UnitDied -> pulse). Deterministic at any shot
+/// frame regardless of what the surrounding wave combat does.
+fn stage_fx_evidence(world: &mut World) {
+    apply_shot_mode(world, &ShotMode::All); // full panorama behind the FX
+    let registry = world.resource::<UnitRegistry>().clone();
+    let spots: [Vec3; 3] = [
+        Vec3::new(-4.0, 0.0, 1.0),
+        Vec3::new(0.0, 0.0, 1.0),
+        Vec3::new(4.0, 0.0, 1.0),
+    ];
+    let staged: Vec<Entity> = spots
+        .iter()
+        .filter_map(|p| spawn_unit(world, &registry, "grunt", *p, Allegiance::Attacker, 20.0))
+        .collect();
+    if staged.len() < 3 {
+        info!("[ui-mock] fx staging skipped (spawn shortage)");
+        return;
+    }
+    // Status diamonds: stun left, silence right (both hold 6s > both shots).
+    let _ = world.entity_mut(staged[0]).insert(Stunned { remaining: 6.0 });
+    let _ = world.entity_mut(staged[1]).insert(Silenced { remaining: 6.0 });
+    // Float tiers: authored DamageDealt (normal + crit) on the two statused
+    // units — the pipeline spawns/decorates the floats from here.
+    for (i, amount, crit) in [(0usize, 37.0f32, false), (1usize, 214.0, true)] {
+        world.write_message(DamageDealt {
+            target: staged[i],
+            source: DamageOrigin::System,
+            amount,
+            crit,
+            killed: false,
+        });
+    }
+    // Kill burst: a REAL lethal hit on the third — resolve_damage emits
+    // DamageDealt (float) + UnitDied (pulse) in one authored message.
+    world.write_message(DamageRequest {
+        target: staged[2],
+        source: DamageOrigin::System,
+        amount: 9999.0,
+        attack_type: AttackType::Normal,
+        crit: false,
+    });
+    info!("[ui-mock] fx evidence staged: 2 tiers + stun/silence + kill");
 }
 
 // ---------------------------------------------------------------------------
