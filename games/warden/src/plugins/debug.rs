@@ -50,6 +50,7 @@ fn build_debug(app: &mut App) {
     use crate::systems::debug as dbg;
     use crate::systems::debug_time as db3;
     use crate::systems::range as rng;
+    use crate::systems::ui_shots;
 
     app.init_resource::<FpsLog>()
         .init_resource::<dbg::DebugQueue>()
@@ -115,10 +116,18 @@ fn build_debug(app: &mut App) {
             bevy_egui::EguiPrimaryContextPass,
             (debug_panel_ui, rng::range_panel_ui),
         )
-        .add_systems(PreUpdate, dbg::skill_card_cursor_pin)
+        .add_systems(PreUpdate, (dbg::skill_card_cursor_pin, ui_shots::ui_shots_cursor_pin))
         .add_systems(
             Update,
-            (log_dashboard, screenshot_on_f12, env_auto_shots, dbg::skill_card_shots, dbg::debug_panel_toggle),
+            (
+                log_dashboard,
+                screenshot_on_f12,
+                env_auto_shots,
+                dbg::skill_card_shots,
+                dbg::debug_panel_toggle,
+                // STAB: the engine-side skin screenshot script (--ui-shots).
+                ui_shots::ui_shots_driver,
+            ),
         )
         // SM4: the showroom baseline sweep (no-ops outside baseline mode).
         .add_systems(Update, crate::systems::showroom::showroom_baseline_sweep)

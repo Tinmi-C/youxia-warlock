@@ -3121,7 +3121,7 @@ mod debug_scenarios {
     use super::*;
     use warden::resources::{DebugRun, MetaSavePath, MetaState};
     use warden::systems::debug::{
-        parse_cli_args, CliOverrides, DebugScenarioQueue, Scenario,
+        parse_cli_args, CliOverrides, DebugScenarioQueue, Scenario, ShotSkin,
     };
 
     fn queue_scenario(app: &mut App, s: Scenario) {
@@ -3136,10 +3136,13 @@ mod debug_scenarios {
             .expect("valid args parse");
         assert_eq!(
             both,
-            CliOverrides { scenario: Some(Scenario::Fusion), seed: Some(42) }
+            CliOverrides { scenario: Some(Scenario::Fusion), seed: Some(42), ui_shots: None }
         );
         let seed_only = parse_cli_args(["--seed", "7"].map(String::from)).unwrap();
-        assert_eq!(seed_only, CliOverrides { scenario: None, seed: Some(7) });
+        assert_eq!(
+            seed_only,
+            CliOverrides { scenario: None, seed: Some(7), ui_shots: None }
+        );
         let none = parse_cli_args(Vec::new()).unwrap();
         assert_eq!(none, CliOverrides::default());
         assert!(
@@ -3158,6 +3161,39 @@ mod debug_scenarios {
         for (s, name) in Scenario::ALL {
             assert_eq!(Scenario::from_name(name), Some(s), "name {name} resolves");
         }
+    }
+
+    /// STAB: `--ui-shots [default|plan-a]` parses with an explicit skin, and
+    /// cannot be combined with --scenario (the shot script stages its own
+    /// board; a scenario would fight it on frame 1).
+    #[test]
+    fn cli_args_parse_ui_shots() {
+        let plan_a = parse_cli_args(["--ui-shots", "plan-a"].map(String::from)).unwrap();
+        assert_eq!(
+            plan_a,
+            CliOverrides { scenario: None, seed: None, ui_shots: Some(ShotSkin::PlanA) }
+        );
+        let default = parse_cli_args(["--ui-shots", "default"].map(String::from)).unwrap();
+        assert_eq!(default.ui_shots, Some(ShotSkin::Default));
+        // The value is optional (bare flag follows WARDEN_SKIN) and must not
+        // swallow a following flag.
+        let bare_then_seed = parse_cli_args(["--ui-shots", "--seed", "3"].map(String::from))
+            .expect("bare --ui-shots followed by another flag parses");
+        assert_eq!(bare_then_seed.seed, Some(3));
+        assert!(bare_then_seed.ui_shots.is_some(), "bare --ui-shots still arms the script");
+        assert!(
+            parse_cli_args(["--ui-shots", "neon"].map(String::from)).is_err(),
+            "unknown skin must be rejected"
+        );
+        assert!(
+            parse_cli_args(["--ui-shots", "--scenario", "fusion"].map(String::from)).is_err(),
+            "--ui-shots + --scenario must be rejected"
+        );
+        assert!(
+            parse_cli_args(["--scenario", "fx", "--ui-shots", "default"].map(String::from))
+                .is_err(),
+            "--scenario + --ui-shots must be rejected in either order"
+        );
     }
 
     /// DB2 acceptance: `--scenario fusion` lands in one frame (headless
@@ -3773,7 +3809,9 @@ mod skills_sk2 {
     use warden::systems::skills::MeteorVolley;
 
     /// A stationary live enemy (speed 0 keeps it exactly in place for
-    /// radius/timing assertions).
+    /// radius/timing assertions). The armor flag rides the base's matrix
+    /// (the skills_archer twin's form) so `pierce_armor` tests actually
+    /// pin an armored target.
     fn spawn_enemy_at(app: &mut App, pos: Vec3, hp: f32, armor: bool) -> Entity {
         app.world_mut()
             .spawn((
@@ -3783,6 +3821,7 @@ mod skills_sk2 {
                 },
                 warbase::prelude::Hp(hp),
                 warbase::prelude::MaxHp(hp),
+                warbase::prelude::Armor(warden::systems::damage::base_armor(armor)),
                 Transform::from_xyz(pos.x, 0.4, pos.z),
             ))
             .id()
@@ -6421,8 +6460,6 @@ mod stats_pipeline {
 // --- WX6-4a: one-axis armor rides the base's matrix ------------------------------
 
 mod armor_table {
-    use super::*;
-
     /// The warden semantics as a base table: exactly one 0.5 cell
     /// (physical x armored), everything else full damage.
     #[test]
@@ -6686,7 +6723,7 @@ mod skills_archer {
     use super::*;
     use bevy::ecs::message::MessageCursor;
     use warden::components::{EffectiveStats, SkillCaster, StatMods, Tower, TowerKind};
-    use warden::resources::{RunRng, SkillDefs, TowerDefs};
+    use warden::resources::{RunRng, TowerDefs};
     use warden::systems::archer_skills::{
         archer_skill_caster, SKILL_EAGLE_EYE, SKILL_FIRE_ARROWS, SKILL_MULTISHOT,
     };
