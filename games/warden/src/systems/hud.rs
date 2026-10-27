@@ -48,6 +48,10 @@ pub struct ReportHeader;
 #[derive(Component)]
 pub struct FieldReport;
 
+/// 顶匾面板根（STAB --ui-shots 的特写开关用：无系统写入，仅脚本隐藏）。
+#[derive(Component)]
+pub struct TopPlaque;
+
 /// The bundled open-source CJK font (UI6): Noto Sans SC under SIL OFL 1.1
 /// (license at the workspace-root `assets/fonts/OFL.txt`, SEAM3b shared
 /// single copy — both games read the same file). Shipping the file makes
@@ -183,6 +187,7 @@ pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>, lang: Res<Lang>) {
             .with_children(|strip| {
                 strip
                     .spawn((
+                        TopPlaque,
                         BackgroundColor(ui.palette.panel_bg.color()),
                         BorderColor::all(ui.palette.panel_border.color()),
                         Node {

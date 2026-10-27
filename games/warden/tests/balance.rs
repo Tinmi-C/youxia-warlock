@@ -336,7 +336,9 @@ fn cast_commander_meteor(app: &mut App) {
             .query_filtered::<(bevy::ecs::entity::Entity, &SkillCaster), bevy::ecs::query::With<Commander>>();
         let mut found = None;
         for (e, c) in q.iter(app.world()) {
-            found = Some((e, c.clone()));
+            // `&SkillCaster` is not Clone; copying the reference (what the
+            // old `.clone()` actually did) is spelled plainly.
+            found = Some((e, c));
             break;
         }
         found

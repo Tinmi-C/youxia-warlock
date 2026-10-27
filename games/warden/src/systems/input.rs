@@ -5,8 +5,6 @@
 //! Tower selection/build moved to the command card (UI10, requirements §16):
 //! the old WASD cursor and the 1-4/E keyboard flow are retired.
 
-use std::collections::VecDeque;
-
 use bevy::prelude::*;
 
 use crate::resources::{

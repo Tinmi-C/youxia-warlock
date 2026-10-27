@@ -6,6 +6,7 @@
 
 | 日期 | 操作 | 涉及资料 | 写入/修改页面 | 操作者 |
 |------|------|----------|---------------|--------|
+| 2026-10-28 | 开发 | **第三轮 STAB 收口（断点续跑：workspace 548 全绿 = 基线 543 + 5，warden 179 零警告零漂移）**：①warden `--ui-shots [default\|plan-a]` 引擎内截图 CLI（帧脚本：金币 120+双弓箭手布置→选中塔卡→命令卡特写→军情区特写→实战锁定→tooltip 悬停，f220 自退；真网关 staging：place_towers/Selection 机/WaveDirector；CLI 测试+帧表契约测试 +5）；②**锁屏黑屏根治**（新 pitfall 卡）：凌晨锁屏态下窗口 drawable 截图全黑（loop-td 成熟 mock 同坏=机器态）、窗口 app 内改投离屏 Image 也黑——照 MMP c59bda9 骨架落地无窗口 headless 生产者 `tests/ui_shots.rs`（primary_window None+禁 Winit+相机投 1280x720 Image+Screenshot::image+readback 非黑守卫+注入 PrimaryWindow 造 hover），昼夜可跑确定性，两皮肤×6 张 `docs/img/skin/{default,plan-a}/` 全过（本地亮度图+视觉模型双通道目检）；③三图真机冒烟：warden --ui-shots run exit 0 全脚本自退 / loop-td --ui-mock v2 run exit 0 / rts-lab 18s 常规 boot 120fps 527 实体经济活零 panic（另注：rts-lab lib 有 1 个既有警告、锁屏期间三图窗口渲染黑=机器态已记 pitfall）；④warden 零警告清理：4 处既有 unused/noop-clone 清除 + meteor 测试助手补真 Armor（穿刺断言从"纸面"变"真验"，绿=魔法穿甲成立） | games/warden/{src/systems/{ui_shots,debug,command,hud,damage,input}.rs、plugins/debug.rs、tests/{behavior,balance,ui_shots}.rs、docs/img/skin/}、docs/topics/engine/macos-locked-session-black-gpu-capture-pitfall.md、docs/{MOC,log}.md、topics/engine/_index.md | AI 实现（STAB 线，MMP 方案引用 c59bda9） |
 | 2026-08-18 | 初始化 | — | 全部骨架 | team |
 | 2026-08-18 | 摄入 | 《AI 原生游戏引擎——设想总纲》 | topics/engine/ai-native-engine-vision.md | AI + 人 |
 | 2026-08-19 | 维护 | 知识库 schema（raw/工作流/健康检查） | AGENTS.md、raw/、log.md、health-check-prompt.md | AI + 人 |

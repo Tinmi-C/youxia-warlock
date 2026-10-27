@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{AttackType, Enemy};
+use crate::components::AttackType;
 
 // WX6-4b: the damage MESSAGES and the resolver are the base's; warden
 // keeps only the semantics bridge (armor mapping + table) and its

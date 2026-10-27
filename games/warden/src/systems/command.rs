@@ -60,6 +60,11 @@ pub struct CommandCardRoot;
 #[derive(Component)]
 pub struct InfoZoneText;
 
+/// Marker on the left info zone root (STAB --ui-shots solo shots hide it;
+/// no gameplay system writes it).
+#[derive(Component)]
+pub struct InfoZoneRoot;
+
 /// Marker on the right control zone (rebuilt only on language change).
 #[derive(Component)]
 pub struct ControlZoneRoot;
@@ -331,6 +336,7 @@ pub fn spawn_command_bar(mut commands: Commands, font: Res<UiFont>) {
                 // Left: info zone — 一张镶进甲板的信息面（军情/待命提示/选中详情）。
                 bar.spawn(
                     (
+                        InfoZoneRoot,
                         Node {
                             flex_grow: 1.2,
                             padding: UiRect::px(12.0, 12.0, 8.0, 8.0),
@@ -1246,7 +1252,7 @@ pub fn handle_command_buttons(
     wave: Res<WaveState>,
     state: Res<State<GameState>>,
     towers: Query<(&Tower, &Transform)>,
-    mut slots: Query<(Entity, &mut TowerSlot, &Transform)>,
+    slots: Query<(Entity, &mut TowerSlot, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {

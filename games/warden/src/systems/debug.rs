@@ -19,7 +19,7 @@ use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use crate::components::{Commander, Enemy, Projectile, SkillCaster, Tower, TowerSlot};
 use crate::resources::{
     Boosts, BuildMode, DebugRun, Economy, EnemyDefs, FusionDefs, Hand, MetaState, PathInfo,
-    RunRng, Selection, ShopOffers, SkillAiming, TowerDefs, WaveChoice, WavePhase, WaveSchedule,
+    RunRng, Selection, ShopOffers, SkillAiming, TowerDefs, WaveChoice, WaveSchedule,
     WaveState,
 };
 use crate::states::GameState;
@@ -513,11 +513,55 @@ impl Scenario {
 #[derive(Resource, Default)]
 pub struct DebugScenarioQueue(pub Vec<Scenario>);
 
-/// Parsed `--scenario NAME --seed N` CLI overrides (DB2).
+/// Parsed `--scenario NAME --seed N [--ui-shots [SKIN]]` CLI overrides (DB2,
+/// STAB). `ui_shots` arms the engine-side skin screenshot script.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CliOverrides {
     pub scenario: Option<Scenario>,
     pub seed: Option<u64>,
+    pub ui_shots: Option<ShotSkin>,
+}
+
+/// The skin an `--ui-shots` run captures (STAB). `env_name` is the
+/// `WARDEN_SKIN` value that makes `insert_ui_skin` board that theme — one
+/// source of truth for both the active theme and the output directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShotSkin {
+    Default,
+    PlanA,
+}
+
+impl ShotSkin {
+    pub fn env_name(self) -> &'static str {
+        match self {
+            ShotSkin::Default => "default",
+            ShotSkin::PlanA => "plan-a",
+        }
+    }
+
+    pub fn dir_name(self) -> &'static str {
+        self.env_name()
+    }
+
+    /// Resolve the skin the same way `insert_ui_skin` resolves the active
+    /// theme: only `WARDEN_SKIN=default` keeps the base default; everything
+    /// else (including unset) boards Plan A. Used when `--ui-shots` is given
+    /// without an explicit value — the output dir then matches whatever
+    /// theme the run actually wears.
+    pub fn from_env() -> ShotSkin {
+        match std::env::var("WARDEN_SKIN").as_deref() {
+            Ok("default") => ShotSkin::Default,
+            _ => ShotSkin::PlanA,
+        }
+    }
+
+    fn parse(name: &str) -> Option<ShotSkin> {
+        match name {
+            "default" => Some(ShotSkin::Default),
+            "plan-a" => Some(ShotSkin::PlanA),
+            _ => None,
+        }
+    }
 }
 
 /// Parse the overrides from an args iterator — `std::env::args` in `main`,
@@ -529,7 +573,9 @@ pub fn parse_cli_args(args: impl IntoIterator<Item = String>) -> Result<CliOverr
         .map(|(_, n)| *n)
         .collect::<Vec<_>>()
         .join(", ");
-    let usage = format!("usage: warden [--scenario NAME] [--seed N]  (scenarios: {valid})");
+    let usage = format!(
+        "usage: warden [--scenario NAME] [--seed N] [--ui-shots [default|plan-a]]  (scenarios: {valid})"
+    );
     let mut out = CliOverrides::default();
     let mut it = args.into_iter().peekable();
     while let Some(arg) = it.next() {
@@ -548,8 +594,27 @@ pub fn parse_cli_args(args: impl IntoIterator<Item = String>) -> Result<CliOverr
                 };
                 out.seed = Some(raw.parse::<u64>().map_err(|_| format!("bad seed '{raw}'"))?);
             }
+            "--ui-shots" => {
+                // Value optional: `--ui-shots default|plan-a` picks the skin;
+                // bare `--ui-shots` (or followed by another flag) follows
+                // WARDEN_SKIN (like insert_ui_skin). A non-flag value that is
+                // not a skin name is a usage error, not a silent default.
+                let next_is_flag = it
+                    .peek()
+                    .map_or(true, |v| v.starts_with("--"));
+                out.ui_shots = Some(if next_is_flag {
+                    ShotSkin::from_env()
+                } else {
+                    let v = it.next().expect("peeked value exists");
+                    ShotSkin::parse(&v)
+                        .ok_or_else(|| format!("unknown --ui-shots skin '{v}' (default | plan-a)"))?
+                });
+            }
             other => return Err(format!("unknown argument '{other}'\n{usage}")),
         }
+    }
+    if out.ui_shots.is_some() && out.scenario.is_some() {
+        return Err("--ui-shots cannot be combined with --scenario".to_string());
     }
     Ok(out)
 }
@@ -580,6 +645,18 @@ pub fn apply_cli_overrides(app: &mut App) {
             .0
             .push(s);
         info!("[debug] scenario '{}' queued (loads on the first frame)", s.name());
+    }
+    if let Some(skin) = overrides.ui_shots {
+        // insert_ui_skin resolves the theme from WARDEN_SKIN at Startup —
+        // set the env so the armed skin and the booted theme are the same
+        // decision (one source of truth; edition 2021 set_var, pre-run).
+        std::env::set_var("WARDEN_SKIN", skin.env_name());
+        app.insert_resource(crate::systems::ui_shots::UiShotsState::new(skin));
+        info!(
+            "[ui-shots] armed: skin '{}' -> docs/img/skin/{} (self-exits when done)",
+            skin.env_name(),
+            skin.dir_name()
+        );
     }
 }
 
@@ -760,7 +837,7 @@ pub fn skill_card_shots(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut grid: ResMut<warbase::prelude::BuildGrid>,
-    mut slots_q: Query<(Entity, &mut TowerSlot, &Transform)>,
+    slots_q: Query<(Entity, &mut TowerSlot, &Transform)>,
 ) {
     let Some(mut state) = state else {
         return;
@@ -962,7 +1039,9 @@ fn clear_board(world: &mut World) {
 }
 
 /// Free tower slots in map order, as (slot entity, world position).
-fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
+/// `pub` for the offscreen skin-shot test (`tests/ui_shots.rs`); debug-only
+/// module, release never sees it.
+pub fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
     let mut q = world.query::<(Entity, &TowerSlot, &Transform)>();
     let grid = world.resource::<warbase::prelude::BuildGrid>().clone();
     let mut slots: Vec<_> = q
@@ -980,7 +1059,8 @@ fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
 /// slots occupied in the base's grid (DB2 scenarios; same construction as a
 /// player placement). Commands reserve entity ids up front, so occupancy is
 /// placed with the real tower entities after the queue applies.
-fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
+/// `pub` for the offscreen skin-shot test (`tests/ui_shots.rs`).
+pub fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
     let Some(def) = world.resource::<TowerDefs>().list.get(ty).cloned() else {
         warn!("[debug] tower def {ty} missing; scenario towers skipped");
         return;

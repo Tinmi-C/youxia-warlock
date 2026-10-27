@@ -26,6 +26,11 @@ pub mod showroom;
 // Shooting range (SM3R): same debug-only gate.
 #[cfg(debug_assertions)]
 pub mod range;
+// Engine-side skin screenshot script (`--ui-shots`, STAB): same debug-only
+// gate — a frame-scripted run that self-captures the HUD states to
+// docs/img/skin/{default,plan-a}/ and exits.
+#[cfg(debug_assertions)]
+pub mod ui_shots;
 pub mod skills;
 // Archer tower skill kit (SK9) — first tower-owned consumer of the framework.
 pub mod archer_skills;
