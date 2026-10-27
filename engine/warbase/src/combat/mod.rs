@@ -309,7 +309,10 @@ pub fn fire_attacks(
         ),
         Without<Dead>,
     >,
-    targets: Query<(&Hp, &Allegiance), Without<Dead>>,
+    targets: Query<(&Hp, &Allegiance, Option<&Transform>), Without<Dead>>,
+    // HIGHLAND (Phase-2): high-ground attack-bonus lookup (identity on flat
+    // maps — see TerrainGrid::attack_multiplier; D5: fog never enters here).
+    terrain: Res<crate::vision::TerrainGrid>,
 ) {
     let dt = time.delta_secs();
     // Same half-frame completion tolerance as the skill pipeline (exact
@@ -345,7 +348,7 @@ pub fn fire_attacks(
         // Damage point requires a living target: lost/despawned/zero-hp
         // targets cancel the committed swing (no damage, no cooldown).
         let target_lost = match targets.get(w.target) {
-            Ok((hp, _side)) => hp.0 <= 0.0,
+            Ok((hp, _side, _tpos)) => hp.0 <= 0.0,
             Err(_) => true,
         };
         if target_lost {
@@ -359,7 +362,16 @@ pub fn fire_attacks(
         // Damage point: identical hit + cooldown semantics to the legacy
         // fire, just arriving at the windup's end instead of instantly.
         let eff = eff.copied().unwrap_or_else(crate::buff::EffectiveStats::neutral);
-        let damage = kit.def.damage * eff.damage_mult.max(0.0);
+        // HIGHLAND: x(1+bonus) when the attacker's cell is high and the
+        // target's is not, measured at FIRE time (launch position — the
+        // physically right reading for projectiles and instant hits alike).
+        let tpos = targets
+            .get(w.target)
+            .ok()
+            .and_then(|(_, _, tp)| tp.map(|t| t.translation))
+            .unwrap_or(pos.translation);
+        let damage = kit.def.damage * eff.damage_mult.max(0.0)
+            * terrain.attack_multiplier(pos.translation, tpos);
         emit_hit(&mut commands, &mut requests, entity, &kit.def, pos, w.target, damage);
         cd.0 = kit.def.interval * eff.interval_mult.max(0.05);
         commands.entity(entity).remove::<AttackWindup>();
@@ -379,7 +391,7 @@ pub fn fire_attacks(
             continue;
         }
         let Some(t) = target.0 else { continue };
-        let Ok((hp, tside)) = targets.get(t) else { continue };
+        let Ok((hp, tside, tpos)) = targets.get(t) else { continue };
         if hp.0 <= 0.0 || !hostility.hostile(*side, *tside) || cd.0 > 0.0 {
             continue;
         }
@@ -395,7 +407,12 @@ pub fn fire_attacks(
         }
         // windup == 0: the exact legacy immediate fire.
         let eff = eff.copied().unwrap_or_else(crate::buff::EffectiveStats::neutral);
-        let damage = kit.def.damage * eff.damage_mult.max(0.0);
+        // HIGHLAND: same fire-time bonus as phase 1 (see the comment there).
+        let damage = kit.def.damage * eff.damage_mult.max(0.0)
+            * terrain.attack_multiplier(
+                pos.translation,
+                tpos.map(|tp| tp.translation).unwrap_or(pos.translation),
+            );
         emit_hit(&mut commands, &mut requests, entity, &kit.def, pos, t, damage);
         cd.0 = kit.def.interval * eff.interval_mult.max(0.05);
         if kit.def.backswing_secs > 0.0 {

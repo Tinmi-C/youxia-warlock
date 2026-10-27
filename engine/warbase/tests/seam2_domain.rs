@@ -936,7 +936,7 @@ fn new_sections_parse_and_assemble() {
             }],
         },
         daynight: DayNightDef { day_secs: 480.0, night_secs: 240.0, night_vision_factor: 0.6 },
-        terrain: TerrainDef { high_cells: vec![[1, 1], [2, 1]] },
+        terrain: TerrainDef { high_cells: vec![[1, 1], [2, 1]], attack_bonus: 0.0 },
         econ_rules: Default::default(),
         nav: Default::default(),
         vision: Default::default(),
