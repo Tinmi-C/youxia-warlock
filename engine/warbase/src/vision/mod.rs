@@ -13,6 +13,13 @@
 //! (blips = visible units, deterministic order; rendering is the ui
 //! domain's business, the base ships data only).
 //!
+//! HIGHLAND (round-2 plan §4 line 1): authored high ground occludes the
+//! grid itself — see [`TerrainGrid`] and the D5 note on
+//! [`line_of_sight`]. This is PHYSICAL line of sight, not a player-fog
+//! rule: it changes which cells [`VisionGrid`] lights, while tower
+//! auto-targeting keeps ignoring fog entirely (D5 unchanged — targeting
+//! only ever looks at weapon range).
+//!
 //! Zero drift: maps without fog in play (no grid geometry — warden's
 //! FixedSlots; or no lit cells — loop-td's grid before any source) get no
 //! InFog marks, empty blips, and pass-through visibility probes
@@ -92,22 +99,159 @@ impl Default for VisionDef {
     }
 }
 
-/// Map-bundle terrain section (SEAM2d, Phase-2 highland placeholder): the
-/// cells raised to high ground. Vision/attack-bonus consumption lands with
-/// the Phase-2 highland increment (VisionGrid extension); the section is
-/// pinned now so map authors and the bundle schema are stable.
+/// Map-bundle terrain section (SEAM2d; consumed by the Phase-2 HIGHLAND
+/// increment): the cells raised to high ground plus the high-ground attack
+/// bonus. Empty section = flat map, zero drift (no occlusion, no bonus).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TerrainDef {
     /// Grid cells on high ground (same lattice as `world.blocked` /
     /// build-grid coordinates).
     #[serde(default)]
     pub high_cells: Vec<[i32; 2]>,
+    /// HIGHLAND attack bonus: a basic attack FROM a high cell onto a low
+    /// cell deals `damage * (1 + bonus)`. Default 0 = no bonus (zero drift
+    /// for every existing map). The number ships per map, like all content.
+    #[serde(default)]
+    pub attack_bonus: f32,
 }
 
-/// Bundle dispatch for the terrain section (SEAM2d placeholder): the
-/// Phase-2 highland increment owns the consumption; empty = flat map.
+/// Runtime high-ground lookup (HIGHLAND, Phase-2): the authored high-cell
+/// set plus the build-lattice geometry needed to map world points onto it.
+///
+/// DESIGN CHOICE (task left it open): a resource SEPARATE from
+/// [`VisionGrid`], not a field inside it. Rationale: (a) terrain is
+/// assemble-time static while the vision grid recomputes whenever the
+/// source set changes — different lifetimes; (b) combat reads terrain for
+/// the attack bonus and must NOT depend on fog state (D5: auto-targeting
+/// ignores fog; only the vision system consumes the occlusion); (c) both
+/// consumers read it without mutation, so one shared resource is enough.
+///
+/// Zero drift: an empty `high` set makes every probe answer "low ground"
+/// and [`TerrainGrid::attack_multiplier`] return 1.0 — flat maps keep the
+/// exact pre-HIGHLAND behavior (the occlusion fast-path in
+/// `update_vision_grid` skips the line walk entirely).
+#[derive(Resource, Debug, Default, Clone)]
+pub struct TerrainGrid {
+    /// Authored high cells on the BUILD lattice (`TerrainDef::high_cells`).
+    pub high: std::collections::BTreeSet<(i32, i32)>,
+    /// High-ground attack bonus (`TerrainDef::attack_bonus`).
+    pub attack_bonus: f32,
+    /// Build-lattice cell size (0.0 on FixedSlots maps => nothing is high).
+    pub cell: f32,
+    /// World corner of build cell (0, 0) — same convention as
+    /// [`VisionGrid::origin`].
+    pub origin: Vec2,
+}
+
+impl TerrainGrid {
+    /// Is this world point (logic plane: `x` = world x, `y` = world z) on
+    /// authored high ground? Empty terrain / degenerate lattice => false.
+    pub fn is_high(&self, world: Vec2) -> bool {
+        if self.cell <= 0.0 || self.high.is_empty() {
+            return false;
+        }
+        let cx = ((world.x - self.origin.x) / self.cell).floor() as i32;
+        let cy = ((world.y - self.origin.y) / self.cell).floor() as i32;
+        self.high.contains(&(cx, cy))
+    }
+
+    /// HIGHLAND attack multiplier for a basic attack fired at `from` (the
+    /// attacker's translation) against a target at `to`: `1 + bonus` when
+    /// the attacker stands on high ground and the target does not, 1.0
+    /// otherwise (low->high, same height, either flat, or bonus 0). Called
+    /// from `combat::fire_attacks` at the damage-computation point.
+    pub fn attack_multiplier(&self, from: Vec3, to: Vec3) -> f32 {
+        if self.attack_bonus == 0.0 {
+            return 1.0; // authored flat combat: identity, zero drift
+        }
+        let from_high = self.is_high(Vec2::new(from.x, from.z));
+        let to_high = self.is_high(Vec2::new(to.x, to.z));
+        if from_high && !to_high {
+            1.0 + self.attack_bonus
+        } else {
+            1.0
+        }
+    }
+
+    /// Is this VISION-grid cell high ground? Maps the cell center back to a
+    /// world point, then onto the build lattice — correct for any ratio of
+    /// fog cell to build cell (equal cells, the default, are bit-identical).
+    fn cell_high(&self, grid: &VisionGrid, cell: (i32, i32)) -> bool {
+        let world = grid.origin
+            + Vec2::new(
+                (cell.0 as f32 + 0.5) * grid.cell,
+                (cell.1 as f32 + 0.5) * grid.cell,
+            );
+        self.is_high(world)
+    }
+}
+
+/// Bundle dispatch for the terrain section: install the [`TerrainGrid`]
+/// from `TerrainDef` + the build-lattice geometry (`bundle::build_grid`
+/// derives it; FixedSlots maps carry no cell size, so nothing is high
+/// there — their vision grids are degenerate anyway). Empty section =>
+/// empty grid resource, zero drift.
 pub fn apply_terrain(world: &mut World, bundle: &crate::bundle::MapBundle) {
-    let _ = (world, &bundle.terrain.high_cells);
+    let build = crate::bundle::build_grid(&bundle.world);
+    world.insert_resource(TerrainGrid {
+        high: bundle.terrain.high_cells.iter().map(|&[x, y]| (x, y)).collect(),
+        attack_bonus: bundle.terrain.attack_bonus,
+        cell: build.cell_size,
+        origin: build.origin,
+    });
+}
+
+/// HIGHLAND line-of-sight probe: can a viewer at cell `from` light cell
+/// `to`? Pinned rule (WC3 cliff semantics):
+/// - a viewer on HIGH ground is never occluded (high sees high AND low);
+/// - a viewer on LOW ground is blocked by the FIRST high cell its ray
+///   touches — the destination INCLUDED: "low cannot light high" holds even
+///   for an adjacent high cell (the cliff face blocks), and a low->low ray
+///   crossing a high ridge is blocked midway.
+/// The ray is the integer Bresenham line between the two cell centers
+/// (diagonal steps visit one cell per step — the pinned approximation).
+///
+/// D5 BOUNDARY (pinned here and in the tests): this occlusion is PHYSICS,
+/// not player fog — it changes what [`VisionGrid`] lights (a low tower
+/// genuinely cannot SEE a creep on the cliff above it). Tower
+/// AUTO-TARGETING still ignores it completely: `combat::pick_targets`
+/// never reads the grid, only weapon range — a low tower shoots a
+/// high-ground creep standing in a dark cell exactly as before.
+fn line_of_sight(
+    terrain: &TerrainGrid,
+    grid: &VisionGrid,
+    from: (i32, i32),
+    to: (i32, i32),
+) -> bool {
+    if from == to {
+        return true; // a viewer always lights its own cell
+    }
+    if terrain.cell_high(grid, from) {
+        return true; // high ground overlooks everything below and beside it
+    }
+    let (mut x, mut y) = from;
+    let (dx, dy) = ((to.0 - x).abs(), (to.1 - y).abs());
+    let sx = if to.0 > x { 1 } else { -1 };
+    let sy = if to.1 > y { 1 } else { -1 };
+    let mut err = dx - dy;
+    loop {
+        // One Bresenham step; the source cell itself is never re-tested.
+        let e2 = 2 * err;
+        if e2 > -dy {
+            err -= dy;
+            x += sx;
+        }
+        if e2 < dx {
+            err += dx;
+            y += sy;
+        }
+        if terrain.cell_high(grid, (x, y)) {
+            return false; // first high cell on the ray blocks a low viewer
+        }
+        if x == to.0 && y == to.1 {
+            return true;
+        }
+    }
 }
 
 /// Recompute bookkeeping for the grid update: the source-set fingerprint and
@@ -266,6 +410,9 @@ fn update_vision_grid(
     mut stats: ResMut<VisionStats>,
     perspective: Res<VisionPerspective>,
     diplomacy: Res<MatchDiplomacy>,
+    // HIGHLAND: high ground occludes the grid itself (physical LOS — see
+    // `line_of_sight`; D5 auto-targeting still never consults it).
+    terrain: Res<TerrainGrid>,
     // MAP (round-2 plan §3): night vision factor — daynight-owned resource,
     // 1.0 unless a Night cycle is authored (zero drift for default maps).
     night_vision: Option<Res<crate::daynight::NightVisionFactor>>,
@@ -326,6 +473,9 @@ fn update_vision_grid(
         // superset of the circle.
         let src_x = (pos.x - grid.origin.x) / grid.cell;
         let src_y = (pos.y - grid.origin.y) / grid.cell;
+        // HIGHLAND: the occlusion probe walks from this source CELL; the
+        // empty-terrain fast path below keeps flat maps bit-identical.
+        let src_cell = (src_x.floor() as i32, src_y.floor() as i32);
         let min_x = ((src_x - r_cells).floor() as i32 - 1).max(0);
         let max_x = ((src_x + r_cells).ceil() as i32 + 1).min(grid.cols - 1);
         let min_y = ((src_y - r_cells).floor() as i32 - 1).max(0);
@@ -337,7 +487,13 @@ fn update_vision_grid(
                         (cx as f32 + 0.5) * grid.cell,
                         (cy as f32 + 0.5) * grid.cell,
                     );
-                if pos.distance(center) <= radius {
+                // HIGHLAND: in-radius is not enough on authored high ground —
+                // a low viewer's ray dies on the first high cell it touches
+                // (destination included); a high viewer is never occluded.
+                // Empty terrain skips the walk entirely (zero drift).
+                if pos.distance(center) <= radius
+                    && (terrain.high.is_empty() || line_of_sight(&terrain, &grid, src_cell, (cx, cy)))
+                {
                     grid.visible.insert((cx, cy));
                 }
             }
@@ -436,7 +592,10 @@ impl Plugin for VisionPlugin {
         app.init_resource::<VisionGrid>()
             .init_resource::<VisionStats>()
             .init_resource::<VisionPerspective>()
-            .init_resource::<MinimapModel>();
+            .init_resource::<MinimapModel>()
+            // HIGHLAND: registered by the plugin (not assemble) so combat's
+            // Res<TerrainGrid> is always satisfied; assemble overwrites.
+            .init_resource::<TerrainGrid>();
         app.add_systems(Update, update_vision_grid.in_set(crate::WarbaseSet::Tick));
         // FOG2/FOG3 consumers run late Cleanup, after combat::cleanup_dead
         // (its deferred despawns land first — no InFog writes onto dying
@@ -453,7 +612,7 @@ impl Plugin for VisionPlugin {
 
 pub mod prelude {
     pub use super::{
-        point_visible, apply_terrain, InFog, MinimapBlip, MinimapModel, TerrainDef, VisionDef,
-        VisionGrid, VisionPerspective, VisionPlugin, VisionSource, VisionStats,
+        point_visible, apply_terrain, InFog, MinimapBlip, MinimapModel, TerrainDef, TerrainGrid,
+        VisionDef, VisionGrid, VisionPerspective, VisionPlugin, VisionSource, VisionStats,
     };
 }
