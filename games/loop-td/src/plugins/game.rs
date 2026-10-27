@@ -25,6 +25,15 @@ impl Plugin for GamePlugin {
             // LT2-1: hero towers carry a 3-slot equipment rack (E equips
             // from the bag at the build cursor).
             .add_systems(Update, (crate::systems::equip::attach_equip_slots, crate::systems::equip::equip_input))
+            // LT2-2: artifact quest progress + team-wide aura + Q to claim.
+            .add_systems(
+                Update,
+                (
+                    crate::systems::artifact::track_artifact_progress,
+                    crate::systems::artifact::apply_artifact_aura,
+                    crate::systems::artifact::artifact_input,
+                ),
+            )
             .add_systems(Update, gameplay::build_input)
             .add_systems(Update, gameplay::command_dispatch)
             .add_systems(Update, gameplay::snipe_effect)

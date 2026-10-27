@@ -143,3 +143,103 @@ fn equipment_range_affix_and_guards() {
     assert!(app.world().get::<EquipSlots>(arrow).is_none(), "plain towers carry none");
     assert!(equip_item(&mut app.world_mut(), arrow, 0, "blade12").is_err());
 }
+
+// ---------------------------------------------------------------------------
+// LT2-2: the artifact quest — clear N=10 waves + kill M=2 bosses, then a
+// team-unique claim grants every tower on the field an aura entry whose
+// source is the artifact entity (claim gate + grant asserted).
+// ---------------------------------------------------------------------------
+
+fn wave_cleared(app: &mut App, wave: usize) {
+    app.world_mut()
+        .resource_mut::<Messages<WaveCleared>>()
+        .write(WaveCleared(wave));
+    app.update(); // artifact progress system counts it
+}
+
+fn boss_killed(app: &mut App) {
+    app.world_mut()
+        .resource_mut::<Messages<UnitDied>>()
+        .write(UnitDied {
+            entity: Entity::PLACEHOLDER,
+            def: "boss".into(),
+            gold: 0,
+            wood: 0,
+            xp: 0,
+            killer: Some(DamageOrigin::System),
+        });
+    app.update();
+}
+
+#[test]
+fn artifact_quest_gates_claim_and_grants_team_aura() {
+    use loop_td::systems::artifact::{
+        apply_artifact_aura, claim_artifact, ARTIFACT_AURA_AMOUNT, ARTIFACT_BOSSES_REQUIRED,
+        ARTIFACT_WAVES_REQUIRED,
+    };
+
+    let mut app = game_app();
+    // Two towers on the field ("全塔" = every Defender unit).
+    let cell_a = first_free_cell(app.world().resource::<BuildGrid>());
+    let arrow = try_place(&mut app.world_mut(), "arrow", cell_a).unwrap();
+    let hero = place_hero(&mut app);
+    app.update();
+
+    // 9 waves + 1 boss: not enough — the claim refuses with both gaps named.
+    for w in 0..9 {
+        wave_cleared(&mut app, w);
+    }
+    boss_killed(&mut app);
+    let err = claim_artifact(&mut app.world_mut()).unwrap_err();
+    assert!(
+        err.contains("waves") && err.contains("boss"),
+        "readable gate reason, got '{err}'"
+    );
+
+    // 10 waves + 2 bosses: eligible. Claim before that still refuses.
+    wave_cleared(&mut app, 9);
+    let err = claim_artifact(&mut app.world_mut()).unwrap_err();
+    assert!(err.contains("boss"), "boss gap still gates, got '{err}'");
+    boss_killed(&mut app);
+    assert_eq!(ARTIFACT_WAVES_REQUIRED, 10);
+    assert_eq!(ARTIFACT_BOSSES_REQUIRED, 2);
+    claim_artifact(&mut app.world_mut()).expect("claim after quest complete");
+
+    // Every Defender tower now carries the aura entry (source = artifact
+    // entity) folded into EffectiveStats.
+    apply_artifact_aura(&mut app.world_mut());
+    app.update();
+    app.update();
+    let quest = app.world().resource::<loop_td::systems::artifact::ArtifactQuest>();
+    assert!(quest.claimed, "claim booked");
+    let mut checked = 0;
+    {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&EffectiveStats, (With<UnitInstance>, With<Allegiance>)>();
+        let world = app.world();
+        for eff in q.iter(world) {
+            checked += 1;
+            assert!(
+                (eff.damage_mult - (1.0 + ARTIFACT_AURA_AMOUNT)).abs() < 1e-5,
+                "tower at {} vs {}",
+                eff.damage_mult,
+                1.0 + ARTIFACT_AURA_AMOUNT
+            );
+        }
+    }
+    assert!(checked >= 2, "both pre-claim towers covered ({checked})");
+
+    // A tower placed AFTER the claim joins the aura on the next pass.
+    let cell_b = first_free_cell(app.world().resource::<BuildGrid>());
+    let late = try_place(&mut app.world_mut(), "arrow", cell_b).unwrap();
+    app.update();
+    apply_artifact_aura(&mut app.world_mut());
+    app.update();
+    app.update();
+    let eff = app.world().get::<EffectiveStats>(late).unwrap();
+    assert!((eff.damage_mult - (1.0 + ARTIFACT_AURA_AMOUNT)).abs() < 1e-5, "late tower");
+
+    // Team-unique: a second claim refuses.
+    assert!(claim_artifact(&mut app.world_mut()).is_err(), "artifact is unique");
+}

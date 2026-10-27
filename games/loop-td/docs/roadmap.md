@@ -28,6 +28,7 @@
 | SMK1 | 迷宫冒烟（maps/maze-smoke.ron + `--map`） | ✅ headless 全链路（Lives/Manual/开链对照图）；真机 `--map` 演示 ⏸ H1 |
 | LT-ADOPT | 采用改造（v2 前置）：基底鼠标链接入（塔挂 Selectable→点选/框选/右键智能命令，键盘光标并存）+ 数字键模态让渡（建造菜单开=claim/关=release，模态期基底桥不产 GroupCommand）+ 英雄塔 Inventory（6 槽空，LT2 装备铺路） | ✅ tests/adopt_domain.rs（7 测试：模态让渡/召回恢复/点选+面板/Aabb×3/右键 UnitCommand/英雄 Inventory/怪不可选） |
 | LT2-1 | v2 装备上塔：英雄塔 3 装备槽（EquipSlots 独立组件），词缀经 StatMods 注入、source=每槽独立 marker 实体（规避 INV 同 source 覆盖缺陷），同槽替换撤旧回包（E 键从包内上装） | ✅ tests/v2_depth.rs（攻+12%→1.12/撤回 1.0/同槽换装 1.08 且旧件回包/间隔-10%/射程+1.5 直改 AttackKit.range/守卫断言）——射程词缀为已记洞：基底 StatKind 无射程项，走游戏侧 RANGE_AFFIXES 表 |
+| LT2-2 | v2 神器任务链：清波 10 + BOSS 击杀 2 → 领取（全队唯一，Q 键），领取后场上全塔获永久光环 entry（source=神器实体，每帧幂等 upsert，新塔次帧入光环） | ✅ tests/v2_depth.rs（达成前双缺口拒领/领取后全塔 +15% damage_mult/领取后新塔入光环/二次领取唯一性拒绝）——光环 +15% 为游戏侧起点值（地图无神器节，缝扩展后进 RON） |
 
 ## 待人工关卡（后置清单）
 
