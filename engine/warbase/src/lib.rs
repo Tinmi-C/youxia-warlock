@@ -30,8 +30,8 @@ pub mod prelude {
     pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
     pub use crate::rng::MatchRng;
     pub use crate::rule::{
-        building_open, rules_tick, BuildWindow, LapBuffPolicy, LeakPolicy, LivesLeft, MatchEnded,
-        MatchFlow, MatchRules, StockCount, WinCondition,
+        building_open, pass_leaks_to_neighbor, rules_tick, BuildWindow, LapBuffPolicy, LeakPolicy,
+        LivesLeft, MatchEnded, MatchFlow, MatchRules, StockCount, TransferredLeak, WinCondition,
     };
     pub use crate::skill::{
         area_targets, distribute_xp, process_casts, run_autocast, spend_skill_point,
@@ -255,7 +255,15 @@ impl Plugin for WarbasePlugin {
         app.add_systems(Update, combat::healer_tick.in_set(WarbaseSet::Tick));
         app.add_systems(
             Update,
-            (combat::cleanup_dead, rule::rules_tick, skill::distribute_xp)
+            (
+                combat::cleanup_dead,
+                rule::rules_tick,
+                // SEAM3b: PassToNeighbor leak routing (exclusive; early-out
+                // under every other policy — after rules_tick so a leak
+                // pass never races the flow transition).
+                rule::pass_leaks_to_neighbor,
+                skill::distribute_xp,
+            )
                 .chain()
                 .in_set(WarbaseSet::Cleanup),
         );

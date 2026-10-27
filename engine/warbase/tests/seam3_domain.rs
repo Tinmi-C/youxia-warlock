@@ -122,9 +122,10 @@ fn range_mods_aggregate_from_distinct_sources() {
 #[test]
 fn range_mod_extends_pick_targets_reach() {
     let mut app = test_app();
-    let mut e = app.world_mut();
-    let tower = e
-        .spawn((
+    let (tower, creep) = {
+        let e = app.world_mut();
+        let tower = e
+            .spawn((
             UnitInstance { def: "t".into(), level: 1 },
             Allegiance::Defender,
             AttackKit {
@@ -135,17 +136,18 @@ fn range_mod_extends_pick_targets_reach() {
             CurrentTarget::default(),
         ))
         .id();
-    // Creep at distance 4.8 — outside the base 4.0 range.
-    let creep = e
-        .spawn((
-            UnitInstance { def: "c".into(), level: 1 },
-            Allegiance::Attacker,
-            Hp(50.0),
-            MaxHp(50.0),
-            Transform::from_xyz(4.8, 0.0, 0.0),
-        ))
-        .id();
-    drop(e);
+        // Creep at distance 4.8 — outside the base 4.0 range.
+        let creep = e
+            .spawn((
+                UnitInstance { def: "c".into(), level: 1 },
+                Allegiance::Attacker,
+                Hp(50.0),
+                MaxHp(50.0),
+                Transform::from_xyz(4.8, 0.0, 0.0),
+            ))
+            .id();
+        (tower, creep)
+    };
     app.update();
     assert!(
         app.world().get::<CurrentTarget>(tower).unwrap().0.is_none(),
@@ -403,4 +405,215 @@ fn custom_action_dispatches_through_the_card() {
     let text = ron::to_string(&warbase::ui::CommandAction::Custom("dig".into())).unwrap();
     let back: warbase::ui::CommandAction = ron::from_str(&text).unwrap();
     assert_eq!(back, warbase::ui::CommandAction::Custom("dig".into()));
+}
+
+// ---------------------------------------------------------------------------
+// Debt 5 — LeakPolicy::PassToNeighbor base routing (uplifted from loop-td's
+// LT2-6 game system): a lap on a closed loop IS the leak; the unit moves to
+// the neighbor ring; other policies leave the world untouched.
+// ---------------------------------------------------------------------------
+
+/// Dual-ring bundle: two closed loops, PassToNeighbor active, one fast grunt
+/// per ring from the same wave entry (the loop-td v2_depth scenario, now a
+/// base-domain fixture).
+fn dual_ring_bundle() -> warbase::bundle::MapBundle {
+    let mut units = std::collections::HashMap::new();
+    units.insert("grunt".into(), unit_def("grunt", 40.0, 0.0, 0.0));
+    warbase::bundle::MapBundle {
+        identity: warbase::bundle::MapIdentity { id: "seam3-dual".into(), version: 1 },
+        world: warbase::bundle::WorldDef {
+            paths: vec![
+                PathDef::closed_loop(vec![[-12.0, -3.0], [-4.0, -3.0], [-4.0, 3.0], [-12.0, 3.0]]),
+                PathDef::closed_loop(vec![[4.0, -3.0], [12.0, -3.0], [12.0, 3.0], [4.0, 3.0]]),
+            ],
+            build: warbase::bundle::BuildDomainDef::FreeGrid { cell: 1.0, cols: 30, rows: 10 },
+            blocked: vec![],
+        },
+        units,
+        waves: WaveTable {
+            waves: vec![WaveEntry {
+                spawns: vec![
+                    SpawnSpec { unit: "grunt".into(), count: 1, interval: 0.2, path: 0, delay: 0.0, hp_scale: 1.0 },
+                    SpawnSpec { unit: "grunt".into(), count: 1, interval: 0.2, path: 1, delay: 3.0, hp_scale: 1.0 },
+                ],
+                boss_timeout: None,
+                preview: "dual ring".into(),
+                reward_gold: 0,
+                challenge: false,
+            }],
+            advance: Advance::Auto { intermission: 0.5 },
+            early_call_bonus: None,
+        },
+        rules: MatchRules {
+            leak: LeakPolicy::PassToNeighbor,
+            build_window: BuildWindow::Always,
+            lap_buff: None,
+            win: WinCondition::Endless,
+            sell_refund_pct: 0.7,
+        },
+        econ_start: EconStart { gold: 200, wood: 0, pop_cap: 8 },
+        econ_rules: EconRules::default(),
+        attack_armor: AttackArmorTable::default(),
+        nav: Default::default(),
+        vision: Default::default(),
+        items: Default::default(),
+        production: Default::default(),
+        teams: Default::default(),
+        starting_forces: Default::default(),
+        harvest: Default::default(),
+        camps: Default::default(),
+        daynight: Default::default(),
+        terrain: Default::default(),
+    }
+}
+
+/// A leak pass moves the lapping creep to the neighbor ring: same def, same
+/// hp, wave tag kept, marker set, source ring emptied — and the match keeps
+/// running (PassToNeighbor never loses by stock alone).
+#[test]
+fn pass_to_neighbor_routes_laps_to_the_next_ring() {
+    let mut grunt = unit_def("grunt", 40.0, 0.0, 0.0);
+    grunt.attrs.move_speed = 4.0; // laps the 28-unit ring in 7s
+    let mut bundle = dual_ring_bundle();
+    bundle.units.insert("grunt".into(), grunt);
+
+    let mut app = test_app();
+    warbase::bundle::assemble(&mut app.world_mut(), &bundle);
+    app.insert_resource(warbase::bundle::build_grid(&bundle.world));
+    let (path_a, path_b) = {
+        let paths = app.world().resource::<Paths>().0.clone();
+        (paths[0], paths[1])
+    };
+    let followers_on = |app: &mut App, path: Entity| -> usize {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(Entity, &PathFollower), ()>();
+        let world = app.world();
+        q.iter(world)
+            .filter(|&(_, f)| f.path == path)
+            .count()
+    };
+
+    // Wave start (Manual-equivalent: Auto intermission is 0.5s, just run).
+    for _ in 0..300 {
+        app.update(); // A's grunt at t=0, B's at t=3s
+    }
+    assert_eq!(followers_on(&mut app, path_a), 1, "ring A stocked");
+    assert_eq!(followers_on(&mut app, path_b), 1, "ring B stocked");
+
+    // Ring A's grunt laps first (t=7s < B's t=10s): the leak PASSES.
+    let mut transferred = false;
+    for _ in 0..60 * 11 {
+        app.update();
+        let leaks: usize = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<Entity, With<TransferredLeak>>();
+            let world = app.world();
+            q.iter(world).count()
+        };
+        if leaks > 0 {
+            transferred = true;
+            break;
+        }
+    }
+    assert!(transferred, "ring A's grunt lapped and transferred");
+    assert_eq!(followers_on(&mut app, path_a), 0, "A's stock cleared");
+    assert_eq!(followers_on(&mut app, path_b), 2, "B carries its own + the leak");
+    let twin = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(&UnitInstance, &MaxHp, &PathFollower, &WaveTag), With<TransferredLeak>>();
+        let world = app.world();
+        q.iter(world)
+            .find(|(_, _, f, _)| f.path == path_b)
+            .map(|(inst, max, _, tag)| (inst.def.clone(), max.0, tag))
+            .expect("the transferred unit rides ring B")
+    };
+    assert_eq!(twin.0, "grunt", "same def passes");
+    assert!((twin.1 - 40.0).abs() < 1e-4, "same hp passes ({})", twin.1);
+    assert_eq!(*twin.2, WaveTag::Normal(0), "wave tag kept (wave can still clear)");
+    assert_eq!(
+        *app.world().resource::<MatchFlow>(),
+        MatchFlow::Running,
+        "PassToNeighbor never loses the match by stock alone"
+    );
+}
+
+/// Under every other policy the leak-pass system is a no-op: laps on a
+/// Stockpile map leave the unit where it is.
+#[test]
+fn other_leak_policies_leave_laps_alone() {
+    let mut bundle = dual_ring_bundle();
+    bundle.rules.leak = LeakPolicy::Stockpile { cap: 50 };
+    let mut app = test_app();
+    warbase::bundle::assemble(&mut app.world_mut(), &bundle);
+    app.insert_resource(warbase::bundle::build_grid(&bundle.world));
+    let path_a = app.world().resource::<Paths>().0[0];
+    // One fast grunt on ring A; let it lap several times.
+    for _ in 0..60 * 20 {
+        app.update();
+    }
+    let on_a = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(Entity, &PathFollower), ()>();
+        let world = app.world();
+        q.iter(world).filter(|&(_, f)| f.path == path_a).count()
+    };
+    assert_eq!(on_a, 1, "stockpile laps never move the unit");
+    let transferred = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<TransferredLeak>>();
+        let world = app.world();
+        q.iter(world).count()
+    };
+    assert_eq!(transferred, 0, "no leak-pass markers outside the policy");
+}
+
+// ---------------------------------------------------------------------------
+// Debt 6 — ItemStack entity model: the same-kind stacking fix is pinned in
+// inv_domain (two_same_kind_passives_stack_per_stack_entity); here the
+// holder-death orphan sweep.
+// ---------------------------------------------------------------------------
+
+/// A stack whose holder despawns is swept (no entity outlives its bag).
+#[test]
+fn orphaned_stacks_are_swept_with_their_holder() {
+    let mut app = test_app();
+    let def = ItemDef {
+        id: "sword".into(),
+        name: "sword".into(),
+        kind: ItemKind::Passive,
+        charges: None,
+        cooldown: 0.0,
+        effect: None,
+        cost_gold: 100,
+        passive: Some(PassiveStat { kind: StatKind::DamageMult, amount: 0.12 }),
+    };
+    app.world_mut()
+        .insert_resource(ItemRegistry { defs: [("sword".into(), def)].into_iter().collect() });
+    let hero = app
+        .world_mut()
+        .spawn((Inventory::default(), StatMods::default(), Transform::default()))
+        .id();
+    let stack = app
+        .world_mut()
+        .spawn((
+            ItemStack { def: "sword".into(), charges: 0, cooldown: 0.0 },
+            StackHolder(hero),
+        ))
+        .id();
+    app.world_mut().get_mut::<Inventory>(hero).unwrap().slots[0] = Some(stack);
+    app.update();
+    assert!(app.world().get::<ItemStack>(stack).is_some(), "live holder keeps its stack");
+
+    // Holder despawns (death path): the sweep collects the orphan.
+    let _ = app.world_mut().get_entity_mut(hero).map(|e| e.despawn());
+    app.update(); // cleanup_stacks (Cleanup, after cleanup_dead)
+    assert!(
+        app.world().get_entity(stack).is_err(),
+        "orphaned stack swept with its holder"
+    );
 }

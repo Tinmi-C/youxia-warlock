@@ -81,22 +81,30 @@ fn strip_slot_entries(world: &mut World, tower: Entity, source: Entity) {
 }
 
 /// Stow an item stack into the tower's bag (Inventory) when there is room.
+/// SEAM3b: bags are slot-ENTITY backed — stowing spawns the stack entity
+/// (`StackHolder` links it for the base's orphan sweep).
 fn stow_into_bag(world: &mut World, tower: Entity, item: &str) -> Result<(), String> {
     let def = world
         .resource::<ItemRegistry>()
         .get(item)
         .cloned()
         .ok_or_else(|| format!("unknown item '{item}'"))?;
-    let Some(mut inv) = world.get_mut::<Inventory>(tower) else {
+    if world.get::<Inventory>(tower).is_none() {
         return Ok(()); // no bag (never happens for hero towers) — item is lost
-    };
-    match inv.first_free_slot() {
-        Some(slot) => {
-            inv.slots[slot] = Some(ItemStack::from_def(&def));
-            Ok(())
-        }
-        None => Err("bag full".into()),
     }
+    let Some(slot) = world
+        .get::<Inventory>(tower)
+        .and_then(|inv| inv.first_free_slot())
+    else {
+        return Err("bag full".into());
+    };
+    let stack = world
+        .spawn((ItemStack::from_def(&def), StackHolder(tower)))
+        .id();
+    if let Some(mut inv) = world.get_mut::<Inventory>(tower) {
+        inv.slots[slot] = Some(stack);
+    }
+    Ok(())
 }
 
 /// Equip `item_id` into `slot` on a hero tower, replacing whatever the slot
@@ -184,18 +192,19 @@ pub fn equip_input(world: &mut World) {
     if world.get::<EquipSlots>(hero).is_none() {
         return;
     }
-    // First equipment-class stack in the bag.
-    let candidate: Option<(usize, ItemStack)> = world.get::<Inventory>(hero).and_then(|inv| {
+    // First equipment-class stack in the bag (slot entities, SEAM3b).
+    let candidate: Option<(usize, String)> = world.get::<Inventory>(hero).and_then(|inv| {
         inv.slots.iter().enumerate().find_map(|(i, s)| {
-            let stack = s.as_ref()?;
+            let &stack_e = s.as_ref()?;
+            let def_id = world.get::<ItemStack>(stack_e)?.def.clone();
             let is_equipment = world
                 .resource::<ItemRegistry>()
-                .get(&stack.def)
+                .get(&def_id)
                 .is_some_and(|d| d.kind == ItemKind::Passive);
-            is_equipment.then(|| (i, stack.clone()))
+            is_equipment.then(|| (i, def_id))
         })
     });
-    let Some((bag_slot, stack)) = candidate else {
+    let Some((bag_slot, item_id)) = candidate else {
         info!("[loop-td] equip: no equipment in the bag");
         return;
     };
@@ -208,11 +217,14 @@ pub fn equip_input(world: &mut World) {
     };
     // The piece moves bag -> slot: clear the bag stack BEFORE equip_item's
     // replacement stow (it only stows on replacement, so a plain clear works).
-    if let Some(mut inv) = world.get_mut::<Inventory>(hero) {
-        inv.slots[bag_slot] = None;
+    let bag_stack = world
+        .get_mut::<Inventory>(hero)
+        .and_then(|mut inv| inv.slots[bag_slot].take());
+    if let Some(stack_e) = bag_stack {
+        let _ = world.get_entity_mut(stack_e).map(|mut e| e.despawn());
     }
-    if let Err(e) = equip_item(world, hero, free, &stack.def) {
+    if let Err(e) = equip_item(world, hero, free, &item_id) {
         info!("[loop-td] equip failed: {e}");
-        stow_into_bag(world, hero, &stack.def).ok(); // put it back
+        stow_into_bag(world, hero, &item_id).ok(); // put it back
     }
 }

@@ -559,8 +559,12 @@ fn command_messages_send_and_consume() {
             Transform::default(),
         ))
         .id();
-    app.world_mut().get_mut::<Inventory>(hero).unwrap().slots[0] =
-        Some(ItemStack { def: "potion".into(), charges: 1, cooldown: 0.0 });
+    // SEAM3b: bag slots hold stack entity ids.
+    let stack = app
+        .world_mut()
+        .spawn((ItemStack { def: "potion".into(), charges: 1, cooldown: 0.0 }, StackHolder(hero)))
+        .id();
+    app.world_mut().get_mut::<Inventory>(hero).unwrap().slots[0] = Some(stack);
     let mut casts = MessageCursor::<SkillCast>::default();
     app.world_mut()
         .write_message(ItemCommands(ItemCommand::Use { user: hero, slot: 0 }));
@@ -590,13 +594,8 @@ fn command_messages_send_and_consume() {
     }));
     app.update();
     assert_eq!(app.world().resource::<Resources>().gold, 70, "buy charged 30");
-    assert_eq!(
-        app.world().get::<Inventory>(buyer).unwrap().slots[0]
-            .as_ref()
-            .unwrap()
-            .def,
-        "potion"
-    );
+    let bought = app.world().get::<Inventory>(buyer).unwrap().slots[0].unwrap();
+    assert_eq!(app.world().get::<ItemStack>(bought).unwrap().def, "potion");
 }
 
 // -- ⑦ SEAM2c: selection收口 ---------------------------------------------------

@@ -16,13 +16,15 @@
 //!   observation-only: MOV4's `Order::Pickup` execution lives in the
 //!   movement module; here a carrier within `body_radius + PICKUP_MARGIN`
 //!   of a ground item auto-stows it, so the two compose without coupling.
-//! - Passive carry uses the HOLDER entity as the ModEntry source, so two
-//!   carried passives with the same StatKind overwrite each other (upsert
-//!   is keyed on (source, kind)) and a hero's level-growth DamageMult
-//!   entry (`skill::distribute_xp`, same source) collides with a
-//!   DamageMult sword. Known semantic flaw, pinned by the INV task: the
-//!   fix is per-stack source entities ("ItemStack entity-ization"),
-//!   deferred to Phase 4 RL validation instead of guessed here.
+//! - ITEM-STACK ENTITY MODEL (SEAM3b, the INV source-flaw fix): every stack
+//!   occupying a bag slot is its OWN entity (`ItemStack` component + a
+//!   `StackHolder` back-link); the slot holds the entity id, and carried
+//!   passives source their ModEntry from the STACK entity, never the
+//!   holder. Two same-kind swords now stack (distinct sources) instead of
+//!   overwriting each other, and a hero's level-growth DamageMult entry
+//!   (source = the hero, `skill::distribute_xp`) no longer collides with a
+//!   carried sword. `cleanup_stacks` sweeps stacks whose holder is gone
+//!   (death, restart) so entities never outlive their bag.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -119,10 +121,12 @@ pub struct GroundItem {
     pub grace: f32,
 }
 
-/// Fixed 6-slot inventory on a hero (None = empty; WC3 layout).
+/// Fixed 6-slot inventory on a hero (None = empty; WC3 layout). SEAM3b:
+/// each occupied slot holds the entity id of its `ItemStack` — stacks are
+/// entities so their ModEntry sources are unique per stack.
 #[derive(Component, Debug, Default)]
 pub struct Inventory {
-    pub slots: [Option<ItemStack>; INVENTORY_SLOTS],
+    pub slots: [Option<Entity>; INVENTORY_SLOTS],
 }
 
 impl Inventory {
@@ -132,8 +136,9 @@ impl Inventory {
     }
 }
 
-/// A stack occupying one inventory slot.
-#[derive(Debug, Clone)]
+/// One stack occupying one inventory slot (SEAM3b: a Component on its own
+/// entity; `def`/`charges`/`cooldown` semantics unchanged).
+#[derive(Component, Debug, Clone)]
 pub struct ItemStack {
     pub def: String,
     pub charges: u8,
@@ -141,6 +146,12 @@ pub struct ItemStack {
     /// decrements; use is blocked while > 0).
     pub cooldown: f32,
 }
+
+/// Back-link from a stack entity to the holder whose bag it occupies (the
+/// orphan-sweep key; kept as a component so `cleanup_stacks` never touches
+/// the Inventory itself).
+#[derive(Component, Debug)]
+pub struct StackHolder(pub Entity);
 
 impl ItemStack {
     /// Fresh stack from a def. Charge defaults by kind: Consumable and
@@ -214,9 +225,12 @@ pub struct ShopCommands(pub ShopCommand);
 // Helpers shared by the pickup/use/shop flows
 // ---------------------------------------------------------------------------
 
-fn passive_entry(holder: Entity, p: &PassiveStat) -> ModEntry {
+/// Carried-passive ModEntry, SOURCED FROM THE STACK ENTITY (SEAM3b: unique
+/// per stack — same-kind passives stack across items and never collide with
+/// the holder's own entries).
+fn passive_entry(stack: Entity, p: &PassiveStat) -> ModEntry {
     ModEntry {
-        source: holder,
+        source: stack,
         kind: p.kind,
         amount: p.amount,
         expires_at: None,
@@ -230,34 +244,61 @@ fn grant_passive(
     stats: &mut Query<&mut StatMods>,
     commands: &mut Commands,
     holder: Entity,
+    stack: Entity,
     def: &ItemDef,
 ) {
     let Some(p) = &def.passive else { return };
     match stats.get_mut(holder) {
-        Ok(mut mods) => mods.upsert(passive_entry(holder, p)),
+        Ok(mut mods) => mods.upsert(passive_entry(stack, p)),
         Err(_) => {
             commands
                 .entity(holder)
-                .insert(StatMods { entries: vec![passive_entry(holder, p)] });
+                .insert(StatMods { entries: vec![passive_entry(stack, p)] });
         }
     }
 }
 
-/// Revoke the carried-passive entry. Source is the holder entity (see the
-/// module docs: same-kind entries from other same-source writers — hero
-/// level growth, a second same-kind sword — are removed with it).
-fn revoke_passive(stats: &mut Query<&mut StatMods>, holder: Entity, def: &ItemDef) {
-    let Some(p) = &def.passive else { return };
+/// Revoke the stack's carried-passive entry: strip EVERY entry that stack
+/// sourced (all kinds — the stack is gone, its entries go with it).
+fn revoke_passive(stats: &mut Query<&mut StatMods>, holder: Entity, stack: Entity) {
     if let Ok(mut mods) = stats.get_mut(holder) {
-        mods.entries.retain(|e| !(e.source == holder && e.kind == p.kind));
+        mods.entries.retain(|e| e.source != stack);
     }
 }
 
-/// Stow a fresh stack from `def` into the first free slot; None when full.
-fn try_stow(inv: &mut Inventory, def: &ItemDef) -> Option<usize> {
+/// Stow a fresh stack from `def` into the first free slot. The stack is
+/// SPAWNED as its own entity (Commands returns the reserved id immediately,
+/// so the slot records it in the same system); None when the bag is full.
+fn try_stow(
+    commands: &mut Commands,
+    holder: Entity,
+    inv: &mut Inventory,
+    def: &ItemDef,
+) -> Option<(usize, Entity)> {
     let slot = inv.first_free_slot()?;
-    inv.slots[slot] = Some(ItemStack::from_def(def));
-    Some(slot)
+    let stack = commands
+        .spawn((ItemStack::from_def(def), StackHolder(holder)))
+        .id();
+    inv.slots[slot] = Some(stack);
+    Some((slot, stack))
+}
+
+/// Remove the stack occupying `slot` from a WORLD-driven context (tests,
+/// exclusive systems): clear the slot, strip its StatMods entries, despawn
+/// the entity. None when the holder or slot is already gone. System
+/// contexts inline the same three steps (slot clear / strip / deferred
+/// despawn) — see `consume_item_commands`.
+pub fn remove_stack(world: &mut World, holder: Entity, slot: usize) -> Option<ItemStack> {
+    let stack_e = world.get::<Inventory>(holder)?.slots.get(slot).copied().flatten()?;
+    let stack = world.get::<ItemStack>(stack_e).cloned()?;
+    if let Some(mut inv) = world.get_mut::<Inventory>(holder) {
+        inv.slots[slot] = None;
+    }
+    if let Some(mut mods) = world.get_mut::<StatMods>(holder) {
+        mods.entries.retain(|e| e.source != stack_e);
+    }
+    let _ = world.get_entity_mut(stack_e).map(|e| e.despawn());
+    Some(stack)
 }
 
 /// `EconChanged` snapshot (same shape econ::apply_econ publishes), so shop
@@ -338,8 +379,8 @@ pub fn pickup_items(
             let Ok((_, _, mut inv, _)) = holders.get_mut(carrier) else {
                 continue;
             };
-            if try_stow(&mut inv, def).is_some() {
-                grant_passive(&mut stats, &mut commands, carrier, def);
+            if let Some((_, stack_e)) = try_stow(&mut commands, carrier, &mut inv, def) {
+                grant_passive(&mut stats, &mut commands, carrier, stack_e, def);
                 commands.entity(ground_e).despawn();
                 stowed = true;
                 break;
@@ -352,15 +393,16 @@ pub fn pickup_items(
 }
 
 /// Tick: per-stack use cooldowns and ground-item grace windows tick down
-/// (clamped at zero, same contract as skill slot cooldowns).
-pub fn tick_item_timers(time: Res<Time>, mut invs: Query<&mut Inventory>, mut grounds: Query<&mut GroundItem>) {
+/// (clamped at zero, same contract as skill slot cooldowns). Stacks are
+/// entities now (SEAM3b) — the query walks them directly.
+pub fn tick_item_timers(
+    time: Res<Time>,
+    mut stacks: Query<&mut ItemStack>,
+    mut grounds: Query<&mut GroundItem>,
+) {
     let dt = time.delta_secs();
-    for mut inv in &mut invs {
-        for slot in &mut inv.slots {
-            if let Some(stack) = slot.as_mut() {
-                stack.cooldown = (stack.cooldown - dt).max(0.0);
-            }
-        }
+    for mut stack in &mut stacks {
+        stack.cooldown = (stack.cooldown - dt).max(0.0);
     }
     for mut item in &mut grounds {
         item.grace = (item.grace - dt).max(0.0);
@@ -371,16 +413,19 @@ pub fn tick_item_timers(time: Res<Time>, mut invs: Query<&mut Inventory>, mut gr
 /// the stack cooldown, spends a charge, and — when the def's effect id is
 /// registered — writes a SkillCast directly onto the existing message
 /// stream (the item-as-levelless-skill seam; effect systems are read-only
-/// consumers and stay untouched). An exhausted stack leaves its slot and
-/// its passive entry goes with it. Drop returns the stack to the ground
-/// under the holder with [`DROP_GRACE`] of unpickable time and revokes
-/// the passive entry. Cooldown-gated uses skip silently (no reject
-/// vocabulary for it — same stance as refused casts in the skill module).
+/// consumers and stay untouched). An exhausted stack leaves its slot, its
+/// entity despawns, and its passive entries go with it. Drop returns the
+/// stack to the ground under the holder with [`DROP_GRACE`] of unpickable
+/// time and revokes the passive entry. Cooldown-gated uses skip silently
+/// (no reject vocabulary for it — same stance as refused casts in the skill
+/// module).
+#[allow(clippy::type_complexity)]
 pub fn consume_item_commands(
     mut commands_in: MessageReader<ItemCommands>,
     registry: Res<ItemRegistry>,
     skill_defs: Res<SkillDefs>,
     mut holders: Query<&mut Inventory>,
+    stacks: Query<&ItemStack>,
     transforms: Query<&Transform>,
     mut stats: Query<&mut StatMods>,
     mut events: ResMut<ItemEvents>,
@@ -391,30 +436,45 @@ pub fn consume_item_commands(
         let cmd = wrapped.0.clone();
         match cmd {
             ItemCommand::Use { user, slot } => {
-                let Ok(mut inv) = holders.get_mut(user) else { continue };
-                let Some(stack) = inv.slots.get_mut(slot).and_then(|s| s.as_mut()) else {
-                    continue;
+                // Snapshot the stack entity + def id first (single borrow).
+                let (stack_e, def_id, charges, cooldown) = {
+                    let Ok(inv) = holders.get(user) else { continue };
+                    let Some(&stack_e) = inv.slots.get(slot).and_then(|s| s.as_ref()) else {
+                        continue;
+                    };
+                    let Ok(stack) = stacks.get(stack_e) else { continue };
+                    (stack_e, stack.def.clone(), stack.charges, stack.cooldown)
                 };
-                if stack.charges == 0 {
+                if charges == 0 {
                     events.0.push(ItemReject::NoCharges);
                     continue;
                 }
-                if stack.cooldown > 0.0 {
+                if cooldown > 0.0 {
                     continue;
                 }
-                let Some(def) = registry.get(&stack.def).cloned() else {
+                let Some(def) = registry.get(&def_id).cloned() else {
                     events.0.push(ItemReject::UnknownItem);
                     continue;
                 };
                 if def.kind == ItemKind::Passive {
                     continue; // carried, not used
                 }
-                stack.charges -= 1;
-                stack.cooldown = def.cooldown;
-                let exhausted = stack.charges == 0;
+                // Spend through the stack ENTITY (slot clear + entry strip
+                // are immediate; the entity write/despawn is deferred and
+                // flushes before any next-frame reader).
+                let exhausted = charges == 1;
                 if exhausted {
-                    inv.slots[slot] = None;
-                    revoke_passive(&mut stats, user, &def);
+                    if let Ok(mut inv) = holders.get_mut(user) {
+                        inv.slots[slot] = None;
+                    }
+                    revoke_passive(&mut stats, user, stack_e);
+                    commands.entity(stack_e).despawn();
+                } else {
+                    commands.entity(stack_e).insert(ItemStack {
+                        def: def_id.clone(),
+                        charges: charges - 1,
+                        cooldown: def.cooldown,
+                    });
                 }
                 if let Some(effect) = &def.effect {
                     if skill_defs.get(effect).is_some() {
@@ -429,17 +489,27 @@ pub fn consume_item_commands(
                 }
             }
             ItemCommand::Drop { holder, slot } => {
-                let Ok(mut inv) = holders.get_mut(holder) else { continue };
-                let Some(stack) = inv.slots.get(slot).cloned().flatten() else { continue };
-                let Some(def) = registry.get(&stack.def).cloned() else {
+                let (stack_e, def_id) = {
+                    let Ok(inv) = holders.get(holder) else { continue };
+                    let Some(&stack_e) = inv.slots.get(slot).and_then(|s| s.as_ref()) else {
+                        continue;
+                    };
+                    let def_id = stacks.get(stack_e).ok().map(|s| s.def.clone());
+                    (stack_e, def_id)
+                };
+                let Some(def_id) = def_id else { continue };
+                let Some(def) = registry.get(&def_id).cloned() else {
                     events.0.push(ItemReject::UnknownItem);
                     continue;
                 };
-                inv.slots[slot] = None;
-                revoke_passive(&mut stats, holder, &def);
+                if let Ok(mut inv) = holders.get_mut(holder) {
+                    inv.slots[slot] = None;
+                }
+                revoke_passive(&mut stats, holder, stack_e);
+                commands.entity(stack_e).despawn();
                 let pos = transforms.get(holder).map(|t| t.translation).unwrap_or_default();
                 commands.spawn((
-                    GroundItem { def: stack.def, grace: DROP_GRACE },
+                    GroundItem { def: def.id.clone(), grace: DROP_GRACE },
                     Transform::from_translation(pos),
                 ));
             }
@@ -450,9 +520,11 @@ pub fn consume_item_commands(
 /// Tick: drain `ShopCommands`. Buy validates stock, def, funds, and a free
 /// slot — charging only on success (an `InventoryFull` or empty-pocket buy
 /// emits the reject / stays silent and charges nothing). Sell removes the
-/// stack, revokes its passive, and refunds `cost_gold / 2` (pinned WC3
-/// sellback). Gold mutations publish an `EconChanged` snapshot like every
-/// other direct Resources writer in the base.
+/// stack entity (slot + passive entries + despawn) and refunds
+/// `cost_gold / 2` (pinned WC3 sellback). Gold mutations publish an
+/// `EconChanged` snapshot like every other direct Resources writer in the
+/// base.
+#[allow(clippy::type_complexity)]
 pub fn consume_shop_commands(
     mut commands_in: MessageReader<ShopCommands>,
     registry: Res<ItemRegistry>,
@@ -460,6 +532,7 @@ pub fn consume_shop_commands(
     pop: Res<Population>,
     shops: Query<&Shop>,
     mut holders: Query<&mut Inventory>,
+    stacks: Query<&ItemStack>,
     mut stats: Query<&mut StatMods>,
     mut events: ResMut<ItemEvents>,
     mut changed: MessageWriter<EconChanged>,
@@ -481,27 +554,51 @@ pub fn consume_shop_commands(
                     continue; // empty pockets: silent, no charge, no item
                 }
                 let Ok(mut inv) = holders.get_mut(buyer) else { continue };
-                match try_stow(&mut inv, def) {
-                    Some(_) => {
+                match try_stow(&mut commands, buyer, &mut inv, def) {
+                    Some((_, stack_e)) => {
                         res.gold -= def.cost_gold;
-                        grant_passive(&mut stats, &mut commands, buyer, def);
+                        grant_passive(&mut stats, &mut commands, buyer, stack_e, def);
                         changed.write(econ_changed(&res, &pop));
                     }
                     None => events.0.push(ItemReject::InventoryFull),
                 }
             }
             ShopCommand::Sell { seller, slot } => {
-                let Ok(mut inv) = holders.get_mut(seller) else { continue };
-                let Some(stack) = inv.slots.get(slot).cloned().flatten() else { continue };
-                let Some(def) = registry.get(&stack.def).cloned() else {
+                let (stack_e, def_id) = {
+                    let Ok(inv) = holders.get(seller) else { continue };
+                    let Some(&stack_e) = inv.slots.get(slot).and_then(|s| s.as_ref()) else {
+                        continue;
+                    };
+                    (stack_e, stacks.get(stack_e).ok().map(|s| s.def.clone()))
+                };
+                let Some(def_id) = def_id else { continue };
+                let Some(def) = registry.get(&def_id).cloned() else {
                     events.0.push(ItemReject::UnknownItem);
                     continue;
                 };
-                inv.slots[slot] = None;
-                revoke_passive(&mut stats, seller, &def);
+                if let Ok(mut inv) = holders.get_mut(seller) {
+                    inv.slots[slot] = None;
+                }
+                revoke_passive(&mut stats, seller, stack_e);
+                commands.entity(stack_e).despawn();
                 res.gold += def.cost_gold / SELL_REFUND_DIVISOR;
                 changed.write(econ_changed(&res, &pop));
             }
+        }
+    }
+}
+
+/// Cleanup: sweep stack entities whose holder is gone (holder died to
+/// `cleanup_dead`, or a game-side restart despawned it) — stacks never
+/// outlive their bag (SEAM3b entity model's bookkeeping end).
+pub fn cleanup_stacks(
+    mut commands: Commands,
+    stacks: Query<(Entity, &StackHolder)>,
+    holders: Query<Entity, With<Inventory>>,
+) {
+    for (e, holder) in &stacks {
+        if holders.get(holder.0).is_err() {
+            commands.entity(e).despawn();
         }
     }
 }
@@ -563,15 +660,23 @@ impl Plugin for ItemPlugin {
                     .before(crate::combat::cleanup_dead)
                     .in_set(crate::WarbaseSet::Cleanup),
             )
-            .add_systems(Update, pickup_items.in_set(crate::WarbaseSet::Cleanup));
+            .add_systems(Update, pickup_items.in_set(crate::WarbaseSet::Cleanup))
+            // SEAM3b: stack entities never outlive their bag (holder death
+            // / restart). After cleanup_dead so same-frame deaths sweep now.
+            .add_systems(
+                Update,
+                cleanup_stacks
+                    .after(crate::combat::cleanup_dead)
+                    .in_set(crate::WarbaseSet::Cleanup),
+            );
     }
 }
 
 pub mod prelude {
     pub use super::{
-        DropTable, GroundItem, Inventory, ItemCommand, ItemCommands, ItemDef, ItemEvents, ItemKind,
-        ItemPlugin, ItemReject, ItemStack, ItemRegistry, ItemsDef, PassiveStat, Shop, ShopCommand,
-        ShopCommands, DROP_GRACE, INVENTORY_SLOTS, LOOT_SCATTER_RADIUS, PICKUP_MARGIN,
-        SELL_REFUND_DIVISOR,
+        cleanup_stacks, remove_stack, DropTable, GroundItem, Inventory, ItemCommand,
+        ItemCommands, ItemDef, ItemEvents, ItemKind, ItemPlugin, ItemReject, ItemStack,
+        ItemRegistry, ItemsDef, PassiveStat, Shop, ShopCommand, ShopCommands, StackHolder,
+        DROP_GRACE, INVENTORY_SLOTS, LOOT_SCATTER_RADIUS, PICKUP_MARGIN, SELL_REFUND_DIVISOR,
     };
 }

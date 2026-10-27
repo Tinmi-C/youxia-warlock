@@ -114,15 +114,21 @@ fn drain_events(app: &mut App) -> Vec<ItemReject> {
 }
 
 fn slot_stack(app: &App, holder: Entity, slot: usize) -> Option<ItemStack> {
-    app.world().get::<Inventory>(holder).unwrap().slots[slot].clone()
+    // SEAM3b: slots hold stack ENTITY ids; read through the component.
+    let stack_e = app.world().get::<Inventory>(holder).unwrap().slots[slot]?;
+    app.world().get::<ItemStack>(stack_e).cloned()
 }
 
 fn stow_directly(app: &mut App, holder: Entity, slot: usize, def_id: &str) {
     let def = app.world().resource::<ItemRegistry>().get(def_id).cloned().unwrap();
+    let stack = app
+        .world_mut()
+        .spawn((ItemStack::from_def(&def), StackHolder(holder)))
+        .id();
     app.world_mut()
         .get_mut::<Inventory>(holder)
         .unwrap()
-        .slots[slot] = Some(ItemStack::from_def(&def));
+        .slots[slot] = Some(stack);
 }
 
 fn push_cmd(app: &mut App, cmd: ItemCommand) {
@@ -205,11 +211,13 @@ fn pickup_stows_into_first_free_slot_within_reach() {
 fn full_inventory_rejects_and_leaves_item_on_ground() {
     let (mut app, hero) =
         carrier_app(vec![item_def("potion", ItemKind::Consumable, Some(3), 0.0, None, None, 50)]);
-    {
-        let mut inv = app.world_mut().get_mut::<Inventory>(hero).unwrap();
-        for slot in inv.slots.iter_mut() {
-            *slot = Some(ItemStack { def: "potion".into(), charges: 1, cooldown: 0.0 });
-        }
+    // SEAM3b: fill via stack entities (the slot-entity bag model).
+    for slot in 0..INVENTORY_SLOTS {
+        let stack = app
+            .world_mut()
+            .spawn((ItemStack { def: "potion".into(), charges: 1, cooldown: 0.0 }, StackHolder(hero)))
+            .id();
+        app.world_mut().get_mut::<Inventory>(hero).unwrap().slots[slot] = Some(stack);
     }
     let item = ground(&mut app, "potion", Vec3::new(0.4, 0.0, 0.0));
     app.update();
@@ -344,11 +352,12 @@ fn passive_sword_grants_folds_and_revokes() {
     assert_eq!(damage_mult_entries(&app, hero).len(), 1, "single entry after re-grant");
 }
 
-/// UT-INV-04b: two same-kind passives share one holder-sourced entry —
-/// the documented upsert semantics (same (source, kind) replaces, so
-/// carried stat sticks of one kind do not stack; see module docs).
+/// UT-INV-04b (SEAM3b rewrite, the INV source-flaw fix): two same-kind
+/// passives now STACK — every stack is its own entity and sources its own
+/// ModEntry, so two DamageMult swords sum (+12% +12% = +24%), and they no
+/// longer collide with the holder's own same-kind entries (hero growth).
 #[test]
-fn two_same_kind_passives_share_one_entry() {
+fn two_same_kind_passives_stack_per_stack_entity() {
     let sword = item_def(
         "sword",
         ItemKind::Passive,
@@ -365,7 +374,40 @@ fn two_same_kind_passives_share_one_entry() {
 
     assert!(slot_stack(&app, hero, 0).is_some());
     assert!(slot_stack(&app, hero, 1).is_some(), "both swords stowed");
-    assert_eq!(damage_mult_entries(&app, hero).len(), 1, "one entry: upsert, no stacking");
+    let entries = damage_mult_entries(&app, hero);
+    assert_eq!(entries.len(), 2, "one entry PER STACK: same-kind passives stack");
+    assert!((entries[0] - 0.12).abs() < 1e-6 && (entries[1] - 0.12).abs() < 1e-6);
+    app.update(); // aggregate folds both
+    assert!(
+        (app.world().get::<EffectiveStats>(hero).unwrap().damage_mult - 1.24).abs() < 1e-5,
+        "damage_mult sums both swords"
+    );
+
+    // The holder's OWN same-kind entry (hero level growth source = hero)
+    // coexists: three entries now, none clobbered.
+    let hero_src = app.world_mut().spawn_empty().id();
+    {
+        let mut mods = app.world_mut().get_mut::<StatMods>(hero).unwrap();
+        mods.upsert(ModEntry {
+            source: hero_src,
+            kind: StatKind::DamageMult,
+            amount: 0.10,
+            expires_at: None,
+            from_aura: false,
+        });
+    }
+    assert_eq!(damage_mult_entries(&app, hero).len(), 3, "holder entry + two stacks");
+
+    // Dropping ONE sword removes exactly its own entry, keeps the other.
+    push_cmd(&mut app, ItemCommand::Drop { holder: hero, slot: 1 });
+    app.update();
+    let entries = damage_mult_entries(&app, hero);
+    assert_eq!(entries.len(), 2, "one stack's entry went with it");
+    app.update();
+    assert!(
+        (app.world().get::<EffectiveStats>(hero).unwrap().damage_mult - 1.22).abs() < 1e-5,
+        "remaining sword + hero growth still fold"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -403,9 +445,12 @@ fn shop_buy_sell_gold_flows_symmetric() {
     // Full inventory: readable reject, still nothing charged.
     app.world_mut().resource_mut::<Resources>().gold = 1000;
     {
-        let mut inv = app.world_mut().get_mut::<Inventory>(buyer).unwrap();
-        for slot in inv.slots.iter_mut() {
-            *slot = Some(ItemStack { def: "potion".into(), charges: 1, cooldown: 0.0 });
+        for slot in 0..INVENTORY_SLOTS {
+            let stack = app
+                .world_mut()
+                .spawn((ItemStack { def: "potion".into(), charges: 1, cooldown: 0.0 }, StackHolder(buyer)))
+                .id();
+            app.world_mut().get_mut::<Inventory>(buyer).unwrap().slots[slot] = Some(stack);
         }
     }
     push_shop(&mut app, ShopCommand::Buy { buyer, shop, item: "potion".into() });

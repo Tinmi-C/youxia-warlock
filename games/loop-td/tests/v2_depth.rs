@@ -94,13 +94,14 @@ fn equipment_injects_replaces_and_falls_back() {
     let eff = app.world().get::<EffectiveStats>(hero).unwrap();
     assert!((eff.damage_mult - 1.12).abs() < 1e-5, "got {}", eff.damage_mult);
     // The replaced blade08 went back into the hero's bag (Inventory).
+    // SEAM3b: bag slots hold stack entity ids.
     let inv = app.world().get::<Inventory>(hero).unwrap();
-    let bag: Vec<&str> = inv
+    let bag: Vec<String> = inv
         .slots
         .iter()
-        .filter_map(|s| s.as_ref().map(|st| st.def.as_str()))
+        .filter_map(|s| s.map(|e| app.world().get::<ItemStack>(e).unwrap().def.clone()))
         .collect();
-    assert!(bag.contains(&"blade08"), "replaced item stowed back: {bag:?}");
+    assert!(bag.contains(&"blade08".to_string()), "replaced item stowed back: {bag:?}");
 }
 
 #[test]
@@ -540,12 +541,12 @@ fn dig_equipment_lands_in_a_hero_bag_or_on_the_ground() {
         if let loop_td::systems::dig::DigOutcome::Equipment(id) = dig(&mut app.world_mut()).unwrap()
         {
             let inv = app.world().get::<Inventory>(hero).unwrap();
-            let bag: Vec<&str> = inv
+            let bag: Vec<String> = inv
                 .slots
                 .iter()
-                .filter_map(|s| s.as_ref().map(|st| st.def.as_str()))
+                .filter_map(|s| s.map(|e| app.world().get::<ItemStack>(e).unwrap().def.clone()))
                 .collect();
-            assert!(bag.contains(&id.as_str()), "equipment '{id}' in the hero bag: {bag:?}");
+            assert!(bag.contains(&id), "equipment '{id}' in the hero bag: {bag:?}");
             stowed = true;
             break;
         }
@@ -732,7 +733,6 @@ fn dual_ring_bundle() -> MapBundle {
 
 #[test]
 fn dual_ring_leaks_pass_to_the_neighbor_ring() {
-    use loop_td::systems::multiplayer::{pass_leaks_to_neighbor, TransferredLeak};
 
     // The shipped map stays single-player (Stockpile) — pinned here so the
     // dual-ring proof can never leak back into loop.ron.
@@ -793,8 +793,7 @@ fn dual_ring_leaks_pass_to_the_neighbor_ring() {
             .count()
     };
     for _ in 0..300 {
-        app.update(); // A's grunt at t=0, B's at t=3s
-        pass_leaks_to_neighbor(&mut app.world_mut());
+        app.update(); // A's grunt at t=0, B's at t=3s (leak pass: base rule domain)
     }
     assert_eq!(followers_on(&mut app, path_a), 1, "ring A stocked");
     assert_eq!(followers_on(&mut app, path_b), 1, "ring B stocked");
@@ -804,7 +803,6 @@ fn dual_ring_leaks_pass_to_the_neighbor_ring() {
     let mut transferred = false;
     for _ in 0..60 * 11 {
         app.update();
-        pass_leaks_to_neighbor(&mut app.world_mut());
         let leaks: usize = {
             let mut q = app
                 .world_mut()

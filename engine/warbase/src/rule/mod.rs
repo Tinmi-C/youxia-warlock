@@ -9,9 +9,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::combat::AttackKit;
-use crate::path::{Arrived, LapCompleted, MoveSpeed, PathFollower};
-use crate::unit::{Allegiance, Hp, MatchDiplomacy, MaxHp, Owner, TeamId, UnitInstance, UnitRegistry};
-use crate::wave::{BossTimedOut, WaveCleared};
+use crate::path::{Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
+use crate::wave::Paths;
+use crate::unit::{
+    spawn_unit, Allegiance, Hp, MatchDiplomacy, MaxHp, Owner, TeamId, UnitInstance, UnitRegistry,
+};
+use crate::wave::{BossTimedOut, WaveCleared, WaveTag};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LeakPolicy {
@@ -119,6 +122,98 @@ pub struct LivesLeft(pub u32);
 
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct StockCount(pub u32);
+
+/// Marker on a creep that arrived via a leak pass (PassToNeighbor; test and
+/// UI observation seam — SEAM3b uplift of loop-td's LT2-6 component).
+#[derive(Component, Debug)]
+pub struct TransferredLeak;
+
+/// Leak-pass cursor (resource; registered lazily, only under
+/// `LeakPolicy::PassToNeighbor`, so plain maps never allocate it — the
+/// resource-registration entity-shift determinism pitfall).
+#[derive(Resource, Default)]
+struct LapCursor(bevy::ecs::message::MessageCursor<LapCompleted>);
+
+/// `LeakPolicy::PassToNeighbor` base behavior (SEAM3b, uplifted from
+/// loop-td's game-side LT2-6 system): on a CLOSED loop a completed lap IS
+/// the leak event (`Arrived` never fires there — the loop semantics are
+/// kept), so every `LapCompleted` under the policy moves the creeping unit
+/// to the NEIGHBOR ring (path index + 1, wrapping; ring ownership is path
+/// order, the bundle's own routing data — per-owner ring mapping composes
+/// on top via `Owner` without this system knowing it). The unit moves, it
+/// is not duplicated: same def, same hp/max, same wave tag, spawned at the
+/// neighbor's start point — the leaking ring's stock drops to zero for it.
+/// Any other policy (Lives / Stockpile) leaves this a cheap early-out.
+pub fn pass_leaks_to_neighbor(world: &mut World) {
+    if !matches!(world.resource::<MatchRules>().leak, LeakPolicy::PassToNeighbor) {
+        return; // cursor never needed; zero drift for Lives/Stockpile maps
+    }
+    world.get_resource_or_insert_with(LapCursor::default);
+    let paths = world.resource::<Paths>().0.clone();
+    let laps: Vec<(Entity, u32)> = world.resource_scope(|w, mut c: Mut<LapCursor>| {
+        let msgs = w.resource::<bevy::ecs::message::Messages<LapCompleted>>();
+        c.0.read(msgs).map(|l| (l.unit, l.lap)).collect()
+    });
+    if paths.len() < 2 || laps.is_empty() {
+        return; // cursor stays drained either way
+    }
+
+    for (unit, lap) in laps {
+        let (Some(follow), Some(inst)) =
+            (world.get::<PathFollower>(unit), world.get::<UnitInstance>(unit))
+        else {
+            continue;
+        };
+        let Some(idx) = paths.iter().position(|&p| p == follow.path) else { continue };
+        let neighbor = paths[(idx + 1) % paths.len()];
+        let def = inst.def.clone();
+        let hp = world.get::<Hp>(unit).map(|h| h.0);
+        let max = world.get::<MaxHp>(unit).map(|m| m.0);
+        let wave_tag = world.get::<WaveTag>(unit).copied();
+
+        // Move the entity: despawn on the leaking ring, twin on the neighbor.
+        if let Ok(em) = world.get_entity_mut(unit) {
+            em.despawn();
+        } else {
+            continue;
+        }
+        let start = world
+            .get::<PathDef>(neighbor)
+            .map(|p| p.sample(0.0))
+            .unwrap_or_default();
+        let registry = world.resource::<UnitRegistry>().clone();
+        let Some(twin) = spawn_unit(
+            world,
+            &registry,
+            &def,
+            Vec3::new(start.x, 0.0, start.y),
+            Allegiance::Attacker,
+            1.0,
+        ) else {
+            continue;
+        };
+        if let Some(hp) = hp {
+            if let Some(mut h) = world.get_mut::<Hp>(twin) {
+                h.0 = hp;
+            }
+        }
+        if let Some(max) = max {
+            if let Some(mut m) = world.get_mut::<MaxHp>(twin) {
+                m.0 = max;
+            }
+        }
+        let Ok(mut em) = world.get_entity_mut(twin) else { continue };
+        em.insert(PathFollower { path: neighbor, progress: 0.0, laps: 0, finished: false })
+            .insert(TransferredLeak);
+        if let Some(tag) = wave_tag {
+            em.insert(tag);
+        }
+        info!(
+            "leak pass: '{def}' ring {idx} -> ring {} (lap {lap})",
+            (idx + 1) % paths.len()
+        );
+    }
+}
 
 /// Cleanup-set rule engine. Reads last frame's events (messages), counts
 /// live attackers per frame, and transitions MatchFlow exactly once.
