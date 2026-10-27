@@ -1,21 +1,61 @@
-//! GamePlugin: headless-safe core — map load + per-player wallets, unit kit
-//! attachment (MoveAgent on movers). Rendering/UI deps stay in VisualPlugin.
+//! GamePlugin: headless-safe core — map load + per-player wallets + the
+//! round layer (hire shop / leak rule / bounty credit / round clock) + unit
+//! kit attachment. Rendering/UI deps stay in VisualPlugin.
 
 use bevy::prelude::*;
+use warbase::prelude::cleanup_dead;
+use warbase::WarbaseSet;
 
-use crate::systems::gameplay;
+use crate::systems::{gameplay, round};
 
-/// Headless-safe core (no window/input systems inside).
+/// Headless-safe core (input bridges no-op without ButtonInput).
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        // Game-side messages (base ones are registered by WarbasePlugin).
+        app.add_message::<round::HireCommand>()
+            .add_message::<round::HireRejected>()
+            .add_message::<round::PhaseChanged>()
+            .add_message::<round::RoundSettled>()
+            .add_message::<round::LeakHappened>()
+            .add_message::<round::PlayerEliminated>();
+
         app.add_systems(
             Startup,
-            // The map assembles first (starting_forces spawn inside assemble);
-            // wallets init next; the kit observer runs from the first Update.
-            (gameplay::load_map, gameplay::init_purses).chain(),
+            // Skills-free map: assemble first (starting_forces spawn inside
+            // assemble), then wallets, then the round state (lanes/slots/
+            // lives/pop derive from the assembled world).
+            (gameplay::load_map, gameplay::init_purses, round::init_round_state).chain(),
         )
-        .add_systems(Update, gameplay::attach_legion_kit);
+        .add_systems(
+            Update,
+            (
+                gameplay::attach_legion_kit,
+                // The hire shop runs ahead of the base tick (order-inert for
+                // message reads; keeps hires early in the frame).
+                round::hire,
+                // Input bridges (headless no-ops without ButtonInput).
+                (round::hire_input, round::skip_build_input),
+                // Bounty credit must run INSIDE Cleanup, before the base
+                // cleanup_dead despawns the killer: UnitDied.killer is an
+                // Entity reference and a mutual kill's killer is Dead-marked
+                // the same frame (hole L6 — no documented seam for reading
+                // killer attribution post-cleanup).
+                round::bounty_credit
+                    .in_set(WarbaseSet::Cleanup)
+                    .before(cleanup_dead),
+                // Round layer observes the settled frame: leaks first (they
+                // can eliminate a player), then the pop recount, then the
+                // round clock (battle orders / settlement).
+                (
+                    round::leak_tick,
+                    round::recount_population,
+                    round::round_tick,
+                )
+                    .chain()
+                    .after(WarbaseSet::Cleanup),
+            ),
+        );
     }
 }

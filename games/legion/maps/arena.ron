@@ -41,9 +41,13 @@
         blocked: [],
     ),
     units: {
-        // ---- 主城（每家一座，底线后侧；无 kit —— 不算 LastTeamStanding
-        // 战力，命尽出局走游戏侧 LivesBoard）。 ----
+        // ---- 主城（每家一座，底线后侧）。attack 是「旗帜 kit」：0 伤害、
+        // 射程 1.0（底线后 1.5 格，永不开火）——唯一作用是让主城算
+        // LastTeamStanding 战力（hole L5：基底胜负只认 AttackKit/PathFollower
+        // 携带者，没有与「场上单位」解耦的「队伍存活」缝；没有旗帜 kit，
+        // 对面建造期一个兵没买时己方一雇兵即触发空场判胜）。 ----
         "keep": (id: "keep", attrs: (hp: 1500, move_speed: 0.0, body_radius: 1.2),
+                 attack: Some((damage: 0.0, interval: 1.0, range: 1.0, attack_type: Normal, targets: Ground)),
                  armor_type: Fortified, cost_gold: 0, bounty_gold: 0, grant_xp: 0, traits: []),
         // ---- 雇佣兵 6 种（proposal §2：30-120 金，人口 1-4） ----
         // 人口占用无 bundle 字段（hole L3）：游戏侧 POP_COST 表记账。

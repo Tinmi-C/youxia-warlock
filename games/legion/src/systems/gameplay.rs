@@ -52,8 +52,7 @@ pub fn init_purses(world: &mut World) {
 // Legion kit attachment (every spawn path funnels here)
 // ---------------------------------------------------------------------------
 
-/// Def ids the game-side wiring references (must exist in maps/arena.ron).
-pub const KEEP_DEF: &str = "keep";
+/// Command-card order: digit 1-6 -> def id (must exist in maps/arena.ron).
 pub const MERCENARY_DEFS: [&str; 6] =
     ["merc_cheap", "merc_swarm", "merc_tank", "merc_ranged", "merc_aoe", "merc_support"];
 
