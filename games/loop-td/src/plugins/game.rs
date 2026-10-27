@@ -22,6 +22,9 @@ impl Plugin for GamePlugin {
             // hero Inventory) for the base mouse chain.
             .add_systems(PreUpdate, crate::systems::adopt::sync_modal_claim)
             .add_systems(Update, crate::systems::adopt::attach_td_kit)
+            // LT2-1: hero towers carry a 3-slot equipment rack (E equips
+            // from the bag at the build cursor).
+            .add_systems(Update, (crate::systems::equip::attach_equip_slots, crate::systems::equip::equip_input))
             .add_systems(Update, gameplay::build_input)
             .add_systems(Update, gameplay::command_dispatch)
             .add_systems(Update, gameplay::snipe_effect)
