@@ -63,6 +63,8 @@ assets/{models,textures,audio,fonts,ui}/
 
 （进行中的功能、已知问题、近期目标——每次开工前更新）
 
+- LT-ADOPT 已落地（v2 前置采用改造）：鼠标选择链（塔 Selectable + 基底 Pick/Select/Aabb/右键智能命令）、数字键模态让渡（`systems/adopt.rs`，建造菜单模态期基底键盘桥不产 GroupCommand）、英雄塔 6 槽 Inventory。键盘光标为并存输入模式，行为零漂移。LT2 六件纵深可在此之上开工（见 `docs/topics/game-design/loop-td-v2-rpg-proposal.md` §2）。
+
 ## 项目专属规则
 
 （美术资源命名、模块约定等，随项目补充）
