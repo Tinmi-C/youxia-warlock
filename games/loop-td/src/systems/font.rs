@@ -39,7 +39,13 @@ pub fn setup_ui_font(
 ) {
     let source = if let Some(fonts) = fonts.as_mut() {
         match std::fs::read(font_file()) {
-            Ok(bytes) => FontSource::Handle(fonts.add(Font::from_bytes(bytes))),
+            // The same handle feeds the engine's FX font seam (FXP): damage
+            // floats / status glyphs render CJK-capable in every loop-td app.
+            Ok(bytes) => {
+                let handle = fonts.add(Font::from_bytes(bytes));
+                commands.insert_resource(warbase::fx::FxFont(Some(handle.clone())));
+                FontSource::Handle(handle)
+            }
             Err(e) => {
                 info!("[loop-td] shared ui font unreadable ({e}) — default fallback");
                 FontSource::default()
