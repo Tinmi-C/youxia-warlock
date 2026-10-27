@@ -12,10 +12,16 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         // hud::refresh_hud takes Res<SelectedTower>; nothing else inserts it
         // (BX4b card-switch leftover) — windowed runs panicked at startup.
-        app.insert_resource(gameplay::SelectedTower(String::new()));
-        app.add_systems(Startup, gameplay::load_map)
+    app.insert_resource(gameplay::SelectedTower(String::new()));
+    app.add_systems(Startup, gameplay::load_map)
             .add_systems(Startup, gameplay::load_meta_startup)
             .add_systems(Startup, hud::spawn_hud)
+            // LT-ADOPT: digit-row modal yield runs before the base input
+            // bridges (Update) so the claim is always settled for them; the
+            // TD selection kit lands on fresh spawns (Selectable towers,
+            // hero Inventory) for the base mouse chain.
+            .add_systems(PreUpdate, crate::systems::adopt::sync_modal_claim)
+            .add_systems(Update, crate::systems::adopt::attach_td_kit)
             .add_systems(Update, gameplay::build_input)
             .add_systems(Update, gameplay::command_dispatch)
             .add_systems(Update, gameplay::snipe_effect)

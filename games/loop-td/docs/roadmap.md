@@ -26,6 +26,7 @@
 | MT1 | Meta 局间成长 | ✅ meta_save.txt 存读（load 纯函数不删档）+ 清波数入账（RunBanked 幂等）+ 终局 M 买开局+20金（10 点/级）+ R 重开局（重装配吃加成，棋盘清空） |
 | BAL1 | 锚点 A1–A3 收敛 | ✅ 读数：A1 存量峰值 6/10（贪心箭塔基线过 5 波不死）；A2 注入 20 翻盘（峰值 24、终局 Won）；A3 BOSS 38.2s ∈ [36,54]（标准 3×arrow3 沿环分布，boss hp×1.25） |
 | SMK1 | 迷宫冒烟（maps/maze-smoke.ron + `--map`） | ✅ headless 全链路（Lives/Manual/开链对照图）；真机 `--map` 演示 ⏸ H1 |
+| LT-ADOPT | 采用改造（v2 前置）：基底鼠标链接入（塔挂 Selectable→点选/框选/右键智能命令，键盘光标并存）+ 数字键模态让渡（建造菜单开=claim/关=release，模态期基底桥不产 GroupCommand）+ 英雄塔 Inventory（6 槽空，LT2 装备铺路） | ✅ tests/adopt_domain.rs（7 测试：模态让渡/召回恢复/点选+面板/Aabb×3/右键 UnitCommand/英雄 Inventory/怪不可选） |
 
 ## 待人工关卡（后置清单）
 
