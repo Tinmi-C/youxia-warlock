@@ -1,12 +1,19 @@
 //! Engine-side skin screenshot mode (`--ui-shots [default|plan-a]`, STAB):
-//! a frame-scripted run of the REAL game that stages the bottom bar states
-//! and captures each as a GPU screenshot — the port of loop-td's `--ui-mock`
-//! pattern to warden. Unlike the legacy `WARDEN_SHOTS`/F12 keys this is not
-//! window compositing: `Screenshot` reads the render surface, so the shots
-//! survive an occluded window (the locked-screen black-frame trap), and the
-//! run self-exits — the before/after skin comparison images
-//! (`docs/img/skin/{default,plan-a}/`) are produced by two unattended
-//! commands instead of hand-timed F12 presses.
+//! a frame-scripted run of the REAL windowed game that stages the bottom
+//! bar states and captures each as a GPU screenshot — the port of loop-td's
+//! `--ui-mock` pattern to warden. The run self-exits — the before/after
+//! skin comparison images (`docs/img/skin/{default,plan-a}/`) are produced
+//! by two unattended commands instead of hand-timed F12 presses.
+//!
+//! Lock-screen caveat (2026-10-28, empirically established): while the
+//! session is LOCKED, macOS composites nothing into window drawables and
+//! `Screenshot::primary_window()` captures black — reproduced on this
+//! machine with loop-td's proven `--ui-mock v2` as well, so it is a
+//! machine/OS state, not a warden bug. The lock-proof producer is the
+//! OFFSCREEN variant of this script: `tests/ui_shots.rs` (bevy
+//! `headless_renderer` pattern, no window at all — the MMP c59bda9
+//! approach). This CLI remains the interactive/user-present path; the
+//! staging helpers (`solo_bottom_bar`) are shared with the test.
 //!
 //! What gets staged (all through the real gateways — `place_towers`, the
 //! `Selection` machine, `WaveDirector::force_begin`):
@@ -81,7 +88,7 @@ const EXIT: u32 = 220;
 
 /// Output root: `<crate>/docs/img/skin/<skin>/`. `CARGO_MANIFEST_DIR` keeps
 /// it stable regardless of the working directory cargo run started from.
-fn out_dir(skin: ShotSkin) -> String {
+pub fn out_dir(skin: ShotSkin) -> String {
     format!("{}/docs/img/skin/{}", env!("CARGO_MANIFEST_DIR"), skin.dir_name())
 }
 
@@ -97,10 +104,10 @@ pub fn ui_shots_driver(world: &mut World) {
     match f {
         STAGE => stage(world, &mut state),
         SELECT_HERO => select_hero(world, &mut state),
-        SOLO_CARD => set_solo(world, Some(SoloTarget::Card)),
-        SOLO_INFO => set_solo(world, Some(SoloTarget::InfoZone)),
+        SOLO_CARD => solo_bottom_bar(world, Some(SoloTarget::Card)),
+        SOLO_INFO => solo_bottom_bar(world, Some(SoloTarget::InfoZone)),
         COMBAT => {
-            set_solo(world, None);
+            solo_bottom_bar(world, None);
             *world.resource_mut::<Selection>() = Selection::None;
             // Real combat through the director (WaveState is a mirror —
             // writing it directly gets flattened by sync_wave_state).
@@ -183,16 +190,17 @@ fn select_hero(world: &mut World, state: &mut UiShotsState) {
 /// Which zone stays visible in a solo shot (ui-mock's `ShotMode::Solo`
 /// pattern: siblings hidden, the solo panel keeps its layout slot).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SoloTarget {
+pub enum SoloTarget {
     Card,
     InfoZone,
 }
 
-/// Toggle solo visibility. `Visibility::Hidden` (not Display::None) on the
-/// zones so the bar layout does not reflow; the field report instead uses
-/// Display::None because `update_hud` writes its Visibility every frame and
-/// would un-hide it in intermission.
-fn set_solo(world: &mut World, target: Option<SoloTarget>) {
+/// Toggle solo visibility (shared by the `--ui-shots` driver and the
+/// offscreen test in `tests/ui_shots.rs`). `Visibility::Hidden` (not
+/// `Display::None`) on the zones so the bar layout does not reflow; the
+/// field report instead uses `Display::None` because `update_hud` writes
+/// its Visibility every frame and would un-hide it in intermission.
+pub fn solo_bottom_bar(world: &mut World, target: Option<SoloTarget>) {
     let soloing = target.is_some();
     let (hide_info, hide_card, hide_control) = match target {
         None => (false, false, false),
@@ -204,8 +212,8 @@ fn set_solo(world: &mut World, target: Option<SoloTarget>) {
         let mut q = world.query_filtered::<Entity, With<crate::systems::hud::FieldReport>>();
         let reports: Vec<Entity> = q.iter(world).collect();
         for e in reports {
-            // `Display` is a field of `Node` (not a component) — write it in
-            // place, the command.rs:1204 idiom.
+            // `Display` is a field of `Node` (not a component) — write it
+            // in place, the command.rs idiom.
             if let Some(mut node) = world.get_mut::<Node>(e) {
                 node.display = if soloing { Display::None } else { Display::Flex };
             }

@@ -1039,7 +1039,9 @@ fn clear_board(world: &mut World) {
 }
 
 /// Free tower slots in map order, as (slot entity, world position).
-pub(crate) fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
+/// `pub` for the offscreen skin-shot test (`tests/ui_shots.rs`); debug-only
+/// module, release never sees it.
+pub fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
     let mut q = world.query::<(Entity, &TowerSlot, &Transform)>();
     let grid = world.resource::<warbase::prelude::BuildGrid>().clone();
     let mut slots: Vec<_> = q
@@ -1057,7 +1059,8 @@ pub(crate) fn free_slots_in_order(world: &mut World) -> Vec<(Entity, Vec3)> {
 /// slots occupied in the base's grid (DB2 scenarios; same construction as a
 /// player placement). Commands reserve entity ids up front, so occupancy is
 /// placed with the real tower entities after the queue applies.
-pub(crate) fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
+/// `pub` for the offscreen skin-shot test (`tests/ui_shots.rs`).
+pub fn place_towers(world: &mut World, ty: usize, slots: &[(Entity, Vec3)]) {
     let Some(def) = world.resource::<TowerDefs>().list.get(ty).cloned() else {
         warn!("[debug] tower def {ty} missing; scenario towers skipped");
         return;
