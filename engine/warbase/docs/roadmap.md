@@ -70,7 +70,7 @@
 |------|------|------|
 | SEAM2a-d | ADR-0018/方案 v2/loop-td v2 草案；洞 #6-10 上收（SkillCast.target/光环泛化+affects/ModalKeyClaim/skill_levels/信封五变体）；四命令资源翻消息+selection 收口（Pickup/Follow/子组命令/M 键/双击同类）；八新域骨架+Order 三桩+bundle 四段 | ✅ 2026-10-24 合并态 419 绿（398+21） |
 | Phase 1 七线 | HARV（采集循环+Upkeep 三档，6 测）· SKVOC（AOE 圈选/眩晕沉默/召唤租约/攻击前后摇+后摇取消，12 测）· UI-DSGN（UiTheme tokens 可换肤+设计 brief+三套方案 30 张引擎截图，6 测）· HERO（三围换算/祭坛复活复用 Dead/经验范围分享，12 测）· BLDG（工人建造循环/线性加速/取消退款/主城 T1-T3 解锁链，10 测）· CAM（编队双击跳转/F1/边缘滚屏/滚轮缩放/ping，纯逻辑与 ui 分层，15 测）· MAP（野怪营地三态 AI+重生+掉落/昼夜循环+夜晚视野系数，9 测） | ✅ 2026-10-27 通宵三批完成，合并态 workspace **489 全绿**（419+70），warden/loop-td/rts-lab 零漂移；⏳ **H-UI 待拍板**（ui-proposals/ 三套方案）；顺手修 loop-td 两个存量 bug（窗口崩溃/录像首局丢写竞态）+发现 CJK 字体缺失（LT2-UI 前须引入） |
-| Phase 2 | 高地+存档 / LT-ADOPT loop-td 采用改造 / RL4 rts-lab 补丁换基底域 | ⬜ 待派（额度控制节奏） |
-| Phase 3 | LT2 六件纵深 / LT2-UI 新系统实现（依赖 H-UI 拍板）/ WARDEN-SKIN token 换肤 | ⬜ |
+| Phase 2 | 高地+存档（物理视线遮挡/高地加成×1.25/位一致存档回环——预留 id 重生破分配器缓冲坑，6 测）/ LT-ADOPT（鼠标链+ModalKeyClaim 让渡+英雄塔 Inventory，架构评估无阻断，7 测）/ RL4（采集+光环+开局布兵游戏侧补丁全部退役换基底域，净删 135 行，C→A 闭环二遍，+1 测） | ✅ 2026-10-27 合并态 503 绿（489+14） |
+| Phase 3 | LT2 六件（装备 3 槽词缀 marker-source/神器任务链全队光环/挑战波 ×2×3 必掉/挖宝 EV 31.5±5/羁绊 RON 组合表/双环漏怪互传 LeakPolicy 激活，8 测+6 新洞）/ WARDEN-SKIN（方案 A 换肤 95 样式点 token 化+诚实成本评估：首皮付迁移费后换肤≈改 RON，3 测）/ LT2-UI（六面板按方案 A+CJK 字体修复豆腐块+引擎内截图自审 v3 全过 10 图，16 测） | ✅ 2026-10-27 合并态 **530 绿**（503+8+3+16）；⏳ H1 人工试玩（含 warden 前后对照截图需用户在场跑两条命令） |
 
 > 注：上方「待做」表为 WX 中间态存档（WX6 已全量收口，见消费方表），不再作为待办依据。
