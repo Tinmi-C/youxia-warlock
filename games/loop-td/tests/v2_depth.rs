@@ -94,13 +94,14 @@ fn equipment_injects_replaces_and_falls_back() {
     let eff = app.world().get::<EffectiveStats>(hero).unwrap();
     assert!((eff.damage_mult - 1.12).abs() < 1e-5, "got {}", eff.damage_mult);
     // The replaced blade08 went back into the hero's bag (Inventory).
+    // SEAM3b: bag slots hold stack entity ids.
     let inv = app.world().get::<Inventory>(hero).unwrap();
-    let bag: Vec<&str> = inv
+    let bag: Vec<String> = inv
         .slots
         .iter()
-        .filter_map(|s| s.as_ref().map(|st| st.def.as_str()))
+        .filter_map(|s| s.map(|e| app.world().get::<ItemStack>(e).unwrap().def.clone()))
         .collect();
-    assert!(bag.contains(&"blade08"), "replaced item stowed back: {bag:?}");
+    assert!(bag.contains(&"blade08".to_string()), "replaced item stowed back: {bag:?}");
 }
 
 #[test]
@@ -110,11 +111,16 @@ fn equipment_range_affix_and_guards() {
     let mut app = game_app();
     let hero = place_hero(&mut app);
 
-    // Hunter base range 5.0 (maps/loop.ron); scope adds +1.5 flat.
+    // SEAM3b: the scope's 射程+X affix rides StatKind::RangeMult (base
+    // range stays the def's 5.0; combat::attack_range folds the two, so
+    // 5.0 x 1.3 = 6.5 — the retired game-side +1.5 flat equivalent).
     equip_item(&mut app.world_mut(), hero, 1, "scope").expect("equip scope");
     app.update();
+    let eff = app.world().get::<EffectiveStats>(hero).unwrap();
+    assert!((eff.range_mult - 1.30).abs() < 1e-5, "got {}", eff.range_mult);
     let kit = app.world().get::<AttackKit>(hero).unwrap();
-    assert!((kit.def.range - 6.5).abs() < 1e-5, "got {}", kit.def.range);
+    let range = warbase::prelude::attack_range(&kit.def, Some(eff));
+    assert!((range - 6.5).abs() < 1e-5, "effective range {}", range);
     // Interval affix rides StatMods (quiver -10% attack interval).
     equip_item(&mut app.world_mut(), hero, 2, "quiver").expect("equip quiver");
     app.update();
@@ -123,8 +129,8 @@ fn equipment_range_affix_and_guards() {
 
     unequip_slot(&mut app.world_mut(), hero, 1).expect("unequip scope");
     app.update();
-    let kit = app.world().get::<AttackKit>(hero).unwrap();
-    assert!((kit.def.range - 5.0).abs() < 1e-5, "range restored");
+    let eff = app.world().get::<EffectiveStats>(hero).unwrap();
+    assert!((eff.range_mult - 1.0).abs() < 1e-5, "range affix restored");
 
     // Guards: slot index, unknown item, non-equipment rejects, plain towers.
     assert!(equip_item(&mut app.world_mut(), hero, EQUIP_SLOTS, "scope").is_err());
@@ -303,6 +309,7 @@ fn challenge_bundle() -> MapBundle {
                     boss_timeout: None,
                     preview: format!("wave {i}"),
                     reward_gold: 10,
+                    challenge: false,
                 })
                 .collect(),
             advance: Advance::Auto { intermission: 0.1 },
@@ -334,8 +341,8 @@ fn challenge_bundle() -> MapBundle {
 #[test]
 fn challenge_wave_doubles_hp_triples_reward_and_drops_equipment() {
     use loop_td::systems::challenge::{
-        arm_challenge, challenge_progress, ChallengeSpawn, CHALLENGE_HP_MULT,
-        CHALLENGE_MILESTONE, CHALLENGE_REWARD_MULT,
+        arm_challenge, challenge_progress, CHALLENGE_HP_MULT, CHALLENGE_MILESTONE,
+        CHALLENGE_REWARD_MULT,
     };
 
     let bundle = challenge_bundle();
@@ -367,7 +374,8 @@ fn challenge_wave_doubles_hp_triples_reward_and_drops_equipment() {
     assert!((entry.spawns[0].hp_scale - base_hp_scale * CHALLENGE_HP_MULT).abs() < 1e-6);
     assert_eq!(entry.reward_gold, base_reward * CHALLENGE_REWARD_MULT);
 
-    // The challenge wave actually spawns doubled-hp units tagged as challenges.
+    // The challenge wave actually spawns doubled-hp units tagged as
+    // challenges (SEAM3b: WaveTag::Challenge via the entry flag).
     app.world_mut()
         .resource_mut::<Messages<StartWave>>()
         .write(StartWave);
@@ -377,9 +385,13 @@ fn challenge_wave_doubles_hp_triples_reward_and_drops_equipment() {
         challenge_progress(&mut app.world_mut());
         let mut q = app
             .world_mut()
-            .query_filtered::<&MaxHp, (With<WaveTag>, With<ChallengeSpawn>)>();
-        if let Some(max) = q.iter(app.world()).next() {
+            .query_filtered::<(&MaxHp, &WaveTag), ()>();
+        if let Some((max, tag)) = q
+            .iter(app.world())
+            .find(|(_, tag)| tag.is_challenge() && tag.index() == w)
+        {
             assert!((max.0 - 40.0 * base_hp_scale * CHALLENGE_HP_MULT).abs() < 1e-4, "hp {}", max.0);
+            let _ = tag;
             saw_challenge_unit = true;
             break;
         }
@@ -529,12 +541,12 @@ fn dig_equipment_lands_in_a_hero_bag_or_on_the_ground() {
         if let loop_td::systems::dig::DigOutcome::Equipment(id) = dig(&mut app.world_mut()).unwrap()
         {
             let inv = app.world().get::<Inventory>(hero).unwrap();
-            let bag: Vec<&str> = inv
+            let bag: Vec<String> = inv
                 .slots
                 .iter()
-                .filter_map(|s| s.as_ref().map(|st| st.def.as_str()))
+                .filter_map(|s| s.map(|e| app.world().get::<ItemStack>(e).unwrap().def.clone()))
                 .collect();
-            assert!(bag.contains(&id.as_str()), "equipment '{id}' in the hero bag: {bag:?}");
+            assert!(bag.contains(&id), "equipment '{id}' in the hero bag: {bag:?}");
             stowed = true;
             break;
         }
@@ -688,6 +700,7 @@ fn dual_ring_bundle() -> MapBundle {
                 boss_timeout: None,
                 preview: "dual ring".into(),
                 reward_gold: 0,
+                challenge: false,
             }],
             advance: Advance::Auto { intermission: 0.5 },
             early_call_bonus: None,
@@ -720,7 +733,6 @@ fn dual_ring_bundle() -> MapBundle {
 
 #[test]
 fn dual_ring_leaks_pass_to_the_neighbor_ring() {
-    use loop_td::systems::multiplayer::{pass_leaks_to_neighbor, TransferredLeak};
 
     // The shipped map stays single-player (Stockpile) — pinned here so the
     // dual-ring proof can never leak back into loop.ron.
@@ -781,8 +793,7 @@ fn dual_ring_leaks_pass_to_the_neighbor_ring() {
             .count()
     };
     for _ in 0..300 {
-        app.update(); // A's grunt at t=0, B's at t=3s
-        pass_leaks_to_neighbor(&mut app.world_mut());
+        app.update(); // A's grunt at t=0, B's at t=3s (leak pass: base rule domain)
     }
     assert_eq!(followers_on(&mut app, path_a), 1, "ring A stocked");
     assert_eq!(followers_on(&mut app, path_b), 1, "ring B stocked");
@@ -792,7 +803,6 @@ fn dual_ring_leaks_pass_to_the_neighbor_ring() {
     let mut transferred = false;
     for _ in 0..60 * 11 {
         app.update();
-        pass_leaks_to_neighbor(&mut app.world_mut());
         let leaks: usize = {
             let mut q = app
                 .world_mut()

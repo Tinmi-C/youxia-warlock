@@ -254,3 +254,66 @@ fn plan_a_skin_drops_onto_base_command_card() {
         "base command slot re-skinned to plan-a"
     );
 }
+/// AC 4 (SEAM3b) — hot re-skin: swapping the `UiTheme` resource with a
+/// bumped `revision` re-skins warden's OWN command bar on the next update
+/// (the revision joined the card cache key; before, warden panels kept the
+/// startup skin forever). The display tier rides the same skin data.
+#[test]
+fn hot_theme_swap_reskins_warden_panels() {
+    let mut app = test_app();
+    app.world_mut().resource_mut::<Hand>().owned_towers.push(0);
+    app.world_mut().resource_mut::<warden::resources::Economy>().gold = 999;
+    for _ in 0..3 {
+        app.update();
+    }
+    let plan_a = theme::plan_a();
+    // Startup skin = plan-a tokens on the bar root.
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&BackgroundColor, With<CommandBarRoot>>();
+    assert_eq!(
+        q.single(app.world()).unwrap().0,
+        plan_a.palette.panel_bg.color(),
+        "bar starts on plan-a"
+    );
+
+    // Hot swap: mutate a token, bump the revision, insert the resource.
+    let mut hot = plan_a.clone();
+    hot.revision += 1;
+    hot.palette.panel_bg = ThemeColor::rgb(0.2, 0.3, 0.4);
+    hot.typography.font_display = 28.0;
+    let hot_again = hot.clone();
+    app.insert_resource(hot);
+    app.update();
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&BackgroundColor, With<CommandBarRoot>>();
+    assert_eq!(
+        q.single(app.world()).unwrap().0,
+        Color::srgb(0.2, 0.3, 0.4),
+        "revision bump re-skins warden's own bar"
+    );
+
+    // Same revision again => keyed, no rebuild (stable idempotence).
+    let stable = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<CommandButton>>();
+        q.iter(app.world()).collect::<Vec<_>>()
+    };
+    app.insert_resource(hot_again);
+    app.update();
+    let after = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, With<CommandButton>>();
+        q.iter(app.world()).collect::<Vec<_>>()
+    };
+    assert_eq!(stable, after, "same revision rebuilds nothing");
+
+    // The display tier parses from skin data (old plan-a.ron without the
+    // field falls back to the 34px default, digit for digit).
+    assert_eq!(UiTheme::default().typography.font_display, 34.0);
+    assert_eq!(theme::plan_a().typography.font_display, 34.0);
+}

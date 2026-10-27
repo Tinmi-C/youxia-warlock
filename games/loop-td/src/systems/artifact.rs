@@ -114,23 +114,6 @@ pub fn apply_artifact_aura(world: &mut World) {
     }
 }
 
-/// Minimal input entry: Q claims once the chain is complete.
-pub fn artifact_input(world: &mut World) {
-    if !world.contains_resource::<ButtonInput<KeyCode>>() {
-        return;
-    }
-    if *world.resource::<MatchFlow>() != MatchFlow::Running {
-        return;
-    }
-    let keys = world.resource::<ButtonInput<KeyCode>>().clone();
-    if !keys.just_pressed(KeyCode::KeyQ) {
-        return;
-    }
-    if let Err(e) = claim_artifact(world) {
-        info!("[loop-td] artifact: {e}");
-    }
-}
-
 /// Run-restart hook: the quest is per-match (marker despawned, resources
 /// dropped; tower StatMods die with the towers restart_run despawns).
 pub fn reset(world: &mut World) {

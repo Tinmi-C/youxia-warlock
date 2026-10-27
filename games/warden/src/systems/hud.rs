@@ -49,26 +49,46 @@ pub struct ReportHeader;
 pub struct FieldReport;
 
 /// The bundled open-source CJK font (UI6): Noto Sans SC under SIL OFL 1.1
-/// (license at `assets/fonts/OFL.txt`). Shipping the file makes rendering
-/// identical on every machine (Windows used Microsoft YaHei, macOS fell back
-/// to PingFang) and keeps distribution licensing clean. Headless tests have
-/// no AssetServer, so `setup_ui_font` falls back to `FontSource::Default`.
+/// (license at the workspace-root `assets/fonts/OFL.txt`, SEAM3b shared
+/// single copy — both games read the same file). Shipping the file makes
+/// rendering identical on every machine (Windows used Microsoft YaHei, macOS
+/// fell back to PingFang) and keeps distribution licensing clean. Loaded by
+/// BYTES from the shared root (AssetServer roots are per-crate), so the
+/// path works windowed and headless alike; bare headless tests have no
+/// `Assets<Font>` store and fall back to `FontSource::Default`.
 #[derive(Resource)]
 pub struct UiFont(pub FontSource);
 
-/// Asset path of the bundled font, relative to the `assets/` root.
-pub const UI_FONT_PATH: &str = "fonts/NotoSansSC-VariableFont_wght.ttf";
+/// File name of the shared font inside the workspace-root `assets/fonts/`.
+pub const UI_FONT_FILE: &str = "NotoSansSC-VariableFont_wght.ttf";
+
+/// Absolute path of the shared font file (workspace root, single copy).
+pub fn font_file() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/fonts")
+        .join(UI_FONT_FILE)
+}
 
 /// Startup: resolve the UI font once; runs before any UI-building system.
-pub fn setup_ui_font(mut commands: Commands, server: Option<Res<AssetServer>>) {
-    let source = match &server {
-        Some(s) => FontSource::Handle(s.load(UI_FONT_PATH)),
-        None => FontSource::default(),
+pub fn setup_ui_font(
+    mut commands: Commands,
+    mut fonts: Option<ResMut<Assets<Font>>>,
+) {
+    let source = if let Some(fonts) = fonts.as_mut() {
+        match std::fs::read(font_file()) {
+            Ok(bytes) => FontSource::Handle(fonts.add(Font::from_bytes(bytes))),
+            Err(e) => {
+                info!("[ui6] shared ui font unreadable ({e}) — default fallback");
+                FontSource::default()
+            }
+        }
+    } else {
+        FontSource::default()
     };
     commands.insert_resource(UiFont(source));
     info!(
         "[ui6] ui font ready ({})",
-        if server.is_some() { "bundled asset" } else { "default fallback" }
+        if fonts.is_some() { "shared asset" } else { "default fallback" }
     );
 }
 

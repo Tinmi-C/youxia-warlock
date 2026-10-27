@@ -33,23 +33,39 @@ fn default_diplomacy_single_player() {
 
 /// A pre-ADR-0016 map file (no new optional sections) still loads and
 /// validates — the superset-compatibility contract of MAP_FORMAT_VERSION.
+/// SEAM3b relaxation: SHIPPED maps may carry an items section (loop-td's
+/// equipment table merged into loop.ron); "optional, defaults empty" is the
+/// contract now, pinned per map below.
 #[test]
 fn old_map_without_new_sections_loads() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    for rel in [
-        "../../games/warden/maps/warden.ron",
-        "../../games/loop-td/maps/loop.ron",
-    ] {
-        let path = std::path::Path::new(manifest_dir).join(rel);
-        let bundle = warbase::bundle::load_bundle(&path)
-            .unwrap_or_else(|e| panic!("{} failed to load: {e}", rel));
-        // New sections materialized as defaults.
-        assert!(bundle.nav.blocked.is_empty());
-        assert!(bundle.items.items.is_empty());
-        assert!(bundle.production.research.is_empty());
-        assert!(bundle.teams.players.is_empty());
-        assert_eq!(bundle.vision.cell, 1.0);
-    }
+    // warden.ron: the strict pre-ADR-0016 shape — every optional section
+    // still materializes as its default.
+    let warden = warbase::bundle::load_bundle(
+        std::path::Path::new(manifest_dir).join("../../games/warden/maps/warden.ron").as_path(),
+    )
+    .unwrap_or_else(|e| panic!("warden.ron failed to load: {e}"));
+    assert!(warden.nav.blocked.is_empty());
+    assert!(warden.items.items.is_empty());
+    assert!(warden.production.research.is_empty());
+    assert!(warden.teams.players.is_empty());
+    assert_eq!(warden.vision.cell, 1.0);
+
+    // loop.ron: ships an items section (equipment) — parses into defs and
+    // reaches the registry via assemble; drops stay empty.
+    let bundle = warbase::bundle::load_bundle(
+        std::path::Path::new(manifest_dir).join("../../games/loop-td/maps/loop.ron").as_path(),
+    )
+    .unwrap_or_else(|e| panic!("loop.ron failed to load: {e}"));
+    assert!(!bundle.items.items.is_empty(), "equipment ships in the map file");
+    assert!(bundle.items.items.contains_key("scope"));
+    assert!(bundle.items.drops.is_empty());
+    let mut app = warbase::testing::test_app();
+    warbase::bundle::assemble(&mut app.world_mut(), &bundle);
+    assert!(
+        app.world().resource::<ItemRegistry>().get("scope").is_some(),
+        "map items reach the ItemRegistry"
+    );
 }
 
 /// The seam registers every new message/resource on a bare app: consumers

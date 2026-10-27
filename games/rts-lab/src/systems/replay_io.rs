@@ -267,52 +267,11 @@ pub fn replay_lab(bundle_unused: &MapBundle, log: &MatchInputLog) -> Result<Vec<
     Ok(st.actual.clone())
 }
 
-/// Convert an envelope back into its message (same shape as the base's).
+/// Convert an envelope back into its message: delegates to the BASE
+/// implementation (SEAM3c made `replay::apply_envelope` public — this
+/// local copy would have drifted from the Key/Card vocabulary).
 fn apply_envelope(world: &mut World, env: &warbase::prelude::CommandEnvelope) -> Result<(), String> {
-    use warbase::prelude::CommandEnvelope;
-    match env {
-        CommandEnvelope::Pick { world: pos, button, clicks, ctrl, shift } => {
-            world.write_message(PickAttempt {
-                world: Vec2::new(pos[0], pos[1]),
-                button: *button,
-                click_count: *clicks,
-                ctrl: *ctrl,
-                shift: *shift,
-            });
-        }
-        CommandEnvelope::Key { code } => {
-            return Err(format!("unhandled envelope Key({code}) — RPL1 records no keys"));
-        }
-        // SEAM2b hole-10 vocabulary: serde-stable but no recorder writes
-        // them yet (RPL follow-up wires both ends).
-        CommandEnvelope::Select { op } => {
-            return Err(format!("unhandled envelope Select({op}) — recorder lands with RPL follow-up"));
-        }
-        CommandEnvelope::Order { kind, .. } => {
-            return Err(format!("unhandled envelope Order({kind}) — recorder lands with RPL follow-up"));
-        }
-        CommandEnvelope::Train { unit } => {
-            return Err(format!("unhandled envelope Train({unit}) — recorder lands with RPL follow-up"));
-        }
-        CommandEnvelope::Research { id } => {
-            return Err(format!("unhandled envelope Research({id}) — recorder lands with RPL follow-up"));
-        }
-        CommandEnvelope::UseItem { slot } => {
-            return Err(format!("unhandled envelope UseItem({slot}) — recorder lands with RPL follow-up"));
-        }
-        CommandEnvelope::WaveStart => {
-            world.write_message(warbase::prelude::StartWave);
-        }
-        CommandEnvelope::Ext { kind, payload } => {
-            if kind != ECON_KIND {
-                return Err(format!("unhandled Ext kind {kind:?}"));
-            }
-            let cmd: warbase::prelude::EconCommand = ron::from_str(payload)
-                .map_err(|e| format!("bad {ECON_KIND} payload {payload:?}: {e}"))?;
-            world.write_message(cmd);
-        }
-    }
-    Ok(())
+    warbase::prelude::apply_envelope(world, env)
 }
 
 /// The `--replay <file>` entry: parse the log, verify the map fingerprint,

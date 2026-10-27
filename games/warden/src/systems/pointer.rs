@@ -486,9 +486,9 @@ pub fn update_hover_ghost(
 /// Build the GameOver/Win result screen: a centered banner + the retry button
 /// and the two meta-upgrade purchase buttons (UI5). Starts hidden; the
 /// `refresh_end_screen` system toggles its visibility with the game state.
-/// WARDEN-SKIN: themed inside the deferred spawn (signature unchanged; the
-/// 34px banner stays a literal — no display-scale token in UiTheme yet, see
-/// systems/theme.rs TODO).
+/// WARDEN-SKIN: themed inside the deferred spawn (signature unchanged). The
+/// banner rides `typography.font_display` (SEAM3b display tier; default 34px
+/// = the retired hard-coded literal).
 fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
     let font = font.0.clone();
     commands.queue(move |world: &mut World| {
@@ -516,7 +516,7 @@ fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
                     Text::new(l10n::END_BANNER.pick(lang)),
                     TextFont {
                         font: font.clone(),
-                        font_size: FontSize::Px(34.0),
+                        font_size: FontSize::Px(ui.typography.font_display),
                         ..default()
                     },
                     TextColor(ui.state_colors.gold.color()),

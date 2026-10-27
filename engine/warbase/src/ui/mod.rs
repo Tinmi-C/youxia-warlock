@@ -16,12 +16,52 @@ pub enum Hotkey {
 
 /// What a slot does. `Build` carries the unit def id; `Cast` carries the
 /// SkillCaster slot index; Upgrade/Sell apply to the selected buildable.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `Custom` (SEAM3b registry seam) carries a game-owned action id: the base
+/// card framework (def/hotkey/dispatch/enabled) is generic and games
+/// register their own entries without engine vocabulary. Chosen over a
+/// registration-map resource because the break surface is one match arm —
+/// exhaustive consumers just grow a `Custom(_)` case.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CommandAction {
     Build(String),
     Upgrade,
     Sell,
     Cast(usize),
+    /// Game-registered action id (e.g. loop-td's "dig"/"challenge"/
+    /// "artifact"); the game dispatches it, the base only carries it.
+    Custom(String),
+}
+
+impl CommandAction {
+    /// Stable replay-envelope word (SEAM3c): "build:<id>" / "upgrade" /
+    /// "sell" / "cast:<slot>" / "custom:<id>". Entity-free by construction;
+    /// the codec lives with the vocabulary it encodes.
+    pub fn envelope_word(&self) -> String {
+        match self {
+            CommandAction::Build(id) => format!("build:{id}"),
+            CommandAction::Upgrade => "upgrade".into(),
+            CommandAction::Sell => "sell".into(),
+            CommandAction::Cast(slot) => format!("cast:{slot}"),
+            CommandAction::Custom(id) => format!("custom:{id}"),
+        }
+    }
+
+    /// Decode an envelope word; None on anything this vocabulary never
+    /// wrote (the replayer surfaces it as a loud error, never silence).
+    pub fn from_envelope_word(word: &str) -> Option<Self> {
+        let (head, tail) = match word.split_once(':') {
+            Some((h, t)) => (h, Some(t)),
+            None => (word, None),
+        };
+        match (head, tail) {
+            ("build", Some(id)) => Some(CommandAction::Build(id.to_string())),
+            ("upgrade", None) => Some(CommandAction::Upgrade),
+            ("sell", None) => Some(CommandAction::Sell),
+            ("cast", Some(slot)) => slot.parse::<usize>().ok().map(CommandAction::Cast),
+            ("custom", Some(id)) => Some(CommandAction::Custom(id.to_string())),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -170,7 +210,9 @@ impl Default for UiStateColors {
     }
 }
 
-/// Four-step type scale + component sizes (brief §5.3).
+/// Four-step type scale + component sizes (brief §5.3), plus the display
+/// tier (SEAM3b: end-screen banners / victory text — warden's hard-coded
+/// 34px moved here so skins own the whole ladder).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct UiTypography {
@@ -186,6 +228,9 @@ pub struct UiTypography {
     pub font_tooltip: f32,
     /// Panel headers.
     pub font_title: f32,
+    /// Display tier (SEAM3b): end-screen banners and hero numbers. Default
+    /// = warden's boarded 34px literal, digit for digit (zero visual drift).
+    pub font_display: f32,
 }
 
 impl Default for UiTypography {
@@ -197,6 +242,7 @@ impl Default for UiTypography {
             font_badge: 9.0,
             font_tooltip: 11.0,
             font_title: 16.0,
+            font_display: 34.0,
         }
     }
 }
@@ -430,6 +476,23 @@ pub fn command_clicks(
                 selection: selection.mode.clone(),
             });
         }
+    }
+}
+
+/// SEAM3c recorder extension: every dispatched card action lands in the
+/// input log as a `Card` envelope word (selection is dropped — the
+/// replayer re-derives it, keeping the envelope Entity-free). No-op
+/// without a `RecordingLog` (one lookup, zero drift).
+pub fn record_card_actions(
+    mut reader: MessageReader<CommandCardAction>,
+    log: Option<ResMut<crate::replay::RecordingLog>>,
+) {
+    let Some(mut log) = log else { return };
+    for msg in reader.read() {
+        crate::replay::append_envelope(
+            &mut log,
+            crate::replay::CommandEnvelope::Card { action: msg.action.envelope_word() },
+        );
     }
 }
 
@@ -705,6 +768,9 @@ impl Plugin for UiPlugin {
                 (
                     command_input,
                     command_clicks,
+                    // SEAM3c: record dispatched card actions after the two
+                    // dispatchers (same-frame message visibility).
+                    record_card_actions.after(command_input).after(command_clicks),
                     refresh_command_panel,
                     refresh_tooltip,
                 ),

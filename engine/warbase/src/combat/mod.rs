@@ -175,12 +175,22 @@ pub fn tick_cooldowns(time: Res<Time>, mut q: Query<&mut AttackCooldown>) {
     }
 }
 
+/// Fold an attack def's base range with the attacker's aggregated
+/// `RangeMult` mods (SEAM3b): effective range = def.range x
+/// max(range_mult, 0). `None` eff = no `EffectiveStats` yet = neutral 1.0
+/// (byte-for-byte the legacy range). The ONE read side is `pick_targets`
+/// (fire validates the target it was handed, not the distance); games and
+/// panels reuse this for display so the two can never drift.
+pub fn attack_range(def: &AttackDef, eff: Option<&crate::buff::EffectiveStats>) -> f32 {
+    def.range * eff.map_or(1.0, |e| e.range_mult.max(0.0))
+}
+
 /// Intent: every attacker re-picks its target each frame (no sticky locks in
 /// v1 — cheap at our unit counts, trivially testable).
 #[allow(clippy::type_complexity)]
 pub fn pick_targets(
     hostility: Res<Hostility>,
-    mut attackers: Query<(&AttackKit, &Transform, &Allegiance, &mut CurrentTarget)>,
+    mut attackers: Query<(&AttackKit, &Transform, &Allegiance, &mut CurrentTarget, Option<&crate::buff::EffectiveStats>)>,
     enemies: Query<
         (
             Entity,
@@ -193,7 +203,10 @@ pub fn pick_targets(
         Without<Dead>,
     >,
 ) {
-    for (kit, pos, side, mut target) in &mut attackers {
+    for (kit, pos, side, mut target, eff) in &mut attackers {
+        // SEAM3b: range-affix mods (StatKind::RangeMult) multiply the def's
+        // base range here — the single targeting read side.
+        let range = attack_range(&kit.def, eff);
         // (entity, hp, path rank, dist) for the current best candidate.
         let mut best: Option<(Entity, f32, (u32, f32), f32)> = None;
         for (e, epos, hp, eside, air, follower) in &enemies {
@@ -207,7 +220,7 @@ pub fn pick_targets(
                 continue;
             }
             let dist = pos.translation.distance(epos.translation);
-            if dist > kit.def.range {
+            if dist > range {
                 continue;
             }
             let rank = follower.map(|f| (f.laps, f.progress)).unwrap_or((0, 0.0));

@@ -701,7 +701,9 @@ fn grunt_drops_potion_hero_picks_up_and_uses_it() {
     *app.world_mut().get_mut::<Transform>(hero).unwrap() = Transform::from_translation(drop_pos);
     app.update(); // pickup_items (Cleanup)
     let inv = app.world().get::<Inventory>(hero).expect("hero carries an inventory");
-    let stack = inv.slots[0].as_ref().expect("potion stowed in slot 0");
+    // SEAM3b: slots hold stack entity ids.
+    let stack_e = inv.slots[0].expect("potion stowed in slot 0");
+    let stack = app.world().get::<ItemStack>(stack_e).unwrap();
     assert_eq!(stack.def, "healing_potion");
     assert_eq!(stack.charges, 1);
     assert_eq!(grounds.iter(app.world()).count(), 0, "ground item gone");
@@ -766,7 +768,8 @@ fn shop_buy_charges_gold_and_stows_potion() {
     }
     assert_eq!(app.world().resource::<Resources>().gold, 170, "potion charged 30");
     let inv = app.world().get::<Inventory>(hero).unwrap();
-    assert_eq!(inv.slots[0].as_ref().unwrap().def, "healing_potion");
+    let stack_e = inv.slots[0].unwrap();
+    assert_eq!(app.world().get::<ItemStack>(stack_e).unwrap().def, "healing_potion");
 }
 
 // -- ⑫ RL3: fog of war ----------------------------------------------------------

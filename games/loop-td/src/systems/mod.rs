@@ -8,7 +8,6 @@ pub mod equip;
 pub mod font;
 pub mod gameplay;
 pub mod hud;
-pub mod multiplayer;
 pub mod panels;
 pub mod theme;
 pub mod visuals;

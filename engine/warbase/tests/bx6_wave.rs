@@ -50,6 +50,7 @@ fn one_grunt_wave() -> WaveEntry {
         boss_timeout: None,
         preview: "grunt pack".into(),
         reward_gold: 0,
+        challenge: false,
     }
 }
 

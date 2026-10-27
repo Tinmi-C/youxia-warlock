@@ -1,18 +1,17 @@
 //! LT2-1 equipment on hero towers (v2 proposal §2 #1): 3 dedicated equip
 //! slots on hero defs; each equipment piece is an `ItemDef` whose affix
-//! (攻+X% / 间隔-X%) rides a `StatMods` entry injected into the tower with a
-//! MARKER ENTITY per (tower, slot) as the entry source — the INV domain's
-//! known flaw (passives use the holder as source, so same-kind entries
-//! overwrite each other) is dodged by construction: every slot owns its own
-//! source, same-slot replacement strips exactly that source's entries.
+//! (攻+X% / 间隔-X% / 射程+X%) rides a `StatMods` entry injected into the
+//! tower with a MARKER ENTITY per (tower, slot) as the entry source — the
+//! INV domain's pre-SEAM3b flaw (passives used the holder as source, so
+//! same-kind entries overwrote each other) is dodged by construction:
+//! every slot owns its own source, same-slot replacement strips exactly
+//! that source's entries.
 //!
-//! ENGINE HOLE (recorded for the C-channel): `StatKind` has no range entry,
-//! so the 射程+X affix cannot ride StatMods. The game-side `RANGE_AFFIXES`
-//! table below carries it instead and `refresh_range` adjusts the tower's
-//! `AttackKit.def.range` (base range from the registry + equipped bonuses),
-//! restored on unequip. ItemDef-ridable numbers live in maps/equipment.ron
-//! (merged into the in-memory bundle at load time — the engine seam test
-//! pins the shipped loop.ron items-section-free; see maps/equipment.ron).
+//! SEAM3b: the range affix (观测镜 射程+X%) moved into the base vocabulary
+//! (`StatKind::RangeMult` folds into `EffectiveStats.range_mult` and
+//! `combat::attack_range` applies it at targeting time) — the game-side
+//! `RANGE_AFFIXES` table and the `AttackKit.def.range` rewrite are retired;
+//! item numbers now live purely in the map's item table.
 
 use bevy::prelude::*;
 use warbase::prelude::*;
@@ -20,12 +19,15 @@ use warbase::prelude::*;
 /// Equip slots per hero tower (proposal §2: 3).
 pub const EQUIP_SLOTS: usize = 3;
 
-/// Flat range affixes the engine stat vocabulary cannot express
-/// (item id -> +range). Game-side config until StatKind grows a range kind.
-pub const RANGE_AFFIXES: &[(&str, f32)] = &[("scope", 1.5)];
-
 /// One occupied equip slot. `source` is the dedicated StatMods source entity
 /// for this (tower, slot) pair — stable for the slot's lifetime.
+///
+/// SEAM3b note: the base Inventory bag is now slot-entity-backed (per-stack
+/// ModEntry sources), but the EQUIP rack keeps its own marker scheme: the
+/// rack is a distinct 3-slot surface with swap-back-to-bag semantics, and
+/// its per-slot marker is already a dedicated source — re-parenting it onto
+/// the bag stack entity would churn the swap path for no behavioral gain
+/// (smallest blast radius, pinned here deliberately).
 #[derive(Debug, Clone)]
 pub struct EquippedItem {
     pub def: String,
@@ -56,13 +58,6 @@ pub fn attach_equip_slots(
     }
 }
 
-/// Flat range bonus of an item id (0.0 when none) — the game-side table the
-/// engine stat vocabulary cannot express. Public since LT2-UI reads it for
-/// the 射程+X affix summaries.
-pub fn range_affix(item: &str) -> f32 {
-    RANGE_AFFIXES.iter().find(|(id, _)| *id == item).map(|(_, r)| *r).unwrap_or(0.0)
-}
-
 /// All equipment-class item ids in the registry, sorted (deterministic
 /// picks for random-equipment rewards — challenge drops, treasure digs).
 pub fn equipment_ids(world: &mut World) -> Vec<String> {
@@ -77,21 +72,6 @@ pub fn equipment_ids(world: &mut World) -> Vec<String> {
     ids
 }
 
-/// Recompute the tower's attack range: registry base + sum of equipped range
-/// affixes (call after ANY equip-slot change).
-fn refresh_range(world: &mut World, tower: Entity) {
-    let Some(rack) = world.get::<EquipSlots>(tower).cloned() else { return };
-    let base = world
-        .get::<UnitInstance>(tower)
-        .and_then(|i| world.resource::<UnitRegistry>().get(&i.def).cloned())
-        .and_then(|d| d.attack.map(|a| a.range));
-    let Some(base) = base else { return };
-    let bonus: f32 = rack.slots.iter().filter_map(|s| s.as_ref()).map(|it| range_affix(&it.def)).sum();
-    if let Some(mut kit) = world.get_mut::<AttackKit>(tower) {
-        kit.def.range = base + bonus;
-    }
-}
-
 /// Strip every StatMods entry owned by `source` on `tower` (all kinds — the
 /// slot's source is exclusive to the slot).
 fn strip_slot_entries(world: &mut World, tower: Entity, source: Entity) {
@@ -101,28 +81,36 @@ fn strip_slot_entries(world: &mut World, tower: Entity, source: Entity) {
 }
 
 /// Stow an item stack into the tower's bag (Inventory) when there is room.
+/// SEAM3b: bags are slot-ENTITY backed — stowing spawns the stack entity
+/// (`StackHolder` links it for the base's orphan sweep).
 fn stow_into_bag(world: &mut World, tower: Entity, item: &str) -> Result<(), String> {
     let def = world
         .resource::<ItemRegistry>()
         .get(item)
         .cloned()
         .ok_or_else(|| format!("unknown item '{item}'"))?;
-    let Some(mut inv) = world.get_mut::<Inventory>(tower) else {
+    if world.get::<Inventory>(tower).is_none() {
         return Ok(()); // no bag (never happens for hero towers) — item is lost
-    };
-    match inv.first_free_slot() {
-        Some(slot) => {
-            inv.slots[slot] = Some(ItemStack::from_def(&def));
-            Ok(())
-        }
-        None => Err("bag full".into()),
     }
+    let Some(slot) = world
+        .get::<Inventory>(tower)
+        .and_then(|inv| inv.first_free_slot())
+    else {
+        return Err("bag full".into());
+    };
+    let stack = world
+        .spawn((ItemStack::from_def(&def), StackHolder(tower)))
+        .id();
+    if let Some(mut inv) = world.get_mut::<Inventory>(tower) {
+        inv.slots[slot] = Some(stack);
+    }
+    Ok(())
 }
 
 /// Equip `item_id` into `slot` on a hero tower, replacing whatever the slot
 /// held (the replaced piece goes back into the bag; a full bag refuses the
-/// swap BEFORE anything changes). Stat affixes upsert through the slot's
-/// dedicated source; range affixes recompute `AttackKit.def.range`.
+/// swap BEFORE anything changes). Every affix — damage, interval, range —
+/// upserts through the slot's dedicated source as one StatMods entry.
 pub fn equip_item(world: &mut World, tower: Entity, slot: usize, item_id: &str) -> Result<(), String> {
     if slot >= EQUIP_SLOTS {
         return Err(format!("slot {slot} out of range (0..{EQUIP_SLOTS})"));
@@ -166,14 +154,13 @@ pub fn equip_item(world: &mut World, tower: Entity, slot: usize, item_id: &str) 
     }
     let Some(mut rack) = world.get_mut::<EquipSlots>(tower) else { return Err("tower gone".into()) };
     rack.slots[slot] = Some(EquippedItem { def: def.id.clone(), source });
-    refresh_range(world, tower);
     info!("[loop-td] equip '{}' on tower {:?} slot {slot}", def.id, tower);
     Ok(())
 }
 
-/// Remove the piece in `slot`: strips its StatMods entries, recomputes the
-/// range, and stows it back into the bag (a full bag refuses). Returns the
-/// removed item id.
+/// Remove the piece in `slot`: strips its StatMods entries and stows it back
+/// into the bag (a full bag refuses). Returns the removed item id. Range
+/// affixes need no separate restore — they rode the same StatMods entry.
 pub fn unequip_slot(world: &mut World, tower: Entity, slot: usize) -> Result<String, String> {
     let Some(item) = world.get::<EquipSlots>(tower).and_then(|r| r.slots[slot].clone()) else {
         return Err(format!("slot {slot} is empty"));
@@ -183,7 +170,6 @@ pub fn unequip_slot(world: &mut World, tower: Entity, slot: usize) -> Result<Str
     if let Some(mut rack) = world.get_mut::<EquipSlots>(tower) {
         rack.slots[slot] = None;
     }
-    refresh_range(world, tower);
     Ok(item.def)
 }
 
@@ -201,23 +187,35 @@ pub fn equip_input(world: &mut World) {
     if !keys.just_pressed(KeyCode::KeyE) {
         return;
     }
+    // SEAM3c (LT2 key envelope): record the raw E press when recording is
+    // armed — game-side vocabulary the base recorder does not know (same
+    // precedent as the game-side econ filtering). The envelope re-injects
+    // as a KeyboardInput message, so a replay/spectate run re-fires this
+    // exact path in the same frame.
+    if let Some(mut rec) = world.get_resource_mut::<RecordingLog>() {
+        append_envelope(
+            &mut rec,
+            CommandEnvelope::Key { code: "KeyE".into() },
+        );
+    }
     let cell = world.resource::<crate::systems::gameplay::BuildCursor>().0;
     let Some(hero) = world.resource::<BuildGrid>().occupant(cell) else { return };
     if world.get::<EquipSlots>(hero).is_none() {
         return;
     }
-    // First equipment-class stack in the bag.
-    let candidate: Option<(usize, ItemStack)> = world.get::<Inventory>(hero).and_then(|inv| {
+    // First equipment-class stack in the bag (slot entities, SEAM3b).
+    let candidate: Option<(usize, String)> = world.get::<Inventory>(hero).and_then(|inv| {
         inv.slots.iter().enumerate().find_map(|(i, s)| {
-            let stack = s.as_ref()?;
+            let &stack_e = s.as_ref()?;
+            let def_id = world.get::<ItemStack>(stack_e)?.def.clone();
             let is_equipment = world
                 .resource::<ItemRegistry>()
-                .get(&stack.def)
+                .get(&def_id)
                 .is_some_and(|d| d.kind == ItemKind::Passive);
-            is_equipment.then(|| (i, stack.clone()))
+            is_equipment.then(|| (i, def_id))
         })
     });
-    let Some((bag_slot, stack)) = candidate else {
+    let Some((bag_slot, item_id)) = candidate else {
         info!("[loop-td] equip: no equipment in the bag");
         return;
     };
@@ -230,11 +228,14 @@ pub fn equip_input(world: &mut World) {
     };
     // The piece moves bag -> slot: clear the bag stack BEFORE equip_item's
     // replacement stow (it only stows on replacement, so a plain clear works).
-    if let Some(mut inv) = world.get_mut::<Inventory>(hero) {
-        inv.slots[bag_slot] = None;
+    let bag_stack = world
+        .get_mut::<Inventory>(hero)
+        .and_then(|mut inv| inv.slots[bag_slot].take());
+    if let Some(stack_e) = bag_stack {
+        let _ = world.get_entity_mut(stack_e).map(|mut e| e.despawn());
     }
-    if let Err(e) = equip_item(world, hero, free, &stack.def) {
+    if let Err(e) = equip_item(world, hero, free, &item_id) {
         info!("[loop-td] equip failed: {e}");
-        stow_into_bag(world, hero, &stack.def).ok(); // put it back
+        stow_into_bag(world, hero, &item_id).ok(); // put it back
     }
 }

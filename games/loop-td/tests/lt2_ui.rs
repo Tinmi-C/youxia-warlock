@@ -147,13 +147,17 @@ fn mock_plan_a_reads_the_shipped_skin() {
 /// deletes (the warden UI6 contract, mirrored).
 #[test]
 fn bundled_cjk_font_files_are_present() {
-    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+    // SEAM3b: the font lives ONCE at the workspace root (shared with
+    // warden); this crate's own assets/fonts/ copy is gone by design.
+    let base = loop_td::systems::font::font_file();
     assert!(
-        base.join("NotoSansSC-VariableFont_wght.ttf").is_file(),
-        "assets/fonts/NotoSansSC-VariableFont_wght.ttf must exist (bundled CJK font)"
+        base.is_file(),
+        "shared {} must exist (bundled CJK font, single workspace copy)",
+        base.display()
     );
+    let license = base.parent().unwrap().join("OFL.txt");
     assert!(
-        base.join("OFL.txt").is_file(),
+        license.is_file(),
         "assets/fonts/OFL.txt must exist (SIL OFL 1.1 license travels with the font)"
     );
 }
@@ -353,7 +357,7 @@ fn equip_rack_and_hero_panel_reflect_the_rack() {
     assert!(equip.contains("精锻利刃"), "item display name: {equip}");
     assert!(equip.contains("攻+12%"), "damage affix: {equip}");
     assert!(equip.contains("观测镜"), "range item: {equip}");
-    assert!(equip.contains("射程+1.5"), "range affix: {equip}");
+    assert!(equip.contains("射程+30%"), "range affix: {equip}");
     assert!(equip.contains("空 · [E] 上装"), "empty-slot hint: {equip}");
 
     // Hero panel: bars + the equip affix summary lines (⑥).
@@ -362,7 +366,7 @@ fn equip_rack_and_hero_panel_reflect_the_rack() {
     assert!(hero_txt.contains("LV"), "level badge: {hero_txt}");
     assert!(hero_txt.contains("生命"), "hp bar: {hero_txt}");
     assert!(hero_txt.contains("精锻利刃"), "affix line: {hero_txt}");
-    assert!(hero_txt.contains("射程+1.5"), "range affix line: {hero_txt}");
+    assert!(hero_txt.contains("射程+30%"), "range affix line: {hero_txt}");
 
     // Deselect: both panels hide.
     app.world_mut()

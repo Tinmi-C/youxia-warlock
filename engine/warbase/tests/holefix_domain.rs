@@ -248,7 +248,8 @@ fn pathless_bundle_validates_and_wave_refs_still_rejected() {
         boss_timeout: None,
         preview: "1 peasant".into(),
         reward_gold: 0,
-    });
+        challenge: false,
+        });
     assert!(validate(&bundle).is_err(), "wave spawn with no paths is still rejected");
 }
 

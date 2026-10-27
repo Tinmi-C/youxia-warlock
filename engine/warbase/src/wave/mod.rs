@@ -15,6 +15,10 @@ fn default_interval() -> f32 {
     1.0
 }
 
+fn default_false() -> bool {
+    false
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnSpec {
     pub unit: UnitId,
@@ -46,6 +50,12 @@ pub struct WaveEntry {
     /// Gold granted when this wave is fully cleared (numbers ship per map).
     #[serde(default)]
     pub reward_gold: u32,
+    /// Optional-challenge wave (SEAM3b): the director tags this wave's
+    /// spawns `WaveTag::Challenge` instead of `Normal` — the wave-kind
+    /// vocabulary games (loop-td's challenge offers) used to fake with
+    /// game-side marker components. Data-only flag; the base never sets it.
+    #[serde(default = "default_false")]
+    pub challenge: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,8 +90,71 @@ impl Default for WaveTable {
 pub struct Paths(pub Vec<Entity>);
 
 /// Which wave a unit belongs to (cleared detection counts these).
-#[derive(Component, Debug)]
-pub struct WaveTag(pub usize);
+///
+/// SEAM3b variant typing: `Normal(w)` for plain table waves,
+/// `Challenge(w)` for optional-challenge waves (the `WaveEntry::challenge`
+/// flag arms it at spawn). Custom serde keeps the wire format
+/// backward-compatible: a plain number deserializes as `Normal` (old RON
+/// data / hand-written fixtures), and `Normal(w)` serializes BACK as that
+/// plain number, so old consumers of the numeric form see no drift;
+/// `Challenge(w)` round-trips in the explicit variant form.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WaveTag {
+    Normal(usize),
+    Challenge(usize),
+}
+
+impl WaveTag {
+    /// The wave index regardless of kind (cleared detection's join key).
+    pub fn index(self) -> usize {
+        match self {
+            WaveTag::Normal(w) | WaveTag::Challenge(w) => w,
+        }
+    }
+
+    pub fn is_challenge(self) -> bool {
+        matches!(self, WaveTag::Challenge(_))
+    }
+}
+
+impl serde::Serialize for WaveTag {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            WaveTag::Normal(w) => serializer.serialize_u64(*w as u64),
+            WaveTag::Challenge(w) => {
+                use serde::ser::SerializeTupleVariant;
+                let mut tv = serializer.serialize_tuple_variant("WaveTag", 1, "Challenge", 1)?;
+                tv.serialize_field(&(*w as u64))?;
+                tv.end()
+            }
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for WaveTag {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Wire forms: a bare number (legacy) OR an explicit variant. The
+        // untagged wire enum keeps both readable without hand-writing a
+        // visitor; order matters (number first, so `5` never tries the
+        // variant path).
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Num(u64),
+            Named(Named),
+        }
+        #[derive(serde::Deserialize)]
+        enum Named {
+            Normal(u64),
+            Challenge(u64),
+        }
+        match Wire::deserialize(deserializer)? {
+            Wire::Num(w) => Ok(WaveTag::Normal(w as usize)),
+            Wire::Named(Named::Normal(w)) => Ok(WaveTag::Normal(w as usize)),
+            Wire::Named(Named::Challenge(w)) => Ok(WaveTag::Challenge(w as usize)),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum DirectorPhase {
@@ -277,7 +350,13 @@ pub fn run_director(
                     ) {
                         commands.entity(u)
                             .insert(PathFollower { path: path_e, progress: 0.0, laps: 0, finished: false })
-                            .insert(WaveTag(running));
+                            // SEAM3b: entry-level challenge flag decides the
+                            // tag kind (game-side marker components retired).
+                            .insert(if table.waves[running].challenge {
+                                WaveTag::Challenge(running)
+                            } else {
+                                WaveTag::Normal(running)
+                            });
                     }
                 }
                 track.remaining -= 1;
@@ -296,7 +375,7 @@ pub fn run_director(
         }
         if all_spawned && director.spawned_clean_frames >= 2 {
             if let Some(w) = director.running {
-                if !tagged.iter().any(|t| t.0 == w) {
+                if !tagged.iter().any(|t| t.index() == w) {
                     cleared.write(WaveCleared(w));
                     let reward = table.waves[w].reward_gold;
                     if reward > 0 {

@@ -129,6 +129,17 @@
     ),
     econ_start: (gold: 120, wood: 5, pop_cap: 8),
     econ_rules: (wood_to_gold: 25, pop_cost_base: 2, pop_cost_growth: 1.5, pop_gain: 2),
+    // LT2 装备表（SEAM3b 起随图走：shipped 图允许 items 节，装备定义不再
+    // 独立成文件装载期合并）。射程词缀走 RangeMult（+30% ≈ 旧 +1.5 平坦值）。
+    items: (
+        items: {
+            "blade12": (id: "blade12", name: "精锻利刃", kind: Passive, charges: None, passive: Some((kind: DamageMult, amount: 0.12)), cost_gold: 90),
+            "blade08": (id: "blade08", name: "制式利刃", kind: Passive, charges: None, passive: Some((kind: DamageMult, amount: 0.08)), cost_gold: 60),
+            "quiver":  (id: "quiver",  name: "疾风箭袋", kind: Passive, charges: None, passive: Some((kind: AttackIntervalMult, amount: -0.10)), cost_gold: 70),
+            "scope":   (id: "scope",   name: "观测镜",   kind: Passive, charges: None, passive: Some((kind: RangeMult, amount: 0.30)), cost_gold: 70),
+        },
+        drops: {},
+    ),
     // 行=攻击类型（Normal/Piercing/Siege/Magic/Hero），列=护甲（Light/Medium/Heavy/Fortified/Hero/Divine）
     attack_armor: (
         mult: (

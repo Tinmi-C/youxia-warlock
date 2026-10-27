@@ -46,7 +46,8 @@ fn scenario_bundle() -> MapBundle {
         boss_timeout: None,
         preview: "calm before".into(),
         reward_gold: 0,
-    });
+        challenge: false,
+        });
     waves.waves.push(WaveEntry {
         spawns: vec![SpawnSpec {
             unit: "grunt".into(),
@@ -59,7 +60,8 @@ fn scenario_bundle() -> MapBundle {
         boss_timeout: None,
         preview: "2 grunts".into(),
         reward_gold: 0,
-    });
+        challenge: false,
+        });
     waves.advance = Advance::Manual;
     MapBundle {
         identity: warbase::bundle::MapIdentity { id: "rpl1".into(), version: 1 },

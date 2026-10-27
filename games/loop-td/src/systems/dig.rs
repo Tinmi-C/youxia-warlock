@@ -88,6 +88,7 @@ pub fn dig(world: &mut World) -> Result<DigOutcome, String> {
 
 /// Stow an equipment id into the first hero tower with a free bag slot
 /// (Entity-index order); otherwise drop it as a GroundItem at the ring start.
+/// SEAM3b: bags are slot-entity backed — stowing spawns the stack entity.
 fn grant_equipment(world: &mut World, item: &str) {
     let mut heroes: Vec<Entity> = Vec::new();
     {
@@ -96,20 +97,22 @@ fn grant_equipment(world: &mut World, item: &str) {
     }
     heroes.sort_by_key(|e| e.index());
     for hero in heroes {
-        let has_room = world
+        let free_slot = world
             .get::<Inventory>(hero)
-            .is_some_and(|inv| inv.first_free_slot().is_some());
-        if has_room {
+            .and_then(|inv| inv.first_free_slot());
+        if let Some(slot) = free_slot {
             let def = world
                 .resource::<ItemRegistry>()
                 .get(item)
                 .cloned()
                 .expect("equipment ids come from the registry");
+            let stack = world
+                .spawn((ItemStack::from_def(&def), StackHolder(hero)))
+                .id();
             if let Some(mut inv) = world.get_mut::<Inventory>(hero) {
-                let slot = inv.first_free_slot().expect("room checked above");
-                inv.slots[slot] = Some(ItemStack::from_def(&def));
-                return;
+                inv.slots[slot] = Some(stack);
             }
+            return;
         }
     }
     // No hero can carry it: visible ground drop at the first path's start.
@@ -123,20 +126,6 @@ fn grant_equipment(world: &mut World, item: &str) {
         GroundItem { def: item.to_string(), grace: 0.0 },
         Transform::from_translation(Vec3::new(pos.x, 0.0, pos.y)),
     ));
-}
-
-/// Minimal input entry: V digs once during the intermission.
-pub fn dig_input(world: &mut World) {
-    if !world.contains_resource::<ButtonInput<KeyCode>>() {
-        return;
-    }
-    let keys = world.resource::<ButtonInput<KeyCode>>().clone();
-    if !keys.just_pressed(KeyCode::KeyV) {
-        return;
-    }
-    if let Err(e) = dig(world) {
-        info!("[loop-td] dig: {e}");
-    }
 }
 
 /// Run-restart hook: per-run dig statistics reset with the match.

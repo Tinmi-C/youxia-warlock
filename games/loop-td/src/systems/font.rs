@@ -1,27 +1,31 @@
-//! Bundled CJK font (LT2-UI): bevy's default font has no CJK glyphs — every
+//! Shared CJK font (SEAM3b): bevy's default font has no CJK glyphs — every
 //! Chinese label rendered as tofu boxes (the R4 readability reject from the
-//! UI-DSGN review). The fix is the same asset warden ships (UI6): Noto Sans
-//! SC (SIL OFL 1.1, license travels next to the file), duplicated into this
-//! crate's assets because `engine/` is frozen this increment (a shared
-//! asset root would be the engine-side hoist, recorded for the C-channel).
+//! UI-DSGN review). The fix is Noto Sans SC (SIL OFL 1.1, license travels
+//! next to the file) living ONCE at the workspace-root `assets/fonts/` —
+//! both games (warden/loop-td) read the same file, deduplicating the
+//! 17.7MB copy-per-crate layout. `AssetServer` roots are per-crate, so the
+//! loader reads the shared file's BYTES and adds them to `Assets<Font>`
+//! directly — working identically windowed and headless, independent of the
+//! process CWD.
 //!
 //! `setup_ui_font` resolves the handle once at Startup:
-//! - windowed app: `AssetServer::load` of the canonical asset path;
-//! - headless WITH an `Assets<Font>` store (the LT2-UI tests): read the
-//!   pinned file from disk and add it, so even headless runs carry a real
-//!   CJK-capable handle (acceptance asserts on it);
+//! - with an `Assets<Font>` store (windowed AND the LT2-UI headless tests):
+//!   read the shared file from disk and add it — even headless runs carry a
+//!   real CJK-capable handle (acceptance asserts on it);
 //! - bare headless (warbase test apps): fall back to `FontSource::Default`,
 //!   never panic — the warden UI6 contract.
 
 use bevy::prelude::*;
 use bevy::text::FontSource;
 
-/// Asset path of the bundled font, relative to the `assets/` root.
-pub const UI_FONT_PATH: &str = "fonts/NotoSansSC-VariableFont_wght.ttf";
+/// File name of the shared font inside the workspace-root `assets/fonts/`.
+pub const UI_FONT_FILE: &str = "NotoSansSC-VariableFont_wght.ttf";
 
-/// Absolute path of the bundled font file (test/headless loading).
+/// Absolute path of the shared font file (workspace root, single copy).
 pub fn font_file() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets").join(UI_FONT_PATH)
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/fonts")
+        .join(UI_FONT_FILE)
 }
 
 /// The resolved UI font every text-bearing panel clones into its `TextFont`s.
@@ -31,16 +35,13 @@ pub struct UiFont(pub FontSource);
 /// Startup: resolve the UI font once; runs before any panel-building system.
 pub fn setup_ui_font(
     mut commands: Commands,
-    server: Option<Res<AssetServer>>,
     mut fonts: Option<ResMut<Assets<Font>>>,
 ) {
-    let source = if let Some(server) = &server {
-        FontSource::Handle(server.load(UI_FONT_PATH))
-    } else if let Some(fonts) = fonts.as_mut() {
+    let source = if let Some(fonts) = fonts.as_mut() {
         match std::fs::read(font_file()) {
             Ok(bytes) => FontSource::Handle(fonts.add(Font::from_bytes(bytes))),
             Err(e) => {
-                info!("[loop-td] ui font file unreadable ({e}) — default fallback");
+                info!("[loop-td] shared ui font unreadable ({e}) — default fallback");
                 FontSource::default()
             }
         }
@@ -50,6 +51,6 @@ pub fn setup_ui_font(
     commands.insert_resource(UiFont(source));
     info!(
         "[loop-td] ui font ready ({})",
-        if server.is_some() || fonts.is_some() { "bundled NotoSansSC" } else { "default fallback" }
+        if fonts.is_some() { "shared NotoSansSC" } else { "default fallback" }
     );
 }

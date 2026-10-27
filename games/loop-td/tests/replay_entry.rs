@@ -62,7 +62,8 @@ fn fast_loss_bundle() -> MapBundle {
         boss_timeout: None,
         preview: "3 grunts".into(),
         reward_gold: 5,
-    });
+        challenge: false,
+        });
     waves.advance = Advance::Auto { intermission: 1.0 };
     MapBundle {
         identity: warbase::bundle::MapIdentity { id: "rpl2-fast".into(), version: 1 },

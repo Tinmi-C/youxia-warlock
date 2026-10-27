@@ -178,7 +178,7 @@ fn stage_squad(world: &mut World) {
         ) {
             let _ = world.entity_mut(u).insert((
                 PathFollower { path: path_e, progress: *progress, laps: 0, finished: false },
-                WaveTag(10),
+                WaveTag::Normal(10),
             ));
             if *hp_frac < 1.0 {
                 if let Some(max) = world.get::<MaxHp>(u).map(|m| m.0) {
