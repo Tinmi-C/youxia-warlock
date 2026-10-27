@@ -26,15 +26,6 @@ fn game_app() -> App {
     app
 }
 
-/// Replace the raw keyboard resource (headless has no InputPlugin).
-fn press_keys(app: &mut App, codes: &[KeyCode]) {
-    let mut keys = ButtonInput::<KeyCode>::default();
-    for code in codes {
-        keys.press(*code);
-    }
-    app.insert_resource(keys);
-}
-
 /// First free grid cell (row-major).
 fn first_free_cell(grid: &BuildGrid) -> Cell {
     (0..grid.cols)

@@ -10,7 +10,9 @@
 //! so the 射程+X affix cannot ride StatMods. The game-side `RANGE_AFFIXES`
 //! table below carries it instead and `refresh_range` adjusts the tower's
 //! `AttackKit.def.range` (base range from the registry + equipped bonuses),
-//! restored on unequip. Numbers that CAN ride ItemDef live in maps/loop.ron.
+//! restored on unequip. ItemDef-ridable numbers live in maps/equipment.ron
+//! (merged into the in-memory bundle at load time — the engine seam test
+//! pins the shipped loop.ron items-section-free; see maps/equipment.ron).
 
 use bevy::prelude::*;
 use warbase::prelude::*;
