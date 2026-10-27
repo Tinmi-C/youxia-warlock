@@ -15,7 +15,6 @@ use crate::resources::{
 };
 use crate::states::GameState;
 use crate::systems::l10n;
-use crate::systems::theme;
 
 /// 顶匾金币格标签（随语言切换重写）。
 #[derive(Component)]
@@ -75,8 +74,9 @@ pub fn setup_ui_font(mut commands: Commands, server: Option<Res<AssetServer>>) {
 
 /// 顶匾的一格：小标签在上、大数字在下。
 fn plaque_cell(
-    parent: &mut ChildSpawnerCommands,
+    parent: &mut ChildSpawner<'_>,
     font: &UiFont,
+    ui: &warbase::ui::UiTheme,
     label: &str,
     label_marker: Option<impl Component>,
     value_marker: impl Component,
@@ -98,20 +98,20 @@ fn plaque_cell(
                     Text::new(label.to_string()),
                     TextFont {
                         font: font.0.clone(),
-                        font_size: FontSize::Px(theme::FONT_LABEL),
+                        font_size: FontSize::Px(ui.typography.font_caption),
                         ..default()
                     },
-                    TextColor(theme::INK_SOFT),
+                    TextColor(ui.palette.text_secondary.color()),
                 ));
             } else {
                 cell.spawn((
                     Text::new(label.to_string()),
                     TextFont {
                         font: font.0.clone(),
-                        font_size: FontSize::Px(theme::FONT_LABEL),
+                        font_size: FontSize::Px(ui.typography.font_caption),
                         ..default()
                     },
-                    TextColor(theme::INK_SOFT),
+                    TextColor(ui.palette.text_secondary.color()),
                 ));
             }
             cell.spawn((
@@ -119,7 +119,7 @@ fn plaque_cell(
                 Text::new(String::new()),
                 TextFont {
                     font: font.0.clone(),
-                    font_size: FontSize::Px(theme::FONT_NUM),
+                    font_size: FontSize::Px(ui.typography.font_value),
                     ..default()
                 },
                 TextColor(value_color),
@@ -139,90 +139,125 @@ fn center_strip(extra: Node) -> Node {
 }
 
 /// Spawn the top plaque (three cells) and the field-report parchment.
+/// WARDEN-SKIN: colors/sizes/radii read `UiTheme` inside the deferred spawn
+/// (the base's UI-DSGN contract: the system signature stays Commands-only).
 pub fn spawn_hud(mut commands: Commands, font: Res<UiFont>, lang: Res<Lang>) {
-    use theme::*;
-    // --- 顶匾：一块白灰石，三格并排，悬于屏幕顶部居中 ---
-    commands
-        .spawn(center_strip(Node {
-            top: Val::Px(8.0),
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Stretch,
-            ..default()
-        }))
-        .with_children(|strip| {
-            strip
-                .spawn((
-                    BackgroundColor(STONE),
-                    BorderColor::all(STONE_SEAM),
-                    stone_node(),
-                ))
-                .with_children(|plaque| {
-                    // 顶缘阳光亮线：上午日打在甲板边沿（2px 石亮条）。
-                    plaque.spawn((
+    let font = font.0.clone();
+    let lang = *lang;
+    commands.queue(move |world: &mut World| {
+        let ui = world.resource::<warbase::ui::UiTheme>().clone();
+        // --- 顶匾：一块面板底座，三格并排，悬于屏幕顶部居中 ---
+        world
+            .spawn(center_strip(Node {
+                top: Val::Px(8.0),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Stretch,
+                ..default()
+            }))
+            .with_children(|strip| {
+                strip
+                    .spawn((
+                        BackgroundColor(ui.palette.panel_bg.color()),
+                        BorderColor::all(ui.palette.panel_border.color()),
                         Node {
-                            position_type: PositionType::Absolute,
-                            top: Val::Px(0.0),
-                            left: Val::Px(0.0),
-                            right: Val::Px(0.0),
-                            height: Val::Px(2.0),
+                            border: UiRect::all(Val::Px(ui.spacing.panel_border_w)),
+                            border_radius: BorderRadius::all(Val::Px(ui.radius.panel)),
                             ..default()
                         },
-                        BackgroundColor(STONE_LIP),
-                    ));
-                    plaque_cell(&mut plaque.reborrow(), &font, l10n::GOLD_EQ.pick(*lang), Some(GoldLabel), GoldValue, GOLD);
-                    plaque_cell(&mut plaque.reborrow(), &font, l10n::BASE_EQ.pick(*lang), Some(ShieldLabel), ShieldValue, INK);
-                    plaque_cell(&mut plaque.reborrow(), &font, "", None::<WaveValue>, WaveValue, INK);
-                });
-        });
+                    ))
+                    .with_children(|plaque| {
+                        // 顶缘金饰线（铁金条约：面板顶缘的金 trim）。
+                        plaque.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                top: Val::Px(0.0),
+                                left: Val::Px(0.0),
+                                right: Val::Px(0.0),
+                                height: Val::Px(2.0),
+                                ..default()
+                            },
+                            BackgroundColor(ui.palette.accent.color()),
+                        ));
+                        let f = UiFont(font.clone());
+                        plaque_cell(
+                            plaque,
+                            &f,
+                            &ui,
+                            l10n::GOLD_EQ.pick(lang),
+                            Some(GoldLabel),
+                            GoldValue,
+                            ui.state_colors.gold.color(),
+                        );
+                        plaque_cell(
+                            plaque,
+                            &f,
+                            &ui,
+                            l10n::BASE_EQ.pick(lang),
+                            Some(ShieldLabel),
+                            ShieldValue,
+                            ui.palette.text_primary.color(),
+                        );
+                        plaque_cell(
+                            plaque,
+                            &f,
+                            &ui,
+                            "",
+                            None::<WaveValue>,
+                            WaveValue,
+                            ui.palette.text_primary.color(),
+                        );
+                    });
+            });
 
-    // --- 军报羊皮纸：顶匾之下居中拉开一掌，备战期揭示，开波即收起 ---
-    commands
-        .spawn(center_strip(Node {
-            top: Val::Px(88.0),
-            ..default()
-        }))
-        .with_children(|strip| {
-            strip
-                .spawn((
-                    FieldReport,
-                    Visibility::Hidden,
-                    BackgroundColor(PARCHMENT),
-                    BorderColor::all(PARCHMENT_SEAM),
-                    Node {
-                        padding: UiRect::px(28.0, 36.0, 12.0, 12.0),
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        row_gap: Val::Px(6.0),
-                        border: UiRect::all(Val::Px(1.0)),
-                        border_radius: BorderRadius::all(Val::Px(3.0)),
-                        ..default()
-                    },
-                ))
-                .with_children(|report| {
-                    // 眉题（哨卡的印章语言）：小字金压暗。
-                    report.spawn((
-                        ReportHeader,
-                        Text::new(l10n::REPORT_HEADER.pick(*lang).to_string()),
-                        TextFont {
-                            font: font.0.clone(),
-                            font_size: FontSize::Px(theme::FONT_LABEL),
+        // --- 军报：顶匾之下居中拉开一掌，备战期揭示，开波即收起 ---
+        world
+            .spawn(center_strip(Node {
+                top: Val::Px(88.0),
+                ..default()
+            }))
+            .with_children(|strip| {
+                strip
+                    .spawn((
+                        FieldReport,
+                        Visibility::Hidden,
+                        BackgroundColor(ui.palette.panel_raised.color()),
+                        BorderColor::all(ui.palette.panel_border.color()),
+                        Node {
+                            padding: UiRect::px(28.0, 36.0, 12.0, 12.0),
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::Center,
+                            row_gap: Val::Px(6.0),
+                            border: UiRect::all(Val::Px(ui.spacing.panel_border_w)),
+                            border_radius: BorderRadius::all(Val::Px(ui.radius.panel)),
                             ..default()
                         },
-                        TextColor(theme::GOLD_DARK),
-                    ));
-                    report.spawn((
-                        HudText,
-                        Text::new(String::new()),
-                        TextFont {
-                            font: font.0.clone(),
-                            font_size: FontSize::Px(theme::FONT_TITLE),
-                            ..default()
-                        },
-                        TextColor(theme::INK),
-                        TextLayout::justify(Justify::Center),
-                    ));
-                });
-        });
+                    ))
+                    .with_children(|report| {
+                        // 眉题（哨卡的印章语言）：金色小字。
+                        report.spawn((
+                            ReportHeader,
+                            Text::new(l10n::REPORT_HEADER.pick(lang).to_string()),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: FontSize::Px(ui.typography.font_caption),
+                                ..default()
+                            },
+                            TextColor(ui.palette.accent.color()),
+                        ));
+                        report.spawn((
+                            HudText,
+                            Text::new(String::new()),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: FontSize::Px(ui.typography.font_title),
+                                ..default()
+                            },
+                            TextColor(ui.palette.text_primary.color()),
+                            TextLayout::justify(Justify::Center),
+                        ));
+                    });
+            });
+    });
 }
 
 /// 顶匾标签随语言切换重写（独立小系统，免 update_hud 破参数墙）。
@@ -290,6 +325,10 @@ pub fn update_hud(
     state: Res<State<GameState>>,
     aiming: Res<crate::resources::SkillAiming>,
     lang: Res<Lang>,
+    // WARDEN-SKIN: read-only style read (low-base warning color). The only
+    // signature concession in this increment — the per-frame recolor needs
+    // live tokens and the system has no Commands to defer through.
+    theme: Res<warbase::ui::UiTheme>,
 ) {
     let lang = *lang;
     // 顶匾数值：变化时才写（CJK 重排一帧一行的教训）。
@@ -311,11 +350,11 @@ pub fn update_hud(
     }
     for (mut t, mut c) in &mut shield {
         set(&mut t, format!("{}/{}", lives.0, max_lives));
-        // 低血量转警红（低于开局三成即亮红示警）。
+        // 低血量转警色（低于开局三成即亮红示警）。
         let want = if max_lives > 0 && lives.0 * 3 <= max_lives {
-            theme::ALERT_RED
+            theme.state_colors.health_low.color()
         } else {
-            theme::INK
+            theme.palette.text_primary.color()
         };
         if c.0 != want {
             c.0 = want;

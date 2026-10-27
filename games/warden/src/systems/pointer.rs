@@ -295,74 +295,89 @@ pub fn refresh_choice_cards(
         return;
     }
     *cache = key;
-    for root in &roots {
-        commands.entity(root).despawn();
-    }
+    let stale: Vec<Entity> = roots.iter().collect();
     if !choice.pending {
+        // WARDEN-SKIN: despawn stays deferred; no themed spawn follows.
+        for root in stale {
+            commands.entity(root).despawn();
+        }
         return;
     }
-    commands
-        .spawn((
-            ChoiceCardsRoot,
-            BlocksWorldInput,
-            bevy::ui::RelativeCursorPosition::default(),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(110.0),
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(12.0),
-                ..default()
-            },
-        ))
-        .with_children(|root| {
-            for (i, opt) in choice.options.iter().enumerate() {
-                root.spawn((
-                    Button,
-                    ChoiceCardButton { index: i },
-                    Interaction::None,
-                    Node {
-                        width: Val::Px(crate::systems::theme::CARD_W),
-                        height: Val::Px(crate::systems::theme::CARD_H),
-                        flex_direction: FlexDirection::Column,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        row_gap: Val::Px(4.0),
-                        border: UiRect::all(Val::Px(1.0)),
-                        border_radius: BorderRadius::all(Val::Px(3.0)),
-                        ..default()
-                    },
-                    BackgroundColor(crate::systems::theme::PARCHMENT),
-                    BorderColor::all(crate::systems::theme::GOLD),
-                ))
-                .with_children(|p| {
-                    p.spawn((
-                        Text::new(format!("[{}", i + 1)),
-                        TextFont {
-                            font: font.0.clone(),
-                            font_size: FontSize::Px(crate::systems::theme::FONT_LABEL),
+    let font = font.0.clone();
+    let lang = *lang;
+    let options: Vec<(String, String)> = choice
+        .options
+        .iter()
+        .map(|opt| (opt.label.clone(), opt.label_en.clone()))
+        .collect();
+    commands.queue(move |world: &mut World| {
+        let ui = world.resource::<warbase::ui::UiTheme>().clone();
+        for root in stale {
+            let _ = world.entity_mut(root).despawn();
+        }
+        world
+            .spawn((
+                ChoiceCardsRoot,
+                BlocksWorldInput,
+                bevy::ui::RelativeCursorPosition::default(),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(110.0),
+                    left: Val::Px(0.0),
+                    right: Val::Px(0.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(12.0),
+                    ..default()
+                },
+            ))
+            .with_children(|root| {
+                for (i, (label_zh, label_en)) in options.iter().enumerate() {
+                    root.spawn((
+                        Button,
+                        ChoiceCardButton { index: i },
+                        Interaction::None,
+                        Node {
+                            width: Val::Px(crate::systems::theme::CARD_W),
+                            height: Val::Px(crate::systems::theme::CARD_H),
+                            flex_direction: FlexDirection::Column,
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            row_gap: Val::Px(4.0),
+                            border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
+                            border_radius: BorderRadius::all(Val::Px(ui.radius.slot)),
                             ..default()
                         },
-                        TextColor(crate::systems::theme::GOLD_DARK),
-                    ));
-                    p.spawn((
-                        Text::new(match *lang {
-                            Lang::Zh => opt.label.as_str(),
-                            Lang::En => opt.label_en.as_str(),
-                        }),
-                        TextFont {
-                            font: font.0.clone(),
-                            font_size: FontSize::Px(crate::systems::theme::FONT_TITLE),
-                            ..default()
-                        },
-                        TextColor(crate::systems::theme::INK),
-                    ));
-                });
-            }
-        });
-    info!("[ui2] choice cards shown: {}", choice.options.len());
+                        BackgroundColor(ui.palette.panel_raised.color()),
+                        BorderColor::all(ui.palette.accent.color()),
+                    ))
+                    .with_children(|p| {
+                        p.spawn((
+                            Text::new(format!("[{}", i + 1)),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: FontSize::Px(ui.typography.font_caption),
+                                ..default()
+                            },
+                            TextColor(ui.palette.accent.color()),
+                        ));
+                        p.spawn((
+                            Text::new(match lang {
+                                Lang::Zh => label_zh.as_str(),
+                                Lang::En => label_en.as_str(),
+                            }),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: FontSize::Px(ui.typography.font_title),
+                                ..default()
+                            },
+                            TextColor(ui.palette.text_primary.color()),
+                        ));
+                    });
+                }
+            });
+        info!("[ui2] choice cards shown: {}", options.len());
+    });
 }
 
 /// Clicking a choice card applies that option — identical to pressing its digit.
@@ -471,109 +486,116 @@ pub fn update_hover_ghost(
 /// Build the GameOver/Win result screen: a centered banner + the retry button
 /// and the two meta-upgrade purchase buttons (UI5). Starts hidden; the
 /// `refresh_end_screen` system toggles its visibility with the game state.
+/// WARDEN-SKIN: themed inside the deferred spawn (signature unchanged; the
+/// 34px banner stays a literal — no display-scale token in UiTheme yet, see
+/// systems/theme.rs TODO).
 fn build_end_screen(commands: &mut Commands, font: &UiFont, lang: Lang) {
-    commands
-        .spawn((
-            EndScreenRoot,
-            BlocksWorldInput,
-            bevy::ui::RelativeCursorPosition::default(),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
-                top: Val::Px(36.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                row_gap: Val::Px(10.0),
-                display: Display::None,
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
-        ))
-        .with_children(|root| {
-            root.spawn((
-                Text::new(l10n::END_BANNER.pick(lang)),
-                TextFont {
-                    font: font.0.clone(),
-                    font_size: FontSize::Px(34.0),
+    let font = font.0.clone();
+    commands.queue(move |world: &mut World| {
+        let ui = world.resource::<warbase::ui::UiTheme>().clone();
+        world
+            .spawn((
+                EndScreenRoot,
+                BlocksWorldInput,
+                bevy::ui::RelativeCursorPosition::default(),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    right: Val::Px(0.0),
+                    top: Val::Px(36.0),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(10.0),
+                    display: Display::None,
                     ..default()
                 },
-                TextColor(crate::systems::theme::GOLD),
-            ));
-            root.spawn((
-                Text::new(l10n::END_HINT.pick(lang)),
-                TextFont {
-                    font: font.0.clone(),
-                    font_size: FontSize::Px(crate::systems::theme::FONT_BUTTON),
+                BackgroundColor(ui.state_colors.cooldown.color()),
+            ))
+            .with_children(|root| {
+                root.spawn((
+                    Text::new(l10n::END_BANNER.pick(lang)),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: FontSize::Px(34.0),
+                        ..default()
+                    },
+                    TextColor(ui.state_colors.gold.color()),
+                ));
+                root.spawn((
+                    Text::new(l10n::END_HINT.pick(lang)),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: FontSize::Px(ui.typography.font_label),
+                        ..default()
+                    },
+                    TextColor(ui.palette.text_secondary.color()),
+                ));
+                root.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(10.0),
                     ..default()
-                },
-                TextColor(crate::systems::theme::STONE_LIP),
-            ));
-            root.spawn(Node {
-                flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(10.0),
-                ..default()
-            })
-            .with_children(|row| {
-                for (which, label) in [
-                    (1usize, l10n::upgrade1_label(lang, UPGRADE1_COST)),
-                    (2usize, l10n::upgrade2_label(lang, UPGRADE2_COST)),
-                ] {
+                })
+                .with_children(|row| {
+                    for (which, label) in [
+                        (1usize, l10n::upgrade1_label(lang, UPGRADE1_COST)),
+                        (2usize, l10n::upgrade2_label(lang, UPGRADE2_COST)),
+                    ] {
+                        row.spawn((
+                            Button,
+                            MetaUpgradeButton { which },
+                            Interaction::None,
+                            Node {
+                                width: Val::Px(210.0),
+                                height: Val::Px(44.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
+                                ..default()
+                            },
+                            BackgroundColor(ui.palette.panel_raised.color()),
+                            BorderColor::all(ui.palette.accent.color()),
+                        ))
+                        .with_children(|p| {
+                            p.spawn((
+                                Text::new(label),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: FontSize::Px(ui.typography.font_label),
+                                    ..default()
+                                },
+                                TextColor(ui.palette.text_primary.color()),
+                            ));
+                        });
+                    }
                     row.spawn((
                         Button,
-                        MetaUpgradeButton { which },
+                        RetryButton,
                         Interaction::None,
                         Node {
-                            width: Val::Px(210.0),
+                            width: Val::Px(130.0),
                             height: Val::Px(44.0),
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
-                            border: UiRect::all(Val::Px(1.0)),
+                            border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
                             ..default()
                         },
-                        BackgroundColor(crate::systems::theme::STONE),
-                        BorderColor::all(crate::systems::theme::GOLD),
+                        BackgroundColor(ui.state_colors.gold.color()),
+                        BorderColor::all(ui.palette.accent.color()),
                     ))
                     .with_children(|p| {
                         p.spawn((
-                            Text::new(label),
+                            Text::new(l10n::RETRY.pick(lang)),
                             TextFont {
-                                font: font.0.clone(),
-                                font_size: FontSize::Px(crate::systems::theme::FONT_BUTTON),
+                                font: font.clone(),
+                                font_size: FontSize::Px(ui.typography.font_title),
                                 ..default()
                             },
-                            TextColor(crate::systems::theme::INK),
+                            TextColor(ui.palette.panel_bg.color()),
                         ));
                     });
-                }
-                row.spawn((
-                    Button,
-                    RetryButton,
-                    Interaction::None,
-                    Node {
-                        width: Val::Px(130.0),
-                        height: Val::Px(44.0),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        border: UiRect::all(Val::Px(1.0)),
-                        ..default()
-                    },
-                    BackgroundColor(crate::systems::theme::GOLD),
-                    BorderColor::all(crate::systems::theme::GOLD_DARK),
-                ))
-                .with_children(|p| {
-                    p.spawn((
-                        Text::new(l10n::RETRY.pick(lang)),
-                        TextFont {
-                            font: font.0.clone(),
-                            font_size: FontSize::Px(crate::systems::theme::FONT_TITLE),
-                            ..default()
-                        },
-                        TextColor(crate::systems::theme::GOLD_DARK),
-                    ));
                 });
             });
-        });
+    });
 }
 
 /// Show the result screen only on GameOver/Win, hide it otherwise (UI5). The
