@@ -61,11 +61,16 @@ pub const MERCENARY_DEFS: [&str; 6] =
 /// - `Selectable` on every instance (keeps included, WC3 habit);
 /// - `MoveAgent` + `AgentOrderState` when the def moves (speed 0 keeps stay
 ///   put — no agent, they are scenery anchors, not LastTeamStanding fighters).
+/// `Without<MoveAgent>` guard: spawns that already carry a full kit (the
+/// LG2 send path, which spawns + orders in the same frame) skip the
+/// observer — a fresh agent insert here would clobber an order the same
+/// frame's tick_orders may already have written. Keeps/hires land here
+/// agent-less as before (zero LG1 drift).
 /// Visual hierarchy note: base spawn gives units a bare Transform; mesh
 /// children (visualize_units) want the parent to carry Visibility (bevy
 /// B0004) — inserted once here, inert headless.
 pub fn attach_legion_kit(
-    added: Query<(Entity, &UnitInstance), Added<UnitInstance>>,
+    added: Query<(Entity, &UnitInstance), (Added<UnitInstance>, Without<MoveAgent>)>,
     registry: Res<UnitRegistry>,
     mut commands: Commands,
 ) {

@@ -24,3 +24,8 @@ pub struct DeploySlot {
     pub player: u8,
     pub index: u8,
 }
+
+/// 发兵标记（LG2）：经发兵商店注入的雇佣兵。与 Merc 并存（player 即出资
+/// 方）；唯一的语义差异是漏怪时出资方额外拿击穿赏金（round::leak_tick）。
+#[derive(Component, Debug)]
+pub struct SentMerc;

@@ -11,7 +11,7 @@
 |------|------|------------------|--------------|--------|------|
 | LG0 | 立项+地图+灰盒可跑切片 | 862（其中 Rust 578 / 地图 RON 117 / 文档 167） | 12m20s | ≈4m45s | 2（L1 L2） |
 | LG1 | 回合层+商店+自动交战+漏怪+收入 | 721（round.rs 453 + 其余 src 138 + 测试 226 净增 + 地图 4） | 18m13s | ≈13m | 3（L3 L5 L6）+ 设计修正 1 |
-| LG2 | 发兵+结算+LastTeamStanding 收口 | — | — | — | — |
+| LG2 | 发兵（递增价注入）+击穿赏金+20 回合封顶胜负 | 601（round.rs 284 + 其余 src 52 + 测试 219 + 文档 46） | 25m41s | ≈5m30s | 2（L7 L8） |
 | LG3 | 方案 A UI 换肤 + H1 | — | — | — | — |
 
 ## 对比 rts-lab（同期增量）
@@ -52,6 +52,32 @@
   （Allegiance 派生）、UnitDied/DamageDealt 消息流、LastTeamStanding/MatchWinner、
   warbase::testing 框架。
 
+### LG2（2026-10-28 01:53 – 02:19，commit 见 git log）
+
+- **范围**：发兵商店（SendCommand：相位/存活/自指/已出局/通路（lane 配对即
+  敌对+走廊几何）/def/金七重校验，25 金起同目标 +10% 递增——floor(25×1.1^n)
+  取整规则钉死，per-target SendLedger 记账）；注入出征（PendingSends 队列，
+  Build→Battle 转换帧从出资方布阵区出生**自带全套 kit**（观察器晚一帧挂 kit
+  会吃掉同帧出征令——spawn 同帧发令的时间坑），并入出资方 AttackMove 编队）；
+  发兵击穿赏金（SentMerc 标记，漏怪时出资方 +5/兵，与结算 +50 同帧入账）；
+  20 回合封顶胜负（team_lives 按 MatchDiplomacy 折算队伍总命数，多者胜/
+  平首平局，MatchEnded reason 可读，胜者另写 MatchWinner；与 LG1 的
+  LastTeamStanding 中途出局路径并存——先到先收口）。真机入口：G 键发
+  swarm 至本路对家（LG3 命令卡补全）。4 条验收测试（⑪-⑭）。
+- **行数**：601 净增（round.rs +284；resources 27 / game 14 / components 5 /
+  gameplay 6（kit 观察器加 Without<MoveAgent> 防同帧 clobber）；测试 +219；
+  README/roadmap/kpi 46）。
+- **耗时**：25m41s 墙钟——动手段 01:53→01:59 即 legion 13 测试全绿（≈6m，
+  其中 2 轮测试修正：消息 cursor 逐帧排水语义、同点出生分离位移容差），
+  纯动手 ≈5m30s；余下 ~20m 是私有 target 冷编译全量门禁（~11m）+
+  基线 stash 复测（~3m，为把「零漂移」从推断变成实测）等纪律成本。
+- **新洞**：L7、L8（见下）。
+- **基底消费清单**（零改动的复用面）：spawn_unit_deferred（发兵出生即雇佣
+  同款）、MOV4 tick_orders/AttackMove（发兵并编出征，含 formation 散开）、
+  separate_agents（同点出生自动散开）、combat 全自动、MatchDiplomacy
+  （allegiance_of/team_of——封顶折算队伍命数）、MatchFlow/MatchEnded/
+  MatchWinner（封顶写入）、LivesBoard/leak 链（击穿赏金 riding 其上）。
+
 ## 新洞清单（通道 C：基底缝缺失 → 游戏侧补丁孵化）
 
 | # | 增量 | 需求 | 缺的缝 | 游戏侧补丁 | 建议上收形态 |
@@ -62,6 +88,8 @@
 | L4 | LG0 | aoe 兵种溅射 | combat 无溅射/AoE 伤害缝（DamageRequest 单目标） | merc_aoe 暂按 Siege 攻型+攻甲矩阵差异占位（地图注释已标） | DamageRequest 支持 radius / or 溅射组件 |
 | L5 | LG1 | 命尽出局接 LastTeamStanding，且建造期空场不能判胜 | `WinCondition::LastTeamStanding` 只认 AttackKit/PathFollower 携带者，没有与「场上单位」解耦的「队伍存活」概念——回合制下对面本回合还没出兵就会误判 | 主城挂 0 伤害/射程 1.0 的「旗帜 kit」（永不开火，仅作常驻战力标记），出局清单位=旗帜消失=基底规则正确收口 | WinCondition 增加 lives/elimination 变体，或「team alive」查询缝 |
 | L6 | LG1 | 击杀赏金归因到玩家 | `UnitDied.killer` 是实体 id，`cleanup_dead` 会在同一 Cleanup 里把互杀的 killer 一并 despawn——晚于它运行的消费者 deref 不到 Owner | `bounty_credit` 挂 `in_set(Cleanup).before(cleanup_dead)`（killer 已 Dead 标记但实体还在） | 基底文档化该顺序契约，或 UnitDied 携带 killer 的 Owner 快照 |
+| L7 | LG2 | 20 回合封顶：命数多者胜，平数平局 | `MatchFlow` 只有 Won/Lost（单人胜负词汇），无 Draw/Ended 变体，也没有游戏层「结束比赛」缝（LastTeamStanding 是基底唯一写入口） | 游戏侧 round_tick 直接 ResMut 写 `MatchFlow::Won` + `MatchEnded{Ok(reason)}`：平局借 Won 通道、reason 写 "draw on lives"、MatchWinner 刻意不写 | MatchFlow 增加 `Ended{outcome: Win(team)/Draw}`（或 end_match(reason, Option<TeamId>) 游戏侧 API） |
+| L8 | LG2 | 发兵：给指定对手注入下一回合额外兵（proposal §3 预期走 wave director per-player 注入缝） | `run_director` 的 spawn 路径硬编码 `Allegiance::Attacker` + `PathFollower` 出怪轨道（TD 模型）：无有主单位注入、无 per-player 出生点、且 path-following 出怪不停车交战（军团图要 AttackMove 穿 contested 走廊） | 发兵复用雇佣 spawn（spawn_unit_deferred + 游戏侧全套 kit，见 round_tick 转换臂注释——同帧发令要求 spawn 即带 MoveAgent，否则 attach 观察器晚一帧会 clobber 同帧写入的令）并入出资方出征编队 | wave 域增加 SpawnRequest 注入缝（owned units + 自定义行军模式），或通用「有主单位定点出生并受令」API |
 
 > 上收原则（ADR-0012 §6）：以上全部游戏侧孵化，engine/warbase 零改动；
 > 是否上收由 SEAM 修订决策，不在本图范围内。
@@ -71,5 +99,9 @@
 - LG0：4 条装配断言（lane/外交/布阵格、雇佣兵表锚点、四家主城、钱包+lane 可走）。
 - LG1：+5 条（买兵扣费人口/拒绝、回合钟 1800 帧、对进互射 DamageDealt、漏怪扣命、
   出局+LastTeamStanding 加冕）+ 结算 +50 收入断言并入回合钟用例。
-- 门禁：`cargo test --workspace -j4` **571 passed / 0 failed**（本分支 pre-legion 562 + legion 9；
-  任务书基线 561 与分支上 1 条的差异来自主线后续 merge，非本图漂移）。
+- LG2：+4 条（发兵递增价 25/27/30+出征令攻对家 lane+四类拒绝、发兵击穿
+  对家命-1+出资方+5、20 回合封顶命数多者胜（MatchEnded reason+MatchWinner）、
+  同数平局 reason+无 MatchWinner）。
+- 门禁：`cargo test --workspace -j4` **574 passed / 0 failed**（私有 target 复测：
+  本分支 pre-LG2 基线实测 570 = 任务书基线；570 + LG2 新增 4 = 574，零漂移。
+  LG1 行记的 571 与本分支实测差 1，系当时台账笔误，非测试漂移）。
