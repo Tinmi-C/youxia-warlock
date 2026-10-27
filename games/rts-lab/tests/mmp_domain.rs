@@ -425,3 +425,163 @@ fn ping_color_reads_theme_team_tokens() {
     assert_eq!(minimap::ping_color(TeamId(0), &theme), Color::srgb(1.0, 0.84, 0.0));
     assert_eq!(minimap::ping_color(TeamId(1), &theme), Color::srgb(0.85, 0.2, 0.2));
 }
+
+// -- offscreen evidence capture ---------------------------------------------------
+
+/// Round-3 MMP acceptance evidence ④: two PNGs into `ui-proposals/
+/// mmp-preview/`, rendered OFFSCREEN — the real wgpu/Metal pipeline drawing
+/// the live minimap panel (blips + ping ripples) and the base tooltip (CJK
+/// on the shared Noto face) into a GPU texture, no window, no display
+/// server (the bevy `headless_renderer` example pattern: DefaultPlugins
+/// with `primary_window: None` + WinitPlugin disabled + a camera targeting
+/// an `Image` + `Screenshot::image`). Immune to the agent-context /
+/// locked-screen black-shot problem that kills windowed captures.
+/// Not part of the regression suite (GPU + ~5s):
+///   cargo test -p rts-lab --test mmp_domain evidence -- --ignored --nocapture
+#[test]
+#[ignore = "GPU offscreen render (evidence capture only) — run with --ignored"]
+fn evidence_offscreen_ping_ripple_and_tooltip_cjk() {
+    use bevy::window::{ExitCondition, WindowPlugin};
+    use bevy::winit::WinitPlugin;
+    use std::time::Instant;
+
+    let out_dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui-proposals/mmp-preview");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let mut app = App::new();
+    app.insert_resource(ClearColor(Color::srgb(0.10, 0.11, 0.10)))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: None,
+                    exit_condition: ExitCondition::DontExit,
+                    ..default()
+                })
+                // Shaders ready before the first captured frame (short-lived
+                // capture, no room for async pipeline warmup).
+                .set(bevy::render::RenderPlugin {
+                    synchronous_pipeline_compilation: true,
+                    ..default()
+                })
+                .disable::<WinitPlugin>(),
+        )
+        // Base (theme/tooltip/minimap model plumbing) + the rts-lab thin
+        // layer (GamePlugin loads maps/arena.ron -> live vision bounds).
+        .add_plugins((warbase::WarbasePlugin, rts_lab::plugins::game::GamePlugin))
+        .add_systems(
+            Startup,
+            (
+                minimap::spawn_minimap,
+                minimap::setup_shared_ui_font,
+                spawn_offscreen_ui_camera,
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                minimap::refresh_minimap_view,
+                (minimap::spawn_minimap_pings, minimap::animate_minimap_pings).chain(),
+            ),
+        );
+
+    // No runner drives this app — plugin finish/cleanup (GPU init, shader
+    // setup) must run by hand before the first update (the externally
+    // driven headless renderer example's discipline).
+    app.finish();
+    app.cleanup();
+
+    // Startup settles: map + vision bounds, panel layout, fonts, pipelines.
+    for _ in 0..60 {
+        app.update();
+    }
+    let bounds = app.world().resource::<MinimapModel>().map_bounds;
+    assert!(!bounds.is_empty(), "live map must carry vision bounds");
+    let target = app
+        .world()
+        .resource::<OffscreenTarget>()
+        .0
+        .clone();
+
+    // Shot 1 — ripples mid first wave (~0.62s of the 1.5s wave): own gold
+    // ring mid-map, enemy red ring towards its corner (the click routing
+    // itself is pinned headless above; this shot is the rendered look).
+    app.world_mut()
+        .write_message(MinimapPing { pos: bounds.center(), team: minimap::LOCAL_TEAM });
+    app.world_mut().write_message(MinimapPing {
+        pos: bounds.min + bounds.size() * 0.28,
+        team: TeamId(1),
+    });
+    let t0 = Instant::now();
+    while t0.elapsed().as_secs_f32() < 0.62 {
+        app.update();
+    }
+    capture(&mut app, &target, &out_dir.join("01-minimap-ping-ripple.png"));
+
+    // Shot 2 — the base tooltip on the shared CJK face: a hovered slot
+    // WITHOUT a Node (refresh_tooltip has no Node filter, while the ui
+    // focus system cannot recompute its Interaction without ComputedNode),
+    // so the tooltip stays up without any mouse automation.
+    app.world_mut().spawn((
+        Interaction::Hovered,
+        warbase::ui::CommandSlotButton {
+            action: warbase::ui::CommandAction::Sell,
+            enabled: true,
+            tooltip: "传送 (Teleport) — 将英雄传送至目标地点".into(),
+        },
+    ));
+    for _ in 0..45 {
+        app.update();
+    }
+    capture(&mut app, &target, &out_dir.join("02-tooltip-cjk.png"));
+
+    // Both PNGs are real evidence — non-empty on disk before the app drops.
+    for name in ["01-minimap-ping-ripple.png", "02-tooltip-cjk.png"] {
+        let meta = std::fs::metadata(out_dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e} — screenshot never landed"));
+        assert!(meta.len() > 0, "{name} is empty");
+        println!("evidence: {} ({} bytes)", out_dir.join(name).display(), meta.len());
+    }
+}
+
+/// Offscreen render target (1280x720, the real game window's logical size)
+/// held for the later `Screenshot::image`.
+#[derive(Resource)]
+struct OffscreenTarget(Handle<Image>);
+
+/// One UI camera rendering the whole UI stack (minimap panel, tooltip)
+/// into the offscreen texture (bevy `headless_renderer` example pattern).
+fn spawn_offscreen_ui_camera(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    use bevy::camera::RenderTarget;
+    use bevy::render::render_resource::{TextureFormat, TextureUsages};
+    let mut image = Image::new_target_texture(1280, 720, TextureFormat::Rgba8UnormSrgb, None);
+    image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    let handle = images.add(image);
+    // bevy_camera 0.19: the render target is its own component.
+    commands.spawn((
+        Camera2d,
+        RenderTarget::Image(handle.clone().into()),
+        bevy::ui::IsDefaultUiCamera,
+    ));
+    commands.insert_resource(OffscreenTarget(handle));
+}
+
+/// Queue one `Screenshot::image` and tick until the PNG is on disk (the
+/// capture encodes/writes asynchronously in the render app).
+fn capture(app: &mut App, target: &Handle<Image>, path: &std::path::Path) {
+    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+    use std::time::{Duration, Instant};
+    app.world_mut()
+        .spawn(Screenshot::image(target.clone()))
+        .observe(save_to_disk(path.to_path_buf()));
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_secs(10) {
+        app.update();
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.len() > 0 {
+                return;
+            }
+        }
+    }
+    panic!("screenshot never landed: {}", path.display());
+}
