@@ -43,6 +43,8 @@ impl Plugin for GamePlugin {
                 ),
             )
             .add_systems(Update, gameplay::build_input)
+            // LT2-4: treasure dig during intermissions (V).
+            .add_systems(Update, crate::systems::dig::dig_input)
             .add_systems(Update, gameplay::command_dispatch)
             .add_systems(Update, gameplay::snipe_effect)
             .add_systems(Update, gameplay::hero_talents)

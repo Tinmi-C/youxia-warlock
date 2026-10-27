@@ -30,6 +30,7 @@
 | LT2-1 | v2 装备上塔：英雄塔 3 装备槽（EquipSlots 独立组件），词缀经 StatMods 注入、source=每槽独立 marker 实体（规避 INV 同 source 覆盖缺陷），同槽替换撤旧回包（E 键从包内上装） | ✅ tests/v2_depth.rs（攻+12%→1.12/撤回 1.0/同槽换装 1.08 且旧件回包/间隔-10%/射程+1.5 直改 AttackKit.range/守卫断言）——射程词缀为已记洞：基底 StatKind 无射程项，走游戏侧 RANGE_AFFIXES 表 |
 | LT2-2 | v2 神器任务链：清波 10 + BOSS 击杀 2 → 领取（全队唯一，Q 键），领取后场上全塔获永久光环 entry（source=神器实体，每帧幂等 upsert，新塔次帧入光环） | ✅ tests/v2_depth.rs（达成前双缺口拒领/领取后全塔 +15% damage_mult/领取后新塔入光环/二次领取唯一性拒绝）——光环 +15% 为游戏侧起点值（地图无神器节，缝扩展后进 RON） |
 | LT2-3 | v2 挑战波：每 10 波里程碑波间可选（C 键，一次一里程碑），下一波 hp_scale×2.0 + reward_gold×3.0（表快照/清波还原，基底 director 原路出怪发奖），清波必掉 1 件装备 GroundItem（MatchRng 种子挑选） | ✅ tests/v2_depth.rs（非里程碑/出怪中拒开/表 hp×2 断言/挑战怪 MaxHp=40×hp×2 且带 ChallengeSpawn 标/奖励恰 3×30 金/表还原/恰 1 GroundItem/同里程碑二次拒开）——WaveTag=usize 无变体位为已记洞：Challenge 标记走游戏侧 ChallengeSpawn 组件 |
+| LT2-4 | v2 挖宝：波间 50 金一挖（V 键；G 已被 HR2 加点占用），MatchRng 单掷 50% 空/35% 金 80/15% 随机装备，装备入英雄包（按实体序首个有空位英雄）否则落地 GroundItem | ✅ tests/v2_depth.rs（同 seed 20 掷序列全等/金结果恰 80 且扣费精确/500 掷 EV∈31.5±5/装备入包/无英雄落地为 GroundItem/守卫断言） |
 
 ## 待人工关卡（后置清单）
 

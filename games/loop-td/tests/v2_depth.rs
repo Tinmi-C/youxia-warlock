@@ -454,3 +454,121 @@ fn challenge_wave_doubles_hp_triples_reward_and_drops_equipment() {
     }
     assert!(arm_challenge(&mut app.world_mut()).is_err(), "one challenge per milestone");
 }
+
+// ---------------------------------------------------------------------------
+// LT2-4: treasure digs — 50 gold during an intermission rolls the seeded
+// MatchRng: 50% nothing / 35% +80 gold / 15% a random equipment piece.
+// Same seed => identical outcome sequence; the gold expectation over a big
+// sample sits inside the proposal's 31.5±5 window.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn digs_are_seeded_with_expected_gold_value() {
+    use loop_td::systems::dig::{dig, DigOutcome, DIG_COST, DIG_GOLD_AMOUNT};
+
+    let mut app = game_app();
+    app.world_mut().resource_mut::<WaveDirector>().phase = DirectorPhase::Intermission;
+    app.world_mut().resource_mut::<Resources>().gold = 1_000_000;
+
+    // Guards: no dig outside the intermission, none without the 50 gold.
+    app.world_mut().resource_mut::<WaveDirector>().phase = DirectorPhase::Spawning;
+    assert!(dig(&mut app.world_mut()).is_err(), "digs are intermission-only");
+    app.world_mut().resource_mut::<WaveDirector>().phase = DirectorPhase::Intermission;
+    app.world_mut().resource_mut::<Resources>().gold = DIG_COST - 1;
+    assert!(dig(&mut app.world_mut()).is_err(), "no gold, no dig");
+
+    // Seeded determinism: the same seed replays the same 20-roll sequence.
+    app.insert_resource(MatchRng::seeded(1234));
+    app.world_mut().resource_mut::<Resources>().gold = 1_000_000;
+    let seq_a: Vec<DigOutcome> = (0..20).map(|_| dig(&mut app.world_mut()).unwrap()).collect();
+    app.insert_resource(MatchRng::seeded(1234));
+    let seq_b: Vec<DigOutcome> = (0..20).map(|_| dig(&mut app.world_mut()).unwrap()).collect();
+    assert!(!seq_a.is_empty() && seq_a != vec![DigOutcome::Nothing; 20], "sequence has variety");
+    assert_eq!(seq_a, seq_b, "same seed => same sequence");
+
+    // One gold outcome observed with exact accounting (50 spent, 80 back).
+    let idx = seq_a.iter().position(|o| matches!(o, DigOutcome::Gold(_)));
+    if let Some(idx) = idx {
+        app.insert_resource(MatchRng::seeded(1234));
+        let before = app.world().resource::<Resources>().gold;
+        let mut saw_gold = false;
+        for _ in 0..=idx {
+            if let DigOutcome::Gold(won) = dig(&mut app.world_mut()).unwrap() {
+                assert_eq!(won, DIG_GOLD_AMOUNT, "gold dig pays exactly 80");
+                saw_gold = true;
+            }
+        }
+        assert!(saw_gold, "replay reaches the same gold roll");
+        let now = app.world().resource::<Resources>().gold;
+        assert_eq!(now, before - DIG_COST * (idx as u32 + 1) + DIG_GOLD_AMOUNT);
+    }
+
+    // Big sample: gold expectation inside 31.5±5 (proposal EV window).
+    app.insert_resource(MatchRng::seeded(7));
+    app.world_mut().resource_mut::<Resources>().gold = 1_000_000;
+    let mut gold_total = 0u32;
+    for _ in 0..500 {
+        if let DigOutcome::Gold(won) = dig(&mut app.world_mut()).unwrap() {
+            gold_total += won;
+        }
+    }
+    let mean = gold_total as f32 / 500.0;
+    assert!(
+        (mean - 31.5).abs() <= 5.0,
+        "dig EV {mean} outside 31.5±5 (gold_total {gold_total})"
+    );
+    let stats = app.world().resource::<loop_td::systems::dig::DigStats>();
+    let expected_rolls = 20 + 20 + idx.map(|i| i as u32 + 1).unwrap_or(0) + 500;
+    assert_eq!(stats.rolls, expected_rolls, "every dig is booked");
+    assert!(stats.equipment_found > 0, "equipment branch exercised");
+}
+
+#[test]
+fn dig_equipment_lands_in_a_hero_bag_or_on_the_ground() {
+    use loop_td::systems::dig::dig;
+
+    // With a hero on the field, equipment outcomes stow into its bag.
+    let mut app = game_app();
+    app.world_mut().resource_mut::<WaveDirector>().phase = DirectorPhase::Intermission;
+    let hero = place_hero(&mut app);
+    app.world_mut().resource_mut::<Resources>().gold = 1_000_000;
+    let mut stowed = false;
+    for seed in 1..50u64 {
+        app.insert_resource(MatchRng::seeded(seed));
+        if let loop_td::systems::dig::DigOutcome::Equipment(id) = dig(&mut app.world_mut()).unwrap()
+        {
+            let inv = app.world().get::<Inventory>(hero).unwrap();
+            let bag: Vec<&str> = inv
+                .slots
+                .iter()
+                .filter_map(|s| s.as_ref().map(|st| st.def.as_str()))
+                .collect();
+            assert!(bag.contains(&id.as_str()), "equipment '{id}' in the hero bag: {bag:?}");
+            stowed = true;
+            break;
+        }
+    }
+    assert!(stowed, "some seed digs equipment within 50 tries");
+
+    // Without any hero, the piece drops as a GroundItem (observable loot).
+    let mut bare = game_app();
+    bare.world_mut().resource_mut::<WaveDirector>().phase = DirectorPhase::Intermission;
+    bare.world_mut().resource_mut::<Resources>().gold = 1_000_000;
+    let mut dropped = false;
+    for seed in 1..50u64 {
+        bare.insert_resource(MatchRng::seeded(seed));
+        if let loop_td::systems::dig::DigOutcome::Equipment(ref id) =
+            dig(&mut bare.world_mut()).unwrap()
+        {
+            let ground: Vec<&str> = {
+                let mut q = bare.world_mut().query_filtered::<&GroundItem, ()>();
+                let world = bare.world();
+                q.iter(world).map(|g| g.def.as_str()).collect()
+            };
+            assert_eq!(ground, vec![id.as_str()], "dropped where the hero can see it");
+            dropped = true;
+            break;
+        }
+    }
+    assert!(dropped, "some seed drops equipment within 50 tries");
+}
