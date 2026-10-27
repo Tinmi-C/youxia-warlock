@@ -12,8 +12,9 @@
   （MoveAgent 语义 move_speed 3.0 / body_radius 0.3，弱近战 kit——民兵
   语义，兼作 LastTeamStanding 的队 0 战力）、`gold_mine`（建筑）、
   `grunt`（敌方守卫 ×3，AttackKit 站桩）。
-- 开局（游戏侧 STARTING_LAYOUT，见「抽象有洞」#2）：主城 (-5,0)、金矿
-  (5,0)、农民 ×4 主城旁、grunt ×3 (10,-6) 一带；金 150 / 人口 0/12。
+- 开局（arena.ron `starting_forces` 段，洞 #2 已闭、RL4 切换）：主城
+  (-5,0)、金矿 (5,0)、农民 ×4 主城旁、grunt ×3 (10,-6) 一带；金 150 /
+  人口 0/12。
 
 ## 范围（RL2 增量：交战+技能+生产纵深）
 
@@ -28,8 +29,8 @@
   两技能开局预学 1 级（游戏侧写死——基底 spawn 只给 Autocast 槽 1 级）。
   Q 键释放；瞄准=当前选择集内受伤最重盟友，无则自体（写死策略）。
   效果：`SkillCast` → 游戏侧 `skill_effects` → `HealRequest`（基底
-  resolve_heals）。devotion 光环走 def.auras + 游戏侧自由单位光环消费
-  （洞 #7）。
+  resolve_heals）。devotion 光环走 def.auras（`affects: Allies`，基底
+  apply_follower_auras 消费——洞 #7 已闭，RL4）。
 - **科研**：`production.research` = attack_upgrade（100g/8s，Stat grant：
   footman/archer DamageMult +0.15）；R 键发 `ResearchCommand::Start`；
   完成后 `TypeModifiers` → `apply_research_stats` → EffectiveStats 断言。
@@ -98,10 +99,18 @@ RL3 追加（tests/behavior.rs ⑫–⑭）：
 
 ## 抽象有洞清单（RL1–RL3 发现，通道 C——全部游戏侧补丁，基底零改动）
 
+> RL4（C→A 第二遍）清账：**#2 已闭**（bundle `starting_forces` 段，hole-3
+> 上收；游戏侧 STARTING_LAYOUT 退役）；**#7 已闭**（SEAM2b 光环泛化
+> `AuraDef::affects`，游戏侧 free_agent_auras 退役）；**采集循环整体换
+> 基底 HARV 域**（arena.ron `harvest` 段 + `Order::Harvest`/`ReturnCargo`
+> 流），#5 的游戏侧分槽补丁随之退役——基底在 GATHER_RANGE 圈内即装/卸，
+> 不等精确到达，天然规避推挤僵持。
+
 1. **MapBundle 强制非空 world.paths**（TD 出身）：RTS 图没有出怪轨道。
    补丁：周界封闭 path 兼作竞技场围墙（`maps/arena.ron`）。
 2. **MapBundle 无开局兵力段**：RTS 开局布兵是地图内容（ADR-0013）却无
-   处安放。补丁：游戏侧 `STARTING_LAYOUT` 常量（`systems/gameplay.rs`）。
+   处安放。~~补丁：游戏侧 `STARTING_LAYOUT` 常量（`systems/gameplay.rs`）~~
+   → 已闭（hole-3 上收：bundle `starting_forces` 段；RL4 切换，常量删除）。
 3. **左键点选链缺最后一跳**：input 层产 `PickAttempt`、selection 域产
    `PickResolved`，但无人把左键 `PickResolved` 翻成 `SelectCommand`（拖框
    与右键都有消费方，唯单点没有）。补丁：并入 #4 的游戏侧桥。
@@ -117,9 +126,10 @@ RL3 追加（tests/behavior.rs ⑫–⑭）：
 5. **（软性观察）多点同目标 + MOV3 反抖动 = 推挤平衡**：多条独立单主体
    Move 命令指向同一精确点时（采集循环天然如此），软碰撞「穿透>50% 不推」
    规则让单位群在距目标 ~0.4 处达成僵持，永远到不了 arrival_radius。
-   MOV5 散点只对**组命令**生效，逐个独立命令不散点。补丁：游戏侧确定性
-   分槽（按实体 index 的 8 向环）+ 就近换腿（HARVEST_RADIUS 内即装/卸，
-   不等精确到达）。基底侧候选改进：单主体命令也过 formation 散点，或
+   MOV5 散点只对**组命令**生效，逐个独立命令不散点。~~补丁：游戏侧确定性
+   分槽（按实体 index 的 8 向环）+ 就近换腿~~ → 已随 RL4 采集切换退役
+   （基底 HARV 在 GATHER_RANGE 圈内即装/卸，不等精确到达，僵持点在触发
+   圈内）。基底侧候选改进：单主体命令也过 formation 散点，或
    arrival 检查放宽为「与任一同目标单位互斥满足」。
 6. **SkillCast 事件无单位目标字段**（RL2）：`SkillTargeting::Unit` 的技能
    语义存在，但 `SkillCast` 消息只带 `point`（`Casting` 组件预留了
@@ -129,8 +139,9 @@ RL3 追加（tests/behavior.rs ⑫–⑭）：
 7. **光环消费方只认 PathFollower**（RL2）：`buff::apply_auras` 与
    `apply_follower_auras` 的目标查询都带 `With<PathFollower>`（TD 出身）。
    自由单位 RTS 无 PathFollower，paladin 的 devotion（def.auras）对己方
-   步兵永不生效。补丁：游戏侧 `free_agent_auras`（同款每帧重建语义，
-   目标=无 PathFollower 的盟友，含施法者本人）。
+   步兵永不生效。~~补丁：游戏侧 `free_agent_auras`~~ → 已闭（SEAM2b
+   光环泛化：查询改 `With<UnitInstance>` + `AuraDef::affects` 声明敌我；
+   paladin 走 `affects: Allies`，RL4 切换后游戏侧系统删除）。
 8. **（摩擦）数字键双职无法让渡**（RL2，软性）：基底键盘桥把数字键固定
    翻成 `GroupCommand::Recall`，无「模态期数字归模态」的让渡缝（方案
    §12 开放问题 2 的推荐项未落）。游戏侧 1 键用药与编队召回同帧双发：

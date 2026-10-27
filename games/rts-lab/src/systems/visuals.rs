@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 use warbase::prelude::*;
 
-use crate::components::{Carrying, SelectionOutline, Visualized};
+use crate::components::{SelectionOutline, Visualized};
 
 /// Marker on a unit's body-cube child, linking it back to the unit and
 /// remembering its authored base color (fog tint restore).

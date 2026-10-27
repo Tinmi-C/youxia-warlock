@@ -75,7 +75,7 @@ RL3 切片（迷雾 + 小地图 + 录像）：
 src/
   lib.rs            # build_app()：DefaultPlugins + WarbasePlugin + 薄插件
   main.rs           # 入口
-  components.rs     # 玩法薄组件（MainHall/GoldMine/Carrying/HarvestRoute...）
+  components.rs     # 玩法薄组件（Visualized/SelectionOutline；采集侧组件已由基底 harvest 域取代）
   resources.rs      # CurrentMap
   plugins/
     game.rs         # GamePlugin：headless-safe 核心（装配/开局/训练/采集）

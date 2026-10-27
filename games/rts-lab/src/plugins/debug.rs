@@ -6,9 +6,7 @@ use bevy::{
     prelude::*,
     render::view::screenshot::{save_to_disk, Screenshot},
 };
-use warbase::prelude::{AgentOrderState, MoveAgent, Order, Population, Resources};
-
-use crate::components::{Carrying, HarvestRoute};
+use warbase::prelude::{AgentOrderState, Carrying, MoveAgent, Order, Population, Resources};
 
 pub struct DebugPlugin;
 
@@ -34,7 +32,6 @@ fn log_dashboard(
         &MoveAgent,
         &AgentOrderState,
         Option<&Carrying>,
-        Option<&HarvestRoute>,
     )>,
     mut log: ResMut<FpsLog>,
 ) {
@@ -47,22 +44,24 @@ fn log_dashboard(
         (Some(res), Some(pop)) => (res.gold, pop.used, pop.cap),
         _ => (0, 0, 0), // before the map assembles
     };
-    // First-worker probe: where is it, what is it doing (harvest observability).
-    let probe = workers.iter().next().map(|(tf, agent, state, carrying, route)| {
+    // First-worker probe: where is it, what is it doing (harvest observability;
+    // the base Carrying component persists at 0 between trips — show units).
+    let probe = workers.iter().next().map(|(tf, agent, state, carrying)| {
         format!(
-            " worker@({:.1},{:.1}) order={:?} state={:?} wp={} to={:?} carry={} route={}",
+            " worker@({:.1},{:.1}) order={:?} state={:?} wp={} to={:?} carry={}",
             tf.translation.x,
             tf.translation.z,
             agent.order.as_ref().map(|o| match o {
                 Order::Move { .. } => "Move",
                 Order::Stop => "Stop",
+                Order::Harvest { .. } => "Harvest",
+                Order::ReturnCargo { .. } => "ReturnCargo",
                 _ => "other",
             }),
             state,
             agent.waypoints.len(),
             agent.waypoints.first().copied(),
-            carrying.is_some(),
-            route.is_some()
+            carrying.map(|c| c.0).unwrap_or(0),
         )
     });
     info!(
