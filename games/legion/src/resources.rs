@@ -71,3 +71,30 @@ pub struct PopLedger {
     pub used: [u8; 4],
     pub cap: [u8; 4],
 }
+
+// ---------------------------------------------------------------------------
+// 发兵（LG2）：建造期花钱给对家注入下一回合的额外兵
+// ---------------------------------------------------------------------------
+
+/// 回合封顶数（proposal §2：20 回合 → 剩余命数多者胜）。
+pub const ROUND_CAP: u32 = 20;
+
+/// 发兵价格台账：`sent[from][to]` = from 已成功发往 to 的兵数（价格按此
+/// 递增 10%，见 round::send_cost）。per-target 表（proposal §2）。
+#[derive(Resource, Debug, Clone, Default)]
+pub struct SendLedger(pub [[u32; 4]; 4]);
+
+/// 一笔排队的发兵（建造期下单，战斗期出征时兑现）。
+#[derive(Debug, Clone)]
+pub struct PendingSend {
+    /// 出资并拥有该兵的玩家（漏怪赏金归他）。
+    pub sponsor: u8,
+    /// 被注入的对手（= 对家漏怪受害方）。
+    pub target: u8,
+    /// 注入的雇佣兵 def。
+    pub def: String,
+}
+
+/// 待兑现的发兵队列（建造期累加，Build→Battle 转换时清空兑现）。
+#[derive(Resource, Debug, Clone, Default)]
+pub struct PendingSends(pub Vec<PendingSend>);

@@ -19,12 +19,27 @@
 //! ⑨ income: settlement +50g to the living
 //! ⑩ elimination: lives exhausted -> player swept -> LastTeamStanding
 //!    (base rule) crowns team 0
+//!
+//! LG2
+//! ⑪ send: build-phase sends inject next round's attackers — 25g first,
+//!    exactly 27 the second (25*1.1 floored), 30 the third (25*1.1^2);
+//!    the units spawn from the sender's deploy zone and the march order
+//!    targets the victim's line; cross-lane / self / unknown def /
+//!    battle-phase sends rejected
+//! ⑫ breach bounty: a sent unit reaching the victim's baseline costs a
+//!    life AND pays the sponsor +5g
+//! ⑬ round cap win: round 20 settlement adjudicates on lives — more
+//!    lives wins (MatchEnded reason names the team, MatchWinner set)
+//! ⑭ round cap draw: equal lives -> draw, readable reason, no MatchWinner
 
 use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::prelude::*;
-use legion::components::{DeploySlot, Merc};
+use legion::components::{DeploySlot, Merc, SentMerc};
 use legion::resources::{CurrentMap, LivesBoard, Phase, PopLedger, Purse, RoundFlow, BUILD_FRAMES};
-use legion::systems::round::{HireCommand, HireRejected, LeakHappened, PlayerEliminated};
+use legion::systems::round::{
+    HireCommand, HireRejected, LeakHappened, PhaseChanged, PlayerEliminated, SendCommand,
+    SendRejected,
+};
 use warbase::prelude::*;
 use warbase::testing::{send, test_app};
 
@@ -385,4 +400,206 @@ fn lives_exhaustion_eliminates_and_crowns_team_zero() {
     let flow = app.world().resource::<MatchFlow>().clone();
     assert!(matches!(flow, MatchFlow::Won(ref r) if r.contains("last team standing")));
     assert_eq!(app.world().resource::<MatchWinner>().0, TeamId(0));
+}
+
+// -- ⑪ LG2: send shop ---------------------------------------------------------
+
+/// LG2-⑪: the send anchor — P0 pays to inject next round's attackers against
+/// P1. Prices escalate per target: 25, then EXACTLY 27 (25*1.1 floored — the
+/// rounding rule is pinned here), then 30 (25*1.1^2). The queued units spawn
+/// from P0's deploy zone at the battle transition and the march order aims at
+/// P1's line (P0's lane baseline). Cross-lane targets, self-sends, unknown
+/// defs and battle-phase sends are all refused without charge.
+#[test]
+fn send_injects_next_round_from_deploy_zone_at_escalating_cost() {
+    let mut app = legion_app();
+    set_gold(&mut app, 100);
+
+    // Three sends to the same target: 25 + 27 + 30 = 82 spent exactly.
+    let mut rej = MessageCursor::<SendRejected>::default();
+    for _ in 0..3 {
+        send(&mut app, SendCommand { player: 0, target: 1, def: "merc_cheap".into() });
+        app.update();
+    }
+    assert_eq!(app.world().resource::<Purse>().0[0], 100 - 82, "25 + 27 + 30 (floored 1.1x)");
+    let msgs = app.world().resource::<Messages<SendRejected>>();
+    assert_eq!(rej.read(msgs).count(), 0, "well-formed sends never rejected");
+
+    // Rejections, none of them charged: cross-lane target (P3 shares no
+    // corridor with P0; P2 is an ally — same refusal), self, unknown def.
+    // (Each `send` advances one frame; a persistent cursor drains every
+    // frame's buffer — a fresh end-of-batch cursor sees only the last one.)
+    let mut rej = MessageCursor::<SendRejected>::default();
+    let mut reasons: Vec<String> = Vec::new();
+    for target in [3u8, 2, 0] {
+        send(&mut app, SendCommand { player: 0, target, def: "merc_cheap".into() });
+        let msgs = app.world().resource::<Messages<SendRejected>>();
+        reasons.extend(rej.read(msgs).map(|r| r.reason.clone()));
+    }
+    send(&mut app, SendCommand { player: 0, target: 1, def: "merc_nope".into() });
+    let msgs = app.world().resource::<Messages<SendRejected>>();
+    reasons.extend(rej.read(msgs).map(|r| r.reason.clone()));
+    assert_eq!(reasons.len(), 4, "cross-lane x2, self, unknown def all refused");
+    assert!(reasons.iter().filter(|r| r.contains("no lane")).count() == 2);
+    assert!(reasons.iter().any(|r| r.contains("yourself")));
+    assert!(reasons.iter().any(|r| r.contains("unknown def")));
+    assert_eq!(app.world().resource::<Purse>().0[0], 18, "rejections cost nothing");
+
+    // Battle transition: the three queued sends spawn at P0's zone mouth and
+    // the march order (base UnitCommand::AttackMove) targets P1's line.
+    let mut orders = MessageCursor::<UnitCommand>::default();
+    skip_to_battle(&mut app);
+    let cmds: Vec<UnitCommand> = {
+        let msgs = app.world().resource::<Messages<UnitCommand>>();
+        orders.read(msgs).cloned().collect()
+    };
+    assert_eq!(cmds.len(), 1, "one squad order (only P0 has units)");
+    match &cmds[0].order {
+        Order::AttackMove { to } => {
+            assert_eq!(*to, Vec3::new(13.0, 0.0, -4.0), "march aims at P1's line");
+        }
+        other => panic!("expected AttackMove, got {other:?}"),
+    }
+    assert_eq!(cmds[0].subjects.len(), 3, "the three sent units ride the order");
+
+    // Spawned on-board one frame later, from P0's deploy zone (lane start),
+    // owned by the sponsor and marked as sent.
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query::<(&Transform, &Owner, &Merc, &SentMerc)>();
+    let sent: Vec<(&Transform, &Owner, &Merc, &SentMerc)> = q.iter(app.world()).collect();
+    assert_eq!(sent.len(), 3, "P1 faces three extra attackers next round");
+    for (tf, owner, merc, _) in &sent {
+        assert_eq!(owner.0, PlayerId(0), "sent units fight for the sponsor");
+        assert_eq!(merc.player, 0);
+        assert_eq!(merc.pop, 0, "sends book no population");
+        assert!(
+            tf.translation.distance(Vec3::new(-13.0, 0.0, -4.0)) < 1.0,
+            // Three units spawn on the same point; separation pushes them
+            // apart within a frame — 1.0 still pins "P0's side of the
+            // corridor" (P1's zone is 25 units away).
+            "spawned at P0's deploy-zone mouth, got {:?}",
+            tf.translation
+        );
+    }
+
+    // Battle-phase sends are refused (the shop closes with the phase).
+    let mut rej = MessageCursor::<SendRejected>::default();
+    send(&mut app, SendCommand { player: 0, target: 1, def: "merc_cheap".into() });
+    app.update();
+    let msgs = app.world().resource::<Messages<SendRejected>>();
+    assert!(rej.read(msgs).count() >= 1, "battle-phase send refused");
+    assert_eq!(app.world().resource::<Purse>().0[0], 18, "still 18 after the refusal");
+}
+
+// -- ⑫ LG2: breach bounty -----------------------------------------------------
+
+/// LG2-⑫: a sent unit that breaks through P1's line costs P1 one life AND
+/// pays the sponsor a +5g breach bounty — landing on the settle frame, so
+/// the purse reads exactly 50 (income) + 5 (bounty); a missing bounty would
+/// read 50 (proposal §2 "发兵方获得击穿赏金").
+#[test]
+fn sent_unit_breach_costs_a_life_and_pays_the_sponsor() {
+    let mut app = legion_app();
+    set_gold(&mut app, 25);
+    send(&mut app, SendCommand { player: 0, target: 1, def: "merc_cheap".into() });
+    app.update();
+    assert_eq!(app.world().resource::<Purse>().0[0], 0, "the 25g send drained the purse");
+
+    skip_to_battle(&mut app);
+    // Catch the leak frame. NOTE: the schedule's auto sync point between the
+    // chained leak_tick and round_tick applies the leak despawn BEFORE the
+    // round clock runs — so settlement (+50) and the breach bounty (+5) land
+    // the SAME frame; the purse read at the leak is exactly 50+5 (a missing
+    // bounty would read 50).
+    let mut cursor = MessageCursor::<LeakHappened>::default();
+    let mut purse_at_leak = None;
+    for _ in 0..900 {
+        app.update();
+        let msgs = app.world().resource::<Messages<LeakHappened>>();
+        if cursor.read(msgs).count() > 0 {
+            purse_at_leak = Some(app.world().resource::<Purse>().0[0]);
+            break;
+        }
+    }
+    assert_eq!(purse_at_leak, Some(55), "breach bounty +5 rides the settle frame (+50 income)");
+    assert_eq!(
+        app.world().resource::<LivesBoard>().0,
+        [20, 19, 20, 20],
+        "P1 pays one life"
+    );
+    assert_eq!(units_of(&mut app, "merc_cheap").len(), 0, "breached unit swept");
+    let flow = app.world().resource::<RoundFlow>().clone();
+    assert_eq!((flow.round, flow.phase == Phase::Build), (2, true), "round settled");
+}
+
+// -- ⑬⑭ LG2: round-cap adjudication -------------------------------------------
+
+/// Drive to round 20's battle with an empty field: the settlement adjudicates
+/// on lives instead of opening round 21.
+fn settle_round_20(app: &mut App) {
+    {
+        let mut flow = app.world_mut().resource_mut::<RoundFlow>();
+        assert_eq!(flow.phase, Phase::Build);
+        flow.round = 20;
+        flow.frame = BUILD_FRAMES - 1;
+    }
+    app.update(); // transition to battle
+    app.update(); // empty field -> settle -> cap adjudication
+}
+
+/// LG2-⑬: at the round-20 cap the team with more lives wins — MatchEnded
+/// carries a readable reason naming the team, MatchWinner is set, and the
+/// round layer freezes (no round 21).
+#[test]
+fn round_cap_crowns_team_with_more_lives() {
+    let mut app = legion_app();
+    app.world_mut().resource_mut::<LivesBoard>().0 = [20, 19, 20, 19]; // 40 vs 38
+
+    let mut ended = MessageCursor::<MatchEnded>::default();
+    settle_round_20(&mut app);
+
+    let flow = app.world().resource::<MatchFlow>().clone();
+    let MatchFlow::Won(reason) = flow else {
+        panic!("cap must end the match, got {flow:?}");
+    };
+    assert!(reason.contains("round cap 20"), "reason: {reason}");
+    assert!(reason.contains("team 0"), "the lives leader is named: {reason}");
+    let msgs = app.world().resource::<Messages<MatchEnded>>();
+    let outcomes: Vec<&MatchEnded> = ended.read(msgs).collect();
+    assert_eq!(outcomes.len(), 1, "exactly one match-end message");
+    assert!(matches!(&outcomes[0].outcome, Ok(r) if *r == reason));
+
+    assert_eq!(app.world().resource::<MatchWinner>().0, TeamId(0));
+
+    // Frozen: further updates never open round 21.
+    let _ = run_counting::<PhaseChanged>(&mut app, 5);
+    let flow = app.world().resource::<RoundFlow>().clone();
+    assert_eq!((flow.round, flow.phase == Phase::Battle), (20, true), "no round 21");
+}
+
+/// LG2-⑭: equal lives at the cap -> draw. The base MatchFlow has no Draw
+/// variant (hole L7), so the draw rides a Won flow whose reason — the only
+/// readable contract — spells out the draw, and MatchWinner stays unset.
+#[test]
+fn round_cap_draws_on_equal_lives() {
+    let mut app = legion_app();
+    app.world_mut().resource_mut::<LivesBoard>().0 = [20, 20, 20, 20]; // 40 vs 40
+
+    let mut ended = MessageCursor::<MatchEnded>::default();
+    settle_round_20(&mut app);
+
+    let flow = app.world().resource::<MatchFlow>().clone();
+    let MatchFlow::Won(reason) = flow else {
+        panic!("cap must end the match, got {flow:?}");
+    };
+    assert!(reason.contains("round cap 20"), "reason: {reason}");
+    assert!(reason.contains("draw"), "the draw is readable: {reason}");
+    let msgs = app.world().resource::<Messages<MatchEnded>>();
+    assert!(ended.read(msgs).any(|m| matches!(&m.outcome, Ok(r) if r.contains("draw"))));
+    assert!(
+        app.world().get_resource::<MatchWinner>().is_none(),
+        "a draw crowns nobody"
+    );
 }

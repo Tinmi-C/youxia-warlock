@@ -1,11 +1,13 @@
 //! GamePlugin: headless-safe core — map load + per-player wallets + the
-//! round layer (hire shop / leak rule / bounty credit / round clock) + unit
-//! kit attachment. Rendering/UI deps stay in VisualPlugin.
+//! round layer (hire shop / send shop / leak rule + breach bounty / bounty
+//! credit / round clock with the 20-round cap) + unit kit attachment.
+//! Rendering/UI deps stay in VisualPlugin.
 
 use bevy::prelude::*;
 use warbase::prelude::cleanup_dead;
 use warbase::WarbaseSet;
 
+use crate::resources::{PendingSends, SendLedger};
 use crate::systems::{gameplay, round};
 
 /// Headless-safe core (input bridges no-op without ButtonInput).
@@ -16,10 +18,14 @@ impl Plugin for GamePlugin {
         // Game-side messages (base ones are registered by WarbasePlugin).
         app.add_message::<round::HireCommand>()
             .add_message::<round::HireRejected>()
+            .add_message::<round::SendCommand>()
+            .add_message::<round::SendRejected>()
             .add_message::<round::PhaseChanged>()
             .add_message::<round::RoundSettled>()
             .add_message::<round::LeakHappened>()
-            .add_message::<round::PlayerEliminated>();
+            .add_message::<round::PlayerEliminated>()
+            .init_resource::<SendLedger>()
+            .init_resource::<PendingSends>();
 
         app.add_systems(
             Startup,
@@ -32,11 +38,12 @@ impl Plugin for GamePlugin {
             Update,
             (
                 gameplay::attach_legion_kit,
-                // The hire shop runs ahead of the base tick (order-inert for
-                // message reads; keeps hires early in the frame).
-                round::hire,
+                // The hire and send shops run ahead of the base tick (chained:
+                // both hold ResMut<Purse>; order-inert for message reads,
+                // keeps purchases early in the frame).
+                (round::hire, round::send).chain(),
                 // Input bridges (headless no-ops without ButtonInput).
-                (round::hire_input, round::skip_build_input),
+                (round::hire_input, round::skip_build_input, round::send_input),
                 // Bounty credit must run INSIDE Cleanup, before the base
                 // cleanup_dead despawns the killer: UnitDied.killer is an
                 // Entity reference and a mutual kill's killer is Dead-marked
