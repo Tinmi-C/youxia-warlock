@@ -147,13 +147,17 @@ fn mock_plan_a_reads_the_shipped_skin() {
 /// deletes (the warden UI6 contract, mirrored).
 #[test]
 fn bundled_cjk_font_files_are_present() {
-    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+    // SEAM3b: the font lives ONCE at the workspace root (shared with
+    // warden); this crate's own assets/fonts/ copy is gone by design.
+    let base = loop_td::systems::font::font_file();
     assert!(
-        base.join("NotoSansSC-VariableFont_wght.ttf").is_file(),
-        "assets/fonts/NotoSansSC-VariableFont_wght.ttf must exist (bundled CJK font)"
+        base.is_file(),
+        "shared {} must exist (bundled CJK font, single workspace copy)",
+        base.display()
     );
+    let license = base.parent().unwrap().join("OFL.txt");
     assert!(
-        base.join("OFL.txt").is_file(),
+        license.is_file(),
         "assets/fonts/OFL.txt must exist (SIL OFL 1.1 license travels with the font)"
     );
 }

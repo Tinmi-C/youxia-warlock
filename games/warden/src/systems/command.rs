@@ -607,7 +607,10 @@ pub fn refresh_control_zone(
 }
 
 /// Cache key: rebuild the command card only when one of these changes.
-type CardKey = (Selection, bool, Lang, usize, u32, u32);
+/// SEAM3b: the theme REVISION is part of the key — swapping the `UiTheme`
+/// resource (hot re-skin) rebuilds warden's own panels, matching the base
+/// panel's cache key contract.
+type CardKey = (Selection, bool, Lang, usize, u32, u32, u64);
 
 /// One renderable card cell (normalize-then-render, WARDEN-SKIN): the system
 /// body turns game state into these specs; the deferred spawn reads the skin
@@ -636,6 +639,7 @@ pub struct CardTables<'w> {
 pub fn refresh_command_card(
     mut commands: Commands,
     font: Res<UiFont>,
+    ui: Res<warbase::ui::UiTheme>,
     lang: Res<Lang>,
     selection: Res<Selection>,
     wave: Res<WaveState>,
@@ -661,6 +665,7 @@ pub fn refresh_command_card(
         hand.owned_towers.len(),
         offers.version,
         economy.gold,
+        ui.revision,
     );
     if *cache == Some(key) {
         return;
@@ -832,6 +837,18 @@ pub fn refresh_command_card(
         let ui = world.resource::<warbase::ui::UiTheme>().clone();
         for c in stale {
             let _ = world.entity_mut(c).despawn();
+        }
+        // SEAM3b hot re-skin: the revision joined the cache key, so a theme
+        // swap lands HERE — re-style the bar root itself (same contract as
+        // the base panel's own root re-style), not only the rebuilt cards.
+        {
+            let mut bar_mut = world.entity_mut(bar);
+            if let Some(mut bg) = bar_mut.get_mut::<BackgroundColor>() {
+                *bg = BackgroundColor(ui.palette.panel_bg.color());
+            }
+            if let Some(mut bc) = bar_mut.get_mut::<BorderColor>() {
+                *bc = BorderColor::all(ui.palette.panel_border.color());
+            }
         }
         world.entity_mut(bar).with_children(|card| {
             card.spawn((

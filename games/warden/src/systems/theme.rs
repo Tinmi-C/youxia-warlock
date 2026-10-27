@@ -54,8 +54,7 @@ pub const CARD_W: f32 = 200.0; // 三选一卡
 pub const CARD_H: f32 = 88.0;
 
 // TODO(WARDEN-SKIN): surfaces still hard-coded, tracked for a later pass:
-//   - end-screen banner font 34px (UiTheme has no display-scale token; add
-//     `font_display` to the brief's type ladder first)
+//   (the end-screen banner moved to typography.font_display in SEAM3b)
 //   - world-space FX colors (selection ring, fusion pair discs, hover ghost,
 //     fx healthbars) — 3D scene effects, not panel skin
 //   - tooltip anchor left=240/width=360 and all paddings — layout, not skin

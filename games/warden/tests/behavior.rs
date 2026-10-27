@@ -1111,13 +1111,20 @@ fn magic_damage_ignores_armor() {
 /// machine renders the same CJK text (UI6). Guards against accidental deletes.
 #[test]
 fn bundled_cjk_font_file_is_present() {
-    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts");
+    // SEAM3b: the font lives ONCE at the workspace root (shared with
+    // loop-td); warden's own assets/fonts/ copy is gone by design.
+    let base = warden::systems::hud::font_file();
     assert!(
-        base.join("NotoSansSC-VariableFont_wght.ttf").is_file(),
-        "assets/fonts/NotoSansSC-VariableFont_wght.ttf must exist (UI6 bundled font)"
+        base.is_file(),
+        "shared {} must exist (UI6 CJK font, single workspace copy)",
+        base.display()
     );
+    let license = base
+        .parent()
+        .expect("font file has a parent dir")
+        .join("OFL.txt");
     assert!(
-        base.join("OFL.txt").is_file(),
+        license.is_file(),
         "assets/fonts/OFL.txt must exist (SIL OFL 1.1 license travels with the font)"
     );
 }

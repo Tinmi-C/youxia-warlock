@@ -111,6 +111,7 @@ fn plan_b() -> PlanSpec {
         font_badge: 9.0,
         font_tooltip: 12.0,
         font_title: 14.0,
+        font_display: 30.0,
     };
     theme.spacing = warbase::ui::UiSpacing {
         panel_margin: 10.0,
@@ -174,6 +175,7 @@ fn plan_c() -> PlanSpec {
         font_badge: 8.0,
         font_tooltip: 11.0,
         font_title: 13.0,
+        font_display: 26.0,
     };
     theme.spacing = warbase::ui::UiSpacing {
         panel_margin: 4.0,
