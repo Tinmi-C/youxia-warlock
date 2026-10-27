@@ -5,12 +5,26 @@
 //! UI8 (next-wave preview), UI9 (command card + selection state machine).
 
 use bevy::prelude::*;
+use warbase::ui::UiTheme;
 
 use crate::resources::{Lang, SelectedTower, UiPrefsPath};
 use crate::sets::GameSet;
 use crate::systems;
 
 pub struct UiPlugin;
+
+/// Startup (first in the chain): swap warden onto the boarded skin (Plan A,
+/// 铁金条约). Exclusive so the resource lands before any spawn system's
+/// deferred theme reads. `WARDEN_SKIN=default` keeps the base's legacy
+/// default theme instead — the forensic A/B channel for the before/after
+/// screenshot baselines (docs/img/skin/): same code, one resource apart.
+pub fn insert_ui_skin(world: &mut World) {
+    let skin = match std::env::var("WARDEN_SKIN").as_deref() {
+        Ok("default") => UiTheme::default(),
+        _ => systems::theme::plan_a(),
+    };
+    world.insert_resource(skin);
+}
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
@@ -21,6 +35,7 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Startup,
                 (
+                    insert_ui_skin, // before any spawn: panels read tokens at spawn time
                     systems::hud::setup_ui_font,
                     systems::l10n::load_ui_prefs, // before spawn_hud: copy follows the saved lang
                     systems::hud::spawn_hud,

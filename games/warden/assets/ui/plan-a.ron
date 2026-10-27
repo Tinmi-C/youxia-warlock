@@ -1,0 +1,43 @@
+// Plan A "Iron & Gold" (铁金条约) — the boarded UI design-system skin for
+// warden (engine/warbase/docs/ui-design-brief.md 拍板记录, 2026-10-27).
+// The color/typography/radius values are digit-for-digit the tokens of the
+// loop-td `plan_a()` mock (ui-proposals/plan-A/ — the screenshots the user
+// boarded on), so the skin that ships is the skin that was reviewed.
+//
+// What warden reads from here: `palette`, `typography`, `radius`, and the
+// listed `state_colors` / `spacing` fields. Layout spacing (slot sizes,
+// margins, gaps) is STRUCTURE in warden (WARDEN-SKIN: skin only, layout
+// untouched), so those tokens are intentionally not carried in this file.
+// Unlisted fields fall back to the `UiTheme` defaults (serde(default)).
+(
+    revision: 1,
+    palette: (
+        // Dark iron base + gold trim — classic WC3 console.
+        panel_bg: ( r: 0.10, g: 0.09, b: 0.08, a: 0.94 ),
+        panel_raised: ( r: 0.18, g: 0.16, b: 0.13 ),
+        panel_border: ( r: 0.52, g: 0.40, b: 0.18 ),
+        text_primary: ( r: 0.98, g: 0.95, b: 0.86 ),
+        text_secondary: ( r: 0.76, g: 0.70, b: 0.58 ),
+        text_dim: ( r: 0.46, g: 0.42, b: 0.36 ),
+        accent: ( r: 1.0, g: 0.80, b: 0.28 ),
+    ),
+    state_colors: (
+        slot_disabled_bg: ( r: 0.13, g: 0.12, b: 0.11 ),
+        tooltip_bg: ( r: 0.07, g: 0.06, b: 0.05, a: 0.96 ),
+    ),
+    typography: (
+        font_value: 22.0,
+        font_label: 15.0,
+        font_caption: 11.0,
+        font_badge: 10.0,
+        font_tooltip: 13.0,
+        font_title: 16.0,
+    ),
+    spacing: (
+        panel_border_w: 2.0,
+        slot_border_w: 1.0,
+        badge_top: 1.0,
+        badge_right: 3.0,
+    ),
+    radius: ( panel: 3.0, slot: 2.0, pill: 999.0 ),
+)

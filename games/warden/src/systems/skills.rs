@@ -401,6 +401,9 @@ pub fn refresh_skill_buttons(
     defs: Res<SkillDefs>,
     commanders: Query<&SkillCaster, With<Commander>>,
     mut built_lang: Local<Option<Lang>>,
+    // WARDEN-SKIN: read-only style read (castable/cooldown look) — same
+    // concession as update_hud: per-frame recolor, no deferred path.
+    theme: Res<warbase::ui::UiTheme>,
 ) {
     let Some(caster) = commanders.single().ok() else {
         return;
@@ -413,69 +416,12 @@ pub fn refresh_skill_buttons(
             commands.entity(r).despawn();
         }
         if let Some(zone) = zones.single().ok() {
-            commands.entity(zone).with_children(|row| {
-                row.spawn((SkillsRow, Node {
-                    flex_direction: FlexDirection::Row,
-                    column_gap: Val::Px(4.0),
-                    align_items: AlignItems::Center,
-                    ..default()
-                }))
-                .with_children(|row| {
-                    for (slot_idx, slot) in caster.slots.iter().enumerate() {
-                        // Skip slots whose def is not registered — tests
-                        // override the registry wholesale; the panel
-                        // self-heals like it does on zone rebuilds.
-                        let (Some(def), Some(skill_id)) =
-                            (defs.get(&slot.skill), SkillId::from_def_id(&slot.skill))
-                        else {
-                            continue;
-                        };
-                        row.spawn((
-                            Button,
-                            SkillButton {
-                                slot: slot_idx,
-                                skill: skill_id,
-                            },
-                            Interaction::None,
-                            Node {
-                                width: Val::Px(56.0),
-                                height: Val::Px(42.0),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                ..default()
-                            },
-                            BackgroundColor(Color::srgb(0.16, 0.16, 0.18)),
-                        ))
-                        .with_children(|p| {
-                            p.spawn((
-                                SkillButtonText,
-                                Text::new(l10n::skill_name(skill_id, *lang)),
-                                TextFont {
-                                    font: font.0.clone(),
-                                    font_size: FontSize::Px(11.0),
-                                    ..default()
-                                },
-                                TextColor(Color::srgb(0.45, 0.45, 0.45)),
-                            ));
-                            p.spawn((
-                                Text::new(def.badge.map(|b| b.to_string()).unwrap_or_default()),
-                                TextFont {
-                                    font: font.0.clone(),
-                                    font_size: FontSize::Px(9.0),
-                                    ..default()
-                                },
-                                TextColor(Color::srgb(1.0, 0.85, 0.3)),
-                                Node {
-                                    position_type: PositionType::Absolute,
-                                    top: Val::Px(1.0),
-                                    right: Val::Px(3.0),
-                                    ..default()
-                                },
-                            ));
-                        });
-                    }
-                });
-            });
+            let font = font.0.clone();
+            let lang = *lang;
+            let ui = theme.clone();
+            // Spawn through a named row builder so the self-heal path and any
+            // future rebuild share one themed implementation.
+            commands.entity(zone).with_children(|row| build_skill_row(row, &font, &ui, &caster.slots, &defs, lang));
         }
         *built_lang = Some(*lang);
         return; // visuals settle next frame (deferred spawns)
@@ -491,17 +437,17 @@ pub fn refresh_skill_buttons(
         let enabled = remaining <= 0.0;
         if let Ok(mut bg) = backgrounds.get_mut(eid) {
             bg.0 = if enabled {
-                Color::srgb(0.45, 0.22, 0.5)
+                theme.state_colors.mana.color()
             } else {
-                Color::srgb(0.16, 0.16, 0.18)
+                theme.state_colors.slot_disabled_bg.color()
             };
         }
         let (label, color) = if remaining > 0.0 {
-            (format!("{remaining:.0}"), Color::srgb(0.75, 0.75, 0.78))
+            (format!("{remaining:.0}"), theme.palette.text_secondary.color())
         } else {
             (
                 l10n::skill_name(btn.skill, *lang).to_string(),
-                Color::srgb(1.0, 1.0, 1.0),
+                theme.palette.text_primary.color(),
             )
         };
         for child in children {
@@ -515,6 +461,79 @@ pub fn refresh_skill_buttons(
             }
         }
     }
+}
+
+/// The control-zone skill row, themed from `UiTheme` (WARDEN-SKIN): castable
+/// look comes from the mana state color, cooldown from the disabled tokens.
+fn build_skill_row(
+    row: &mut ChildSpawnerCommands,
+    font: &bevy::text::FontSource,
+    ui: &warbase::ui::UiTheme,
+    slots: &[warbase::prelude::SkillSlot],
+    defs: &SkillDefs,
+    lang: Lang,
+) {
+    row.spawn((SkillsRow, Node {
+        flex_direction: FlexDirection::Row,
+        column_gap: Val::Px(4.0),
+        align_items: AlignItems::Center,
+        ..default()
+    }))
+    .with_children(|row| {
+        for (slot_idx, slot) in slots.iter().enumerate() {
+            // Skip slots whose def is not registered — tests
+            // override the registry wholesale; the panel
+            // self-heals like it does on zone rebuilds.
+            let (Some(def), Some(skill_id)) =
+                (defs.get(&slot.skill), SkillId::from_def_id(&slot.skill))
+            else {
+                continue;
+            };
+            row.spawn((
+                Button,
+                SkillButton {
+                    slot: slot_idx,
+                    skill: skill_id,
+                },
+                Interaction::None,
+                Node {
+                    width: Val::Px(56.0),
+                    height: Val::Px(42.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(ui.state_colors.slot_disabled_bg.color()),
+            ))
+            .with_children(|p| {
+                p.spawn((
+                    SkillButtonText,
+                    Text::new(l10n::skill_name(skill_id, lang)),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: FontSize::Px(ui.typography.font_caption),
+                        ..default()
+                    },
+                    TextColor(ui.palette.text_dim.color()),
+                ));
+                p.spawn((
+                    Text::new(def.badge.map(|b| b.to_string()).unwrap_or_default()),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: FontSize::Px(ui.typography.font_badge),
+                        ..default()
+                    },
+                    TextColor(ui.palette.accent.color()),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(ui.spacing.badge_top),
+                        right: Val::Px(ui.spacing.badge_right),
+                        ..default()
+                    },
+                ));
+            });
+        }
+    });
 }
 
 // --- Generic skill framework (phase 2, ADR-0011; card SK5; base types WX2) ----------

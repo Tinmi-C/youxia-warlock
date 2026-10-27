@@ -137,8 +137,11 @@ pub struct TowerSkillText;
 /// framework's cast validation is the gate; the refresh system greys the
 /// look while cooling down.
 fn tower_skill_button(
-    parent: &mut ChildSpawnerCommands,
+    // World-side spawner: the helper is only called inside deferred `world`
+    // closures (RelatedSpawner), not the Commands variant.
+    parent: &mut ChildSpawner<'_>,
     font: &UiFont,
+    ui: &warbase::ui::UiTheme,
     slot: usize,
     label: String,
     grid: u8,
@@ -158,12 +161,12 @@ fn tower_skill_button(
                 height: Val::Px(42.0),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                border: UiRect::all(Val::Px(1.0)),
-                border_radius: BorderRadius::all(Val::Px(3.0)),
+                border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
+                border_radius: BorderRadius::all(Val::Px(ui.radius.slot)),
                 ..default()
             },
-            BackgroundColor(crate::systems::theme::PARCHMENT),
-            BorderColor::all(crate::systems::theme::PARCHMENT_SEAM),
+            BackgroundColor(ui.palette.panel_raised.color()),
+            BorderColor::all(ui.palette.panel_border.color()),
         ))
         .with_children(|p| {
             p.spawn((
@@ -171,23 +174,23 @@ fn tower_skill_button(
                 Text::new(label),
                 TextFont {
                     font: font.0.clone(),
-                    font_size: FontSize::Px(11.0),
+                    font_size: FontSize::Px(ui.typography.font_caption),
                     ..default()
                 },
-                TextColor(crate::systems::theme::INK),
+                TextColor(ui.palette.text_primary.color()),
             ));
             p.spawn((
                 Text::new(grid_badge(grid).to_string()),
                 TextFont {
                     font: font.0.clone(),
-                    font_size: FontSize::Px(9.0),
+                    font_size: FontSize::Px(ui.typography.font_badge),
                     ..default()
                 },
-                TextColor(Color::srgb(1.0, 0.85, 0.3)),
+                TextColor(ui.palette.accent.color()),
                 Node {
                     position_type: PositionType::Absolute,
-                    top: Val::Px(1.0),
-                    right: Val::Px(3.0),
+                    top: Val::Px(ui.spacing.badge_top),
+                    right: Val::Px(ui.spacing.badge_right),
                     ..default()
                 },
             ));
@@ -205,6 +208,9 @@ pub fn refresh_tower_skill_buttons(
     buttons: Query<(Entity, &CommandButton, &Children)>,
     mut texts: Query<(&mut Text, &mut TextColor), With<TowerSkillText>>,
     mut backgrounds: Query<&mut BackgroundColor, With<CommandButton>>,
+    // WARDEN-SKIN: read-only style read (cooldown greying) — same concession
+    // as update_hud, per-frame recolor with no Commands to defer through.
+    theme: Res<warbase::ui::UiTheme>,
 ) {
     let Selection::Tower(tower) = *selection else {
         return;
@@ -221,16 +227,20 @@ pub fn refresh_tower_skill_buttons(
         };
         let ready = slot.cooldown <= 0.0;
         if let Ok(mut bg) = backgrounds.get_mut(eid) {
-            bg.0 = if ready { crate::systems::theme::PARCHMENT } else { crate::systems::theme::STONE_DIM };
+            bg.0 = if ready {
+                theme.palette.panel_raised.color()
+            } else {
+                theme.state_colors.slot_disabled_bg.color()
+            };
         }
         let (label, color) = if !ready {
-            (format!("{:.0}", slot.cooldown), crate::systems::theme::INK_SOFT)
+            (format!("{:.0}", slot.cooldown), theme.palette.text_dim.color())
         } else {
             // "»" marks a running autocast toggle (WC3-style indicator).
             let auto = if slot.autocast_on { " »" } else { "" };
             (
                 format!("{} Lv{}{}", l10n::tower_skill_name(&slot.skill, *lang), slot.level, auto),
-                Color::WHITE,
+                theme.palette.text_primary.color(),
             )
         };
         for child in children {
@@ -279,98 +289,106 @@ pub fn toggle_tower_autocast(
 
 /// Spawn the persistent three-zone bottom bar (§16.1). Zone contents are
 /// filled/refreshed by the per-frame systems below.
+/// WARDEN-SKIN: themed inside the deferred spawn (UI-DSGN contract — the
+/// signature stays Commands-only; layout numbers stay structural).
 pub fn spawn_command_bar(mut commands: Commands, font: Res<UiFont>) {
-    commands
-        .spawn((
-            CommandBarRoot,
-            BlocksWorldInput,
-            bevy::ui::RelativeCursorPosition::default(),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
-                bottom: Val::Px(0.0),
-                height: Val::Px(crate::systems::theme::BAR_HEIGHT),
-                flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(crate::systems::theme::GAP),
-                padding: UiRect::all(Val::Px(12.0)),
-                border: UiRect::all(Val::Px(1.0)),
-                ..default()
-            },
-            BackgroundColor(crate::systems::theme::STONE),
-            BorderColor::all(crate::systems::theme::STONE_SEAM),
-        ))
-        .with_children(|bar| {
-            // 甲板顶缘的阳光亮线（design.md：石面深度 = 双层描边 + 顶缘亮线）。
-            bar.spawn((
+    let font = font.0.clone();
+    commands.queue(move |world: &mut World| {
+        let ui = world.resource::<warbase::ui::UiTheme>().clone();
+        world
+            .spawn((
+                CommandBarRoot,
+                BlocksWorldInput,
+                bevy::ui::RelativeCursorPosition::default(),
                 Node {
                     position_type: PositionType::Absolute,
-                    top: Val::Px(0.0),
                     left: Val::Px(0.0),
                     right: Val::Px(0.0),
-                    height: Val::Px(2.0),
+                    bottom: Val::Px(0.0),
+                    height: Val::Px(crate::systems::theme::BAR_HEIGHT),
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(crate::systems::theme::GAP),
+                    padding: UiRect::all(Val::Px(12.0)),
+                    border: UiRect::all(Val::Px(ui.spacing.panel_border_w)),
                     ..default()
                 },
-                BackgroundColor(crate::systems::theme::STONE_LIP),
-            ));
-            // Left: info zone — 一张羊皮纸镶进甲板（军情/待命提示/选中详情）。
-            bar.spawn(
-                (
+                BackgroundColor(ui.palette.panel_bg.color()),
+                BorderColor::all(ui.palette.panel_border.color()),
+            ))
+            .with_children(|bar| {
+                // 甲板顶缘的金饰线（铁金条约：铁面深度 = 粗边框 + 顶缘金线）。
+                bar.spawn((
                     Node {
-                        flex_grow: 1.2,
-                        padding: UiRect::px(12.0, 12.0, 8.0, 8.0),
-                        border: UiRect::all(Val::Px(1.0)),
-                        border_radius: BorderRadius::all(Val::Px(3.0)),
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(0.0),
+                        left: Val::Px(0.0),
+                        right: Val::Px(0.0),
+                        height: Val::Px(2.0),
                         ..default()
                     },
-                    BackgroundColor(crate::systems::theme::PARCHMENT),
-                    BorderColor::all(crate::systems::theme::PARCHMENT_SEAM),
-                ),
-            )
-            .with_children(|zone| {
-                zone.spawn((
-                    InfoZoneText,
-                    Text::new(""),
-                    TextFont {
-                        font: font.0.clone(),
-                        font_size: FontSize::Px(13.0),
+                    BackgroundColor(ui.palette.accent.color()),
+                ));
+                // Left: info zone — 一张镶进甲板的信息面（军情/待命提示/选中详情）。
+                bar.spawn(
+                    (
+                        Node {
+                            flex_grow: 1.2,
+                            padding: UiRect::px(12.0, 12.0, 8.0, 8.0),
+                            border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
+                            border_radius: BorderRadius::all(Val::Px(ui.radius.slot)),
+                            ..default()
+                        },
+                        BackgroundColor(ui.palette.panel_raised.color()),
+                        BorderColor::all(ui.palette.panel_border.color()),
+                    ),
+                )
+                .with_children(|zone| {
+                    zone.spawn((
+                        InfoZoneText,
+                        Text::new(""),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: FontSize::Px(ui.typography.font_label),
+                            ..default()
+                        },
+                        TextColor(ui.palette.text_primary.color()),
+                    ));
+                });
+                // Center: command card (grid of buttons, content per state).
+                bar.spawn((
+                    CommandCardRoot,
+                    Node {
+                        flex_grow: 2.4,
+                        flex_direction: FlexDirection::Row,
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: Val::Px(6.0),
+                        row_gap: Val::Px(6.0),
+                        align_content: AlignContent::Center,
                         ..default()
                     },
-                    TextColor(crate::systems::theme::INK),
+                ));
+                // Right: control zone (filled by refresh_control_zone).
+                bar.spawn((
+                    ControlZoneRoot,
+                    Node {
+                        flex_grow: 1.0,
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(6.0),
+                        justify_content: JustifyContent::FlexEnd,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
                 ));
             });
-            // Center: command card (grid of buttons, content per state).
-            bar.spawn((
-                CommandCardRoot,
-                Node {
-                    flex_grow: 2.4,
-                    flex_direction: FlexDirection::Row,
-                    flex_wrap: FlexWrap::Wrap,
-                    column_gap: Val::Px(6.0),
-                    row_gap: Val::Px(6.0),
-                    align_content: AlignContent::Center,
-                    ..default()
-                },
-            ));
-            // Right: control zone (filled by refresh_control_zone).
-            bar.spawn((
-                ControlZoneRoot,
-                Node {
-                    flex_grow: 1.0,
-                    flex_direction: FlexDirection::Row,
-                    column_gap: Val::Px(6.0),
-                    justify_content: JustifyContent::FlexEnd,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-            ));
-        });
+    });
 }
 
 /// One command-card button. `enabled=false` renders greyed (combat lock).
 fn command_button(
-    parent: &mut ChildSpawnerCommands,
+    // World-side spawner: only called inside deferred `world` closures.
+    parent: &mut ChildSpawner<'_>,
     font: &UiFont,
+    ui: &warbase::ui::UiTheme,
     action: CommandAction,
     label: String,
     enabled: bool,
@@ -386,36 +404,49 @@ fn command_button(
                 height: Val::Px(crate::systems::theme::BTN_H),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                border: UiRect::all(Val::Px(1.0)),
+                border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
+                border_radius: BorderRadius::all(Val::Px(ui.radius.slot)),
                 ..default()
             },
-            // 石槽：可用 = 石面 + 金描边；不可用（战斗锁/买不起）= 石哑无金。
-            BackgroundColor(if enabled { crate::systems::theme::STONE } else { crate::systems::theme::STONE_DIM }),
-            BorderColor::all(if enabled { crate::systems::theme::GOLD } else { crate::systems::theme::STONE_SEAM }),
+            // 铁槽：可用 = 抬升面 + 金描边；不可用（战斗锁/买不起）= 哑底无金。
+            BackgroundColor(if enabled {
+                ui.palette.panel_raised.color()
+            } else {
+                ui.state_colors.slot_disabled_bg.color()
+            }),
+            BorderColor::all(if enabled {
+                ui.palette.accent.color()
+            } else {
+                ui.palette.panel_border.color()
+            }),
         ))
         .with_children(|p| {
             p.spawn((
                 Text::new(label),
                 TextFont {
                     font: font.0.clone(),
-                    font_size: FontSize::Px(crate::systems::theme::FONT_BUTTON),
+                    font_size: FontSize::Px(ui.typography.font_label),
                     ..default()
                 },
-                TextColor(crate::systems::theme::INK),
+                TextColor(if enabled {
+                    ui.palette.text_primary.color()
+                } else {
+                    ui.palette.text_dim.color()
+                }),
             ));
             // Hotkey corner badge (§16.7).
             p.spawn((
                 Text::new(grid_badge(grid).to_string()),
                 TextFont {
                     font: font.0.clone(),
-                    font_size: FontSize::Px(9.0),
+                    font_size: FontSize::Px(ui.typography.font_badge),
                     ..default()
                 },
-                TextColor(crate::systems::theme::GOLD_DARK),
+                TextColor(ui.palette.accent.color()),
                 Node {
                     position_type: PositionType::Absolute,
-                    top: Val::Px(2.0),
-                    right: Val::Px(4.0),
+                    top: Val::Px(ui.spacing.badge_top + 1.0),
+                    right: Val::Px(ui.spacing.badge_right + 1.0),
                     ..default()
                 },
             ));
@@ -424,6 +455,7 @@ fn command_button(
 
 /// Fill the right control zone (§16.1): start wave (moved from the old corner
 /// bar) + greyed 2x placeholder + pause + language. Rebuilt on lang change.
+/// WARDEN-SKIN: themed inside the deferred spawn (signature unchanged).
 pub fn refresh_control_zone(
     mut commands: Commands,
     font: Res<UiFont>,
@@ -439,137 +471,152 @@ pub fn refresh_control_zone(
     let Ok(bar) = bars.single() else {
         return;
     };
-    for z in &zones {
-        commands.entity(z).despawn();
-    }
-    commands.entity(bar).with_children(|zone| {
-        zone.spawn((
-            ControlZoneRoot,
-            Node {
-                flex_grow: 1.0,
-                flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(6.0),
-                justify_content: JustifyContent::FlexEnd,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-        ))
-        .with_children(|zone| {
-            // 2x fast-forward: greyed placeholder until its own card (§16.1).
+    let stale: Vec<Entity> = zones.iter().collect();
+    let font = font.0.clone();
+    let lang = *lang;
+    commands.queue(move |world: &mut World| {
+        let ui = world.resource::<warbase::ui::UiTheme>().clone();
+        for z in stale {
+            let _ = world.entity_mut(z).despawn();
+        }
+        world.entity_mut(bar).with_children(|zone| {
             zone.spawn((
-                Button,
-                SpeedPlaceholderButton,
-                Interaction::None,
-                BackgroundColor(crate::systems::theme::STONE_DIM),
-                BorderColor::all(crate::systems::theme::STONE_SEAM),
+                ControlZoneRoot,
                 Node {
-                    width: Val::Px(44.0),
-                    height: Val::Px(36.0),
-                    justify_content: JustifyContent::Center,
+                    flex_grow: 1.0,
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(6.0),
+                    justify_content: JustifyContent::FlexEnd,
                     align_items: AlignItems::Center,
-                    border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
             ))
-            .with_children(|p| {
-                p.spawn((
-                    Text::new(l10n::SPEED_2X.pick(*lang)),
-                    TextFont {
-                        font: font.0.clone(),
-                        font_size: FontSize::Px(13.0),
+            .with_children(|zone| {
+                // 2x fast-forward: greyed placeholder until its own card (§16.1).
+                zone.spawn((
+                    Button,
+                    SpeedPlaceholderButton,
+                    Interaction::None,
+                    BackgroundColor(ui.state_colors.slot_disabled_bg.color()),
+                    BorderColor::all(ui.palette.panel_border.color()),
+                    Node {
+                        width: Val::Px(44.0),
+                        height: Val::Px(36.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
                         ..default()
                     },
-                    TextColor(crate::systems::theme::INK_SOFT),
-                ));
-            });
-            // Pause (mirrors the P key).
-            zone.spawn((
-                Button,
-                PauseButton,
-                Interaction::None,
-                Node {
-                    width: Val::Px(58.0),
-                    height: Val::Px(36.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(Val::Px(1.0)),
-                    ..default()
-                },
-                BackgroundColor(crate::systems::theme::STONE),
-                BorderColor::all(crate::systems::theme::STONE_SEAM),
-            ))
-            .with_children(|p| {
-                p.spawn((
-                    Text::new(l10n::PAUSE.pick(*lang)),
-                    TextFont {
-                        font: font.0.clone(),
-                        font_size: FontSize::Px(12.0),
+                ))
+                .with_children(|p| {
+                    p.spawn((
+                        Text::new(l10n::SPEED_2X.pick(lang)),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: FontSize::Px(ui.typography.font_label),
+                            ..default()
+                        },
+                        TextColor(ui.palette.text_dim.color()),
+                    ));
+                });
+                // Pause (mirrors the P key).
+                zone.spawn((
+                    Button,
+                    PauseButton,
+                    Interaction::None,
+                    Node {
+                        width: Val::Px(58.0),
+                        height: Val::Px(36.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
                         ..default()
                     },
-                    TextColor(crate::systems::theme::INK),
-                ));
-            });
-            // Language toggle (moved from the old top-right corner).
-            zone.spawn((
-                Button,
-                crate::systems::pointer::LangToggleButton,
-                Interaction::None,
-                Node {
-                    width: Val::Px(56.0),
-                    height: Val::Px(36.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(Val::Px(1.0)),
-                    ..default()
-                },
-                BackgroundColor(crate::systems::theme::STONE),
-                BorderColor::all(crate::systems::theme::STONE_SEAM),
-            ))
-            .with_children(|p| {
-                p.spawn((
-                    Text::new(l10n::lang_button_label(*lang)),
-                    TextFont {
-                        font: font.0.clone(),
-                        font_size: FontSize::Px(12.0),
+                    BackgroundColor(ui.palette.panel_raised.color()),
+                    BorderColor::all(ui.palette.panel_border.color()),
+                ))
+                .with_children(|p| {
+                    p.spawn((
+                        Text::new(l10n::PAUSE.pick(lang)),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: FontSize::Px(ui.typography.font_label),
+                            ..default()
+                        },
+                        TextColor(ui.palette.text_primary.color()),
+                    ));
+                });
+                // Language toggle (moved from the old top-right corner).
+                zone.spawn((
+                    Button,
+                    crate::systems::pointer::LangToggleButton,
+                    Interaction::None,
+                    Node {
+                        width: Val::Px(56.0),
+                        height: Val::Px(36.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
                         ..default()
                     },
-                    TextColor(crate::systems::theme::INK),
-                ));
-            });
-            // Start wave (moved from the old corner control bar, UI2).
-            zone.spawn((
-                Button,
-                crate::systems::pointer::StartWaveButton,
-                Interaction::None,
-                Node {
-                    width: Val::Px(140.0),
-                    height: Val::Px(40.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(Val::Px(1.0)),
-                    ..default()
-                },
-                BackgroundColor(crate::systems::theme::GOLD),
-                BorderColor::all(crate::systems::theme::GOLD_DARK),
-            ))
-            .with_children(|p| {
-                p.spawn((
-                    Text::new(l10n::START_WAVE.pick(*lang)),
-                    TextFont {
-                        font: font.0.clone(),
-                        font_size: FontSize::Px(15.0),
+                    BackgroundColor(ui.palette.panel_raised.color()),
+                    BorderColor::all(ui.palette.panel_border.color()),
+                ))
+                .with_children(|p| {
+                    p.spawn((
+                        Text::new(l10n::lang_button_label(lang)),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: FontSize::Px(ui.typography.font_label),
+                            ..default()
+                        },
+                        TextColor(ui.palette.text_primary.color()),
+                    ));
+                });
+                // Start wave (moved from the old corner control bar, UI2):
+                // the gold action — gold surface, iron-dark text.
+                zone.spawn((
+                    Button,
+                    crate::systems::pointer::StartWaveButton,
+                    Interaction::None,
+                    Node {
+                        width: Val::Px(140.0),
+                        height: Val::Px(40.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
                         ..default()
                     },
-                    TextColor(crate::systems::theme::GOLD_DARK),
-                ));
+                    BackgroundColor(ui.state_colors.gold.color()),
+                    BorderColor::all(ui.palette.accent.color()),
+                ))
+                .with_children(|p| {
+                    p.spawn((
+                        Text::new(l10n::START_WAVE.pick(lang)),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: FontSize::Px(ui.typography.font_title),
+                            ..default()
+                        },
+                        TextColor(ui.palette.panel_bg.color()),
+                    ));
+                });
             });
         });
-        });
-    *built = Some(*lang);
+    });
 }
 
 /// Cache key: rebuild the command card only when one of these changes.
 type CardKey = (Selection, bool, Lang, usize, u32, u32);
+
+/// One renderable card cell (normalize-then-render, WARDEN-SKIN): the system
+/// body turns game state into these specs; the deferred spawn reads the skin
+/// and lays them out — game data and theming never interleave.
+enum CardEntry {
+    Button { action: CommandAction, label: String, enabled: bool, grid: u8 },
+    SkillChip { slot: usize, label: String, grid: u8 },
+    Hint(String),
+}
 
 /// Rebuild the center command card on selection / phase / lang / economy
 /// changes (五态, §16.2). During combat every action button greys out but
@@ -622,41 +669,18 @@ pub fn refresh_command_card(
     let Ok(bar) = bars.single() else {
         return;
     };
-    for c in &cards {
-        commands.entity(c).despawn();
-    }
-    commands.entity(bar).with_children(|card| {
-        card.spawn((
-            CommandCardRoot,
-            Node {
-                flex_grow: 2.4,
-                flex_direction: FlexDirection::Row,
-                flex_wrap: FlexWrap::Wrap,
-                column_gap: Val::Px(6.0),
-                row_gap: Val::Px(6.0),
-                align_content: AlignContent::Center,
-                ..default()
-            },
-        ))
-        .with_children(|card| match selection {
+    let stale: Vec<Entity> = cards.iter().collect();
+    // --- game state -> card specs (pure data; same logic as pre-skin) ---
+    let mut entries: Vec<CardEntry> = Vec::new();
+    match selection {
         Selection::FusionTarget(_) => {
-            card.spawn((
-                Text::new(l10n::FUSE_TARGET_HINT.pick(*lang)),
-                TextFont {
-                    font: font.0.clone(),
-                    font_size: FontSize::Px(13.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(1.0, 0.9, 0.5)),
-            ));
-            command_button(
-                card,
-                &font,
-                CommandAction::FuseCancel,
-                l10n::FUSE_CANCEL.pick(*lang).to_string(),
-                true,
-                0,
-            );
+            entries.push(CardEntry::Hint(l10n::FUSE_TARGET_HINT.pick(*lang).to_string()));
+            entries.push(CardEntry::Button {
+                action: CommandAction::FuseCancel,
+                label: l10n::FUSE_CANCEL.pick(*lang).to_string(),
+                enabled: true,
+                grid: 0,
+            });
         }
         Selection::Tower(e) => {
             let (fused, caster_slots) = towers
@@ -669,14 +693,12 @@ pub fn refresh_command_card(
                 })
                 .unwrap_or((false, None));
             let can_act = !combat;
-            command_button(
-                card,
-                &font,
-                CommandAction::Sell,
-                l10n::SELL.pick(*lang).to_string(),
-                can_act,
-                0,
-            );
+            entries.push(CardEntry::Button {
+                action: CommandAction::Sell,
+                label: l10n::SELL.pick(*lang).to_string(),
+                enabled: can_act,
+                grid: 0,
+            });
             if !fused {
                 // Fused towers cannot fuse again (§16.6 / UI11). The Fuse
                 // command greys out while no *other* tower pairs with it.
@@ -687,14 +709,12 @@ pub fn refresh_command_card(
                     }),
                     _ => false,
                 };
-                command_button(
-                    card,
-                    &font,
-                    CommandAction::Fuse,
-                    l10n::FUSE.pick(*lang).to_string(),
-                    can_act && pairable,
-                    1,
-                );
+                entries.push(CardEntry::Button {
+                    action: CommandAction::Fuse,
+                    label: l10n::FUSE.pick(*lang).to_string(),
+                    enabled: can_act && pairable,
+                    grid: 1,
+                });
             }
             if let Some(slots) = caster_slots {
                 // SK10: the reserved pair activates for a skilled tower —
@@ -708,27 +728,31 @@ pub fn refresh_command_card(
                     s.level >= tables.skill_defs.get(&s.skill).expect("skill def registered").max_level
                 });
                 let upgradable = !maxed && economy.gold >= cost as u32;
-                command_button(
-                    card,
-                    &font,
-                    CommandAction::SkillUpgrade,
-                    format!("{} {}", l10n::SKILL_UPGRADE.pick(*lang), if maxed { String::new() } else { cost.to_string() }),
-                    upgradable,
-                    2,
-                );
+                entries.push(CardEntry::Button {
+                    action: CommandAction::SkillUpgrade,
+                    label: format!(
+                        "{} {}",
+                        l10n::SKILL_UPGRADE.pick(*lang),
+                        if maxed { String::new() } else { cost.to_string() }
+                    ),
+                    enabled: upgradable,
+                    grid: 2,
+                });
                 let mut grid = 3u8;
                 for (slot_idx, slot) in slots.iter().enumerate() {
                     let def = tables.skill_defs.get(&slot.skill).expect("skill def registered");
                     if def.kind == SkillKind::Passive {
                         continue; // chips after the castables (grid below)
                     }
-                    tower_skill_button(
-                        card,
-                        &font,
-                        slot_idx,
-                        format!("{} Lv{}", l10n::tower_skill_name(&slot.skill, *lang), slot.level),
+                    entries.push(CardEntry::SkillChip {
+                        slot: slot_idx,
+                        label: format!(
+                            "{} Lv{}",
+                            l10n::tower_skill_name(&slot.skill, *lang),
+                            slot.level
+                        ),
                         grid,
-                    );
+                    });
                     grid += 1;
                 }
                 for slot in slots.iter() {
@@ -737,26 +761,26 @@ pub fn refresh_command_card(
                         continue;
                     }
                     // Display-only level chip (WC3 shows passives too).
-                    command_button(
-                        card,
-                        &font,
-                        CommandAction::Reserved,
-                        format!("{} Lv{}", l10n::tower_skill_name(&slot.skill, *lang), slot.level),
-                        false,
+                    entries.push(CardEntry::Button {
+                        action: CommandAction::Reserved,
+                        label: format!(
+                            "{} Lv{}",
+                            l10n::tower_skill_name(&slot.skill, *lang),
+                            slot.level
+                        ),
+                        enabled: false,
                         grid,
-                    );
+                    });
                     grid += 1;
                 }
             } else {
                 for grid in 2..4u8 {
-                    command_button(
-                        card,
-                        &font,
-                        CommandAction::Reserved,
-                        l10n::RESERVED.pick(*lang).to_string(),
-                        false,
+                    entries.push(CardEntry::Button {
+                        action: CommandAction::Reserved,
+                        label: l10n::RESERVED.pick(*lang).to_string(),
+                        enabled: false,
                         grid,
-                    );
+                    });
                 }
             }
         }
@@ -777,14 +801,12 @@ pub fn refresh_command_card(
                 // number) — the flows charge the same source.
                 let cost = crate::systems::tower::tower_cost(&tables.registry, def);
                 let afford = economy.gold >= cost;
-                command_button(
-                    card,
-                    &font,
-                    CommandAction::Build(i),
-                    l10n::card_cost(*lang, l10n::tower_label(def, *lang), cost),
-                    !combat && afford,
+                entries.push(CardEntry::Button {
+                    action: CommandAction::Build(i),
+                    label: l10n::card_cost(*lang, l10n::tower_label(def, *lang), cost),
+                    enabled: !combat && afford,
                     grid,
-                );
+                });
                 grid = grid.saturating_add(1);
             }
             for &i in &offers.offers {
@@ -794,18 +816,69 @@ pub fn refresh_command_card(
                 if grid >= GRID_KEYS.len() as u8 {
                     break; // the 2x4 grid is full
                 }
-                command_button(
-                    card,
-                    &font,
-                    CommandAction::Buy(i),
-                    l10n::offer_cost(*lang, l10n::tower_label(def, *lang), cost),
-                    !combat && afford,
+                entries.push(CardEntry::Button {
+                    action: CommandAction::Buy(i),
+                    label: l10n::offer_cost(*lang, l10n::tower_label(def, *lang), cost),
+                    enabled: !combat && afford,
                     grid,
-                );
+                });
                 grid = grid.saturating_add(1);
             }
         }
-    });
+    }
+    // --- deferred themed spawn (WARDEN-SKIN: signature unchanged) ---
+    let font = font.0.clone();
+    commands.queue(move |world: &mut World| {
+        let ui = world.resource::<warbase::ui::UiTheme>().clone();
+        for c in stale {
+            let _ = world.entity_mut(c).despawn();
+        }
+        world.entity_mut(bar).with_children(|card| {
+            card.spawn((
+                CommandCardRoot,
+                Node {
+                    flex_grow: 2.4,
+                    flex_direction: FlexDirection::Row,
+                    flex_wrap: FlexWrap::Wrap,
+                    column_gap: Val::Px(6.0),
+                    row_gap: Val::Px(6.0),
+                    align_content: AlignContent::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|card| {
+                let f = UiFont(font.clone());
+                for entry in &entries {
+                    match entry {
+                        CardEntry::Hint(text) => {
+                            card.spawn((
+                                Text::new(text.clone()),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: FontSize::Px(ui.typography.font_label),
+                                    ..default()
+                                },
+                                TextColor(ui.state_colors.warning.color()),
+                            ));
+                        }
+                        CardEntry::Button { action, label, enabled, grid } => {
+                            command_button(
+                                card,
+                                &f,
+                                &ui,
+                                action.clone(),
+                                label.clone(),
+                                *enabled,
+                                *grid,
+                            );
+                        }
+                        CardEntry::SkillChip { slot, label, grid } => {
+                            tower_skill_button(card, &f, &ui, *slot, label.clone(), *grid);
+                        }
+                    }
+                }
+            });
+        });
     });
 }
 
@@ -1754,27 +1827,32 @@ pub fn refresh_tooltip(
 }
 
 /// Spawn the shared tooltip panel (one text node above the bottom bar).
+/// WARDEN-SKIN: tooltip bg/fg/radius follow the skin's tooltip state pair.
 fn spawn_tooltip(commands: &mut Commands, font: &UiFont, text: String) {
-    commands.spawn((
-        TooltipText,
-        Text::new(text),
-        TextFont {
-            font: font.0.clone(),
-            font_size: FontSize::Px(12.0),
-            ..default()
-        },
-        TextColor(crate::systems::theme::INK),
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(crate::systems::theme::BAR_HEIGHT + 8.0),
-            left: Val::Px(240.0),
-            width: Val::Px(360.0),
-            padding: UiRect::all(Val::Px(8.0)),
-            border: UiRect::all(Val::Px(1.0)),
-            border_radius: BorderRadius::all(Val::Px(3.0)),
-            ..default()
-        },
-        BackgroundColor(crate::systems::theme::PARCHMENT),
-        BorderColor::all(crate::systems::theme::PARCHMENT_SEAM),
-    ));
+    let font = font.0.clone();
+    commands.queue(move |world: &mut World| {
+        let ui = world.resource::<warbase::ui::UiTheme>().clone();
+        world.spawn((
+            TooltipText,
+            Text::new(text),
+            TextFont {
+                font,
+                font_size: FontSize::Px(ui.typography.font_tooltip),
+                ..default()
+            },
+            TextColor(ui.state_colors.tooltip_fg.color()),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(crate::systems::theme::BAR_HEIGHT + 8.0),
+                left: Val::Px(240.0),
+                width: Val::Px(360.0),
+                padding: UiRect::all(Val::Px(8.0)),
+                border: UiRect::all(Val::Px(ui.spacing.slot_border_w)),
+                border_radius: BorderRadius::all(Val::Px(ui.radius.panel)),
+                ..default()
+            },
+            BackgroundColor(ui.state_colors.tooltip_bg.color()),
+            BorderColor::all(ui.palette.panel_border.color()),
+        ));
+    });
 }
