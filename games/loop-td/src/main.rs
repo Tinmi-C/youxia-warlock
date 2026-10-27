@@ -4,8 +4,9 @@
 //! RPL2 flags:
 //! - `--record`                 record the next match -> runs/<ts>.jsonl
 //! - `--replay <file>`          headless replay verification (exit 0/1)
-//! UI-DSGN flag:
+//! UI-DSGN flags:
 //! - `--ui-mock <A|B|C>`        UI proposal mock scene -> ui-proposals/ PNGs
+//! - `--ui-mock v2`             LT2-UI acceptance shots -> ui-proposals/lt2-final/
 //! No flags: the normal game path, unchanged.
 
 fn main() {
@@ -35,11 +36,17 @@ fn main() {
         app.add_plugins(loop_td::replay_io::ReplayIoPlugin { map_path: None });
         println!("[loop-td] recording on: the match will be written to runs/<timestamp>.jsonl when it ends");
     }
-    // --ui-mock <A|B|C>: UI-DSGN proposal shots (frame-scripted, self-exits).
+    // --ui-mock <A|B|C|v2>: proposal shots or the LT2-UI acceptance suite
+    // (frame-scripted, self-exits).
     if let Some(plan) = arg_value(&args, "--ui-mock") {
         let plan = plan.chars().next().unwrap_or('A').to_ascii_uppercase();
-        println!("[loop-td] ui-mock: plan {plan} -> ui-proposals/plan-{plan}/");
-        app.add_plugins(loop_td::plugins::ui_mock::UiMockPlugin { plan });
+        if plan == '2' || plan.eq_ignore_ascii_case(&'v') {
+            println!("[loop-td] ui-mock: v2 LT2-UI acceptance -> ui-proposals/lt2-final/");
+            app.add_plugins(loop_td::plugins::ui_mock_v2::UiMockV2Plugin);
+        } else {
+            println!("[loop-td] ui-mock: plan {plan} -> ui-proposals/plan-{plan}/");
+            app.add_plugins(loop_td::plugins::ui_mock::UiMockPlugin { plan });
+        }
     }
     app.run();
 }
