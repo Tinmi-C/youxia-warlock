@@ -8,5 +8,5 @@
 | LG0 | 立项：模板复制/改名/workspace 入列；maps/arena.ron（4 lane / 48 布阵格 / 2v2 / 6 雇佣兵 def / 四家主城）；灰盒渲染+HUD 金数；装配断言 | bundle/unit(teams)/rule | ✅ |
 | LG1 | 建造期+自动交战：回合状态机（建造 1800 帧→战斗→结算→下一回合）；雇佣兵商店（HireCommand 扣费布阵+人口记账）；战斗期 AttackMove 至对家底线；漏怪扣命（命尽出局）；结算 +50 金+击杀赏金 | movement(MOV4)/combat/econ(赏金)/selection | ✅ |
 | LG2 | 发兵（花钱给对手注入下一波，同目标递增价）+ 击穿赏金 +5 + 20 回合封顶结算（命数多者胜/平局）| movement(MOV4)/combat/unit(spawn)/rule(MatchEnded)；wave per-player 注入无缝（洞 L8）、MatchFlow 无平局变体（洞 L7） | ✅ |
-| LG3 | 方案 A UI 套用（商店卡/命数板/回合横幅）+ H1 清单（换肤复用成本记录） | ui(UiTheme/PanelKey) | ⬜ |
-| H1 | 人工试玩：LG0-LG2 清单过一遍（README「操作」节） | — | ⬜ |
+| LG3 | 方案 A UI 套用（主题两件套 + 六面板：资源条/命数板/商店卡/布阵高亮/发兵入口/回合横幅）+ 离屏截图取证 + H1 清单（换肤复用成本记录） | ui(UiTheme/CommandSlotButton/CommandAction::Custom)、共享 CJK 字体 | ✅ |
+| H1 | 人工试玩：LG0-LG3 清单过一遍（README「操作」/「H1 人工清单」节） | — | ⬜ |

@@ -1,7 +1,8 @@
-//! GamePlugin: headless-safe core — map load + per-player wallets + the
-//! round layer (hire shop / send shop / leak rule + breach bounty / bounty
-//! credit / round clock with the 20-round cap) + unit kit attachment.
-//! Rendering/UI deps stay in VisualPlugin.
+//! GamePlugin: headless-safe core — the Plan-A skin (LG3) + per-player
+//! wallets + the round layer (hire shop / send shop / leak rule + breach
+//! bounty / round clock with the 20-round cap) + unit kit attachment + the
+//! LG3 panel suite (HUD 资源条/命数板/商店卡/布阵高亮/发兵入口/回合横幅).
+//! Rendering-only deps stay in VisualPlugin.
 
 use bevy::prelude::*;
 use warbase::prelude::cleanup_dead;
@@ -15,6 +16,11 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        // LG3: the boarded Plan-A "Iron & Gold" skin (loop-td's RON, copied
+        // verbatim) — every panel (these six + the warbase command surfaces)
+        // reads tokens from it; swapping the resource/RON re-skins the whole
+        // HUD with zero code change (asserted by tests/ui_panels.rs).
+        app.insert_resource(crate::systems::theme::plan_a());
         // Game-side messages (base ones are registered by WarbasePlugin).
         app.add_message::<round::HireCommand>()
             .add_message::<round::HireRejected>()
@@ -25,7 +31,10 @@ impl Plugin for GamePlugin {
             .add_message::<round::LeakHappened>()
             .add_message::<round::PlayerEliminated>()
             .init_resource::<SendLedger>()
-            .init_resource::<PendingSends>();
+            .init_resource::<PendingSends>()
+            // LG3: the six-panel Plan-A HUD (headless-safe; the legacy
+            // single-line debug HUD is retired with it).
+            .add_plugins(crate::systems::panels::PanelsPlugin);
 
         app.add_systems(
             Startup,
