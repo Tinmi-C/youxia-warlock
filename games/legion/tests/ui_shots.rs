@@ -23,7 +23,8 @@ use bevy::ui::IsDefaultUiCamera;
 use bevy::window::{ExitCondition, WindowPlugin};
 use bevy::winit::WinitPlugin;
 use legion::components::DeploySlot;
-use legion::resources::{LivesBoard, Phase, Purse, RoundFlow};
+use legion::resources::{Phase, RoundFlow};
+use warbase::prelude::{PlayerLives, Wallets};
 use legion::systems::panels::{PanelKind, PanelsSolo, SettleFlash, SETTLE_FLASH_FRAMES};
 use legion::systems::round::RoundSettled;
 use std::time::{Duration, Instant};
@@ -51,8 +52,10 @@ fn offscreen_panel_shots() {
     run_frames(&mut app, Duration::from_millis(1500));
 
     // -- staging -----------------------------------------------------------
-    app.world_mut().resource_mut::<Purse>().0 = [300, 260, 240, 220];
-    app.world_mut().resource_mut::<LivesBoard>().0 = [20, 17, 12, 9];
+    for (i, gold) in [300, 260, 240, 220].into_iter().enumerate() {
+        app.world_mut().resource_mut::<Wallets>().0[i].gold = gold;
+    }
+    app.world_mut().resource_mut::<PlayerLives>().0 = vec![20, 17, 12, 9];
     // Two mercs on P0's line so the panorama carries a field.
     let slots: Vec<Entity> = {
         let world = app.world_mut();

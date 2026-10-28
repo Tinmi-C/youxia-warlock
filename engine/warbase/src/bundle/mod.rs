@@ -217,26 +217,34 @@ pub fn validate(bundle: &MapBundle) -> Result<(), MapError> {
             ));
         }
     }
+    if let crate::rule::WinCondition::TeamLives { per_team } = &bundle.rules.win {
+        if *per_team == 0 {
+            return invalid("TeamLives per_team must be > 0".into());
+        }
+    }
     Ok(())
 }
 
 /// Derive the build grid from the map's world def: FreeGrid bounds get
-/// centered on the path bounding box (signed-coordinate maps), path cells
-/// are blocked; FixedSlots pass through as slot centers. A pathless world
-/// (hole-3: RTS/skirmish maps) centers the FreeGrid on the origin (0, 0)
-/// instead — there is no bbox to align with, and origin-centering keeps
-/// signed-coordinate gameplay (arena around (0, 0)) symmetric.
+/// centered on the WALKABLE path bounding box (signed-coordinate maps);
+/// walkable path cells are blocked, non-walkable paths (L1: routing-only
+/// lanes) are exempt from blocking and from the bbox — a map whose paths
+/// are all routing-only centers on the origin like a pathless world
+/// (hole-3: RTS/skirmish maps), keeping symmetric arenas symmetric.
+/// FixedSlots pass through as slot centers.
 pub fn build_grid(world: &WorldDef) -> crate::build::BuildGrid {
     use crate::build::{BuildGrid, Cell};
     match &world.build {
         BuildDomainDef::FreeGrid { cell, cols, rows } => {
             let mut grid = BuildGrid::free_grid(*cell, *cols, *rows);
-            let center = if world.paths.is_empty() {
+            let terrain_paths: Vec<&PathDef> =
+                world.paths.iter().filter(|p| p.walkable).collect();
+            let center = if terrain_paths.is_empty() {
                 Vec2::ZERO
             } else {
                 let mut min = Vec2::splat(f32::MAX);
                 let mut max = Vec2::splat(f32::MIN);
-                for path in &world.paths {
+                for path in &terrain_paths {
                     for p in &path.points {
                         min.x = min.x.min(p[0]);
                         min.y = min.y.min(p[1]);
@@ -247,7 +255,7 @@ pub fn build_grid(world: &WorldDef) -> crate::build::BuildGrid {
                 (min + max) * 0.5
             };
             grid.origin = center - Vec2::new(*cols as f32 * cell / 2.0, *rows as f32 * cell / 2.0);
-            for path in &world.paths {
+            for path in &terrain_paths {
                 let len = path.length();
                 let mut d = 0.0;
                 while d < len {
@@ -287,6 +295,29 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     }
     world.get_resource_or_insert_with(|| crate::econ::PopPurchases(0));
 
+    // L2: per-player wallets seeded from econ_start for every listed
+    // player (apply_teams runs below for the diplomacy; the player list is
+    // read directly from the bundle so seeding order is authored order).
+    // The mirror starts converged with the (just-seeded) local view so the
+    // first frame's sync is a no-op.
+    {
+        let n = bundle
+            .teams
+            .players
+            .iter()
+            .map(|&(p, _)| p as usize + 1)
+            .max()
+            .unwrap_or(1);
+        let wallet = crate::econ::Wallet {
+            gold: bundle.econ_start.gold,
+            wood: bundle.econ_start.wood,
+            pop_used: 0,
+            pop_cap: bundle.econ_start.pop_cap,
+        };
+        world.insert_resource(crate::econ::Wallets(vec![wallet; n]));
+        world.insert_resource(crate::econ::LocalWalletMirror(wallet));
+    }
+
     let path_entities: Vec<Entity> = bundle
         .world
         .paths
@@ -300,6 +331,23 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     world.insert_resource(crate::rule::MatchFlow::Running);
     world.insert_resource(crate::rule::StockCount(0));
     world.remove_resource::<crate::rule::LivesLeft>();
+    // L5: per-player lives seeded iff the map adjudicates on them; other
+    // maps carry no board (rules_tick's TeamLives branch early-outs).
+    match &bundle.rules.win {
+        crate::rule::WinCondition::TeamLives { per_team } => {
+            let n = bundle
+                .teams
+                .players
+                .iter()
+                .map(|&(p, _)| p as usize + 1)
+                .max()
+                .unwrap_or(1);
+            world.insert_resource(crate::rule::PlayerLives(vec![u32::from(*per_team); n]));
+        }
+        _ => {
+            world.remove_resource::<crate::rule::PlayerLives>();
+        }
+    }
 
     // New-domain dispatch (SEAM0d): one line per domain, implemented in the
     // domain module. Never add domain loading logic to this file.

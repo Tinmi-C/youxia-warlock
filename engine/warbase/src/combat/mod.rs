@@ -134,6 +134,20 @@ pub fn healer_tick(
     }
 }
 
+/// A unit dropped to zero hp this frame (written by `resolve_damage`).
+///
+/// L6 SCHEDULING CONTRACT (round-4 LDEBT, pinned): `entity` and the
+/// entities inside `killer` are RAW Entity references. `cleanup_dead`
+/// despawns every `Dead`-marked body LATER IN THE SAME Cleanup set — a
+/// mutual kill's killer is among them. Any consumer that resolves
+/// attribution through the world (looking up `Owner` on the killer, xp
+/// holders, ...) MUST run `in_set(WarbaseSet::Cleanup).before(cleanup_dead)`
+/// — the entity is Dead-marked but still on board there. After
+/// `cleanup_dead`, world lookups on these ids fail and the attribution
+/// silently drops. Base-side exemplars: `econ::apply_econ` reads killer
+/// Owners from `WarbaseSet::Tick` (ordered before Cleanup); game-side
+/// exemplar: legion's former `bounty_credit` ran
+/// `.in_set(Cleanup).before(cleanup_dead)`.
 #[derive(Message, Debug, Clone)]
 pub struct UnitDied {
     pub entity: Entity,
@@ -540,6 +554,10 @@ pub fn resolve_damage(
 /// targeting/attack/heal query already excludes `Dead`) and must NOT be
 /// despawned; the hero domain resurrects it when the timer expires. Every
 /// other Dead entity despawns exactly as before.
+/// Despawn every `Dead`-marked body. See `UnitDied` for the L6
+/// scheduling contract: attribution consumers must read killer entities
+/// BEFORE this system runs (`before(cleanup_dead)` inside Cleanup, or any
+/// earlier set).
 pub fn cleanup_dead(mut commands: Commands, q: Query<Entity, (With<Dead>, Without<crate::hero::Reviving>)>) {
     for e in &q {
         commands.entity(e).despawn();

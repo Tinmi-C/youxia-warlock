@@ -10,6 +10,7 @@ use warbase::prelude::*;
 fn grunt() -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 1,
         id: "grunt".into(),
         attrs: BaseAttributes { hp: 40.0, move_speed: 12.0, body_radius: 0.3 },

@@ -263,6 +263,7 @@ fn artifact_quest_gates_claim_and_grants_team_aura() {
 fn challenge_bundle() -> MapBundle {
     let unit = |id: &str, hp: f32, dmg: f32| UnitDef {
         hero_stats: None,
+        pop_cost: 1, // L3: serde default made explicit
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: 1.0, body_radius: 0.3 },
@@ -657,6 +658,7 @@ fn bonds_link_tower_combos_to_all_tower_stats() {
 fn dual_ring_bundle() -> MapBundle {
     let unit = |id: &str, hp: f32, speed: f32, dmg: f32| UnitDef {
         hero_stats: None,
+        pop_cost: 1, // L3: serde default made explicit
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: speed, body_radius: 0.3 },

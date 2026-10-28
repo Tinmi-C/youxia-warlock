@@ -58,6 +58,19 @@ pub enum WinCondition {
     /// variant is backward compatible: old RON bundles (SurviveWaves /
     /// Endless) deserialize unchanged and never take this branch.
     LastTeamStanding,
+    /// L5 (round-4 LDEBT): lives-bookkeeping win condition — team presence
+    /// is the [`PlayerLives`] board, NOT a field-unit census. Every listed
+    /// player starts with `per_team` lives (legion: 20 each; a team's
+    /// total for cap adjudication is the member sum). A player at zero
+    /// lives is eliminated (this tick sweeps their owned units — the
+    /// 0-damage "banner kit" placeholder retires); a team stands while any
+    /// member has lives, so an empty field during a build phase can never
+    /// mis-crown (the LastTeamStanding hazard). The win transition writes
+    /// the L7 structured flow: `Ended{Win(team)}` + `MatchWinner`.
+    /// Leak CHARGING stays game-side (the leak geometry is game data);
+    /// the game decrements `PlayerLives` and the base owns the
+    /// consequences. Backward compatible like every new variant.
+    TeamLives { per_team: u16 },
 }
 
 #[derive(Debug, Clone, Resource, Serialize, Deserialize)]
@@ -88,12 +101,29 @@ pub enum MatchFlow {
     Running,
     Won(String),
     Lost(String),
+    /// L7 (round-4 LDEBT): team-match ending with a STRUCTURED outcome.
+    /// `Won`/`Lost` stay the single-player vocabulary (every existing map
+    /// and rule branch writes them unchanged — zero drift); team games get
+    /// a first-class `Draw` and a winner that is data, not string surgery.
+    /// `reason` stays the human-readable contract mirrored into
+    /// `MatchEnded::outcome` (Ok) and UI banners; `MatchWinner` is inserted
+    /// by the writer iff the outcome is `Win` (draws crown nobody).
+    Ended { reason: String, outcome: MatchOutcome },
 }
 
 impl Default for MatchFlow {
     fn default() -> Self {
         Self::Running
     }
+}
+
+/// Structured team-match outcome (L7). `Win` carries the crowned team;
+/// `Draw` is the legions-at-the-cap case the pre-L7 flow had to fake
+/// through the `Won` channel with a reason-string convention.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum MatchOutcome {
+    Win(TeamId),
+    Draw,
 }
 
 #[derive(Message, Debug, Clone, PartialEq, Eq)]
@@ -119,6 +149,15 @@ pub struct MatchWinner(pub TeamId);
 
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct LivesLeft(pub u32);
+
+/// L5: per-player lives under `WinCondition::TeamLives`, index = player
+/// slot (`PlayerId.0`), seeded `per_team` by `assemble` for every listed
+/// player (uplift of legion's game-side `LivesBoard`). The GAME owns the
+/// decrement (its leak rule knows the geometry); the BASE owns elimination
+/// (zero-lives players get their units swept by `rules_tick`) and the
+/// standing adjudication (see the `TeamLives` variant docs).
+#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlayerLives(pub Vec<u32>);
 
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct StockCount(pub u32);
@@ -231,16 +270,21 @@ pub fn rules_tick(
     mut lives: Option<ResMut<LivesLeft>>,
     mut stock: ResMut<StockCount>,
     // Hp is read for stock counting and written for lap buffs — ParamSet
-    // keeps the two accesses disjoint (B0001).
+    // keeps the two accesses disjoint (B0001). p2 carries the L5
+    // elimination-sweep query (params stay under the 16-tuple wall).
     mut queries: ParamSet<(
         Query<(&Hp, &Allegiance), With<PathFollower>>,
         Query<(&mut MoveSpeed, &mut Hp, &mut MaxHp)>,
+        Query<(Entity, &Owner)>,
     )>,
     instances: Query<&UnitInstance>,
     // MP2: live combat units (fighters) for LastTeamStanding. cleanup_dead
     // runs earlier in the same Cleanup chain, so despawned units are gone
     // by the time this query is iterated.
     fighters: Query<(Option<&Owner>, &Allegiance), Or<(With<AttackKit>, With<PathFollower>)>>,
+    // L5: TeamLives bookkeeping — the board itself (the sweep query rides
+    // the ParamSet above).
+    board: Option<Res<PlayerLives>>,
 ) {
     if *flow != MatchFlow::Running {
         return;
@@ -355,6 +399,45 @@ pub fn rules_tick(
             *flow = MatchFlow::Won(reason.clone());
             ended.write(MatchEnded { outcome: Ok(reason) });
             winner = Some(team);
+        }
+    }
+
+    // L5: TeamLives elimination + adjudication. Runs ONLY under
+    // `WinCondition::TeamLives` — every other map (SurviveWaves / Endless /
+    // LastTeamStanding) skips the branch entirely: zero drift. The Running
+    // re-check keeps a same-frame earlier transition authoritative.
+    if *flow == MatchFlow::Running {
+        if let (WinCondition::TeamLives { .. }, Some(board)) = (&rules.win, board.as_deref()) {
+            // 1. Elimination sweep: a zero-lives player loses every owned
+            //    unit, every frame (idempotent; commands apply at the next
+            //    sync point). This replaces the game-side sweep AND the
+            //    0-damage banner kits that made keeps count as "fighters".
+            for (entity, owner) in &mut queries.p2() {
+                if board.0.get(owner.0 .0 as usize).is_some_and(|&l| l == 0) {
+                    commands.entity(entity).despawn();
+                }
+            }
+            // 2. Standing teams: any member with lives > 0 (BTreeSet =
+            //    deterministic smallest-survivor pick, mirroring D6).
+            let present: BTreeSet<TeamId> = diplomacy
+                .players
+                .iter()
+                .filter(|(p, _)| board.0.get(p.0 as usize).is_some_and(|&l| l > 0))
+                .map(|(_, t)| *t)
+                .collect();
+            let still_fighting = present
+                .iter()
+                .any(|a| present.iter().any(|b| a != b && diplomacy.teams_hostile(*a, *b)));
+            // Transition only on the positive outcome; an all-zero board
+            // (mutual destruction) leaves the flow to the other policies —
+            // the LastTeamStanding conservatism, kept on purpose.
+            if !present.is_empty() && !still_fighting {
+                let team = *present.iter().next().expect("non-empty checked above");
+                let reason = format!("last team standing on lives: team {} wins", team.0);
+                *flow = MatchFlow::Ended { reason: reason.clone(), outcome: MatchOutcome::Win(team) };
+                ended.write(MatchEnded { outcome: Ok(reason) });
+                winner = Some(team);
+            }
         }
     }
 

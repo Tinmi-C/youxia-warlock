@@ -78,6 +78,7 @@ fn sample_bundle() -> MapBundle {
 fn grunt_def(id: &str, hp: f32) -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: 3.0, body_radius: 0.3 },
@@ -104,6 +105,7 @@ fn grunt_def(id: &str, hp: f32) -> UnitDef {
 fn tower_def(id: &str, interval: f32) -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 0,
         id: id.into(),
         attrs: BaseAttributes { hp: 100.0, move_speed: 0.0, body_radius: 0.5 },

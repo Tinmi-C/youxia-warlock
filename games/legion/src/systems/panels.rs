@@ -29,13 +29,11 @@ use warbase::prelude::*;
 use warbase::ui::{CommandAction, CommandSlotButton, UiTheme};
 
 use crate::components::{DeploySlot, Merc};
-use crate::resources::{
-    LivesBoard, Lanes, PendingSends, Phase, PopLedger, Purse, RoundFlow, SendLedger, BUILD_FRAMES,
-};
+use crate::resources::{Lanes, PendingSends, Phase, RoundFlow, SendLedger, BUILD_FRAMES};
 use crate::systems::font::UiFont;
 use crate::systems::gameplay::MERCENARY_DEFS;
 use crate::systems::round::{
-    pop_cost, send_cost, HireCommand, RoundSettled, SendCommand, LOCAL_PLAYER,
+    send_cost, HireCommand, RoundSettled, SendCommand, LOCAL_PLAYER,
 };
 
 // ---------------------------------------------------------------------------
@@ -378,10 +376,10 @@ fn despawn_subtree(world: &mut World, root: Entity) {
 // --- ① TL: HUD resource plaque ------------------------------------------------
 
 fn refresh_resource(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
-    let gold = world.resource::<Purse>().0[LOCAL_PLAYER as usize];
-    let (used, cap) = {
-        let p = world.resource::<PopLedger>();
-        (p.used[LOCAL_PLAYER as usize], p.cap[LOCAL_PLAYER as usize])
+    // LG4: per-player gold/pop read from the base Wallets (L2).
+    let (gold, used, cap) = {
+        let w = &world.resource::<Wallets>().0[LOCAL_PLAYER as usize];
+        (w.gold, w.pop_used, w.pop_cap)
     };
     let flow = world.resource::<RoundFlow>().clone();
     let secs = build_seconds(flow.frame);
@@ -439,7 +437,7 @@ fn refresh_resource(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fo
 // --- ② TR: four-player lives board ----------------------------------------------
 
 fn refresh_lives(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
-    let lives = world.resource::<LivesBoard>().0;
+    let lives = world.resource::<PlayerLives>().0.clone();
     let teams: Vec<TeamId> = {
         let dip = world.resource::<MatchDiplomacy>();
         (0..4)
@@ -454,7 +452,7 @@ fn refresh_lives(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font:
     };
     let key = format!(
         "lives:{}:{rev}",
-        lives.map(|l| l.to_string()).join("/"),
+        lives.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("/"),
         rev = theme.revision
     );
     rebuild(world, keys, PanelKind::Lives, key, true, theme, font, |p, theme, font| {
@@ -511,6 +509,12 @@ fn banner_state(world: &World) -> BannerState {
         }
         MatchFlow::Lost(reason) => {
             return BannerState::Ended { draw: false, reason: reason.clone() }
+        }
+        MatchFlow::Ended { reason, outcome } => {
+            return BannerState::Ended {
+                draw: matches!(outcome, MatchOutcome::Draw),
+                reason: reason.clone(),
+            }
         }
         MatchFlow::Running => {}
     }
@@ -596,7 +600,7 @@ struct ShopEntry {
 }
 
 fn shop_entries(world: &World, build: bool) -> Vec<ShopEntry> {
-    let gold = world.resource::<Purse>().0[LOCAL_PLAYER as usize];
+    let gold = world.resource::<Wallets>().0[LOCAL_PLAYER as usize].gold;
     let registry = world.resource::<UnitRegistry>();
     MERCENARY_DEFS
         .iter()
@@ -607,7 +611,7 @@ fn shop_entries(world: &World, build: bool) -> Vec<ShopEntry> {
                 def,
                 name: merc_name(def),
                 gold: d.cost_gold,
-                pop: pop_cost(def)?,
+                pop: d.pop_cost,
                 type_line: format!(
                     "{}攻 · {}",
                     attack_label(d.attack.as_ref()?.attack_type),
@@ -723,7 +727,7 @@ fn refresh_send(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: 
     // shipped arena has exactly one — P0 -> P1).
     let lanes = world.resource::<Lanes>().0.clone();
     let build = world.resource::<RoundFlow>().phase == Phase::Build;
-    let gold = world.resource::<Purse>().0[LOCAL_PLAYER as usize];
+    let gold = world.resource::<Wallets>().0[LOCAL_PLAYER as usize].gold;
     let ledger = world.resource::<SendLedger>().clone();
     let queued: usize = world
         .resource::<PendingSends>()

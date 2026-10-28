@@ -5,7 +5,6 @@
 //! Rendering-only deps stay in VisualPlugin.
 
 use bevy::prelude::*;
-use warbase::prelude::cleanup_dead;
 use warbase::WarbaseSet;
 
 use crate::resources::{PendingSends, SendLedger};
@@ -38,29 +37,24 @@ impl Plugin for GamePlugin {
 
         app.add_systems(
             Startup,
-            // Skills-free map: assemble first (starting_forces spawn inside
-            // assemble), then wallets, then the round state (lanes/slots/
-            // lives/pop derive from the assembled world).
-            (gameplay::load_map, gameplay::init_purses, round::init_round_state).chain(),
+            // Skills-free map: assemble first (starting_forces + base-seeded
+            // Wallets/PlayerLives spawn inside assemble), then the round
+            // state (lanes + generated deploy slots).
+            (gameplay::load_map, round::init_round_state).chain(),
         )
         .add_systems(
             Update,
             (
                 gameplay::attach_legion_kit,
                 // The hire and send shops run ahead of the base tick (chained:
-                // both hold ResMut<Purse>; order-inert for message reads,
+                // both hold ResMut<Wallets>; order-inert for message reads,
                 // keeps purchases early in the frame).
                 (round::hire, round::send).chain(),
                 // Input bridges (headless no-ops without ButtonInput).
                 (round::hire_input, round::skip_build_input, round::send_input),
-                // Bounty credit must run INSIDE Cleanup, before the base
-                // cleanup_dead despawns the killer: UnitDied.killer is an
-                // Entity reference and a mutual kill's killer is Dead-marked
-                // the same frame (hole L6 — no documented seam for reading
-                // killer attribution post-cleanup).
-                round::bounty_credit
-                    .in_set(WarbaseSet::Cleanup)
-                    .before(cleanup_dead),
+                // Kill bounties are the base apply_econ's now (killer-Owner
+                // attribution, L2) — legion's game-side bounty_credit retired
+                // with the double-accounting it papered over.
                 // Round layer observes the settled frame: leaks first (they
                 // can eliminate a player), then the pop recount, then the
                 // round clock (battle orders / settlement).

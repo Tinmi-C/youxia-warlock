@@ -24,14 +24,16 @@ pub mod prelude {
         Healer, Projectile, TargetingPriority, UnitDied,
     };
     pub use crate::econ::{
-        apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,
-        PopPurchases, Resources,
+        apply_econ, sync_local_wallet, EconChanged, EconCommand, EconRejected, EconRules,
+        EconStart, LocalPlayer, LocalWalletMirror, Population, PopPurchases, Resources, Wallet,
+        Wallets,
     };
     pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
     pub use crate::rng::MatchRng;
     pub use crate::rule::{
         building_open, pass_leaks_to_neighbor, rules_tick, BuildWindow, LapBuffPolicy, LeakPolicy,
-        LivesLeft, MatchEnded, MatchFlow, MatchRules, StockCount, TransferredLeak, WinCondition,
+        LivesLeft, MatchEnded, MatchFlow, MatchOutcome, MatchRules, PlayerLives, StockCount,
+        TransferredLeak, WinCondition,
     };
     pub use crate::skill::{
         area_targets, distribute_xp, process_casts, run_autocast, spend_skill_point,
@@ -63,8 +65,9 @@ pub mod prelude {
     pub use crate::save::prelude::*;
     pub use crate::spectate::prelude::*;
     pub use crate::wave::{
-        run_director, Advance, BossTimedOut, DirectorPhase, Paths, SpawnSpec, StartWave,
-        WaveCleared, WaveDirector, WaveEntry, WavePreview, WaveStarted, WaveTable, WaveTag,
+        process_spawn_requests, run_director, spawn_owned_deferred, Advance, BossTimedOut,
+        DirectorPhase, MarchMode, Paths, SpawnRequest, SpawnSpec, StartWave, WaveCleared,
+        WaveDirector, WaveEntry, WavePreview, WaveStarted, WaveTable, WaveTag,
     };
     pub use crate::WarbasePlugin;
     pub use crate::WarbaseSet;
@@ -161,6 +164,8 @@ impl Plugin for WarbasePlugin {
             .add_message::<wave::WaveCleared>()
             .add_message::<wave::BossTimedOut>()
             .add_message::<wave::StartWave>()
+            // L8: owned-unit injection seam (declarative consumer form).
+            .add_message::<wave::SpawnRequest>()
             .add_message::<rule::MatchEnded>()
             .add_message::<skill::CastSkill>()
             .add_message::<skill::SkillCast>()
@@ -206,6 +211,10 @@ impl Plugin for WarbasePlugin {
             .init_resource::<econ::Population>()
             .init_resource::<econ::PopPurchases>()
             .init_resource::<econ::EconRules>()
+            // L2 (round-4 LDEBT): per-player wallets + local-player view.
+            .init_resource::<econ::Wallets>()
+            .init_resource::<econ::LocalPlayer>()
+            .init_resource::<econ::LocalWalletMirror>()
             .init_resource::<wave::WaveTable>()
             .init_resource::<wave::Paths>()
             .init_resource::<wave::WaveDirector>()
@@ -230,7 +239,7 @@ impl Plugin for WarbasePlugin {
         );
         app.add_systems(
             Update,
-            (wave::run_director, path::advance_followers)
+            (wave::run_director, wave::process_spawn_requests, path::advance_followers)
                 .chain()
                 .in_set(WarbaseSet::Director),
         );
@@ -263,6 +272,9 @@ impl Plugin for WarbasePlugin {
                 // pass never races the flow transition).
                 rule::pass_leaks_to_neighbor,
                 skill::distribute_xp,
+                // L2: reconcile Wallets[local] <-> Resources/Population at
+                // the end of the frame (minimal writes; see econ module).
+                econ::sync_local_wallet,
             )
                 .chain()
                 .in_set(WarbaseSet::Cleanup),

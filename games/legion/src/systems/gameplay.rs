@@ -1,4 +1,4 @@
-//! Gameplay core: map load + per-player wallets + the thin legion kit layer.
+//! Gameplay core: map load + the thin legion kit layer.
 //! Thin-game rule: mechanisms are warbase's; this crate wires them to the map
 //! file and composes them into the round loop.
 
@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use warbase::bundle::{assemble, load_bundle};
 use warbase::prelude::*;
 
-use crate::resources::{CurrentMap, Purse};
+use crate::resources::CurrentMap;
 
 /// Default map: the crate's own maps/arena.ron. Override with `--map <path>`
 /// or env `LEGION_MAP`.
@@ -25,7 +25,9 @@ pub fn default_map_path() -> std::path::PathBuf {
     std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/maps/arena.ron"))
 }
 
-/// Exclusive startup: load + validate + assemble + build grid.
+/// Exclusive startup: load + validate + assemble + build grid. The base's
+/// assemble seeds the per-player wallets (econ_start) and the lives board
+/// (TeamLives) — LG4 retired legion's own purse seeding.
 pub fn load_map(world: &mut World) {
     let path = default_map_path();
     let bundle = match load_bundle(&path) {
@@ -37,15 +39,6 @@ pub fn load_map(world: &mut World) {
     world.insert_resource(grid);
     world.insert_resource(CurrentMap(bundle));
     info!("[legion] map loaded: {}", path.display());
-}
-
-/// Exclusive startup (after load_map): seed the four wallets from the map's
-/// `econ_start.gold` (per-player view of the base's single-player field —
-/// the base `Resources` global stays untouched/unused by legion play).
-pub fn init_purses(world: &mut World) {
-    let start = world.resource::<CurrentMap>().0.econ_start.gold;
-    world.insert_resource(Purse([start; 4]));
-    info!("[legion] purses seeded: {start} gold x4");
 }
 
 // ---------------------------------------------------------------------------
@@ -60,12 +53,12 @@ pub const MERCENARY_DEFS: [&str; 6] =
 /// observer — covers starting_forces keeps and hired mercenaries alike):
 /// - `Selectable` on every instance (keeps included, WC3 habit);
 /// - `MoveAgent` + `AgentOrderState` when the def moves (speed 0 keeps stay
-///   put — no agent, they are scenery anchors, not LastTeamStanding fighters).
+///   put — no agent, they are scenery anchors, not fighters; L5 retired
+///   the 0-damage banner kit, presence is the lives board now).
 /// `Without<MoveAgent>` guard: spawns that already carry a full kit (the
-/// LG2 send path, which spawns + orders in the same frame) skip the
-/// observer — a fresh agent insert here would clobber an order the same
-/// frame's tick_orders may already have written. Keeps/hires land here
-/// agent-less as before (zero LG1 drift).
+/// base L8 send path, which arms the march order at spawn) skip the
+/// observer — a fresh agent insert here would clobber the armed order.
+/// Keeps/hires land here agent-less as before (zero LG1 drift).
 /// Visual hierarchy note: base spawn gives units a bare Transform; mesh
 /// children (visualize_units) want the parent to carry Visibility (bevy
 /// B0004) — inserted once here, inert headless.

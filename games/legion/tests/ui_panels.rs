@@ -2,7 +2,7 @@
 //! panel suite — every panel renders from the `UiTheme` tokens (a skin
 //! mutate re-skins them, zero code change), the bundled CJK font reaches
 //! every text (no tofu), and the six surfaces reflect REAL round-layer
-//! state (LivesBoard / def table prices+pop+types / frame-converted
+//! state (PlayerLives / def table prices+pop+types / frame-converted
 //! countdown / escalating send prices / the three-state banner / the
 //! deploy-slot preview highlight). Runs the REAL game composition
 //! (GamePlugin carries the theme + PanelsPlugin), same stance as
@@ -12,7 +12,7 @@ use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::prelude::*;
 use bevy::text::{Font, FontSource};
 use legion::components::{DeploySlot, Merc};
-use legion::resources::{LivesBoard, PendingSends, Phase, Purse, RoundFlow};
+use legion::resources::{PendingSends, Phase, RoundFlow};
 use legion::systems::panels::{
     merc_name, DeployGlow, PanelKind, PanelRoot, SETTLE_FLASH_FRAMES,
 };
@@ -49,7 +49,9 @@ fn free_slot(app: &mut App, player: u8) -> Entity {
 
 /// Set every wallet to `gold`.
 fn set_gold(app: &mut App, gold: u32) {
-    app.world_mut().resource_mut::<Purse>().0 = [gold; 4];
+    for wallet in app.world_mut().resource_mut::<Wallets>().0.iter_mut() {
+        wallet.gold = gold;
+    }
 }
 
 fn panel_entity(app: &mut App, kind: PanelKind) -> Entity {
@@ -157,7 +159,7 @@ fn panels_reskin_on_theme_mutate() {
 #[test]
 fn lives_board_reflects_four_players_and_elimination() {
     let mut app = game_app();
-    app.world_mut().resource_mut::<LivesBoard>().0 = [7, 8, 9, 10];
+    app.world_mut().resource_mut::<PlayerLives>().0 = vec![7, 8, 9, 10];
     app.update();
     let joined = texts_join(&mut app, PanelKind::Lives);
     for (player, lives) in [(0, "7"), (1, "8"), (2, "9"), (3, "10")] {
@@ -165,7 +167,7 @@ fn lives_board_reflects_four_players_and_elimination() {
         assert!(joined.contains(lives), "value {lives}: {joined}");
     }
 
-    app.world_mut().resource_mut::<LivesBoard>().0 = [7, 0, 9, 10];
+    app.world_mut().resource_mut::<PlayerLives>().0 = vec![7, 0, 9, 10];
     app.update();
     let joined = texts_join(&mut app, PanelKind::Lives);
     assert!(joined.contains("出局"), "eliminated player reads 出局: {joined}");
@@ -245,7 +247,7 @@ fn send_entry_previews_escalating_prices() {
     // One paid send steps the whole preview.
     send(&mut app, SendCommand { player: 0, target: 1, def: "merc_swarm".into() });
     app.update();
-    assert_eq!(app.world().resource::<Purse>().0[0], 75, "the send charged 25");
+    assert_eq!(app.world().resource::<Wallets>().0[0].gold, 75, "the send charged 25");
     let joined = texts_join(&mut app, PanelKind::Send);
     assert!(joined.contains("33金"), "preview stepped to 33: {joined}");
     assert!(joined.contains("已排队 1"), "queued count shows: {joined}");
@@ -278,7 +280,10 @@ fn round_banner_walks_build_battle_settle_and_end() {
     // Match end overrides the phase states once the flash dies.
     app.world_mut().remove_resource::<legion::systems::panels::SettleFlash>();
     *app.world_mut().resource_mut::<MatchFlow>() =
-        MatchFlow::Won("round cap 20: draw on lives (t0=20, t1=20)".into());
+        MatchFlow::Ended {
+            reason: "round cap 20: draw on lives (t0=20, t1=20)".into(),
+            outcome: MatchOutcome::Draw,
+        };
     app.update();
     let joined = texts_join(&mut app, PanelKind::Banner);
     assert!(joined.starts_with("平局"), "draw verdict readable: {joined}");
@@ -409,7 +414,11 @@ fn shop_clicks_dispatch_hire_and_send_commands() {
         .expect("tank slot exists");
     *app.world_mut().get_mut::<Interaction>(hire_btn).unwrap() = Interaction::Pressed;
     run_counting::<legion::systems::round::HireRejected>(&mut app, 3);
-    assert_eq!(app.world().resource::<Purse>().0[0], 300 - 120, "click-hired the 120g tank");
+    assert_eq!(
+        app.world().resource::<Wallets>().0[0].gold,
+        300 - 120,
+        "click-hired the 120g tank"
+    );
     {
         let mut q = app.world_mut().query::<&Merc>();
         assert_eq!(q.iter(app.world()).count(), 1, "the tank is on the field");
@@ -428,5 +437,9 @@ fn shop_clicks_dispatch_hire_and_send_commands() {
     run_counting::<legion::systems::round::SendRejected>(&mut app, 3);
     let queued = app.world().resource::<PendingSends>().0.len();
     assert_eq!(queued, 1, "click-send queued one swarm");
-    assert_eq!(app.world().resource::<Purse>().0[0], 300 - 120 - 25, "the 25g send charged");
+    assert_eq!(
+        app.world().resource::<Wallets>().0[0].gold,
+        300 - 120 - 25,
+        "the 25g send charged"
+    );
 }

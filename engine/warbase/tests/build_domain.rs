@@ -98,6 +98,7 @@ fn upgrade_swaps_tier_in_place() {
     let mut defs = std::collections::HashMap::new();
     let tower_def = |id: &str, cost: u32, up: Option<String>| UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp: 80.0, move_speed: 0.0, body_radius: 0.4 },

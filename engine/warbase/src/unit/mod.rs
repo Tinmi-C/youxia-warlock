@@ -168,6 +168,13 @@ pub struct UnitDef {
     /// creeps ship bigger numbers; default 1 keeps plain creeps terse.
     #[serde(default = "default_leak")]
     pub leak: u32,
+    /// Population cost when fielding this unit (L3, round-4 LDEBT).
+    /// Serde default 1 = the classic "one body, one pop slot"; the number
+    /// ships per def in the map bundle (legion's 1-4 merc band). Consumed
+    /// by game economies via `UnitRegistry` — the base books population
+    /// only through the EconCommand stream, unchanged.
+    #[serde(default = "default_pop_cost")]
+    pub pop_cost: u8,
     /// Optional mana pool (SPL1, ADR-0016 §6). None = no mana bar — every
     /// legacy tower/creep def stays exactly as before, and old RON bundles
     /// load unchanged (`#[serde(default)]`).
@@ -183,6 +190,10 @@ pub struct UnitDef {
 }
 
 fn default_leak() -> u32 {
+    1
+}
+
+fn default_pop_cost() -> u8 {
     1
 }
 

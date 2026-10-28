@@ -24,6 +24,7 @@ fn sample_bundle() -> MapBundle {
         "grunt".to_string(),
         UnitDef {
             hero_stats: None,
+            pop_cost: 1,
             leak: 1,
             id: "grunt".into(),
             attrs: BaseAttributes { hp: 50.0, move_speed: 0.0, body_radius: 0.3 },
@@ -100,6 +101,7 @@ fn sample_bundle() -> MapBundle {
 fn grunt_def(id: &str, hp: f32, hero: bool) -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: 0.0, body_radius: 0.3 },
@@ -126,6 +128,7 @@ fn grunt_def(id: &str, hp: f32, hero: bool) -> UnitDef {
 fn tower_def(id: &str) -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 0,
         id: id.into(),
         attrs: BaseAttributes { hp: 100.0, move_speed: 0.0, body_radius: 0.5 },

@@ -51,6 +51,7 @@ pub fn refresh_hud(
             MatchFlow::Running => String::new(),
             MatchFlow::Won(r) => format!("胜利 —— {r}"),
             MatchFlow::Lost(r) => format!("失败 —— {r}"),
+            MatchFlow::Ended { reason, .. } => format!("终局 —— {reason}"),
         },
     };
     // Write-before-compare: skip identical rewrites (per-frame CJK reflow).
