@@ -88,12 +88,29 @@ pub enum MatchFlow {
     Running,
     Won(String),
     Lost(String),
+    /// L7 (round-4 LDEBT): team-match ending with a STRUCTURED outcome.
+    /// `Won`/`Lost` stay the single-player vocabulary (every existing map
+    /// and rule branch writes them unchanged — zero drift); team games get
+    /// a first-class `Draw` and a winner that is data, not string surgery.
+    /// `reason` stays the human-readable contract mirrored into
+    /// `MatchEnded::outcome` (Ok) and UI banners; `MatchWinner` is inserted
+    /// by the writer iff the outcome is `Win` (draws crown nobody).
+    Ended { reason: String, outcome: MatchOutcome },
 }
 
 impl Default for MatchFlow {
     fn default() -> Self {
         Self::Running
     }
+}
+
+/// Structured team-match outcome (L7). `Win` carries the crowned team;
+/// `Draw` is the legions-at-the-cap case the pre-L7 flow had to fake
+/// through the `Won` channel with a reason-string convention.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum MatchOutcome {
+    Win(TeamId),
+    Draw,
 }
 
 #[derive(Message, Debug, Clone, PartialEq, Eq)]

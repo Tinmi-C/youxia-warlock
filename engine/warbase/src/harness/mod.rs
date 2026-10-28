@@ -293,6 +293,9 @@ pub fn run_headless(
     let outcome = match app.world().resource::<MatchFlow>() {
         MatchFlow::Won(r) => Ok(r.clone()),
         MatchFlow::Lost(r) => Err(r.clone()),
+        // L7: team endings report Ok(reason); the structured outcome lives
+        // on the flow resource for callers that want the team/draw data.
+        MatchFlow::Ended { reason, .. } => Ok(reason.clone()),
         MatchFlow::Running => Ok("timeout".into()),
     };
     HarnessReport {

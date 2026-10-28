@@ -500,6 +500,7 @@ pub fn refresh_end_screen(world: &mut World) {
         let outcome = match &flow {
             MatchFlow::Won(_) => format!("胜利！{}", score),
             MatchFlow::Lost(r) => format!("失败（{r}）得分 {score}"),
+            MatchFlow::Ended { reason, .. } => format!("终局（{reason}）得分 {score}"),
             MatchFlow::Running => unreachable!(),
         };
         format!(

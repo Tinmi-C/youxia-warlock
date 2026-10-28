@@ -287,6 +287,29 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     }
     world.get_resource_or_insert_with(|| crate::econ::PopPurchases(0));
 
+    // L2: per-player wallets seeded from econ_start for every listed
+    // player (apply_teams runs below for the diplomacy; the player list is
+    // read directly from the bundle so seeding order is authored order).
+    // The mirror starts converged with the (just-seeded) local view so the
+    // first frame's sync is a no-op.
+    {
+        let n = bundle
+            .teams
+            .players
+            .iter()
+            .map(|&(p, _)| p as usize + 1)
+            .max()
+            .unwrap_or(1);
+        let wallet = crate::econ::Wallet {
+            gold: bundle.econ_start.gold,
+            wood: bundle.econ_start.wood,
+            pop_used: 0,
+            pop_cap: bundle.econ_start.pop_cap,
+        };
+        world.insert_resource(crate::econ::Wallets(vec![wallet; n]));
+        world.insert_resource(crate::econ::LocalWalletMirror(wallet));
+    }
+
     let path_entities: Vec<Entity> = bundle
         .world
         .paths

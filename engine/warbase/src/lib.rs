@@ -24,14 +24,16 @@ pub mod prelude {
         Healer, Projectile, TargetingPriority, UnitDied,
     };
     pub use crate::econ::{
-        apply_econ, EconChanged, EconCommand, EconRejected, EconRules, EconStart, Population,
-        PopPurchases, Resources,
+        apply_econ, sync_local_wallet, EconChanged, EconCommand, EconRejected, EconRules,
+        EconStart, LocalPlayer, LocalWalletMirror, Population, PopPurchases, Resources, Wallet,
+        Wallets,
     };
     pub use crate::path::{advance_followers, Arrived, LapCompleted, MoveSpeed, PathDef, PathFollower};
     pub use crate::rng::MatchRng;
     pub use crate::rule::{
         building_open, pass_leaks_to_neighbor, rules_tick, BuildWindow, LapBuffPolicy, LeakPolicy,
-        LivesLeft, MatchEnded, MatchFlow, MatchRules, StockCount, TransferredLeak, WinCondition,
+        LivesLeft, MatchEnded, MatchFlow, MatchOutcome, MatchRules, StockCount, TransferredLeak,
+        WinCondition,
     };
     pub use crate::skill::{
         area_targets, distribute_xp, process_casts, run_autocast, spend_skill_point,
@@ -206,6 +208,10 @@ impl Plugin for WarbasePlugin {
             .init_resource::<econ::Population>()
             .init_resource::<econ::PopPurchases>()
             .init_resource::<econ::EconRules>()
+            // L2 (round-4 LDEBT): per-player wallets + local-player view.
+            .init_resource::<econ::Wallets>()
+            .init_resource::<econ::LocalPlayer>()
+            .init_resource::<econ::LocalWalletMirror>()
             .init_resource::<wave::WaveTable>()
             .init_resource::<wave::Paths>()
             .init_resource::<wave::WaveDirector>()
@@ -263,6 +269,9 @@ impl Plugin for WarbasePlugin {
                 // pass never races the flow transition).
                 rule::pass_leaks_to_neighbor,
                 skill::distribute_xp,
+                // L2: reconcile Wallets[local] <-> Resources/Population at
+                // the end of the frame (minimal writes; see econ module).
+                econ::sync_local_wallet,
             )
                 .chain()
                 .in_set(WarbaseSet::Cleanup),

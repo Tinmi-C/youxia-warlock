@@ -512,6 +512,12 @@ fn banner_state(world: &World) -> BannerState {
         MatchFlow::Lost(reason) => {
             return BannerState::Ended { draw: false, reason: reason.clone() }
         }
+        MatchFlow::Ended { reason, outcome } => {
+            return BannerState::Ended {
+                draw: matches!(outcome, MatchOutcome::Draw),
+                reason: reason.clone(),
+            }
+        }
         MatchFlow::Running => {}
     }
     let flow = world.resource::<RoundFlow>();
