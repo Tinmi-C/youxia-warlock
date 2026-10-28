@@ -151,100 +151,104 @@
       "removed": false
     },
     {
-      "local_key": "other-archmage",
+      "local_key": "hero-archmage",
       "origin": "scan",
-      "name": "other-archmage",
+      "name": "other-archmage（英雄化外观升级）",
       "category": "model",
       "source_defs": [
         "archmage"
       ],
       "spec": {
-        "base": "单模型",
-        "poly_budget": "≤ 8k tris",
-        "texture": "1024 albedo",
+        "poly_budget": "≤ 15k tris",
         "animations": [
           "idle",
-          "walk",
-          "death"
-        ]
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
       },
-      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
       "priority": "P1",
       "demand_id": null,
       "status": "draft",
-      "removed": false
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
     },
     {
-      "local_key": "other-bastion",
+      "local_key": "hero-bastion",
       "origin": "scan",
-      "name": "other-bastion",
+      "name": "other-bastion（英雄化外观升级）",
       "category": "model",
       "source_defs": [
         "bastion"
       ],
       "spec": {
-        "base": "单模型",
-        "poly_budget": "≤ 8k tris",
-        "texture": "1024 albedo",
+        "poly_budget": "≤ 15k tris",
         "animations": [
           "idle",
-          "walk",
-          "death"
-        ]
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
       },
-      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
       "priority": "P1",
       "demand_id": null,
       "status": "draft",
-      "removed": false
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
     },
     {
-      "local_key": "other-hybrid",
+      "local_key": "hero-hybrid",
       "origin": "scan",
-      "name": "other-hybrid",
+      "name": "other-hybrid（英雄化外观升级）",
       "category": "model",
       "source_defs": [
         "hybrid"
       ],
       "spec": {
-        "base": "单模型",
-        "poly_budget": "≤ 8k tris",
-        "texture": "1024 albedo",
+        "poly_budget": "≤ 15k tris",
         "animations": [
           "idle",
-          "walk",
-          "death"
-        ]
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
       },
-      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
       "priority": "P1",
       "demand_id": null,
       "status": "draft",
-      "removed": false
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
     },
     {
-      "local_key": "other-marksman",
+      "local_key": "hero-marksman",
       "origin": "scan",
-      "name": "other-marksman",
+      "name": "other-marksman（英雄化外观升级）",
       "category": "model",
       "source_defs": [
         "marksman"
       ],
       "spec": {
-        "base": "单模型",
-        "poly_budget": "≤ 8k tris",
-        "texture": "1024 albedo",
+        "poly_budget": "≤ 15k tris",
         "animations": [
           "idle",
-          "walk",
-          "death"
-        ]
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
       },
-      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
       "priority": "P1",
       "demand_id": null,
       "status": "draft",
-      "removed": false
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
     },
     {
       "local_key": "tower-archer",
@@ -436,64 +440,64 @@
         "wave_refs": 26
       }
     },
-    "other-archmage": {
+    "hero-archmage": {
       "archmage": {
         "armor_type": "Fortified",
         "attack_type": "Magic",
         "body_radius": 0.5,
         "has_aura": false,
-        "hero": false,
+        "hero": true,
         "hp": 0.0,
         "id": "archmage",
-        "kind": "other",
+        "kind": "hero",
         "move_speed": 0.0,
         "traits": [],
         "upgrade_to": null,
         "wave_refs": 0
       }
     },
-    "other-bastion": {
+    "hero-bastion": {
       "bastion": {
         "armor_type": "Fortified",
         "attack_type": "Normal",
         "body_radius": 0.5,
         "has_aura": false,
-        "hero": false,
+        "hero": true,
         "hp": 0.0,
         "id": "bastion",
-        "kind": "other",
+        "kind": "hero",
         "move_speed": 0.0,
         "traits": [],
         "upgrade_to": null,
         "wave_refs": 0
       }
     },
-    "other-hybrid": {
+    "hero-hybrid": {
       "hybrid": {
         "armor_type": "Fortified",
         "attack_type": "Piercing",
         "body_radius": 0.5,
         "has_aura": false,
-        "hero": false,
+        "hero": true,
         "hp": 0.0,
         "id": "hybrid",
-        "kind": "other",
+        "kind": "hero",
         "move_speed": 0.0,
         "traits": [],
         "upgrade_to": null,
         "wave_refs": 0
       }
     },
-    "other-marksman": {
+    "hero-marksman": {
       "marksman": {
         "armor_type": "Fortified",
         "attack_type": "Normal",
         "body_radius": 0.5,
         "has_aura": false,
-        "hero": false,
+        "hero": true,
         "hp": 0.0,
         "id": "marksman",
-        "kind": "other",
+        "kind": "hero",
         "move_speed": 0.0,
         "traits": [],
         "upgrade_to": null,
