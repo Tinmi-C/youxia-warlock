@@ -8042,6 +8042,147 @@ mod roster_v2 {
         assert_eq!(EQUIP_ITEMS.len(), 3, "v1 item table ships three items");
     }
 
+    /// A9 — the string machine is back in real play: the CANNON gateway
+    /// mounts the ballista itself (no fixture), the v3 `string` node wires
+    /// through the health-check, and `TowerFired` drives the cycle at the
+    /// cannon's own cadence — the string HOLDS Drawn through the windup
+    /// (蓄力可读), snaps at the damage point, then redraws over
+    /// interval − snap = 2.91s.
+    #[test]
+    fn cannon_gateway_mounts_ballista_and_string_cycles_on_fire() {
+        let mut app = test_app();
+        app.add_plugins(bevy::asset::AssetPlugin::default());
+        app.init_asset::<bevy::text::Font>();
+        app.init_asset::<bevy::world_serialization::WorldAsset>();
+        app.init_asset::<bevy::image::Image>();
+        app.init_asset::<bevy::gltf::Gltf>();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        app.update(); // startup
+
+        // The REAL placement gateway (the player flows' code path) with an
+        // AssetServer present -> the ballista branch of the appearance seam.
+        let tower = app
+            .world_mut()
+            .resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+                    let def = world.resource::<TowerDefs>().list[3].clone();
+                    let server = world.resource::<AssetServer>().clone();
+                    let mut commands = world.commands();
+                    warden::systems::tower::spawn_base_tower(
+                        &mut commands,
+                        &def,
+                        3,
+                        Vec3::ZERO,
+                        &mut meshes,
+                        &mut materials,
+                        Some(&server),
+                    )
+                })
+            });
+        app.world_mut().flush();
+
+        // The mount is the GATEWAY's child — not a test fixture.
+        let mount = {
+            let children: Vec<Entity> = app
+                .world()
+                .get::<Children>(tower)
+                .expect("the cannon tower has children (body + mount)")
+                .iter()
+                .collect();
+            let mut found = Vec::new();
+            let mut q = app
+                .world_mut()
+                .query_filtered::<Entity, With<warden::components::BallistaMount>>();
+            for c in children {
+                if q.get(app.world(), c).is_ok() {
+                    found.push(c);
+                }
+            }
+            assert_eq!(found.len(), 1, "exactly one gateway-spawned ballista mount");
+            found[0]
+        };
+        {
+            let t = app
+                .world()
+                .get::<warden::components::AimTracker>(mount)
+                .expect("the mount tracks");
+            assert_eq!(t.turn_rate, 240.0);
+            assert_eq!(t.rest_bearing, 180.0);
+            assert_eq!(t.return_delay, 2.0);
+            assert_eq!(t.forward_axis, warden::systems::tower::BALLISTA_FORWARD_AXIS);
+            assert_eq!(t.muzzle_offset, 0.5);
+            let r = app
+                .world()
+                .get::<warden::components::FireRecoil>(mount)
+                .expect("the mount recoils");
+            assert_eq!(r.depth, 0.12);
+            assert_eq!(r.recover_secs, 0.18);
+        }
+
+        // The v3 surgery part stand-in (the real scene needs a GLTF loader;
+        // the headless pin is the wiring + the fire cycle, the loaded scene
+        // is the offscreen evidence test's job).
+        let node = app
+            .world_mut()
+            .spawn((
+                bevy::prelude::Name::new(warden::systems::tower::BALLISTA_STRING_NODE),
+                Transform::from_xyz(0.05, 0.0, 0.0),
+            ))
+            .id();
+        app.world_mut().entity_mut(mount).add_child(node);
+        app.update(); // wire_ballista_string runs
+        let wired = app
+            .world()
+            .get::<warden::components::BallistaString>(mount)
+            .expect("the gateway mount wires the string machine")
+            .clone();
+        assert_eq!(wired.phase, warden::components::StringPhase::Drawn);
+        assert_eq!(
+            app.world().get::<Visibility>(wired.bolt),
+            Some(&Visibility::Visible),
+            "bolt nocked at rest"
+        );
+
+        // Fire cycle at the cannon's cadence: the windup (0.60s) holds the
+        // string Drawn, the damage point snaps it, the cooldown redraws it.
+        spawn_enemy_like(&mut app, Vec3::new(6.0, 0.4, -6.0), 5000.0);
+        for f in 1..=30 {
+            app.update();
+            let w = app.world().get::<warden::components::BallistaString>(mount).unwrap();
+            assert_eq!(
+                w.phase,
+                warden::components::StringPhase::Drawn,
+                "frame {f}: the string stays latched through the windup (蓄力)"
+            );
+        }
+        let mut snapped = false;
+        for _ in 31..=42 {
+            app.update();
+            let w = app.world().get::<warden::components::BallistaString>(mount).unwrap();
+            if matches!(w.phase, warden::components::StringPhase::Snapping(_)) {
+                snapped = true;
+            }
+        }
+        assert!(snapped, "the damage point (windup end) snaps the string");
+        // Snap completes (0.12s) -> Drawing with draw = interval 3.0303 − 0.12.
+        let mut draw_secs = None;
+        for _ in 0..20 {
+            app.update();
+            let w = app.world().get::<warden::components::BallistaString>(mount).unwrap();
+            if let warden::components::StringPhase::Drawing(t) = w.phase {
+                draw_secs = Some(w.draw_secs);
+                let _ = t;
+                break;
+            }
+        }
+        let d = draw_secs.expect("the redraw follows the snap");
+        assert!(
+            (d - (1.0 / 0.33 - 0.12)).abs() < 0.02,
+            "draw spans interval − snap = 2.91s, got {d:.3}"
+        );
+        let _ = node;
+    }
+
     /// Balance-table sanity for the anchors this module relies on.
     #[test]
     fn cannon_def_numbers_are_the_section5_anchors() {
