@@ -1,4 +1,8 @@
 //! Resources = 全局单例数据（每资源尽量单一写者）。
+//!
+//! LG4（round-4 LDEBT 上收）：三账本 Purse/LivesBoard/PopLedger 退役——
+//! 基底 econ 域的 `Wallets`（per-player 金/人口，L2）与 rule 域的
+//! `PlayerLives`（L5）接管；本文件只保留回合层自己的状态。
 
 use bevy::prelude::*;
 use warbase::bundle::MapBundle;
@@ -6,17 +10,6 @@ use warbase::bundle::MapBundle;
 /// 当前已装配的地图（重开局 / UI 读取用，同 rts-lab 的 CurrentMap）。
 #[derive(Resource)]
 pub struct CurrentMap(pub MapBundle);
-
-/// 四家金库（hole L2：基底 Resources/Population 是单人全局单例，没有
-/// per-player 钱包缝 —— 军团图游戏侧自建钱包，下标=玩家槽位 P0-P3）。
-#[derive(Resource, Debug, Clone)]
-pub struct Purse(pub [u32; 4]);
-
-impl Purse {
-    pub fn gold(&self, player: usize) -> u32 {
-        self.0[player]
-    }
-}
 
 // ---------------------------------------------------------------------------
 // 回合层（LG1）：基底 MatchFlow 之上的游戏侧状态机
@@ -57,19 +50,6 @@ pub struct RoundFlow {
     pub phase: Phase,
     /// 当前相位已过的帧数。
     pub frame: u32,
-}
-
-/// 每家命数（起始值取 bundle rules.leak 的 Lives 锚点 20；漏 1 扣 1，
-/// 扣尽出局 —— hole L2：基底 LivesLeft 单例无 per-player 缝）。
-#[derive(Resource, Debug, Clone)]
-pub struct LivesBoard(pub [u32; 4]);
-
-/// 每家人口记账。`used` 每帧从存活 Merc 实体重算（单一事实源 = 场上
-/// 实体，死亡/漏怪零漂移）；`cap` 取 bundle econ_start.pop_cap。
-#[derive(Resource, Debug, Clone)]
-pub struct PopLedger {
-    pub used: [u8; 4],
-    pub cap: [u8; 4],
 }
 
 // ---------------------------------------------------------------------------

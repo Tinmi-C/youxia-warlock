@@ -13,6 +13,7 @@
 | LG1 | 回合层+商店+自动交战+漏怪+收入 | 721（round.rs 453 + 其余 src 138 + 测试 226 净增 + 地图 4） | 18m13s | ≈13m | 3（L3 L5 L6）+ 设计修正 1 |
 | LG2 | 发兵（递增价注入）+击穿赏金+20 回合封顶胜负 | 601（round.rs 284 + 其余 src 52 + 测试 219 + 文档 46） | 25m41s | ≈5m30s | 2（L7 L8） |
 | LG3 | 方案 A UI 套用（主题两件套+六面板+离屏截图取证）+ H1 | 2007（src 插入 1147/净 1061 + 皮肤 RON 48 + 测试 692 + 文档 120；另 5 张 PNG 证据） | ≈38m | ≈22m | **0** |
+| LG4 | round-4 LDEBT 上收切换（七洞 L1/L2/L3/L5/L7/L8 消费侧迁移，L6 契约随引擎落地） | 行数口径改为**净变化**（上收=删游戏侧补丁）：round.rs 重写后 ≈716（原 715 → 删 608 补丁逻辑 / 写 609 基底消费），resources.rs -56（三账本退役），gameplay.rs -22，地图 RON 净 -34（48 坐标→4 walkable 字段+pop_cost）；测试迁移 behavior 15 / ui_panels 10 / ui_shots 1 | 见 git log（round4/ldebt 分支） | — | **0**（七洞全收） |
 
 ## 全图汇总（LG0-3 收官，KPI 一级产出）
 
@@ -175,3 +176,24 @@ legion 的 UI 增量不再需要重新发明任何东西（零新洞），成本
   倒计时纯函数、兵种名词汇、横幅文本词汇）。另 ui_shots.rs 1 条离屏 GPU 取证（--ignored）。
 - 门禁：`cargo test --workspace -j4` **588 passed / 0 failed**
   （LG0-2 的 13 条零漂移原样通过；基线 574 + LG3 新增 14 = 588）。
+
+### LG4（round-4 LDEBT，分支 round4/ldebt）
+
+- **范围**：七洞上收后的游戏侧切换——①三账本退役（Purse/LivesBoard/PopLedger →
+  基底 `Wallets`/`PlayerLives`，钱包/命数/人口 cap 由基底 assemble 播种）；
+  ②出局清扫+LastTeamStanding 判胜移交基底 `TeamLives`（主城 0 伤害旗帜 kit
+  删除，队伍存活=命数板）；③回合封顶平局/胜局写基底 `MatchFlow::Ended{Win|Draw}`
+  （L7 转正，不再借 Won 通道）；④发兵注入切基底 `spawn_owned_deferred`
+  有主缝（L8——Owner+Allegiance+AttackMove 令出生即武装，游戏侧只补
+  Merc/SentMerc 标记）；⑤arena.ron 四 lane `walkable: false` + build 改
+  FreeGrid（L1——48 格手写坐标退役，游戏侧按 lane 参数化生成，坐标逐值
+  零漂移含行序规范化）；⑥人口数值读 `UnitDef.pop_cost`（L3——游戏侧硬表
+  退役，可雇集合仍由命令卡表表达）；⑦游戏侧 bounty_credit 删除（击杀赏金
+  归因=基底 apply_econ 按 killer Owner 入对应钱包，L2——双记账摩擦消除）。
+- **零漂移口径**：17 条旧测（behavior 13 + lib 4）全部语义等价迁移（价格
+  25/27/30、赏金 +5、命 20→19、1800 帧钟、出局两帧清扫加冕等数值锚点原样），
+  UI 测试 10 条同步迁移；新增 2 条基底缝断言（⑮ Resources==Wallets[P0] 视图
+  恒等贯穿雇兵/结算；⑯ 2v2 赏金只入 killer 钱包，旁观队钱包分文不动）。
+- **引擎侧**（分支同批提交）：econ Wallets/LocalPlayer/镜像同步、rule
+  TeamLives/PlayerLives/MatchOutcome、wave MarchMode/SpawnRequest、path
+  walkable、unit pop_cost——见 engine/warbase/tests/ldebt_domain.rs 10 断言。
