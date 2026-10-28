@@ -8,12 +8,25 @@ use serde::{Deserialize, Serialize};
 
 /// Polyline path. Points live on the logic plane as `[x, z]` pairs
 /// (serde-friendly); junctions are a reserved schema slot for maze maps.
+///
+/// L1 (round-4 LDEBT): `walkable` — a path that is ONLY routing data.
+/// `true` (serde/Rust default) is the TD heritage: the polyline is the
+/// creep track AND terrain (build + nav blocking, exactly as before).
+/// `false` keeps the path followable/routable but exempt from blocking —
+/// legion-style lanes where the corridor must stay marchable and towers
+/// deploy from authored slots instead of the path's shadow.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct PathDef {
     pub points: Vec<[f32; 2]>,
     pub closed: bool,
     #[serde(default)]
     pub junctions: Vec<Junction>,
+    #[serde(default = "default_walkable")]
+    pub walkable: bool,
+}
+
+fn default_walkable() -> bool {
+    true
 }
 
 /// Reserved for maze/multi-loop maps (schema stability only, unused in v1).
@@ -29,11 +42,11 @@ fn dist2(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 impl PathDef {
     pub fn open(points: Vec<[f32; 2]>) -> Self {
-        Self { points, closed: false, junctions: Vec::new() }
+        Self { points, closed: false, junctions: Vec::new(), walkable: true }
     }
 
     pub fn closed_loop(points: Vec<[f32; 2]>) -> Self {
-        Self { points, closed: true, junctions: Vec::new() }
+        Self { points, closed: true, junctions: Vec::new(), walkable: true }
     }
 
     pub fn length(&self) -> f32 {

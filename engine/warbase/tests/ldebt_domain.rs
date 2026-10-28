@@ -382,3 +382,52 @@ fn owned_injection_follows_the_requested_path() {
     assert_eq!(injected[0].0 .0, PlayerId(0));
     assert_eq!(injected[0].1.path, path_entity, "follower rides the requested path");
 }
+
+// -- L1: routing-only paths -----------------------------------------------------
+
+/// L1-i: `walkable: false` paths never land in the build grid's blocked
+/// set (nor, through apply_nav's single source, in the nav grid) — they
+/// stay routable while the corridor stays buildable/marchable. Walkable
+/// paths (serde default true) keep blocking exactly as before.
+#[test]
+fn routing_only_paths_do_not_block_the_build_grid() {
+    use warbase::bundle::{build_grid, BuildDomainDef, WorldDef};
+    let world = WorldDef {
+        paths: vec![
+            // Routing-only lane across the middle (would block a full row
+            // of the 4x2 grid if counted).
+            PathDef { points: vec![[-10.0, 0.0], [10.0, 0.0]], closed: false, junctions: Vec::new(), walkable: false },
+            // TD creep track at the top edge: terrain, as always.
+            PathDef { points: vec![[-2.0, 0.9], [2.0, 0.9]], closed: false, junctions: Vec::new(), walkable: true },
+        ],
+        build: BuildDomainDef::FreeGrid { cell: 1.0, cols: 4, rows: 2 },
+        blocked: Vec::new(),
+    };
+    let grid = build_grid(&world);
+    assert_eq!(grid.mode, BuildMode::FreeGrid);
+    // The walkable track blocks its cells (zero-drift legacy behavior).
+    assert!(
+        grid.blocked.contains(&grid.world_to_cell(Vec2::new(0.0, 0.9))),
+        "walkable path still blocks"
+    );
+    // The routing-only lane does NOT block anywhere along its span.
+    for x in [-9.0f32, -5.0, 0.0, 5.0, 9.0] {
+        let probe = grid.world_to_cell(Vec2::new(x, 0.0));
+        assert!(!grid.blocked.contains(&probe), "routing-only lane cell {probe:?} stays open");
+    }
+    // A walkable-path-less world centers the grid on the origin (the
+    // pathless rule; routing-only maps behave like skirmish arenas).
+    let world = WorldDef {
+        paths: vec![PathDef {
+            points: vec![[-13.0, -4.0], [13.0, 4.0]],
+            closed: false,
+            junctions: Vec::new(),
+            walkable: false,
+        }],
+        build: BuildDomainDef::FreeGrid { cell: 1.0, cols: 4, rows: 3 },
+        blocked: Vec::new(),
+    };
+    let grid = build_grid(&world);
+    assert_eq!(grid.origin, Vec2::new(-2.0, -1.5), "origin-centered FreeGrid");
+    assert!(grid.blocked.is_empty(), "no terrain from routing-only paths");
+}

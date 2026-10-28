@@ -226,22 +226,25 @@ pub fn validate(bundle: &MapBundle) -> Result<(), MapError> {
 }
 
 /// Derive the build grid from the map's world def: FreeGrid bounds get
-/// centered on the path bounding box (signed-coordinate maps), path cells
-/// are blocked; FixedSlots pass through as slot centers. A pathless world
-/// (hole-3: RTS/skirmish maps) centers the FreeGrid on the origin (0, 0)
-/// instead — there is no bbox to align with, and origin-centering keeps
-/// signed-coordinate gameplay (arena around (0, 0)) symmetric.
+/// centered on the WALKABLE path bounding box (signed-coordinate maps);
+/// walkable path cells are blocked, non-walkable paths (L1: routing-only
+/// lanes) are exempt from blocking and from the bbox — a map whose paths
+/// are all routing-only centers on the origin like a pathless world
+/// (hole-3: RTS/skirmish maps), keeping symmetric arenas symmetric.
+/// FixedSlots pass through as slot centers.
 pub fn build_grid(world: &WorldDef) -> crate::build::BuildGrid {
     use crate::build::{BuildGrid, Cell};
     match &world.build {
         BuildDomainDef::FreeGrid { cell, cols, rows } => {
             let mut grid = BuildGrid::free_grid(*cell, *cols, *rows);
-            let center = if world.paths.is_empty() {
+            let terrain_paths: Vec<&PathDef> =
+                world.paths.iter().filter(|p| p.walkable).collect();
+            let center = if terrain_paths.is_empty() {
                 Vec2::ZERO
             } else {
                 let mut min = Vec2::splat(f32::MAX);
                 let mut max = Vec2::splat(f32::MIN);
-                for path in &world.paths {
+                for path in &terrain_paths {
                     for p in &path.points {
                         min.x = min.x.min(p[0]);
                         min.y = min.y.min(p[1]);
@@ -252,7 +255,7 @@ pub fn build_grid(world: &WorldDef) -> crate::build::BuildGrid {
                 (min + max) * 0.5
             };
             grid.origin = center - Vec2::new(*cols as f32 * cell / 2.0, *rows as f32 * cell / 2.0);
-            for path in &world.paths {
+            for path in &terrain_paths {
                 let len = path.length();
                 let mut d = 0.0;
                 while d < len {
