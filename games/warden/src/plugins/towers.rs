@@ -6,7 +6,7 @@
 
 use bevy::prelude::*;
 
-use crate::resources::{Boosts, FusionDefs, TowerDefs};
+use crate::resources::{Boosts, FusionDefs, TowerDefs, HERO_TABLE};
 use crate::sets::GameSet;
 use crate::states::GameState;
 use crate::systems;
@@ -18,6 +18,12 @@ impl Plugin for TowersPlugin {
         app.insert_resource(TowerDefs::palette())
             .insert_resource(FusionDefs::palette())
             .init_resource::<Boosts>()
+            // Roster v2 hero towers: the conversion table (INT -> mana
+            // channel open; STR/AGI authored-but-inert — roster-v2.md §2)
+            // and the Hostility oracle the base's `area_targets` splash
+            // seam answers from.
+            .insert_resource(HERO_TABLE)
+            .insert_resource(warbase::prelude::Hostility::default())
             .add_message::<systems::tower::TowerFired>()
             .add_systems(
                 Update,
@@ -26,6 +32,10 @@ impl Plugin for TowersPlugin {
                     // aggregate lands before any consumer reads it.
                     systems::stats::tick_stat_mods,
                     systems::stats::aggregate_stats,
+                    // Roster v2: deferred hero-tower stats convert on their
+                    // first frame (the base HERO Tick, aliased) — the mana
+                    // pool exists before any cast gate reads it.
+                    warbase::prelude::apply_pending_stats,
                     // ART7: mirror the rule target into the mount, THEN turn
                     // the mount, THEN fire (the muzzle reads this frame's
                     // facing). Presentation leads, rhythm stays with fire.

@@ -475,6 +475,24 @@ pub fn find_player(
 // around it: the slow factor folds into MoveSpeed, models face the path
 // tangent, and Arrived resolves the leak (base HP + wave counter + despawn).
 
+/// Roster v2 invariant enforcer: every warden `Enemy` IS an attacker. The
+/// spawn gateway attaches `Allegiance` (WX6-6b); this health-check
+/// backfills it on enemies that entered the world by other paths
+/// (synthetic/test spawns), so the base's splash seam (`area_targets`
+/// answers through the Hostility oracle, which reads `Allegiance`) stays
+/// total over the rule layer. No-op after the first frame in production
+/// (the `wire_ranger` health-check family).
+pub fn ensure_enemy_allegiance(
+    mut commands: Commands,
+    q: Query<Entity, (With<Enemy>, With<warbase::prelude::Hp>, Without<warbase::prelude::Allegiance>)>,
+) {
+    for eid in &q {
+        commands
+            .entity(eid)
+            .insert(warbase::prelude::Allegiance::Attacker);
+    }
+}
+
 /// Fold the `Slow` factor of the moment into the follower's MoveSpeed
 /// (`Enemy.speed` is the pre-slow base; apply_slow keeps one strongest
 /// component per enemy).

@@ -99,6 +99,26 @@ fn committed_ron_matches_code_tables() {
         assert_eq!(got.heal.is_some(), def.heal.is_some(), "{id} heal presence");
         assert_eq!(got.attrs.hp, def.attrs.hp, "{id} hp");
         assert_eq!(got.attrs.move_speed, def.attrs.move_speed, "{id} speed");
+        // Roster v2 drift guard: the full attack block (damage / interval /
+        // range / attack type / windup / backswing) and the hero layer
+        // (hero flag, three-attribute stats, signature skill slot) ship in
+        // the RON verbatim — the file is the numbers' single authority.
+        match (&got.attack, &def.attack) {
+            (Some(a), Some(b)) => {
+                assert_eq!(a.damage, b.damage, "{id} attack damage");
+                assert_eq!(a.interval, b.interval, "{id} attack interval");
+                assert_eq!(a.range, b.range, "{id} attack range");
+                assert_eq!(a.attack_type, b.attack_type, "{id} attack type");
+                assert_eq!(a.windup_secs, b.windup_secs, "{id} windup");
+                assert_eq!(a.backswing_secs, b.backswing_secs, "{id} backswing");
+            }
+            (None, None) => {}
+            _ => panic!("{id} attack presence mismatch"),
+        }
+        assert_eq!(got.hero, def.hero, "{id} hero");
+        assert_eq!(got.hero_stats, def.hero_stats, "{id} hero stats");
+        assert_eq!(got.skills, def.skills, "{id} skills");
+        assert_eq!(got.skill_levels, def.skill_levels, "{id} skill levels");
     }
     assert_eq!(loaded.waves.waves.len(), code.waves.waves.len());
     for (i, (lw, cw)) in loaded.waves.waves.iter().zip(code.waves.waves.iter()).enumerate() {

@@ -114,6 +114,22 @@ pub struct TowerDef {
     pub recoil_depth: f32,
     /// ART8 recoil recovery time in seconds (linear back to rest; 0.18).
     pub recoil_recover_secs: f32,
+    /// Roster v2 attack WINDUP in seconds (base `AttackDef::windup_secs`):
+    /// time between "fire decision" and the damage point. 0 = fire
+    /// immediately (the exact pre-roster-v2 behavior — archer/mage).
+    pub windup_secs: f32,
+    /// Roster v2 attack BACKSWING lock in seconds (base
+    /// `AttackDef::backswing_secs`): after the damage point the tower
+    /// cannot START a new windup for this long. Authored strictly below
+    /// the tower's interval (roster-v2 zero-drift guard), so the lock is
+    /// rhythm expression, never a cadence change.
+    pub backswing_secs: f32,
+    /// Roster v2 splash radius (AOE around the impact point; the base's
+    /// `area_targets` seam resolves victims). 0 = single target. The
+    /// cannon ships 2.5 — the §5 "大范围 AOE" anchor. (The base
+    /// `AttackDef` has no splash field by design; the radius lives in
+    /// this game table until the base grows one — roster-v2.md §3.)
+    pub aoe_radius: f32,
     /// One-line role summary for tooltips (requirements §5 定位 column).
     pub role: &'static str,
     /// English role line (UI12 tooltip).
@@ -130,10 +146,10 @@ impl TowerDefs {
     pub fn palette() -> Self {
         Self {
             list: vec![
-                TowerDef { name: "archer", label: "弓箭手塔", label_en: "Archer Tower", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "单体输出（点杀精英/BOSS/治疗）", role_en: "Single-target DPS (elites / bosses / healers)" },
-                TowerDef { name: "shield", label: "盾塔", label_en: "Shield Tower", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "控制/减速（攻击附 30% 减速）", role_en: "Control / 30% slow on hit" },
-                TowerDef { name: "mage", label: "法师塔", label_en: "Mage Tower", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "范围输出（魔法穿物理护甲）", role_en: "AOE (magic pierces armor)" },
-                TowerDef { name: "cannon", label: "炮塔", label_en: "Cannon Tower", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18,  role: "大范围清群（攻速慢是平衡点）", role_en: "Wide AOE clear (slow firing)" },
+                TowerDef { name: "archer", label: "弓箭手塔", label_en: "Archer Tower", cost: 50, damage: 10.0, attack_speed: 1.0, range: 9.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18, windup_secs: 0.0, backswing_secs: 0.0, aoe_radius: 0.0, role: "单体输出（点杀精英/BOSS/治疗）", role_en: "Single-target DPS (elites / bosses / healers)" },
+                TowerDef { name: "shield", label: "盾塔", label_en: "Shield Tower", cost: 40, damage: 5.0, attack_speed: 1.2, range: 4.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18, windup_secs: 0.0, backswing_secs: 0.30, aoe_radius: 0.0, role: "控制/减速（攻击附 30% 减速）", role_en: "Control / 30% slow on hit" },
+                TowerDef { name: "mage", label: "法师塔", label_en: "Mage Tower", cost: 70, damage: 15.0, attack_speed: 0.5, range: 14.0, attack_type: AttackType::Magic, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18, windup_secs: 0.0, backswing_secs: 0.0, aoe_radius: 0.0, role: "范围输出（魔法穿物理护甲）", role_en: "AOE (magic pierces armor)" },
+                TowerDef { name: "cannon", label: "弩炮塔", label_en: "Ballista Tower", cost: 80, damage: 25.0, attack_speed: 0.33, range: 12.0, attack_type: AttackType::Physical, muzzle_offset: 0.5, recoil_depth: 0.12, recoil_recover_secs: 0.18, windup_secs: 0.60, backswing_secs: 0.40, aoe_radius: 2.5, role: "大范围清群（前摇长威力大，攻速慢是平衡点）", role_en: "Wide AOE clear (long windup, slow firing)" },
             ],
         }
     }
@@ -164,7 +180,31 @@ pub struct FusionDef {
     pub aoe_radius: f32,
     pub slow_factor: f32,
     pub slow_duration: f32,
+    /// Roster v2 hero tower: the WC3 three primary attributes (base
+    /// `HeroStats`). The conversion table (HERO_TABLE below) decides what
+    /// they convert to — for tower-heroes only the INT→mana channel is
+    /// open (anchor guard, roster-v2.md §2); STR/AGI are authored flavor
+    /// + the future growth seam.
+    pub hero_stats: warbase::prelude::HeroStats,
+    /// Attack windup/backswing for the def rows (all 0 in v2 — hero towers
+    /// keep their §7.3 cadence anchors byte-identical).
+    pub windup_secs: f32,
+    pub backswing_secs: f32,
 }
+
+/// Roster v2 hero conversion table (game-side `HeroStatsDef` single
+/// source). INT is the only ACTIVE channel: `attack_speed_per_agi` stays
+/// 0 because opening it would drift the §7.3 attack-speed anchors through
+/// the StatMods pipeline; STR/AGI conversions are inert on towers (no Hp,
+/// no incoming damage) but keep the WC3-facing numbers for the future
+/// hero-growth seam (roster-v2.md §2).
+pub const HERO_TABLE: warbase::prelude::HeroStatsDef = warbase::prelude::HeroStatsDef {
+    hp_per_str: 25.0,
+    attack_speed_per_agi: 0.0,
+    armor_per_agi: 0.01,
+    mana_per_int: 12.0,
+    mana_regen_per_int: 0.3,
+};
 
 #[derive(Resource)]
 pub struct FusionDefs {
@@ -180,7 +220,9 @@ impl FusionDefs {
                     name: "marksman", label: "神射手塔", label_en: "Marksman Tower", ingredients: [0, 0], fee_ratio: 0.2,
                     damage: 18.0, attack_speed: 1.2, range: 12.6,
                     attack_type: AttackType::Physical, kind: FusionKind::Marksman,
-                    aoe_radius: 0.0, slow_factor: 0.0, slow_duration: 0.0,
+                    aoe_radius: 0.0, slow_factor: 0.0, slow_duration: 1.0,
+                    hero_stats: warbase::prelude::HeroStats { str: 6, agi: 14, int: 10 },
+                    windup_secs: 0.0, backswing_secs: 0.0,
                 },
                 // 大法师: 2×mage(2) — AOE blast. DPS 15 = 100% of 2×mage(15).
                 FusionDef {
@@ -188,6 +230,8 @@ impl FusionDefs {
                     damage: 25.0, attack_speed: 0.6, range: 16.0,
                     attack_type: AttackType::Magic, kind: FusionKind::Archmage,
                     aoe_radius: 3.0, slow_factor: 0.0, slow_duration: 0.0,
+                    hero_stats: warbase::prelude::HeroStats { str: 4, agi: 6, int: 16 },
+                    windup_secs: 0.0, backswing_secs: 0.0,
                 },
                 // 魔弓手: archer(0)+mage(2) — mixed damage bypasses armor. DPS 16.2 ≈ 93%.
                 FusionDef {
@@ -195,6 +239,8 @@ impl FusionDefs {
                     damage: 18.0, attack_speed: 0.9, range: 11.0,
                     attack_type: AttackType::Mixed, kind: FusionKind::Hybrid,
                     aoe_radius: 0.0, slow_factor: 0.0, slow_duration: 0.0,
+                    hero_stats: warbase::prelude::HeroStats { str: 6, agi: 10, int: 12 },
+                    windup_secs: 0.0, backswing_secs: 0.0,
                 },
                 // 壁垒炮: shield(1)+cannon(3) — AOE + 30% slow. DPS 14.0 ≈ 98%.
                 FusionDef {
@@ -202,6 +248,8 @@ impl FusionDefs {
                     damage: 40.0, attack_speed: 0.35, range: 9.0,
                     attack_type: AttackType::Physical, kind: FusionKind::Bastion,
                     aoe_radius: 3.5, slow_factor: 0.7, slow_duration: 1.0,
+                    hero_stats: warbase::prelude::HeroStats { str: 14, agi: 6, int: 10 },
+                    windup_secs: 0.0, backswing_secs: 0.0,
                 },
             ],
         }
@@ -648,6 +696,10 @@ pub struct SkillBalance {
     pub ids: Vec<String>,
     /// Full cast cooldown per (id, level).
     pub cooldowns: Vec<Vec<f32>>,
+    /// Roster v2: mana spent at cast CONFIRM (hero-tower signature skills).
+    /// Per-id flat cost (like `pierce_width`); 0 = free (every commander /
+    /// archer-kit skill). Casters without a `Mana` pool ignore the gate.
+    pub mana_cost: Vec<f32>,
     /// Point-skill effect radius (also the aiming indicator's radius).
     pub radius: Vec<Vec<f32>>,
     /// 鹰眼: crit chance bonus (0..1).
@@ -722,6 +774,11 @@ impl SkillBalance {
 
     pub fn crit_chance(&self, def: &str, level: u8) -> f32 {
         self.level_value(&self.crit_chance, def, level)
+    }
+
+    /// Roster v2: mana cost of a cast (flat per id; 0 = free / no pool).
+    pub fn mana_cost(&self, def: &str) -> f32 {
+        self.row(def).and_then(|i| self.mana_cost.get(i)).copied().unwrap_or(0.0)
     }
 
     pub fn crit_multiplier_add(&self, def: &str, level: u8) -> f32 {

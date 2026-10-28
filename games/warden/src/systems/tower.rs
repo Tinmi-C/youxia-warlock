@@ -11,8 +11,8 @@
 use bevy::prelude::*;
 
 use crate::components::{
-    AimTracker, AttackType, BallistaMount, BallistaString, EffectiveStats, Enemy, FireRecoil,
-    FusionKind, StringPhase,
+    AimTracker, AttackTiming, AttackType, BallistaMount, BallistaString, EffectiveStats, Enemy,
+    FireRecoil, FusionKind, StringPhase,
     Projectile, ProjectileOrigin, Slow, Tower, TowerKind,
 };
 // ART12 ranger defender wiring shares the enemy rig machinery.
@@ -366,15 +366,18 @@ pub fn tower_cost(registry: &warbase::prelude::UnitRegistry, def: &TowerDef) -> 
 /// The warden tower defs as BASE UnitDef rows (WX6-6c bridge, code-built
 /// now — the same rows ship in warden.ron with WX6-6f): attack numbers in
 /// the base's `AttackDef` (damage / interval = 1/attack_speed / range /
-/// attack type through the one-axis mapping), build cost for the command
-/// card. Fused towers list as non-buildable rows (cost 0 — fusion is their
-/// only door). The warden `Tower` component stays the runtime kit (its
-/// firing/skills are far past the base's generic AttackKit); these rows are
-/// the DATA layer the card, the balance driver and the RON read.
+/// attack type through the one-axis mapping / windup / backswing — roster
+/// v2), build cost for the command card. Fused towers list as non-buildable
+/// HERO rows (cost 0 — fusion is their only door; `hero: true` +
+/// `hero_stats` + their signature skill, the art-needs projection source).
+/// The warden `Tower` component stays the runtime kit (its firing/skills
+/// are far past the base's generic AttackKit); these rows are the DATA
+/// layer the card, the balance driver and the RON read.
 pub fn tower_unit_registry(
     towers: &crate::resources::TowerDefs,
     fusions: &crate::resources::FusionDefs,
 ) -> warbase::prelude::UnitRegistry {
+    #[allow(clippy::too_many_arguments)]
     fn row(
         name: &str,
         damage: f32,
@@ -383,9 +386,11 @@ pub fn tower_unit_registry(
         at: crate::components::AttackType,
         cost: u32,
         projectile: bool,
+        windup_secs: f32,
+        backswing_secs: f32,
+        hero: Option<(warbase::prelude::HeroStats, String)>,
     ) -> warbase::prelude::UnitDef {
         warbase::prelude::UnitDef {
-            hero_stats: None,
             pop_cost: 1, // L3: serde default made explicit
             id: name.to_string(),
             attrs: warbase::prelude::BaseAttributes {
@@ -401,8 +406,8 @@ pub fn tower_unit_registry(
                 targets: warbase::prelude::TargetDomain::Ground,
                 projectile: projectile
                     .then(|| warbase::prelude::ProjDef { speed: crate::resources::PROJECTILE_SPEED }),
-                windup_secs: 0.0,
-                backswing_secs: 0.0,
+                windup_secs,
+                backswing_secs,
             }),
             armor_type: warbase::prelude::ArmorType::Fortified,
             cost_gold: cost,
@@ -412,9 +417,10 @@ pub fn tower_unit_registry(
             grant_xp: 0,
             traits: vec![],
             auras: vec![],
-            hero: false,
-            skills: vec![],
-            skill_levels: vec![],
+            hero: hero.is_some(),
+            skills: hero.iter().map(|(_, sig)| sig.clone()).collect(),
+            skill_levels: hero.iter().map(|_| 1u8).collect(),
+            hero_stats: hero.map(|(stats, _)| stats),
             upgrade_to: None,
             heal: None,
             leak: 1,
@@ -431,13 +437,35 @@ pub fn tower_unit_registry(
         let ranged = def.name != "shield";
         out.insert(
             row_id.to_string(),
-            row(row_id, def.damage, def.attack_speed, def.range, def.attack_type, def.cost, ranged),
+            row(
+                row_id,
+                def.damage,
+                def.attack_speed,
+                def.range,
+                def.attack_type,
+                def.cost,
+                ranged,
+                def.windup_secs,
+                def.backswing_secs,
+                None,
+            ),
         );
     }
     for f in &fusions.list {
         out.insert(
             f.name.to_string(),
-            row(f.name, f.damage, f.attack_speed, f.range, f.attack_type, 0, true),
+            row(
+                f.name,
+                f.damage,
+                f.attack_speed,
+                f.range,
+                f.attack_type,
+                0,
+                true,
+                f.windup_secs,
+                f.backswing_secs,
+                Some((f.hero_stats, crate::systems::fusion_skills::fusion_signature(f.kind).to_string())),
+            ),
         );
     }
     warbase::prelude::UnitRegistry { defs: out }
@@ -471,7 +499,7 @@ pub fn spawn_base_tower(
             cooldown: 0.0,
             target: None,
             kind: TowerKind::Base(tower_index),
-            aoe_radius: 0.0,
+            aoe_radius: def.aoe_radius,
             slow_factor: 0.0,
             slow_duration: 0.0,
             invested: def.cost,
@@ -485,6 +513,15 @@ pub fn spawn_base_tower(
     // gets an empty StatMods bag so passive sync and buffs have their home.
     if tower_index == 0 {
         ec.insert(crate::systems::archer_skills::archer_skill_caster());
+    }
+    // Roster v2: authored attack cadence (windup/backswing) rides along —
+    // towers without it (and every raw test spawn) keep the immediate-fire
+    // legacy behavior.
+    if def.windup_secs > 0.0 || def.backswing_secs > 0.0 {
+        ec.insert(crate::components::AttackTiming {
+            windup_secs: def.windup_secs,
+            backswing_secs: def.backswing_secs,
+        });
     }
     ec.insert(crate::components::StatMods::default());
     attach_tower_appearance(&mut ec, def, tower_index, meshes, materials, server);
@@ -523,6 +560,15 @@ pub fn spawn_fused_tower(
             },
             crate::components::StatMods::default(),
             crate::systems::fusion_skills::fusion_skill_caster(recipe.kind),
+            // Roster v2 hero tower: true three-attribute stats (base
+            // `HeroStats`) + the deferred marker — the TowersPlugin's hero
+            // Tick (`apply_pending_stats`) converts on the first frame after
+            // materialization: INT -> Mana pool/regen through HERO_TABLE
+            // (STR/AGI channels stay authored-but-inert, roster-v2.md §2).
+            // The equip rack ships empty (LT2 pattern: hero towers only).
+            recipe.hero_stats,
+            warbase::prelude::HeroStatsRaw,
+            crate::components::TowerEquip::default(),
             Mesh3d(meshes.add(Cuboid::new(1.2, 1.2, 1.2))),
             MeshMaterial3d(materials.add(fused_tower_color(recipe.kind))),
             Transform::from_xyz(pos.x, 0.6, pos.z),
@@ -532,10 +578,13 @@ pub fn spawn_fused_tower(
 
 /// The in-game look of a base tower (SM1 appearance seam): ART12 — the
 /// archer IS the KayKit Ranger character (bow wired to handslot.r, idle loop
-/// + Throw-on-fire, body yaw follows the target); every other tower keeps
-/// the tinted gray box. Pure presentation — no rule components. Shared by
-/// `spawn_base_tower` and the showroom exhibit spawner so the display can
-/// never drift from the real game.
+/// + Throw-on-fire, body yaw follows the target); roster v2 — the CANNON is
+/// the BALLISTA tower (the retired ART2 assembly body + the v3 surgery
+/// weapon on a `BallistaMount`: aim tracking, recoil and the ART10
+/// string/bolt animation machine all come alive through `TowerFired`);
+/// every other tower keeps the tinted gray box. Pure presentation — no rule
+/// components. Shared by `spawn_base_tower` and the showroom exhibit
+/// spawner so the display can never drift from the real game.
 pub fn attach_tower_appearance(
     ec: &mut EntityCommands,
     def: &TowerDef,
@@ -561,6 +610,48 @@ pub fn attach_tower_appearance(
                     bevy::world_serialization::WorldAssetRoot(scene),
                     Transform::from_xyz(0.0, RANGER_MOUNT_Y, 0.0)
                         .with_scale(Vec3::splat(RANGER_SCALE)),
+                ));
+            });
+            return;
+        }
+    }
+    if tower_index == 3 {
+        if let Some(server) = server {
+            // Roster v2 弩炮: the ART2 assembly reborn — the arrow-tower
+            // body (retired from the archer by ART12, deck math intact:
+            // BALLISTA_MOUNT_Y was derived from THIS body) + the v3 surgery
+            // weapon on a mount. `wire_ballista_string` picks up the real
+            // `string` node as soon as the scene materializes.
+            let body = server.load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(ARROW_TOWER_MODEL));
+            let weapon = server.load(bevy::gltf::GltfAssetLabel::Scene(0).from_asset(BALLISTA_MODEL));
+            ec.with_children(|p| {
+                p.spawn((
+                    bevy::world_serialization::WorldAssetRoot(body),
+                    Transform::from_xyz(0.0, 0.35, 0.0),
+                ));
+                p.spawn((
+                    BallistaMount,
+                    AimTracker {
+                        turn_rate: AIM_TURN_RATE,
+                        rest_bearing: BALLISTA_REST_BEARING,
+                        return_delay: AIM_RETURN_DELAY,
+                        forward_axis: BALLISTA_FORWARD_AXIS,
+                        muzzle_offset: def.muzzle_offset,
+                        target: None,
+                        since_target: 0.0,
+                    },
+                    FireRecoil {
+                        depth: def.recoil_depth,
+                        recover_secs: def.recoil_recover_secs,
+                        rest_translation: Vec3::new(0.0, BALLISTA_MOUNT_Y, 0.0),
+                        elapsed: None,
+                    },
+                    bevy::world_serialization::WorldAssetRoot(weapon),
+                    Transform::from_xyz(0.0, BALLISTA_MOUNT_Y, 0.0)
+                        .with_rotation(Quat::from_rotation_y(
+                            BALLISTA_REST_BEARING.to_radians(),
+                        ))
+                        .with_scale(Vec3::splat(BALLISTA_SCALE)),
                 ));
             });
             return;
@@ -743,6 +834,117 @@ fn is_melee(tower: &Tower) -> bool {
     matches!(tower.kind, TowerKind::Base(1))
 }
 
+/// The shot body shared by the windup-completion path and the immediate
+/// (windup-0) path — everything from the damage point on: melee hit or
+/// homing round, the `TowerFired` seam, the cooldown start, and the
+/// backswing lock (roster v2; base `AttackLock` semantics — the lock
+/// blocks the next windup START, it never delays an already-flying shot).
+#[allow(clippy::too_many_arguments)]
+fn release_tower_shot(
+    rng: &mut crate::resources::RunRng,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    fired: &mut MessageWriter<TowerFired>,
+    requests: &mut MessageWriter<DamageRequest>,
+    tower_eid: bevy::ecs::entity::Entity,
+    tower: &mut Tower,
+    ttf: &Transform,
+    children: Option<&Children>,
+    estats: &EffectiveStats,
+    target: bevy::ecs::entity::Entity,
+    enemies: &Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp)>,
+    mounts: &Query<(&Transform, &AimTracker), With<BallistaMount>>,
+    backswing_secs: f32,
+    dt: f32,
+) {
+    if is_melee(tower) {
+        // Melee (shield tower): instant hit — the damage request rides
+        // the unified pipeline (SK7; armor/flash/kill credit resolve in
+        // resolve_damage like every other hit), the slow goes through
+        // the shared merge path (SK3 semantics).
+        if let Ok((_, _, _, hp)) = enemies.get(target) {
+            if hp.0 > 0.0 {
+                // SK9: crit rolls once per shot (melee included).
+                let (crit, dmg) = crate::systems::archer_skills::roll_crit(rng, estats);
+                requests.write(DamageRequest {
+                    target: target,
+                    amount: dmg,
+                    attack_type: to_base_attack(tower.attack_type),
+                    source: DamageOrigin::Attack(tower_eid),
+                    crit,
+                });
+                if tower.slow_factor > 0.0 {
+                    apply_slow(commands, target, tower.slow_factor, tower.slow_duration);
+                }
+            }
+        }
+    } else {
+        // Ranged: launch a homing projectile (§5.1) — damage and type are
+        // snapshotted here; armor resolves at impact (projectiles.rs).
+        // ART7 muzzle launch: when the tower carries an aimed mount (the
+        // ballista), the round leaves the mount's world position offset
+        // along the mount's CURRENT facing — presentation supplies the
+        // birth point, the rules stay unchanged (firing does NOT wait
+        // for the turn to converge; the homing round corrects course).
+        // ART12: the ranger defender carries no mount — the round leaves
+        // from bow height (anchor 0.6 + 0.9 = world 1.5 for a 1.75 m
+        // archer); every headless world keeps this same fallback.
+        let start = children
+            .and_then(|ch| ch.iter().find_map(|c| mounts.get(c).ok()))
+            .map(|(mtf, tracker)| {
+                let world = ttf.mul_transform(*mtf);
+                let forward = (world.rotation * tracker.forward_axis).normalize_or_zero();
+                world.translation + forward * tracker.muzzle_offset
+            })
+            .unwrap_or_else(|| ttf.translation + Vec3::Y * 0.9);
+        let (mesh, color) = projectile_visual(tower, tower.aoe_radius);
+        // SK9: the crit roll snapshots the multiplied damage (and flag)
+        // into the round — the unified pipeline forwards both (SK7).
+        let (crit, shot_dmg) = crate::systems::archer_skills::roll_crit(rng, estats);
+        commands.spawn((
+            Projectile {
+                origin: ProjectileOrigin::Homing { target },
+                damage: shot_dmg,
+                attack_type: tower.attack_type,
+                source: DamageOrigin::Attack(tower_eid),
+                crit,
+                aoe_radius: tower.aoe_radius,
+                slow_factor: tower.slow_factor,
+                slow_duration: tower.slow_duration,
+                speed: PROJECTILE_SPEED,
+                last_target_pos: enemies
+                    .get(target)
+                    .map(|(_, etf, _, _)| etf.translation)
+                    .unwrap_or(start),
+                pierced: vec![],
+            },
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: color,
+                unlit: true,
+                ..default()
+            })),
+            Transform::from_translation(start),
+        ));
+    }
+
+    // ART8: the fire-moment seam — one message per shot (melee and
+    // ranged alike); presentation (recoil, ART10 string) self-selects.
+    fired.write(TowerFired { tower: tower_eid });
+
+    // SK6: attack speed (Boosts × Frenzy × StatMods already folded).
+    tower.cooldown = 1.0 / estats.attack_speed;
+
+    // Roster v2 backswing: the lock starts on the damage frame (this frame
+    // counts as the first locked frame, the base fire_attacks convention).
+    if backswing_secs > 0.0 {
+        commands.entity(tower_eid).insert(warbase::prelude::AttackLock {
+            remaining: (backswing_secs - dt).max(0.0),
+        });
+    }
+}
+
 pub fn tower_fire(
     time: Res<Time>,
     mut rng: ResMut<crate::resources::RunRng>,
@@ -755,13 +957,65 @@ pub fn tower_fire(
     mut requests: MessageWriter<DamageRequest>,
     // EffectiveStats (SK6) carries the folded numbers: base fields × Boosts
     // × Frenzy × StatMods. This system no longer reads Boosts/WarFrenzy.
-    mut towers: Query<(Entity, &mut Tower, &Transform, Option<&Children>, &EffectiveStats)>,
+    // Roster v2: AttackTiming = authored windup/backswing (absent on raw
+    // test spawns — the zero-drift guard); the base's AttackWindup/
+    // AttackLock components are the runtime state.
+    mut towers: Query<(
+        Entity,
+        &mut Tower,
+        &Transform,
+        Option<&Children>,
+        &EffectiveStats,
+        Option<&AttackTiming>,
+        Option<&mut warbase::prelude::AttackWindup>,
+        Option<&mut warbase::prelude::AttackLock>,
+    )>,
     enemies: Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp)>,
     mounts: Query<(&Transform, &AimTracker), With<BallistaMount>>,
 ) {
+    let dt = time.delta_secs();
     // `tower_eid` feeds the ART8 fire-moment message.
-    for (tower_eid, mut tower, ttf, children, estats) in &mut towers {
-        tower.cooldown -= time.delta_secs();
+    for (tower_eid, mut tower, ttf, children, estats, timing, windup, mut lock) in &mut towers {
+        tower.cooldown -= dt;
+
+        // Backswing lock countdown (roster v2; base semantics: expiry
+        // releases the next windup START — it never touches cooldowns).
+        if let Some(l) = lock.as_mut() {
+            l.remaining -= dt;
+            if l.remaining <= 0.0 {
+                commands.entity(tower_eid).remove::<warbase::prelude::AttackLock>();
+            }
+        }
+
+        // In-flight windup (roster v2, base SKVOC semantics): the swing is
+        // committed to ITS target — retargeting never diverts it; the
+        // target dying cancels the swing (no damage, no cooldown burn).
+        if let Some(mut w) = windup {
+            let target_alive = enemies
+                .get(w.target)
+                .map(|(_, _, _, hp)| hp.0 > 0.0)
+                .unwrap_or(false);
+            if !target_alive {
+                commands.entity(tower_eid).remove::<warbase::prelude::AttackWindup>();
+                info!("[tower] windup cancelled — target lost before the damage point");
+                continue;
+            }
+            w.remaining -= dt;
+            if w.remaining > 0.0 {
+                continue;
+            }
+            // Damage point: release at the committed target, then clear the
+            // swing (deferred remove — this frame's borrow ends here).
+            let target = w.target;
+            let backswing = timing.map(|t| t.backswing_secs).unwrap_or(0.0);
+            commands.entity(tower_eid).remove::<warbase::prelude::AttackWindup>();
+            release_tower_shot(
+                &mut rng, &mut commands, &mut meshes, &mut materials, &mut fired,
+                &mut requests, tower_eid, &mut tower, ttf, children, estats, target,
+                &enemies, &mounts, backswing, dt,
+            );
+            continue;
+        }
 
         let marksman = tower.kind == TowerKind::Fused(FusionKind::Marksman);
         let effective_range = estats.range;
@@ -800,90 +1054,35 @@ pub fn tower_fire(
         if tower.cooldown > 0.0 {
             continue;
         }
-
-        if is_melee(&tower) {
-            // Melee (shield tower): instant hit — the damage request rides
-            // the unified pipeline (SK7; armor/flash/kill credit resolve in
-            // resolve_damage like every other hit), the slow goes through
-            // the shared merge path (SK3 semantics).
-            if let Ok((_, _, _, hp)) = enemies.get(target) {
-                if hp.0 > 0.0 {
-                    // SK9: crit rolls once per shot (melee included).
-                    let (crit, dmg) =
-                        crate::systems::archer_skills::roll_crit(&mut rng, estats);
-                    requests.write(DamageRequest {
-                        target: target,
-                        amount: dmg,
-                        attack_type: to_base_attack(tower.attack_type),
-                        source: DamageOrigin::Attack(tower_eid),
-                        crit,
-                    });
-                    if tower.slow_factor > 0.0 {
-                        apply_slow(
-                            &mut commands,
-                            target,
-                            tower.slow_factor,
-                            tower.slow_duration,
-                        );
-                    }
-                }
-            }
-        } else {
-            // Ranged: launch a homing projectile (§5.1) — damage and type are
-            // snapshotted here; armor resolves at impact (projectiles.rs).
-            // ART7 muzzle launch: when the tower carries an aimed mount (the
-            // ballista), the round leaves the mount's world position offset
-            // along the mount's CURRENT facing — presentation supplies the
-            // birth point, the rules stay unchanged (firing does NOT wait
-            // for the turn to converge; the homing round corrects course).
-            // ART12: the ranger defender carries no mount — the round leaves
-            // from bow height (anchor 0.6 + 0.9 = world 1.5 for a 1.75 m
-            // archer); every headless world keeps this same fallback.
-            let start = children
-                .and_then(|ch| ch.iter().find_map(|c| mounts.get(c).ok()))
-                .map(|(mtf, tracker)| {
-                    let world = ttf.mul_transform(*mtf);
-                    let forward = (world.rotation * tracker.forward_axis).normalize_or_zero();
-                    world.translation + forward * tracker.muzzle_offset
-                })
-                .unwrap_or_else(|| ttf.translation + Vec3::Y * 0.9);
-            let (mesh, color) = projectile_visual(&tower, tower.aoe_radius);
-            // SK9: the crit roll snapshots the multiplied damage (and flag)
-            // into the round — the unified pipeline forwards both (SK7).
-            let (crit, shot_dmg) = crate::systems::archer_skills::roll_crit(&mut rng, estats);
-            commands.spawn((
-                Projectile {
-                    origin: ProjectileOrigin::Homing { target },
-                    damage: shot_dmg,
-                    attack_type: tower.attack_type,
-                    source: DamageOrigin::Attack(tower_eid),
-                    crit,
-                    aoe_radius: tower.aoe_radius,
-                    slow_factor: tower.slow_factor,
-                    slow_duration: tower.slow_duration,
-                    speed: PROJECTILE_SPEED,
-                    last_target_pos: enemies
-                        .get(target)
-                        .map(|(_, etf, _, _)| etf.translation)
-                        .unwrap_or(start),
-                    pierced: vec![],
-                },
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: color,
-                    unlit: true,
-                    ..default()
-                })),
-                Transform::from_translation(start),
-            ));
+        // Backswing lock: no NEW windup may start while it holds (the base
+        // fire_attacks rule; with v2 numbers backswing < interval, so this
+        // never changes practical cadence — it pins the semantics).
+        if lock.is_some() {
+            continue;
         }
 
-        // ART8: the fire-moment seam — one message per shot (melee and
-        // ranged alike); presentation (recoil, later ART10) self-selects.
-        fired.write(TowerFired { tower: tower_eid });
-
-        // SK6: attack speed (Boosts × Frenzy × StatMods already folded).
-        tower.cooldown = 1.0 / estats.attack_speed;
+        // Roster v2 windup: towers authored a windup commit it first and
+        // release at the damage point; windup-0 towers fire NOW (the exact
+        // pre-roster-v2 path). This frame counts as the first windup frame
+        // (the base convention).
+        let (windup_secs, backswing) = timing
+            .map(|t| (t.windup_secs, t.backswing_secs))
+            .unwrap_or((0.0, 0.0));
+        if windup_secs > 0.0 {
+            commands
+                .entity(tower_eid)
+                .insert(warbase::prelude::AttackWindup {
+                    remaining: (windup_secs - dt).max(0.0),
+                    target,
+                });
+            info!("[tower] windup engaged ({windup_secs:.2}s) — shot pending");
+            continue;
+        }
+        release_tower_shot(
+            &mut rng, &mut commands, &mut meshes, &mut materials, &mut fired,
+            &mut requests, tower_eid, &mut tower, ttf, children, estats, target,
+            &enemies, &mounts, backswing, dt,
+        );
     }
 }
 

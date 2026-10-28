@@ -130,9 +130,65 @@ pub fn fly_projectiles(
     }
 }
 
-/// Resolve one projectile impact at `pos`: queue a DamageRequest per victim
-/// (the unified pipeline resolves armor/hp/flash/kill credit, SK7) and apply
-/// the slow payload here (a status effect, not damage — it stays on the hit).
+/// Roster v2 splash command: resolve an AOE impact's victims through the
+/// BASE's splash seam (`warbase::area_targets` — Hostility oracle, dead/
+/// friendly exclusion, deterministic Entity order) and queue their
+/// DamageRequests + slow payloads. A Command (the `ApplySlow` family) so
+/// the base helper's `&mut World` fits inside the system-driven flight
+/// path; the queue applies at the chain's sync point, still upstream of
+/// `resolve_damage` in the same frame.
+pub struct SplashHit {
+    pub center: Vec3,
+    pub radius: f32,
+    pub damage: f32,
+    pub attack_type: crate::components::AttackType,
+    pub source: crate::systems::damage::DamageOrigin,
+    pub crit: bool,
+    pub slow_factor: f32,
+    pub slow_duration: f32,
+}
+
+impl Command for SplashHit {
+    type Out = ();
+    fn apply(self, world: &mut World) {
+        for victim in warbase::prelude::area_targets(
+            world,
+            self.center,
+            self.radius,
+            warbase::prelude::Allegiance::Defender,
+        ) {
+            // Zero-hp victims are already excluded by area_targets; the
+            // resolver re-checks anyway (SK7 single writer).
+            world.write_message(DamageRequest {
+                target: victim,
+                amount: self.damage,
+                attack_type: to_base_attack(self.attack_type),
+                source: self.source,
+                crit: self.crit,
+            });
+            if self.slow_factor > 0.0 {
+                // Shared merge path (SK3 semantics): strongest factor wins.
+                let merged = match world.get::<crate::components::Slow>(victim) {
+                    Some(existing) => crate::components::Slow {
+                        factor: existing.factor.min(self.slow_factor),
+                        timer: self.slow_duration,
+                    },
+                    None => crate::components::Slow {
+                        factor: self.slow_factor,
+                        timer: self.slow_duration,
+                    },
+                };
+                world.entity_mut(victim).insert(merged);
+            }
+        }
+    }
+}
+
+/// Resolve one projectile impact at `pos`: single-target rounds queue their
+/// one DamageRequest inline (the unified pipeline resolves armor/hp/flash/
+/// kill credit, SK7); AOE rounds go through the base splash seam
+/// (`SplashHit` → `area_targets`, roster v2). The slow payload rides the
+/// hit either way (a status effect, not damage — it stays on the hit).
 fn resolve_impact(
     commands: &mut Commands,
     enemies: &Query<(Entity, &Transform, &Enemy, &warbase::prelude::Hp)>,
@@ -146,39 +202,39 @@ fn resolve_impact(
         position: pos,
         aoe_radius: proj.aoe_radius,
     });
-    // Collect victims first (read-only pass; the damage lands in
-    // resolve_damage later this frame).
-    let mut victims: Vec<Entity> = Vec::new();
     if proj.aoe_radius > 0.0 {
-        for (ven, vtf, _, _) in enemies.iter() {
-            if vtf.translation.distance(pos) <= proj.aoe_radius {
-                victims.push(ven);
-            }
-        }
+        // Roster v2: victims via the base's splash seam (deferred command —
+        // applies before resolve_damage in the same frame's chain).
+        commands.queue(SplashHit {
+            center: pos,
+            radius: proj.aoe_radius,
+            damage: proj.damage,
+            attack_type: proj.attack_type,
+            source: proj.source,
+            crit: proj.crit,
+            slow_factor: proj.slow_factor,
+            slow_duration: proj.slow_duration,
+        });
     } else if let ProjectileOrigin::Homing { target } = proj.origin {
         // Fixed-point shots are always AOE; single-target only exists homing.
-        victims.push(target);
-    }
-    for ven in victims {
-        if let Ok((_, _, _, hp)) = enemies.get(ven) {
-            if hp.0 <= 0.0 {
-                continue; // resolve_damage would skip it anyway
-            }
-            requests.write(DamageRequest {
-                target: ven,
-                amount: proj.damage,
-                attack_type: to_base_attack(proj.attack_type),
-                source: proj.source,
-                crit: proj.crit,
-            });
-            if proj.slow_factor > 0.0 {
-                // Shared merge path (SK3 semantics): strongest factor wins.
-                crate::systems::tower::apply_slow(
-                    commands,
-                    ven,
-                    proj.slow_factor,
-                    proj.slow_duration,
-                );
+        if let Ok((_, _, _, hp)) = enemies.get(target) {
+            if hp.0 > 0.0 {
+                requests.write(DamageRequest {
+                    target,
+                    amount: proj.damage,
+                    attack_type: to_base_attack(proj.attack_type),
+                    source: proj.source,
+                    crit: proj.crit,
+                });
+                if proj.slow_factor > 0.0 {
+                    // Shared merge path (SK3 semantics): strongest wins.
+                    crate::systems::tower::apply_slow(
+                        commands,
+                        target,
+                        proj.slow_factor,
+                        proj.slow_duration,
+                    );
+                }
             }
         }
     }

@@ -1,0 +1,572 @@
+{
+  "schema_version": 1,
+  "game": "warden",
+  "source": null,
+  "source_maps": [
+    "maps/warden.ron"
+  ],
+  "demands": [
+    {
+      "local_key": "creep-boss",
+      "origin": "scan",
+      "name": "creep-boss",
+      "category": "model",
+      "source_defs": [
+        "boss"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "creep-elite",
+      "origin": "scan",
+      "name": "creep-elite",
+      "category": "model",
+      "source_defs": [
+        "elite"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "creep-fast",
+      "origin": "scan",
+      "name": "creep-fast",
+      "category": "model",
+      "source_defs": [
+        "fast"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "creep-healer",
+      "origin": "scan",
+      "name": "creep-healer",
+      "category": "model",
+      "source_defs": [
+        "healer"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "creep-ordinary",
+      "origin": "scan",
+      "name": "creep-ordinary",
+      "category": "model",
+      "source_defs": [
+        "ordinary"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 5k tris（高频出场，压预算）",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 5k tris（高频出场，压预算）、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "creep-shield",
+      "origin": "scan",
+      "name": "creep-shield",
+      "category": "model",
+      "source_defs": [
+        "shield"
+      ],
+      "spec": {
+        "base": "单模型",
+        "poly_budget": "≤ 8k tris",
+        "texture": "1024 albedo",
+        "animations": [
+          "idle",
+          "walk",
+          "death"
+        ]
+      },
+      "acceptance": "三角面 ≤ 8k tris、动画 idle、walk、death 齐全、showroom turntable 过审",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "hero-archmage",
+      "origin": "scan",
+      "name": "other-archmage（英雄化外观升级）",
+      "category": "model",
+      "source_defs": [
+        "archmage"
+      ],
+      "spec": {
+        "poly_budget": "≤ 15k tris",
+        "animations": [
+          "idle",
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
+      },
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
+    },
+    {
+      "local_key": "hero-bastion",
+      "origin": "scan",
+      "name": "other-bastion（英雄化外观升级）",
+      "category": "model",
+      "source_defs": [
+        "bastion"
+      ],
+      "spec": {
+        "poly_budget": "≤ 15k tris",
+        "animations": [
+          "idle",
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
+      },
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
+    },
+    {
+      "local_key": "hero-hybrid",
+      "origin": "scan",
+      "name": "other-hybrid（英雄化外观升级）",
+      "category": "model",
+      "source_defs": [
+        "hybrid"
+      ],
+      "spec": {
+        "poly_budget": "≤ 15k tris",
+        "animations": [
+          "idle",
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
+      },
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
+    },
+    {
+      "local_key": "hero-marksman",
+      "origin": "scan",
+      "name": "other-marksman（英雄化外观升级）",
+      "category": "model",
+      "source_defs": [
+        "marksman"
+      ],
+      "spec": {
+        "poly_budget": "≤ 15k tris",
+        "animations": [
+          "idle",
+          "attack",
+          "cast"
+        ],
+        "textures": "PBR 全套（albedo/normal/orm）",
+        "rig": "骨骼可挂载（手部武器槽）"
+      },
+      "acceptance": "英雄剪影与基础塔可区分、三角面 ≤ 15k、idle/attack/cast 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false,
+      "notes": "roster v2：融合塔英雄化（hero: true + 三围 + 招牌技带蓝）——外观字段漂移触发 changed（本地草稿直接改；提报后走岩库 changed 流转）"
+    },
+    {
+      "local_key": "tower-archer",
+      "origin": "scan",
+      "name": "tower-archer",
+      "category": "model",
+      "source_defs": [
+        "archer"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "tower-cannon",
+      "origin": "scan",
+      "name": "tower-cannon",
+      "category": "model",
+      "source_defs": [
+        "cannon"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "tower-mage",
+      "origin": "scan",
+      "name": "tower-mage",
+      "category": "model",
+      "source_defs": [
+        "mage"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "tower-shield_tower",
+      "origin": "scan",
+      "name": "tower-shield_tower",
+      "category": "model",
+      "source_defs": [
+        "shield_tower"
+      ],
+      "spec": {
+        "base": "底模一套，升阶为同底模变体（体积/件数/特效递进，不换骨架）",
+        "poly_budget": "≤ 12k tris/阶",
+        "texture": "2048 albedo",
+        "animations": [
+          "idle",
+          "attack"
+        ]
+      },
+      "acceptance": "三角面 ≤ 12k tris/阶、动画 idle、attack 齐全、showroom turntable 过审",
+      "priority": "P1",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    }
+  ],
+  "unit_snapshots": {
+    "creep-boss": {
+      "boss": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.3499999940395355,
+        "has_aura": false,
+        "hero": false,
+        "hp": 600.0,
+        "id": "boss",
+        "kind": "creep",
+        "move_speed": 0.5,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 1
+      }
+    },
+    "creep-elite": {
+      "elite": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.3499999940395355,
+        "has_aura": false,
+        "hero": false,
+        "hp": 200.0,
+        "id": "elite",
+        "kind": "creep",
+        "move_speed": 0.800000011920929,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 4
+      }
+    },
+    "creep-fast": {
+      "fast": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.3499999940395355,
+        "has_aura": false,
+        "hero": false,
+        "hp": 20.0,
+        "id": "fast",
+        "kind": "creep",
+        "move_speed": 1.7999999523162842,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 12
+      }
+    },
+    "creep-healer": {
+      "healer": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.3499999940395355,
+        "has_aura": false,
+        "hero": false,
+        "hp": 45.0,
+        "id": "healer",
+        "kind": "creep",
+        "move_speed": 1.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 6
+      }
+    },
+    "creep-ordinary": {
+      "ordinary": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.3499999940395355,
+        "has_aura": false,
+        "hero": false,
+        "hp": 30.0,
+        "id": "ordinary",
+        "kind": "creep",
+        "move_speed": 1.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 89
+      }
+    },
+    "creep-shield": {
+      "shield": {
+        "armor_type": "Fortified",
+        "attack_type": null,
+        "body_radius": 0.3499999940395355,
+        "has_aura": false,
+        "hero": false,
+        "hp": 90.0,
+        "id": "shield",
+        "kind": "creep",
+        "move_speed": 0.6000000238418579,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 26
+      }
+    },
+    "hero-archmage": {
+      "archmage": {
+        "armor_type": "Fortified",
+        "attack_type": "Magic",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": true,
+        "hp": 0.0,
+        "id": "archmage",
+        "kind": "hero",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "hero-bastion": {
+      "bastion": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": true,
+        "hp": 0.0,
+        "id": "bastion",
+        "kind": "hero",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "hero-hybrid": {
+      "hybrid": {
+        "armor_type": "Fortified",
+        "attack_type": "Piercing",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": true,
+        "hp": 0.0,
+        "id": "hybrid",
+        "kind": "hero",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "hero-marksman": {
+      "marksman": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": true,
+        "hp": 0.0,
+        "id": "marksman",
+        "kind": "hero",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-archer": {
+      "archer": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": false,
+        "hp": 0.0,
+        "id": "archer",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-cannon": {
+      "cannon": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": false,
+        "hp": 0.0,
+        "id": "cannon",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-mage": {
+      "mage": {
+        "armor_type": "Fortified",
+        "attack_type": "Magic",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": false,
+        "hp": 0.0,
+        "id": "mage",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-shield_tower": {
+      "shield_tower": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": false,
+        "hp": 0.0,
+        "id": "shield_tower",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    }
+  }
+}
