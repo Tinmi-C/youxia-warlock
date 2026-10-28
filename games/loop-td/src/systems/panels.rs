@@ -31,8 +31,9 @@ use bevy::prelude::*;
 use bevy::text::FontSource;
 use warbase::prelude::*;
 use warbase::ui::{
-    active_card_key, CommandCards, CommandSlotButton, Hotkey, PanelVersion, Selection,
-    SelectionMode, UiTheme,
+    active_card_key, art_revision, art_surface, ArtMode, CommandCards, CommandSlotButton,
+    Hotkey, PanelVersion, Selection, SelectionMode, UiTextures, UiTheme, UI_TEX_PANEL,
+    UI_TEX_SLOT,
 };
 
 use crate::systems::equip::{EquipSlots, EQUIP_SLOTS};
@@ -104,6 +105,37 @@ pub struct PanelsSolo(pub Option<PanelKind>);
 /// Last-built cache key per panel (children rebuild only on change).
 #[derive(Resource, Debug, Default)]
 struct PanelKeys(HashMap<PanelKind, String>);
+
+/// UITEX inputs for one refresh pass: the engine seam's two resources
+/// cloned once per frame (a handful of handle clones), so the per-panel
+/// build closures — which only get a `ChildSpawner` — can resolve art
+/// surfaces. Greybox (mode off) keeps every surface exactly the legacy
+/// BackgroundColor+BorderColor (no ImageNode at all — zero drift).
+#[derive(Clone, Default)]
+struct ArtSkin {
+    mode: ArtMode,
+    textures: UiTextures,
+}
+
+impl ArtSkin {
+    fn of(world: &World) -> Self {
+        Self {
+            mode: *world.resource::<ArtMode>(),
+            textures: world.resource::<UiTextures>().clone(),
+        }
+    }
+
+    /// Folded into every panel's rebuild key: a texture reload or a mode
+    /// flip re-skins (same packing as the engine's PanelKey seam).
+    fn key_rev(&self) -> u64 {
+        art_revision(&self.textures, &self.mode)
+    }
+
+    /// One panel-base surface (root face or slot face).
+    fn surface(&self, slot: &str, fallback: Color, border_w: f32) -> Option<ImageNode> {
+        art_surface(&self.mode, &self.textures, slot, fallback, border_w)
+    }
+}
 
 /// Marker over pooled minimap enemy dots (positions refreshed per frame).
 #[derive(Component, Debug)]
@@ -188,6 +220,7 @@ fn dock_warbase_panel(world: &mut World) {
 
 fn spawn_panel_roots(world: &mut World) {
     let theme = world.resource::<UiTheme>().clone();
+    let art = ArtSkin::of(world);
     for (kind, rect) in [
         (PanelKind::Resource, RES_RECT),
         (PanelKind::Wave, WAVE_RECT),
@@ -200,8 +233,12 @@ fn spawn_panel_roots(world: &mut World) {
         (PanelKind::Equip, EQUIP_RECT),
         (PanelKind::Command, COMMAND_RECT),
     ] {
-        let (node, bg, border) = panel_node(&theme, rect);
-        world.spawn((PanelRoot(kind), node, bg, border));
+        let (node, bg, border, image) = panel_node(&theme, rect, &art);
+        let mut root = world.spawn((PanelRoot(kind), node, bg, border));
+        // Option<T> is not a Bundle — the art face joins only in art mode.
+        if let Some(img) = image {
+            root.insert(img);
+        }
     }
 }
 
@@ -209,8 +246,16 @@ fn spawn_panel_roots(world: &mut World) {
 // Shared builders (theme-token styled; the mock's proven vocabulary)
 // ---------------------------------------------------------------------------
 
-fn panel_node(theme: &UiTheme, r: Rect) -> (Node, BackgroundColor, BorderColor) {
+fn panel_node(
+    theme: &UiTheme,
+    r: Rect,
+    art: &ArtSkin,
+) -> (Node, BackgroundColor, BorderColor, Option<ImageNode>) {
     let s = &theme.spacing;
+    // UITEX: the panel base joins the art seam — nine-sliced texture in
+    // art mode (insets from panel_border_w), solid token color when the
+    // slot has no handle, absent entirely while greybox (zero drift).
+    let image = art.surface(UI_TEX_PANEL, theme.palette.panel_bg.color(), s.panel_border_w);
     (
         Node {
             position_type: PositionType::Absolute,
@@ -228,6 +273,7 @@ fn panel_node(theme: &UiTheme, r: Rect) -> (Node, BackgroundColor, BorderColor) 
         },
         BackgroundColor(theme.palette.panel_bg.color()),
         BorderColor::all(theme.palette.panel_border.color()),
+        image,
     )
 }
 
@@ -406,17 +452,18 @@ fn refresh_panels(world: &mut World) {
             .map(|f| f.0.clone())
             .unwrap_or(FontSource::default()),
     );
+    let art = ArtSkin::of(world);
 
-    refresh_resource(world, &mut keys, &theme, &font);
-    refresh_wave(world, &mut keys, &theme, &font);
-    refresh_minimap(world, &mut keys, &theme, &font);
-    refresh_artifact(world, &mut keys, &theme, &font);
-    refresh_challenge(world, &mut keys, &theme, &font);
-    refresh_dig(world, &mut keys, &theme, &font);
-    refresh_bonds(world, &mut keys, &theme, &font);
-    refresh_hero(world, &mut keys, &theme, &font);
-    refresh_equip(world, &mut keys, &theme, &font);
-    refresh_command(world, &mut keys, &theme, &font);
+    refresh_resource(world, &mut keys, &theme, &font, &art);
+    refresh_wave(world, &mut keys, &theme, &font, &art);
+    refresh_minimap(world, &mut keys, &theme, &font, &art);
+    refresh_artifact(world, &mut keys, &theme, &font, &art);
+    refresh_challenge(world, &mut keys, &theme, &font, &art);
+    refresh_dig(world, &mut keys, &theme, &font, &art);
+    refresh_bonds(world, &mut keys, &theme, &font, &art);
+    refresh_hero(world, &mut keys, &theme, &font, &art);
+    refresh_equip(world, &mut keys, &theme, &font, &art);
+    refresh_command(world, &mut keys, &theme, &font, &art);
 
     // Screenshot seams: solo/hidden overrides win over state visibility.
     let solo = world.resource::<PanelsSolo>().0;
@@ -439,6 +486,8 @@ fn panel_root(world: &mut World, kind: PanelKind) -> Entity {
 }
 
 /// Rebuild a panel's children when `key` changed; always fixes visibility.
+/// The art revision is folded into every panel's key here (the single
+/// chokepoint) — a texture reload or mode flip rebuilds all ten.
 #[allow(clippy::too_many_arguments)]
 fn rebuild(
     world: &mut World,
@@ -448,10 +497,12 @@ fn rebuild(
     visible: bool,
     theme: &UiTheme,
     font: &UiFont,
-    build: impl FnOnce(&mut ChildSpawner, &UiTheme, &UiFont),
+    art: &ArtSkin,
+    build: impl FnOnce(&mut ChildSpawner, &UiTheme, &UiFont, &ArtSkin),
 ) {
-    if keys.0.get(&kind) != Some(&key) {
-        keys.0.insert(kind, key);
+    let full_key = format!("{key}:a{}", art.key_rev());
+    if keys.0.get(&kind) != Some(&full_key) {
+        keys.0.insert(kind, full_key);
         let root = panel_root(world, kind);
         // Drop the previous subtree (Texts are grandchildren).
         let children: Vec<Entity> =
@@ -461,7 +512,7 @@ fn rebuild(
         }
         // Re-skin the root itself (theme swap reaches every surface).
         {
-            let (.., bg, border) = panel_node(theme, rect_of(kind));
+            let (.., bg, border, image) = panel_node(theme, rect_of(kind), art);
             let mut e = world.get_entity_mut(root).unwrap();
             if let Some(mut b) = e.get_mut::<BackgroundColor>() {
                 *b = bg;
@@ -469,8 +520,25 @@ fn rebuild(
             if let Some(mut b) = e.get_mut::<BorderColor>() {
                 *b = border;
             }
+            // UITEX: the root face swaps/keeps its ImageNode with art mode
+            // (greybox drops it entirely — the legacy pair renders alone).
+            match image {
+                Some(img) => {
+                    if e.get::<ImageNode>().is_some() {
+                        *e.get_mut::<ImageNode>().unwrap() = img;
+                    } else {
+                        e.insert(img);
+                    }
+                }
+                None => {
+                    e.remove::<ImageNode>();
+                }
+            }
         }
-        world.get_entity_mut(root).unwrap().with_children(|p| build(p, theme, font));
+        world
+            .get_entity_mut(root)
+            .unwrap()
+            .with_children(|p| build(p, theme, font, art));
     }
     set_visible(world, kind, visible);
 }
@@ -510,7 +578,13 @@ fn despawn_subtree(world: &mut World, root: Entity) {
 
 // --- TL: resource plaque -----------------------------------------------------
 
-fn refresh_resource(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_resource(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     let (gold, wood) = {
         let r = world.resource::<Resources>();
         (r.gold, r.wood)
@@ -537,7 +611,7 @@ fn refresh_resource(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fo
         gold, wood, used, pop_cap, stock,
         rev = theme.revision
     );
-    rebuild(world, keys, PanelKind::Resource, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Resource, key, true, theme, font, _art, |p, theme, font, _art| {
         let t = &theme.typography;
         let sc = &theme.state_colors;
         let gap = theme.spacing.panel_gap + 2.0;
@@ -604,7 +678,13 @@ fn refresh_resource(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fo
 
 // --- TC: wave banner ---------------------------------------------------------
 
-fn refresh_wave(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_wave(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     let (label, hot) = {
         let d = world.resource::<WaveDirector>();
         match d.phase {
@@ -617,7 +697,7 @@ fn refresh_wave(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: 
         }
     };
     let key = format!("wave:{label}:{}", theme.revision);
-    rebuild(world, keys, PanelKind::Wave, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Wave, key, true, theme, font, _art, |p, theme, font, _art| {
         let (t, f, c) = font_text(
             font,
             &label,
@@ -634,7 +714,13 @@ fn refresh_wave(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: 
 
 // --- TR: minimap --------------------------------------------------------------
 
-fn refresh_minimap(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_minimap(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     // Static frame rebuilds on wave/tower-count/theme change; live enemy dots
     // are a pooled per-frame pass (refresh_minimap_dots).
     let wave = {
@@ -650,7 +736,7 @@ fn refresh_minimap(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fon
     };
     let key = format!("map:{wave}:{}:{}", towers.len(), theme.revision);
     let dots = towers.clone();
-    rebuild(world, keys, PanelKind::Minimap, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Minimap, key, true, theme, font, _art, |p, theme, font, _art| {
         // Ring track.
         p.spawn((
             Node {
@@ -754,7 +840,13 @@ fn refresh_minimap_dots(world: &mut World) {
 
 // --- LT2-2: artifact quest plaque ---------------------------------------------
 
-fn refresh_artifact(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_artifact(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     let (waves, bosses) = {
         let q = world
             .get_resource::<crate::systems::artifact::ArtifactQuest>();
@@ -769,7 +861,7 @@ fn refresh_artifact(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fo
     let complete = waves >= waves_req && bosses >= bosses_req;
     let state = if claimed { 2 } else if complete { 1 } else { 0 };
     let key = format!("art:{state}:{waves}/{bosses}:{}", theme.revision);
-    rebuild(world, keys, PanelKind::Artifact, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Artifact, key, true, theme, font, _art, |p, theme, font, _art| {
         let t = &theme.typography;
         let gold = theme.state_colors.gold.color();
         let inner =
@@ -865,11 +957,17 @@ fn challenge_view(world: &World) -> ChallengeView {
     ChallengeView::Hidden
 }
 
-fn refresh_challenge(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_challenge(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     let view = challenge_view(world);
     let key = format!("chg:{view:?}:{}", theme.revision);
     let visible = view != ChallengeView::Hidden;
-    rebuild(world, keys, PanelKind::Challenge, key, visible, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Challenge, key, visible, theme, font, _art, |p, theme, font, _art| {
         let t = &theme.typography;
         let gold = theme.state_colors.gold.color();
         let sub = format!(
@@ -919,7 +1017,13 @@ fn refresh_challenge(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, f
 
 // --- LT2-4: dig entry -------------------------------------------------------------
 
-fn refresh_dig(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_dig(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     let intermission = matches!(world.resource::<WaveDirector>().phase, DirectorPhase::Intermission)
         && *world.resource::<MatchFlow>() == MatchFlow::Running;
     let afford = world.resource::<Resources>().gold >= crate::systems::dig::DIG_COST;
@@ -933,7 +1037,7 @@ fn refresh_dig(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &
         })
         .unwrap_or_default();
     let key = format!("dig:{intermission}:{afford}:{last}:{}", theme.revision);
-    rebuild(world, keys, PanelKind::Dig, key, intermission, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Dig, key, intermission, theme, font, _art, |p, theme, font, _art| {
         let t = &theme.typography;
         let title = format!("挖宝 [V] · {}金", crate::systems::dig::DIG_COST);
         let (bg, fg, border) = if afford {
@@ -984,7 +1088,13 @@ fn refresh_dig(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &
 
 // --- LT2-5: bond chips --------------------------------------------------------------
 
-fn refresh_bonds(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_bonds(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     let Some(table) = world.get_resource::<crate::systems::bonds::BondTable>().cloned() else {
         set_visible(world, PanelKind::Bonds, false);
         return;
@@ -1016,7 +1126,7 @@ fn refresh_bonds(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font:
                 .join("/")
         ));
     }
-    rebuild(world, keys, PanelKind::Bonds, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Bonds, key, true, theme, font, _art, |p, theme, font, _art| {
         let t = &theme.typography;
         for b in &table.bonds {
             let satisfied =
@@ -1147,14 +1257,20 @@ fn hero_key(v: &HeroView, rev: u64) -> String {
     )
 }
 
-fn refresh_hero(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_hero(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    _art: &ArtSkin,
+) {
     let Some(v) = hero_view(world) else {
         keys.0.insert(PanelKind::Hero, "hero:none".into());
         set_visible(world, PanelKind::Hero, false);
         return;
     };
     let key = hero_key(&v, theme.revision);
-    rebuild(world, keys, PanelKind::Hero, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Hero, key, true, theme, font, _art, |p, theme, font, _art| {
         let t = &theme.typography;
         let sc = &theme.state_colors;
         let inner = HERO_RECT.w - 2.0 * (theme.spacing.panel_gap + theme.spacing.panel_border_w).max(8.0);
@@ -1232,7 +1348,13 @@ fn refresh_hero(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: 
 
 // --- ① equipment rack -------------------------------------------------------------
 
-fn refresh_equip(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_equip(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    art: &ArtSkin,
+) {
     let Some(hero) = selected_hero(world) else {
         keys.0.insert(PanelKind::Equip, "equip:none".into());
         set_visible(world, PanelKind::Equip, false);
@@ -1265,14 +1387,22 @@ fn refresh_equip(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font:
         rows.iter().map(|r| r.as_ref().map(|(n, _)| n.clone()).unwrap_or_default()).collect::<Vec<_>>().join(","),
         theme.revision
     );
-    rebuild(world, keys, PanelKind::Equip, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Equip, key, true, theme, font, art, |p, theme, font, art| {
         let t = &theme.typography;
         let (ht, hf, hc) = font_text(font, "装备", t.font_title, theme.palette.accent.color());
         p.spawn((ht, hf, hc));
         for slot in 0..EQUIP_SLOTS {
             match rows.get(slot).cloned().flatten() {
                 Some((name, affix)) => {
-                    p.spawn((
+                    // UITEX: the slot face rides the art seam (slicer
+                    // insets from the slot border token — .max(1.0), the
+                    // same width this face draws its border at).
+                    let slot_art = art.surface(
+                        UI_TEX_SLOT,
+                        theme.palette.panel_raised.color(),
+                        theme.spacing.slot_border_w.max(1.0),
+                    );
+                    let mut row_e = p.spawn((
                         slot_row_node(
                             theme.spacing.panel_gap + 2.0,
                             theme.spacing.slot_pad,
@@ -1281,7 +1411,11 @@ fn refresh_equip(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font:
                         ),
                         BackgroundColor(theme.palette.panel_raised.color()),
                         BorderColor::all(theme.palette.accent.color()),
-                    ))
+                    ));
+                    if let Some(img) = slot_art {
+                        row_e.insert(img);
+                    }
+                    row_e
                     .with_children(|row| {
                         row.spawn(icon_node(theme.palette.accent.color(), theme.spacing.icon_size * 0.7, Glyph::Square));
                         let (nt, nf, nc) = font_text(font, &name, t.font_label, theme.palette.text_primary.color());
@@ -1294,7 +1428,12 @@ fn refresh_equip(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font:
                     });
                 }
                 None => {
-                    p.spawn((
+                    let slot_art = art.surface(
+                        UI_TEX_SLOT,
+                        theme.state_colors.slot_disabled_bg.color(),
+                        theme.spacing.slot_border_w.max(1.0),
+                    );
+                    let mut row_e = p.spawn((
                         slot_row_node(
                             theme.spacing.panel_gap + 2.0,
                             theme.spacing.slot_pad,
@@ -1303,7 +1442,11 @@ fn refresh_equip(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font:
                         ),
                         BackgroundColor(theme.state_colors.slot_disabled_bg.color()),
                         BorderColor::all(theme.palette.panel_border.color()),
-                    ))
+                    ));
+                    if let Some(img) = slot_art {
+                        row_e.insert(img);
+                    }
+                    row_e
                     .with_children(|row| {
                         row.spawn(icon_node(theme.palette.text_dim.color(), theme.spacing.icon_size * 0.7, Glyph::Square));
                         let (nt, nf, nc) = font_text(font, "空 · [E] 上装", t.font_label, theme.palette.text_dim.color());
@@ -1317,7 +1460,13 @@ fn refresh_equip(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font:
 
 // --- BC: command console -----------------------------------------------------------
 
-fn refresh_command(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, font: &UiFont) {
+fn refresh_command(
+    world: &mut World,
+    keys: &mut PanelKeys,
+    theme: &UiTheme,
+    font: &UiFont,
+    art: &ArtSkin,
+) {
     let Some(card_key) = active_card_key(world) else {
         keys.0.insert(PanelKind::Command, "cmd:none".into());
         set_visible(world, PanelKind::Command, false);
@@ -1326,7 +1475,7 @@ fn refresh_command(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fon
     let card = world.resource::<CommandCards>().cards.get(&card_key).cloned();
     let version = world.resource::<PanelVersion>().0;
     let key = format!("cmd:{card_key}:{version}:{}", theme.revision);
-    rebuild(world, keys, PanelKind::Command, key, true, theme, font, |p, theme, font| {
+    rebuild(world, keys, PanelKind::Command, key, true, theme, font, art, |p, theme, font, art| {
         let Some(card) = &card else { return };
         let t = &theme.typography;
         let s = &theme.spacing;
@@ -1349,7 +1498,11 @@ fn refresh_command(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fon
                 } else {
                     (theme.state_colors.slot_disabled_bg.color(), theme.palette.text_dim.color())
                 };
-                grid.spawn((
+                // UITEX: the command slot face rides the art seam (insets
+                // from the slot border token at the drawn .max(1.0) width).
+                let slot_art =
+                    art.surface(UI_TEX_SLOT, bg, s.slot_border_w.max(1.0));
+                let mut slot_e = grid.spawn((
                     Button,
                     Interaction::None,
                     CommandSlotButton {
@@ -1369,7 +1522,11 @@ fn refresh_command(world: &mut World, keys: &mut PanelKeys, theme: &UiTheme, fon
                     },
                     BackgroundColor(bg),
                     BorderColor::all(theme.palette.panel_border.color()),
-                ))
+                ));
+                if let Some(img) = slot_art {
+                    slot_e.insert(img);
+                }
+                slot_e
                 .with_children(|sl| {
                     sl.spawn(col_node()).with_children(|txt| {
                         let (lt, lf, lc) = font_text(font, &slot.label, t.font_label, fg);

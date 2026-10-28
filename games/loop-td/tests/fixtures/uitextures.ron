@@ -1,0 +1,4 @@
+(textures: {
+    "panel": "uitex-panel.png",
+    "slot": "uitex-slot.png",
+})

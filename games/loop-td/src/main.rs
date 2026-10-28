@@ -8,6 +8,10 @@
 //! UI-DSGN flags:
 //! - `--ui-mock <A|B|C>`        UI proposal mock scene -> ui-proposals/ PNGs
 //! - `--ui-mock v2`             LT2-UI acceptance shots -> ui-proposals/lt2-final/
+//! UITEX flags:
+//! - `--art [--art-manifest <ron>]`  textured HUD (pilot of the SEAM4b
+//!   seam). Default manifest `assets/ui/uitextures.ron`; any miss (no
+//!   manifest / broken / missing file) warns and stays greybox.
 //! No flags: the normal game path, unchanged.
 
 fn main() {
@@ -50,6 +54,25 @@ fn main() {
     if args.iter().any(|a| a == "--record") {
         app.add_plugins(loop_td::replay_io::ReplayIoPlugin { map_path: None });
         println!("[loop-td] recording on: the match will be written to runs/<timestamp>.jsonl when it ends");
+    }
+    // --art (UITEX pilot): load the UI texture manifest and flip ArtMode —
+    // but only when EVERY declared texture actually loaded; any miss keeps
+    // the HUD greybox (a warn per failure, never a panic / missing-texture
+    // checkerboard).
+    if args.iter().any(|a| a == "--art") {
+        let manifest = arg_value(&args, "--art-manifest")
+            .unwrap_or_else(|| format!("{}/assets/ui/uitextures.ron", env!("CARGO_MANIFEST_DIR")));
+        let report =
+            warbase::ui::load_ui_textures(app.world_mut(), std::path::Path::new(&manifest));
+        if report.manifest_ok && report.failed.is_empty() && !report.loaded.is_empty() {
+            app.insert_resource(warbase::ui::ArtMode(true));
+            println!("[loop-td] art mode on: {} texture(s) from {manifest}", report.loaded.len());
+        } else {
+            println!(
+                "[loop-td] art mode fallback to greybox (manifest_ok={}, loaded={:?}, failed={:?})",
+                report.manifest_ok, report.loaded, report.failed
+            );
+        }
     }
     // --ui-mock <A|B|C|v2>: proposal shots or the LT2-UI acceptance suite
     // (frame-scripted, self-exits).

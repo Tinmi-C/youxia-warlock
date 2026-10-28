@@ -510,6 +510,204 @@ pub struct TooltipText;
 #[derive(Resource, Debug, Default, Clone)]
 pub struct UiFont(pub Option<Handle<Font>>);
 
+// ---------------------------------------------------------------------------
+// SEAM4b / UITEX (round-4 plan §Phase 1): the art-texture seam. Three
+// pieces, mirroring the UiTheme/UiFont shapes:
+//   `UiTextureManifest` — serde data (RON): slot id -> texture file path
+//                         relative to the manifest file. Deliberately NOT
+//                         nested in `UiTheme`: the skin is pure token data
+//                         (colors/sizes, one revision), while textures are
+//                         ASSET references (ADR-0009 art-sync territory)
+//                         with their own load/revision lifecycle — greybox
+//                         apps never carry asset paths in their skin.
+//   `UiTextures`        — the runtime companion resource (the UiFont
+//                         pattern): loaded `Handle<Image>`s + a `revision`
+//                         bumped per load, so keyed rebuilds pick swaps up.
+//   `ArtMode`           — the global switch. Default `false` = greybox,
+//                         ZERO DRIFT: surfaces keep exactly the legacy
+//                         BackgroundColor+BorderColor and carry no
+//                         ImageNode at all (bevy_ui stacks IMAGE above
+//                         BORDER, so an always-on solid ImageNode would
+//                         paint over the theme's border ring).
+// ---------------------------------------------------------------------------
+
+/// Manifest slot id: panel bases (the command-panel root, Plan-A roots).
+pub const UI_TEX_PANEL: &str = "panel";
+/// Manifest slot id: slot faces (command slots, equip-rack rows).
+pub const UI_TEX_SLOT: &str = "slot";
+// TODO(UITEX/DRILL): icon surfaces key off their own slot ids and size to
+// the theme's `spacing.icon_size` anchor (icon_size square, center-fit,
+// unscaled) — landing with the DRILL increment that walks real art through
+// the seam (round-4 plan §Phase 2).
+
+/// RON-declarable texture manifest: `slot id -> PNG path` relative to the
+/// manifest file's directory. Data-only like `UiTheme`; the game's `--art`
+/// boot path reads it once and injects the runtime `UiTextures`.
+#[derive(
+    Debug, Clone, PartialEq, Default, Resource, serde::Serialize, serde::Deserialize,
+)]
+#[serde(default)]
+pub struct UiTextureManifest {
+    pub textures: HashMap<String, String>,
+}
+
+impl UiTextureManifest {
+    /// A helper for manifests defined as RON data files.
+    pub fn from_ron(s: &str) -> ron::error::SpannedResult<Self> {
+        ron::from_str(s)
+    }
+}
+
+/// The loaded UI texture set (runtime half of the seam — the UiFont
+/// companion-resource pattern). `revision` must change whenever the
+/// handles do; keyed panel rebuilds fold it into their cache keys so a
+/// texture swap re-skins without any code change.
+#[derive(Resource, Debug, Default, Clone)]
+pub struct UiTextures {
+    pub handles: HashMap<String, Handle<Image>>,
+    pub revision: u64,
+}
+
+/// Global art-mode switch (SEAM4b): `false` (the default) = greybox —
+/// panel bases render exactly the legacy token components, zero drift;
+/// `true` = textured surfaces wherever `UiTextures` carries the slot's
+/// handle (missing slots degrade per-surface, see `art_surface`).
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ArtMode(pub bool);
+
+/// Cache-key input for the art seam: the texture revision packed with the
+/// mode flag — a reload (revision bump) OR a mode flip re-skins every
+/// keyed panel surface.
+pub fn art_revision(textures: &UiTextures, art: &ArtMode) -> u64 {
+    (textures.revision << 1) | art.0 as u64
+}
+
+/// Nine-slice config for a panel-base texture: insets come from the
+/// surface's border TOKEN (textures are authored so their border ring is
+/// exactly that many source pixels thick), corners stay unscaled
+/// (`max_corner_scale: 1.0` — TextureSlicer semantics), center and sides
+/// stretch.
+fn nine_slice(border_w: f32) -> TextureSlicer {
+    TextureSlicer {
+        border: BorderRect::all(border_w),
+        center_scale_mode: SliceScaleMode::Stretch,
+        sides_scale_mode: SliceScaleMode::Stretch,
+        max_corner_scale: 1.0,
+    }
+}
+
+/// The `ImageNode` for one panel-base surface, or `None` while greybox
+/// (zero drift: no ImageNode at all — BackgroundColor/BorderColor keep
+/// rendering alone, border ring included). In art mode: a loaded handle
+/// renders nine-sliced (`border_w` sets the slice insets); a slot without
+/// a handle degrades to `ImageNode::solid_color(fallback)` — visible and
+/// token-colored, never a panic (the miss is a load-time warn, not a
+/// runtime fault).
+pub fn art_surface(
+    art: &ArtMode,
+    textures: &UiTextures,
+    slot: &str,
+    fallback: Color,
+    border_w: f32,
+) -> Option<ImageNode> {
+    if !art.0 {
+        return None;
+    }
+    Some(match textures.handles.get(slot) {
+        Some(handle) => ImageNode::new(handle.clone())
+            .with_mode(NodeImageMode::Sliced(nine_slice(border_w))),
+        None => ImageNode::solid_color(fallback).with_mode(NodeImageMode::Stretch),
+    })
+}
+
+/// What one `load_ui_textures` run produced (the data behind its warns —
+/// games and tests decide the fallback on facts, not log scraping).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UiTextureLoadReport {
+    /// Slot ids that landed in `UiTextures`.
+    pub loaded: Vec<String>,
+    /// Slot ids whose file was missing/undecodable (greybox for them).
+    pub failed: Vec<String>,
+    /// False when the manifest itself was unreadable or unparseable.
+    pub manifest_ok: bool,
+}
+
+/// Load a manifest's PNGs into `Assets<Image>` and (re)inject the
+/// `UiTextures` resource with a bumped revision. Every failure mode
+/// degrades to a warn + report — this NEVER panics (typo'd paths and
+/// bare-headless apps must not take the game down); a failed slot is
+/// dropped from the handles so the per-surface fallback takes over.
+pub fn load_ui_textures(
+    world: &mut World,
+    manifest_path: &std::path::Path,
+) -> UiTextureLoadReport {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
+
+    let mut report = UiTextureLoadReport::default();
+    let bytes = match std::fs::read(manifest_path) {
+        Ok(b) => b,
+        Err(e) => {
+            warn!(
+                "[uitex] manifest {} unreadable ({e}) — greybox fallback",
+                manifest_path.display()
+            );
+            return report; // manifest_ok stays false
+        }
+    };
+    let manifest = match UiTextureManifest::from_ron(&String::from_utf8_lossy(&bytes)) {
+        Ok(m) => m,
+        Err(e) => {
+            warn!(
+                "[uitex] manifest {} unparseable ({e}) — greybox fallback",
+                manifest_path.display()
+            );
+            return report;
+        }
+    };
+    report.manifest_ok = true;
+    if !world.contains_resource::<Assets<Image>>() {
+        // Bare-headless app (no render plugins): an empty store still
+        // hosts the CPU-side images, keeping the seam testable.
+        world.init_resource::<Assets<Image>>();
+    }
+    let base = manifest_path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+    let mut handles = HashMap::new();
+    for (slot, rel) in &manifest.textures {
+        let path = base.join(rel);
+        let decoded = std::fs::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|b| {
+                Image::from_buffer(
+                    &b,
+                    ImageType::Extension("png"),
+                    CompressedImageFormats::empty(),
+                    true,
+                    ImageSampler::default(),
+                    RenderAssetUsages::default(),
+                )
+                .map_err(|e| e.to_string())
+            });
+        match decoded {
+            Ok(image) => {
+                let handle = world.resource_mut::<Assets<Image>>().add(image);
+                handles.insert(slot.clone(), handle);
+                report.loaded.push(slot.clone());
+            }
+            Err(e) => {
+                warn!(
+                    "[uitex] texture slot '{slot}' ({}) failed: {e} — greybox for that slot",
+                    path.display()
+                );
+                report.failed.push(slot.clone());
+            }
+        }
+    }
+    let revision = world.get_resource::<UiTextures>().map(|t| t.revision).unwrap_or(0) + 1;
+    world.insert_resource(UiTextures { handles, revision });
+    report
+}
+
 /// WX3 tooltip: hovering a slot shows its def-provided tooltip string in a
 /// panel above the bar; leaving despawns it. Content is the game's business
 /// (labels/tooltips arrive localized in the card def); the base only owns
@@ -580,8 +778,11 @@ pub fn refresh_tooltip(
 #[derive(Component, Debug)]
 pub struct CommandPanel;
 
+/// Rebuild cache key: (active card, game-bumped version, theme revision,
+/// art revision). The 4th field folds the UITEX seam in — a texture
+/// reload or an ArtMode flip re-skins the panel like a theme swap does.
 #[derive(Resource, Debug, Default)]
-struct PanelKey(Option<String>, u64, u64);
+struct PanelKey(Option<String>, u64, u64, u64);
 
 /// WX3: games bump this when the card CONTENT changed without the active
 /// key changing (language toggle, economy affordability greying...) — the
@@ -595,7 +796,18 @@ pub fn spawn_command_panel(mut commands: Commands) {
     commands.queue(|world: &mut World| {
         let theme = world.resource::<UiTheme>().clone();
         let s = &theme.spacing;
-        world.spawn((
+        // UITEX: art mode joins the spawn only when on (greybox = the
+        // legacy three components exactly — zero drift).
+        let art = world.resource::<ArtMode>().clone();
+        let textures = world.resource::<UiTextures>().clone();
+        let image = art_surface(
+            &art,
+            &textures,
+            UI_TEX_PANEL,
+            theme.palette.panel_bg.color(),
+            s.panel_border_w,
+        );
+        let mut root = world.spawn((
             CommandPanel,
             Node {
                 position_type: PositionType::Absolute,
@@ -611,26 +823,36 @@ pub fn spawn_command_panel(mut commands: Commands) {
             BackgroundColor(theme.palette.panel_bg.color()),
             BorderColor::all(theme.palette.panel_border.color()),
         ));
+        // Option<T> is not a Bundle — insert the ImageNode only in art mode.
+        if let Some(img) = image {
+            root.insert(img);
+        }
     });
 }
 
 /// Rebuild the panel children when (and only when) the active card, the
-/// game-bumped version, or the theme revision changes (UI-DSGN: swapping
-/// the `UiTheme` resource re-skins without any code change).
+/// game-bumped version, the theme revision, or the art revision changes
+/// (UI-DSGN: swapping the `UiTheme` resource re-skins without any code
+/// change; UITEX: swapping `UiTextures`/`ArtMode` does the same).
 pub fn refresh_command_panel(
     world: &mut World,
 ) {
     let version = world.resource::<PanelVersion>().0;
     let theme_rev = world.resource::<UiTheme>().revision;
+    let art_rev = art_revision(world.resource::<UiTextures>(), world.resource::<ArtMode>());
     let Some(key) = active_card_key(world) else {
         maybe_clear(world);
         return;
     };
-    let (last_key, last_version, last_theme) = {
+    let (last_key, last_version, last_theme, last_art) = {
         let pk = world.resource::<PanelKey>();
-        (pk.0.clone(), pk.1, pk.2)
+        (pk.0.clone(), pk.1, pk.2, pk.3)
     };
-    if last_key == Some(key.clone()) && last_version == version && last_theme == theme_rev {
+    if last_key == Some(key.clone())
+        && last_version == version
+        && last_theme == theme_rev
+        && last_art == art_rev
+    {
         return;
     }
     let Some(card) = world.resource::<CommandCards>().cards.get(&key).cloned() else {
@@ -640,6 +862,7 @@ pub fn refresh_command_panel(
     world.resource_mut::<PanelKey>().0 = Some(key);
     world.resource_mut::<PanelKey>().1 = version;
     world.resource_mut::<PanelKey>().2 = theme_rev;
+    world.resource_mut::<PanelKey>().3 = art_rev;
 
     let panel = world
         .query_filtered::<Entity, With<CommandPanel>>()
@@ -655,10 +878,19 @@ pub fn refresh_command_panel(
         despawn_subtree(world, slot);
     }
     let theme = world.resource::<UiTheme>().clone();
+    let art = world.resource::<ArtMode>().clone();
+    let textures = world.resource::<UiTextures>().clone();
     // Re-skin the panel root itself (background/border/position/radius all
     // come from the theme — swapping the resource moves the whole panel).
     {
         let s = &theme.spacing;
+        let image = art_surface(
+            &art,
+            &textures,
+            UI_TEX_PANEL,
+            theme.palette.panel_bg.color(),
+            s.panel_border_w,
+        );
         let mut root = world.get_entity_mut(panel).unwrap();
         if let Some(mut bg) = root.get_mut::<BackgroundColor>() {
             *bg = BackgroundColor(theme.palette.panel_bg.color());
@@ -672,6 +904,20 @@ pub fn refresh_command_panel(
             node.row_gap = Val::Px(s.panel_gap);
             node.border = UiRect::all(Val::Px(s.panel_border_w));
             node.border_radius = BorderRadius::all(Val::Px(theme.radius.panel));
+        }
+        // UITEX: the ImageNode joins/leaves with art mode — greybox drops
+        // it entirely (zero drift), art mode swaps it in place.
+        match image {
+            Some(img) => {
+                if root.get::<ImageNode>().is_some() {
+                    *root.get_mut::<ImageNode>().unwrap() = img;
+                } else {
+                    root.insert(img);
+                }
+            }
+            None => {
+                root.remove::<ImageNode>();
+            }
         }
     }
     let t = &theme.typography;
@@ -690,8 +936,12 @@ pub fn refresh_command_panel(
         } else {
             (theme.state_colors.slot_disabled_bg.color(), theme.palette.text_dim.color())
         };
+        // UITEX: the slot face gets the same seam (slicer insets from the
+        // slot border token; solid fallback keeps disabled greys visible).
+        let slot_image =
+            art_surface(&art, &textures, UI_TEX_SLOT, bg, s.slot_border_w);
         entity.with_children(|p| {
-            p.spawn((
+            let mut slot_e = p.spawn((
                 Button,
                 CommandSlotButton {
                     action: slot.action.clone(),
@@ -709,8 +959,11 @@ pub fn refresh_command_panel(
                 },
                 BackgroundColor(bg),
                 BorderColor::all(theme.palette.panel_border.color()),
-            ))
-            .with_children(|slot_root| {
+            ));
+            if let Some(img) = slot_image {
+                slot_e.insert(img);
+            }
+            slot_e.with_children(|slot_root| {
                 slot_root.spawn((
                     Text::new(format!("[{hotkey}] {}", slot.label)),
                     TextFont { font_size: FontSize::Px(t.font_label), ..default() },
@@ -780,6 +1033,12 @@ impl Plugin for UiPlugin {
             .init_resource::<PanelVersion>()
             .init_resource::<UiTheme>()
             .init_resource::<UiFont>()
+            // SEAM4b: the art-texture seam registers here once (UiPlugin is
+            // wired once from lib.rs) — every game gets the resources and
+            // rebuild keys without touching its own plugin lists.
+            .init_resource::<UiTextureManifest>()
+            .init_resource::<UiTextures>()
+            .init_resource::<ArtMode>()
             .add_systems(Startup, spawn_command_panel)
             .add_systems(
                 Update,
