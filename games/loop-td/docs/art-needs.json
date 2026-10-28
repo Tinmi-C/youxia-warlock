@@ -199,6 +199,253 @@
       "removed": false
     },
     {
+      "local_key": "sfx-build_complete",
+      "origin": "sfx",
+      "name": "SFX BuildComplete（建造完成）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "建造完成"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-cast",
+      "origin": "sfx",
+      "name": "SFX Cast（施法/技能释放）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "施法/技能释放"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-click_ack",
+      "origin": "sfx",
+      "name": "SFX ClickAck（点击确认（命令域 Ack 契约音））",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "点击确认（命令域 Ack 契约音）"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-death",
+      "origin": "sfx",
+      "name": "SFX Death（单位死亡）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "单位死亡"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-error",
+      "origin": "sfx",
+      "name": "SFX Error（指令拒绝/资源不足错误提示）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "指令拒绝/资源不足错误提示"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-hit",
+      "origin": "sfx",
+      "name": "SFX Hit（战斗命中（同类 0.1s 节流））",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "战斗命中（同类 0.1s 节流）"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-level_up",
+      "origin": "sfx",
+      "name": "SFX LevelUp（升级（英雄/塔升阶））",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "升级（英雄/塔升阶）"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-match_end",
+      "origin": "sfx",
+      "name": "SFX MatchEnd（对局结束胜负 sting（win/lose））",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "对局结束胜负 sting（win/lose）"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-order_ack",
+      "origin": "sfx",
+      "name": "SFX OrderAck（下令确认（移动/攻击指令 Ack））",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "下令确认（移动/攻击指令 Ack）"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-research_complete",
+      "origin": "sfx",
+      "name": "SFX ResearchComplete（研究完成）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "研究完成"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-select",
+      "origin": "sfx",
+      "name": "SFX Select（选中单位）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "选中单位"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-wave_cleared",
+      "origin": "sfx",
+      "name": "SFX WaveCleared（波次全部清空）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "波次全部清空"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "sfx-wave_start",
+      "origin": "sfx",
+      "name": "SFX WaveStart（波次开始）",
+      "category": "audio",
+      "source_defs": [],
+      "spec": {
+        "format": "ogg",
+        "duration": "Ack/反馈类 ≤0.5s；波次/胜负类 1-2s",
+        "loudness": "音量归一（成批一致）",
+        "throttle": "同类 0.1s 节流（THROTTLE_WINDOW）——开头 30ms 内给到辨识点",
+        "usage": "波次开始"
+      },
+      "acceptance": "SfxRequest 通道 round-trip 断言 + 人工听感过审；时长/响度按 spec",
+      "priority": "P2",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
       "local_key": "terrain-loop",
       "origin": "manual",
       "name": "环形跑道主地形 loop（地表/路面/起点终点/装饰件）",
@@ -404,6 +651,888 @@
       "demand_id": "d208bca30526473cbd2d680f2547082d",
       "status": "submitted",
       "removed": false
+    },
+    {
+      "local_key": "ui-icon-bond-arrow-ice",
+      "origin": "manual_ui",
+      "name": "ui-icon-bond-arrow-ice（羁绊图标：箭雨急冻 arrow_ice（2 箭+1 冰 → 全体攻+10%；羁绊面板 chip 位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；构图表达双塔组合语义（箭+冰）",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-bond-cannon-sentry",
+      "origin": "manual_ui",
+      "name": "ui-icon-bond-cannon-sentry（羁绊图标：机动哨卫 cannon_sentry（1 炮+2 哨 → 全体攻击间隔-8%；羁绊面板 chip 位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；构图表达双塔组合语义（炮+哨）",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-dig-shovel",
+      "origin": "manual_ui",
+      "name": "ui-icon-dig-shovel（通用图标：探宝铲（TL 探宝入口卡 196x48 内，icon_size 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-gold",
+      "origin": "manual_ui",
+      "name": "ui-icon-gold（通用图标：金币（资源铭牌，icon_size 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-hero-hunter",
+      "origin": "manual_ui",
+      "name": "ui-icon-hero-hunter（英雄塔猎手 hunter 头像位图标（英雄面板选中态/升级位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；辨识度优先（主角级），缩至命令卡槽尺寸可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-item-artifact",
+      "origin": "manual_ui",
+      "name": "ui-icon-item-artifact（物品图标：神器任务徽记（神器铭牌/领取状态通用））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；与神器铭牌底材风格一致",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-item-blade08",
+      "origin": "manual_ui",
+      "name": "ui-icon-item-blade08（物品图标：制式利刃 blade08（被动 攻击+8%；装备槽 3 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；与 blade12 同族可区分（成对辨识测试）",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-item-blade12",
+      "origin": "manual_ui",
+      "name": "ui-icon-item-blade12（物品图标：精锻利刃 blade12（被动 攻击+12%；装备槽 3 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；与 blade08 同族可区分（成对辨识测试）",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-item-quiver",
+      "origin": "manual_ui",
+      "name": "ui-icon-item-quiver（物品图标：疾风箭袋 quiver（被动 攻击间隔-10%；装备槽））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至装备槽尺寸可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-item-scope",
+      "origin": "manual_ui",
+      "name": "ui-icon-item-scope（物品图标：观测镜 scope（被动 射程+30%；装备槽））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至装备槽尺寸可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-item-treasure",
+      "origin": "manual_ui",
+      "name": "ui-icon-item-treasure（物品图标：探宝宝箱（dig 产出通用：金币/装备掉落位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至探宝入口 48px 高卡内可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-lives",
+      "origin": "manual_ui",
+      "name": "ui-icon-lives（通用图标：剩余容错/生命（漏怪扣血提示位，icon_size 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-pop",
+      "origin": "manual_ui",
+      "name": "ui-icon-pop（通用图标：人口（资源铭牌 pop/pop_cap，icon_size 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-tower-arrow",
+      "origin": "manual_ui",
+      "name": "ui-icon-tower-arrow（箭塔 arrow 图标（三阶共用一图，阶数用角标区分；命令卡建造位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px，~28 物理px）网格内可读（小图可读性优先于细节）",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-tower-cannon",
+      "origin": "manual_ui",
+      "name": "ui-icon-tower-cannon（炮塔 cannon 图标（三阶共用一图；命令卡建造位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-tower-corrode",
+      "origin": "manual_ui",
+      "name": "ui-icon-tower-corrode（腐蚀光环塔 corrode 图标（范围增伤 20%；命令卡建造位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-tower-drum",
+      "origin": "manual_ui",
+      "name": "ui-icon-tower-drum（战鼓光环塔 drum 图标（范围增伤 15%；命令卡建造位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-tower-ice",
+      "origin": "manual_ui",
+      "name": "ui-icon-tower-ice（冰霜光环塔 ice 图标（范围减速 25%；命令卡建造位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-tower-mage",
+      "origin": "manual_ui",
+      "name": "ui-icon-tower-mage（法师塔 mage 图标（三阶共用一图；命令卡建造位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-tower-sentry",
+      "origin": "manual_ui",
+      "name": "ui-icon-tower-sentry（哨塔 sentry 图标（三阶共用一图；命令卡建造位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-wave",
+      "origin": "manual_ui",
+      "name": "ui-icon-wave（通用图标：波次（TC 波次横幅 200x32 内，icon_size 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-icon-wood",
+      "origin": "manual_ui",
+      "name": "ui-icon-wood（通用图标：木材（资源铭牌，icon_size 槽位））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "icon",
+        "size_px": 128,
+        "format": "PNG 透明通道",
+        "grid": "统一栅格源图（8px 安全边），引擎内缩放至 UiTheme spacing.icon_size 网格"
+      },
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-panel-command-card",
+      "origin": "manual_ui",
+      "name": "ui-panel-command-card（命令卡控制台底（BC 382x140，2x4 槽位网格，槽 spacing.slot_w 84 x slot_h 56））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          768,
+          288
+        ],
+        "format": "PNG 透明通道",
+        "nine_slice": "角块 ≥24px、切分线对称、同游戏全部面板共用一套切分比例"
+      },
+      "acceptance": "九宫格拉伸无畸变 + 紧裁剪双帧对比 + token 色差容差；槽位网格与 spacing.slot_w/slot_h 对齐、角块 24px 共用切分比例",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-panel-end-screen",
+      "origin": "manual_ui",
+      "name": "ui-panel-end-screen（终局结算屏底（MatchEnded 胜/负中央卡，基准 640x360 @2x；L7 Ended{Win,Draw} 落地后消费））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          1280,
+          768
+        ],
+        "format": "PNG 透明通道",
+        "nine_slice": "角块 ≥24px、切分线对称、同游戏全部面板共用一套切分比例"
+      },
+      "acceptance": "九宫格拉伸无畸变 + 紧裁剪双帧对比 + token 色差容差；胜/负两变体共用底（变体=色板/纹章差异，不换切分）；角块 24px 共用切分比例",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-panel-equip-rack",
+      "origin": "manual_ui",
+      "name": "ui-panel-equip-rack（装备栏底（BR 232x140 三槽装备架，英雄装备槽位底材））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          480,
+          288
+        ],
+        "format": "PNG 透明通道",
+        "nine_slice": "角块 ≥24px、切分线对称、同游戏全部面板共用一套切分比例"
+      },
+      "acceptance": "九宫格拉伸无畸变 + 紧裁剪双帧对比 + token 色差容差；三槽等分视觉对齐；角块 24px 共用切分比例",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-panel-hud-plaque",
+      "origin": "manual_ui",
+      "name": "ui-panel-hud-plaque（主 HUD 信息区铭牌底（TL 列三联：资源铭牌 196x118 / 神器任务铭牌 196x78 / 探宝入口 196x48））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          416,
+          544
+        ],
+        "format": "PNG 透明通道",
+        "nine_slice": "角块 ≥24px、切分线对称、同游戏全部面板共用一套切分比例"
+      },
+      "acceptance": "九宫格拉伸无畸变（程序化检查过）+ 紧裁剪双帧对比 + 方案 A 铁金 token 色差容差；角块 24px、切分线对称、与全游戏面板共用一套切分比例",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-panel-nameplate",
+      "origin": "manual_ui",
+      "name": "ui-panel-nameplate（单位铭牌底（场内血条/名牌小件，基准 96x24 @2x；小件角块 12px 豁免——不参与大幅拉伸，经注明偏离 24px 下限））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          192,
+          48
+        ],
+        "format": "PNG 透明通道",
+        "nine_slice": "角块 ≥24px、切分线对称、同游戏全部面板共用一套切分比例"
+      },
+      "acceptance": "九宫格拉伸无畸变（血条宽度全程拉伸验一次）+ 紧裁剪双帧对比 + token 色差容差；角块 12px（小件豁免，切分线仍对称）",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
+    },
+    {
+      "local_key": "ui-panel-popup-card",
+      "origin": "manual_ui",
+      "name": "ui-panel-popup-card（弹卡底（挑战波入口卡 224x46 / 确认弹窗通用底，以垂直拉伸为主））",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          448,
+          128
+        ],
+        "format": "PNG 透明通道",
+        "nine_slice": "角块 ≥24px、切分线对称、同游戏全部面板共用一套切分比例"
+      },
+      "acceptance": "九宫格拉伸无畸变（重点验垂直拉伸区：中央可平铺纹理，无横向渐变）+ 紧裁剪双帧对比 + token 色差容差；角块 24px 共用切分比例",
+      "priority": "P0",
+      "demand_id": null,
+      "status": "draft",
+      "removed": false
     }
-  ]
+  ],
+  "unit_snapshots": {
+    "creep-boss": {
+      "boss": {
+        "armor_type": "Heavy",
+        "attack_type": null,
+        "body_radius": 0.800000011920929,
+        "has_aura": false,
+        "hero": false,
+        "hp": 900.0,
+        "id": "boss",
+        "kind": "creep",
+        "move_speed": 0.6000000238418579,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 4
+      }
+    },
+    "creep-fast": {
+      "fast": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.25,
+        "has_aura": false,
+        "hero": false,
+        "hp": 26.0,
+        "id": "fast",
+        "kind": "creep",
+        "move_speed": 2.200000047683716,
+        "traits": [
+          "Fast"
+        ],
+        "upgrade_to": null,
+        "wave_refs": 76
+      }
+    },
+    "creep-flyer": {
+      "flyer": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.30000001192092896,
+        "has_aura": false,
+        "hero": false,
+        "hp": 30.0,
+        "id": "flyer",
+        "kind": "creep",
+        "move_speed": 1.600000023841858,
+        "traits": [
+          "Air"
+        ],
+        "upgrade_to": null,
+        "wave_refs": 60
+      }
+    },
+    "creep-grunt": {
+      "grunt": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.30000001192092896,
+        "has_aura": false,
+        "hero": false,
+        "hp": 40.0,
+        "id": "grunt",
+        "kind": "creep",
+        "move_speed": 1.2000000476837158,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 194
+      }
+    },
+    "creep-mender": {
+      "mender": {
+        "armor_type": "Light",
+        "attack_type": null,
+        "body_radius": 0.30000001192092896,
+        "has_aura": false,
+        "hero": false,
+        "hp": 60.0,
+        "id": "mender",
+        "kind": "creep",
+        "move_speed": 1.0,
+        "traits": [
+          "Healer"
+        ],
+        "upgrade_to": null,
+        "wave_refs": 4
+      }
+    },
+    "creep-shaman": {
+      "shaman": {
+        "armor_type": "Heavy",
+        "attack_type": null,
+        "body_radius": 0.3499999940395355,
+        "has_aura": true,
+        "hero": false,
+        "hp": 90.0,
+        "id": "shaman",
+        "kind": "creep",
+        "move_speed": 0.8999999761581421,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 2
+      }
+    },
+    "creep-tank": {
+      "tank": {
+        "armor_type": "Heavy",
+        "attack_type": null,
+        "body_radius": 0.44999998807907104,
+        "has_aura": false,
+        "hero": false,
+        "hp": 120.0,
+        "id": "tank",
+        "kind": "creep",
+        "move_speed": 0.699999988079071,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 36
+      }
+    },
+    "hero-hunter": {
+      "hunter": {
+        "armor_type": "Fortified",
+        "attack_type": "Piercing",
+        "body_radius": 0.44999998807907104,
+        "has_aura": false,
+        "hero": true,
+        "hp": 150.0,
+        "id": "hunter",
+        "kind": "hero",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-arrow": {
+      "arrow": {
+        "armor_type": "Fortified",
+        "attack_type": "Piercing",
+        "body_radius": 0.4000000059604645,
+        "has_aura": false,
+        "hero": false,
+        "hp": 80.0,
+        "id": "arrow",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "arrow2",
+        "wave_refs": 0
+      },
+      "arrow2": {
+        "armor_type": "Fortified",
+        "attack_type": "Piercing",
+        "body_radius": 0.44999998807907104,
+        "has_aura": false,
+        "hero": false,
+        "hp": 110.0,
+        "id": "arrow2",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "arrow3",
+        "wave_refs": 0
+      },
+      "arrow3": {
+        "armor_type": "Fortified",
+        "attack_type": "Piercing",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": false,
+        "hp": 150.0,
+        "id": "arrow3",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-cannon": {
+      "cannon": {
+        "armor_type": "Fortified",
+        "attack_type": "Siege",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": false,
+        "hp": 120.0,
+        "id": "cannon",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "cannon2",
+        "wave_refs": 0
+      },
+      "cannon2": {
+        "armor_type": "Fortified",
+        "attack_type": "Siege",
+        "body_radius": 0.550000011920929,
+        "has_aura": false,
+        "hero": false,
+        "hp": 170.0,
+        "id": "cannon2",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "cannon3",
+        "wave_refs": 0
+      },
+      "cannon3": {
+        "armor_type": "Fortified",
+        "attack_type": "Siege",
+        "body_radius": 0.6000000238418579,
+        "has_aura": false,
+        "hero": false,
+        "hp": 230.0,
+        "id": "cannon3",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-corrode": {
+      "corrode": {
+        "armor_type": "Fortified",
+        "attack_type": null,
+        "body_radius": 0.4000000059604645,
+        "has_aura": true,
+        "hero": false,
+        "hp": 70.0,
+        "id": "corrode",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-drum": {
+      "drum": {
+        "armor_type": "Fortified",
+        "attack_type": null,
+        "body_radius": 0.4000000059604645,
+        "has_aura": true,
+        "hero": false,
+        "hp": 70.0,
+        "id": "drum",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-ice": {
+      "ice": {
+        "armor_type": "Fortified",
+        "attack_type": null,
+        "body_radius": 0.4000000059604645,
+        "has_aura": true,
+        "hero": false,
+        "hp": 70.0,
+        "id": "ice",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-mage": {
+      "mage": {
+        "armor_type": "Fortified",
+        "attack_type": "Magic",
+        "body_radius": 0.4000000059604645,
+        "has_aura": false,
+        "hero": false,
+        "hp": 70.0,
+        "id": "mage",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "mage2",
+        "wave_refs": 0
+      },
+      "mage2": {
+        "armor_type": "Fortified",
+        "attack_type": "Magic",
+        "body_radius": 0.44999998807907104,
+        "has_aura": false,
+        "hero": false,
+        "hp": 100.0,
+        "id": "mage2",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "mage3",
+        "wave_refs": 0
+      },
+      "mage3": {
+        "armor_type": "Fortified",
+        "attack_type": "Magic",
+        "body_radius": 0.5,
+        "has_aura": false,
+        "hero": false,
+        "hp": 140.0,
+        "id": "mage3",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    },
+    "tower-sentry": {
+      "sentry": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.3499999940395355,
+        "has_aura": false,
+        "hero": false,
+        "hp": 60.0,
+        "id": "sentry",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "sentry2",
+        "wave_refs": 0
+      },
+      "sentry2": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.4000000059604645,
+        "has_aura": false,
+        "hero": false,
+        "hp": 85.0,
+        "id": "sentry2",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": "sentry3",
+        "wave_refs": 0
+      },
+      "sentry3": {
+        "armor_type": "Fortified",
+        "attack_type": "Normal",
+        "body_radius": 0.44999998807907104,
+        "has_aura": false,
+        "hero": false,
+        "hp": 120.0,
+        "id": "sentry3",
+        "kind": "tower",
+        "move_speed": 0.0,
+        "traits": [],
+        "upgrade_to": null,
+        "wave_refs": 0
+      }
+    }
+  }
 }
