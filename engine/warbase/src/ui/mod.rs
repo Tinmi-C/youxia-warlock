@@ -778,8 +778,11 @@ pub fn refresh_tooltip(
 #[derive(Component, Debug)]
 pub struct CommandPanel;
 
+/// Rebuild cache key: (active card, game-bumped version, theme revision,
+/// art revision). The 4th field folds the UITEX seam in — a texture
+/// reload or an ArtMode flip re-skins the panel like a theme swap does.
 #[derive(Resource, Debug, Default)]
-struct PanelKey(Option<String>, u64, u64);
+struct PanelKey(Option<String>, u64, u64, u64);
 
 /// WX3: games bump this when the card CONTENT changed without the active
 /// key changing (language toggle, economy affordability greying...) — the
@@ -793,7 +796,18 @@ pub fn spawn_command_panel(mut commands: Commands) {
     commands.queue(|world: &mut World| {
         let theme = world.resource::<UiTheme>().clone();
         let s = &theme.spacing;
-        world.spawn((
+        // UITEX: art mode joins the spawn only when on (greybox = the
+        // legacy three components exactly — zero drift).
+        let art = world.resource::<ArtMode>().clone();
+        let textures = world.resource::<UiTextures>().clone();
+        let image = art_surface(
+            &art,
+            &textures,
+            UI_TEX_PANEL,
+            theme.palette.panel_bg.color(),
+            s.panel_border_w,
+        );
+        let mut root = world.spawn((
             CommandPanel,
             Node {
                 position_type: PositionType::Absolute,
@@ -809,26 +823,36 @@ pub fn spawn_command_panel(mut commands: Commands) {
             BackgroundColor(theme.palette.panel_bg.color()),
             BorderColor::all(theme.palette.panel_border.color()),
         ));
+        // Option<T> is not a Bundle — insert the ImageNode only in art mode.
+        if let Some(img) = image {
+            root.insert(img);
+        }
     });
 }
 
 /// Rebuild the panel children when (and only when) the active card, the
-/// game-bumped version, or the theme revision changes (UI-DSGN: swapping
-/// the `UiTheme` resource re-skins without any code change).
+/// game-bumped version, the theme revision, or the art revision changes
+/// (UI-DSGN: swapping the `UiTheme` resource re-skins without any code
+/// change; UITEX: swapping `UiTextures`/`ArtMode` does the same).
 pub fn refresh_command_panel(
     world: &mut World,
 ) {
     let version = world.resource::<PanelVersion>().0;
     let theme_rev = world.resource::<UiTheme>().revision;
+    let art_rev = art_revision(world.resource::<UiTextures>(), world.resource::<ArtMode>());
     let Some(key) = active_card_key(world) else {
         maybe_clear(world);
         return;
     };
-    let (last_key, last_version, last_theme) = {
+    let (last_key, last_version, last_theme, last_art) = {
         let pk = world.resource::<PanelKey>();
-        (pk.0.clone(), pk.1, pk.2)
+        (pk.0.clone(), pk.1, pk.2, pk.3)
     };
-    if last_key == Some(key.clone()) && last_version == version && last_theme == theme_rev {
+    if last_key == Some(key.clone())
+        && last_version == version
+        && last_theme == theme_rev
+        && last_art == art_rev
+    {
         return;
     }
     let Some(card) = world.resource::<CommandCards>().cards.get(&key).cloned() else {
@@ -838,6 +862,7 @@ pub fn refresh_command_panel(
     world.resource_mut::<PanelKey>().0 = Some(key);
     world.resource_mut::<PanelKey>().1 = version;
     world.resource_mut::<PanelKey>().2 = theme_rev;
+    world.resource_mut::<PanelKey>().3 = art_rev;
 
     let panel = world
         .query_filtered::<Entity, With<CommandPanel>>()
@@ -853,10 +878,19 @@ pub fn refresh_command_panel(
         despawn_subtree(world, slot);
     }
     let theme = world.resource::<UiTheme>().clone();
+    let art = world.resource::<ArtMode>().clone();
+    let textures = world.resource::<UiTextures>().clone();
     // Re-skin the panel root itself (background/border/position/radius all
     // come from the theme — swapping the resource moves the whole panel).
     {
         let s = &theme.spacing;
+        let image = art_surface(
+            &art,
+            &textures,
+            UI_TEX_PANEL,
+            theme.palette.panel_bg.color(),
+            s.panel_border_w,
+        );
         let mut root = world.get_entity_mut(panel).unwrap();
         if let Some(mut bg) = root.get_mut::<BackgroundColor>() {
             *bg = BackgroundColor(theme.palette.panel_bg.color());
@@ -870,6 +904,20 @@ pub fn refresh_command_panel(
             node.row_gap = Val::Px(s.panel_gap);
             node.border = UiRect::all(Val::Px(s.panel_border_w));
             node.border_radius = BorderRadius::all(Val::Px(theme.radius.panel));
+        }
+        // UITEX: the ImageNode joins/leaves with art mode — greybox drops
+        // it entirely (zero drift), art mode swaps it in place.
+        match image {
+            Some(img) => {
+                if root.get::<ImageNode>().is_some() {
+                    *root.get_mut::<ImageNode>().unwrap() = img;
+                } else {
+                    root.insert(img);
+                }
+            }
+            None => {
+                root.remove::<ImageNode>();
+            }
         }
     }
     let t = &theme.typography;
@@ -888,8 +936,12 @@ pub fn refresh_command_panel(
         } else {
             (theme.state_colors.slot_disabled_bg.color(), theme.palette.text_dim.color())
         };
+        // UITEX: the slot face gets the same seam (slicer insets from the
+        // slot border token; solid fallback keeps disabled greys visible).
+        let slot_image =
+            art_surface(&art, &textures, UI_TEX_SLOT, bg, s.slot_border_w);
         entity.with_children(|p| {
-            p.spawn((
+            let mut slot_e = p.spawn((
                 Button,
                 CommandSlotButton {
                     action: slot.action.clone(),
@@ -907,8 +959,11 @@ pub fn refresh_command_panel(
                 },
                 BackgroundColor(bg),
                 BorderColor::all(theme.palette.panel_border.color()),
-            ))
-            .with_children(|slot_root| {
+            ));
+            if let Some(img) = slot_image {
+                slot_e.insert(img);
+            }
+            slot_e.with_children(|slot_root| {
                 slot_root.spawn((
                     Text::new(format!("[{hotkey}] {}", slot.label)),
                     TextFont { font_size: FontSize::Px(t.font_label), ..default() },
