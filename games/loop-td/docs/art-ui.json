@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "game": "loop-td",
+  "_doc": "UI 2D 需求声明清单（round4 NEEDS）：面板底与图标位。art-needs scan --ui 把每项投影成 art-needs.json 的 manual_ui 需求卡（只增不改不删）。size_px=源图尺寸（面板 [宽,高] @2x，图标统一 128 栅格）；UI 内消费尺寸写在 usage 里（对齐 UiTheme spacing，icon_size 11-14 逻辑px）。规格依据 docs/topics/art/asset-taxonomy-spec.md §1 + ui-asset-spec.md；矩形依据 src/systems/panels.rs 的 Plan A 布局（1280x720 画布）。",
+  "items": [
+    {
+      "id": "panel-hud-plaque",
+      "kind": "panel",
+      "size_px": [416, 544],
+      "usage": "主 HUD 信息区铭牌底（TL 列三联：资源铭牌 196x118 / 神器任务铭牌 196x78 / 探宝入口 196x48）",
+      "acceptance": "九宫格拉伸无畸变（程序化检查过）+ 紧裁剪双帧对比 + 方案 A 铁金 token 色差容差；角块 24px、切分线对称、与全游戏面板共用一套切分比例"
+    },
+    {
+      "id": "panel-command-card",
+      "kind": "panel",
+      "size_px": [768, 288],
+      "usage": "命令卡控制台底（BC 382x140，2x4 槽位网格，槽 spacing.slot_w 84 x slot_h 56）",
+      "acceptance": "九宫格拉伸无畸变 + 紧裁剪双帧对比 + token 色差容差；槽位网格与 spacing.slot_w/slot_h 对齐、角块 24px 共用切分比例"
+    },
+    {
+      "id": "panel-popup-card",
+      "kind": "panel",
+      "size_px": [448, 128],
+      "usage": "弹卡底（挑战波入口卡 224x46 / 确认弹窗通用底，以垂直拉伸为主）",
+      "acceptance": "九宫格拉伸无畸变（重点验垂直拉伸区：中央可平铺纹理，无横向渐变）+ 紧裁剪双帧对比 + token 色差容差；角块 24px 共用切分比例"
+    },
+    {
+      "id": "panel-end-screen",
+      "kind": "panel",
+      "size_px": [1280, 768],
+      "usage": "终局结算屏底（MatchEnded 胜/负中央卡，基准 640x360 @2x；L7 Ended{Win,Draw} 落地后消费）",
+      "acceptance": "九宫格拉伸无畸变 + 紧裁剪双帧对比 + token 色差容差；胜/负两变体共用底（变体=色板/纹章差异，不换切分）；角块 24px 共用切分比例"
+    },
+    {
+      "id": "panel-equip-rack",
+      "kind": "panel",
+      "size_px": [480, 288],
+      "usage": "装备栏底（BR 232x140 三槽装备架，英雄装备槽位底材）",
+      "acceptance": "九宫格拉伸无畸变 + 紧裁剪双帧对比 + token 色差容差；三槽等分视觉对齐；角块 24px 共用切分比例"
+    },
+    {
+      "id": "panel-nameplate",
+      "kind": "panel",
+      "size_px": [192, 48],
+      "usage": "单位铭牌底（场内血条/名牌小件，基准 96x24 @2x；小件角块 12px 豁免——不参与大幅拉伸，经注明偏离 24px 下限）",
+      "acceptance": "九宫格拉伸无畸变（血条宽度全程拉伸验一次）+ 紧裁剪双帧对比 + token 色差容差；角块 12px（小件豁免，切分线仍对称）"
+    },
+    {
+      "id": "icon-tower-arrow",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "箭塔 arrow 图标（三阶共用一图，阶数用角标区分；命令卡建造位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px，~28 物理px）网格内可读（小图可读性优先于细节）"
+    },
+    {
+      "id": "icon-tower-cannon",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "炮塔 cannon 图标（三阶共用一图；命令卡建造位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读"
+    },
+    {
+      "id": "icon-tower-mage",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "法师塔 mage 图标（三阶共用一图；命令卡建造位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读"
+    },
+    {
+      "id": "icon-tower-sentry",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "哨塔 sentry 图标（三阶共用一图；命令卡建造位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读"
+    },
+    {
+      "id": "icon-tower-ice",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "冰霜光环塔 ice 图标（范围减速 25%；命令卡建造位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读"
+    },
+    {
+      "id": "icon-tower-drum",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "战鼓光环塔 drum 图标（范围增伤 15%；命令卡建造位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读"
+    },
+    {
+      "id": "icon-tower-corrode",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "腐蚀光环塔 corrode 图标（范围增伤 20%；命令卡建造位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size 网格内可读"
+    },
+    {
+      "id": "icon-hero-hunter",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "英雄塔猎手 hunter 头像位图标（英雄面板选中态/升级位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；辨识度优先（主角级），缩至命令卡槽尺寸可读"
+    },
+    {
+      "id": "icon-item-blade12",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "物品图标：精锻利刃 blade12（被动 攻击+12%；装备槽 3 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；与 blade08 同族可区分（成对辨识测试）"
+    },
+    {
+      "id": "icon-item-blade08",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "物品图标：制式利刃 blade08（被动 攻击+8%；装备槽 3 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；与 blade12 同族可区分（成对辨识测试）"
+    },
+    {
+      "id": "icon-item-quiver",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "物品图标：疾风箭袋 quiver（被动 攻击间隔-10%；装备槽）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至装备槽尺寸可读"
+    },
+    {
+      "id": "icon-item-scope",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "物品图标：观测镜 scope（被动 射程+30%；装备槽）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至装备槽尺寸可读"
+    },
+    {
+      "id": "icon-item-treasure",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "物品图标：探宝宝箱（dig 产出通用：金币/装备掉落位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至探宝入口 48px 高卡内可读"
+    },
+    {
+      "id": "icon-item-artifact",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "物品图标：神器任务徽记（神器铭牌/领取状态通用）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；与神器铭牌底材风格一致"
+    },
+    {
+      "id": "icon-bond-arrow-ice",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "羁绊图标：箭雨急冻 arrow_ice（2 箭+1 冰 → 全体攻+10%；羁绊面板 chip 位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；构图表达双塔组合语义（箭+冰）"
+    },
+    {
+      "id": "icon-bond-cannon-sentry",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "羁绊图标：机动哨卫 cannon_sentry（1 炮+2 哨 → 全体攻击间隔-8%；羁绊面板 chip 位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；构图表达双塔组合语义（炮+哨）"
+    },
+    {
+      "id": "icon-gold",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "通用图标：金币（资源铭牌，icon_size 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读"
+    },
+    {
+      "id": "icon-wood",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "通用图标：木材（资源铭牌，icon_size 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读"
+    },
+    {
+      "id": "icon-pop",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "通用图标：人口（资源铭牌 pop/pop_cap，icon_size 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读"
+    },
+    {
+      "id": "icon-wave",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "通用图标：波次（TC 波次横幅 200x32 内，icon_size 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读"
+    },
+    {
+      "id": "icon-lives",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "通用图标：剩余容错/生命（漏怪扣血提示位，icon_size 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读"
+    },
+    {
+      "id": "icon-dig-shovel",
+      "kind": "icon",
+      "size_px": 128,
+      "usage": "通用图标：探宝铲（TL 探宝入口卡 196x48 内，icon_size 槽位）",
+      "acceptance": "128x128 源图 8px 安全边、PNG 透明通道、紧裁剪双帧对比、token 色差容差；缩至 icon_size（11-14 逻辑px）可读"
+    }
+  ]
+}
