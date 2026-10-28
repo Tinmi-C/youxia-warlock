@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "source": "http://127.0.0.1:8799",
+  "note": "DRILL-ONLY lockfile for the first-art-day rehearsal (round-4 DRILL): same ADR-0009 shape as games/warden/art-assets.json, pointing at the mock vault with demand back-links (ADR-0015 three-layer traceability). The real game lockfile stays games/loop-td/art-assets.json (created on the real first art day). drill_panel advances v1 -> v2 (same-byte-size pitfall) -> v3 (size change) during the upgrade rehearsal; the committed end state pins v3.",
+  "assets": [
+    {
+      "id": "d0110000000000000000000000000001",
+      "name": "drill_panel nine-grid",
+      "version": 3,
+      "license": "演练资产（程序化生成，games/loop-td/assets-art-drill/make_drill_textures.py 可复现）；非美术成品",
+      "demand": "dem-drill-0001",
+      "files": {
+        "drill_panel.png": "ui/drill_panel.png"
+      }
+    },
+    {
+      "id": "d01200000000000000000000000000002",
+      "name": "drill_slot nine-grid",
+      "version": 1,
+      "license": "演练资产（程序化生成，games/loop-td/assets-art-drill/make_drill_textures.py 可复现）；非美术成品",
+      "demand": "dem-drill-0002",
+      "files": {
+        "drill_slot.png": "ui/drill_slot.png"
+      }
+    }
+  ]
+}

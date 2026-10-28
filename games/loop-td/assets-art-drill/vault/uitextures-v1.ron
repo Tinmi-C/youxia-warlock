@@ -1,0 +1,8 @@
+// DRILL archive — the v1-era wiring during the rehearsal (panel locked v1,
+// before the v2/v3 upgrade walk). Kept so the offscreen evidence test can
+// render BOTH forms (v1 vs upgraded v3) without touching the synced dir.
+// Same dir as the vault-store PNGs it references.
+(textures: {
+    "panel": "drill_panel_v1.png",
+    "slot": "drill_slot_v1.png",
+})

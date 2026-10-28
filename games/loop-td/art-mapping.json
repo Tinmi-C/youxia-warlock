@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
-  "note": "换装映射（ADR-0015）：def_id → 资产引用（岩库:<asset_id>[@vN]）。null = 灰盒占位（需求未 fulfilled 的默认态，内容不被美术阻塞）。demand fulfilled 后在这里配 def，再到 art-assets.json 锁版本走 art-sync 拉文件。格式见 tools/art-needs/README.md。",
+  "note": "换装映射（ADR-0015）：def_id → 资产引用（岩库:<asset_id>[@vN]）。null = 灰盒占位（需求未 fulfilled 的默认态，内容不被美术阻塞）。demand fulfilled 后在这里配 def，再到 art-assets.json 锁版本走 art-sync 拉文件。格式见 tools/art-needs/README.md。UI 2D 键位约定（round4 DRILL 起立）：ui-<art-ui.json item id> → 岩库:<asset_id>[@vN]，与 3D def 键共存一表；下面两条 ui-* 是 DRILL 演练条目（指向 mock 资产，正式首产日替换为真实资产 id），演练实录见 docs/art-first-day-runbook.md。",
   "mapping": {
+    "ui-panel-command-card": "岩库:d0110000000000000000000000000001@v3",
+    "ui-slot-command": "岩库:d01200000000000000000000000000002@v1",
     "arrow": null,
     "arrow2": null,
     "arrow3": null,
