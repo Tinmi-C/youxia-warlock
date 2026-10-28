@@ -1,0 +1,87 @@
+{
+  "note": "DRILL mock vault store — NOT production data. Stands in for the real ArtVault REST service during the first-art-day rehearsal. Served by mock_vault.py on 127.0.0.1:8799.",
+  "demands": [
+    {
+      "id": "dem-drill-0001",
+      "name": "ui-panel-command-card（演练）",
+      "status": "fulfilled",
+      "assets": [
+        {
+          "asset_id": "d0110000000000000000000000000001"
+        }
+      ]
+    },
+    {
+      "id": "dem-drill-0002",
+      "name": "ui-slot-command（演练；正式需求板无此卡——缺陷 F3）",
+      "status": "fulfilled",
+      "assets": [
+        {
+          "asset_id": "d01200000000000000000000000000002"
+        }
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "id": "d0110000000000000000000000000001",
+      "name": "drill_panel nine-grid",
+      "versions": [
+        {
+          "version_no": 1,
+          "stable": true,
+          "files": [
+            {
+              "id": "file-drill-panel-v1",
+              "filename": "drill_panel.png",
+              "size": 556,
+              "path": "drill_panel_v1.png"
+            }
+          ]
+        },
+        {
+          "version_no": 2,
+          "stable": false,
+          "files": [
+            {
+              "id": "file-drill-panel-v2",
+              "filename": "drill_panel.png",
+              "size": 556,
+              "path": "drill_panel_v2.png"
+            }
+          ]
+        },
+        {
+          "version_no": 3,
+          "stable": true,
+          "files": [
+            {
+              "id": "file-drill-panel-v3",
+              "filename": "drill_panel.png",
+              "size": 613,
+              "path": "drill_panel_v3.png"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "d01200000000000000000000000000002",
+      "name": "drill_slot nine-grid",
+      "versions": [
+        {
+          "version_no": 1,
+          "stable": true,
+          "files": [
+            {
+              "id": "file-drill-slot-v1",
+              "filename": "drill_slot.png",
+              "size": 292,
+              "path": "drill_slot_v1.png"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

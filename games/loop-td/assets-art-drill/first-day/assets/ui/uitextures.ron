@@ -1,0 +1,9 @@
+// DRILL manifest — the --art entry point for the first-art-day rehearsal
+// (round-4 DRILL). Panel/slot are the only two engine texture seams today
+// (warbase::ui::UI_TEX_PANEL / UI_TEX_SLOT); files are art-synced into this
+// dir from the (mock) vault per first-day/art-assets.json. Rehearsal log:
+// docs/art-first-day-runbook.md. NOT a production manifest.
+(textures: {
+    "panel": "drill_panel.png",
+    "slot": "drill_slot.png",
+})

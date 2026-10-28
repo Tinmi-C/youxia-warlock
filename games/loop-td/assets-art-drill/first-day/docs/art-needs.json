@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "game": "loop-td",
+  "source": "http://127.0.0.1:8799",
+  "_doc": "DRILL-ONLY needs projection for the first-art-day rehearsal (round-4 DRILL). Points at the mock vault (mock_vault.py) instead of the real ArtVault; two drill demands in fulfilled state stand in for 'the fulfilled notification arrived'. The REAL demand board stays games/loop-td/docs/art-needs.json (57 cards, untouched). art-needs status/sync operate on this file when given this dir as <game>.",
+  "source_maps": [],
+  "demands": [
+    {
+      "local_key": "ui-panel-command-card",
+      "origin": "manual_ui",
+      "name": "ui-panel-command-card（演练：命令卡控制台底九宫格）",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          96,
+          96
+        ],
+        "format": "PNG",
+        "nine_slice": "drill 级：环厚 2px 对齐 plan-a panel_border_w token（正式规格角块>=24px 与 token 不一致，缺陷 F5）"
+      },
+      "acceptance": "drill 级：九宫格切片无畸变 + 字节校验 + 离屏取证图",
+      "priority": "P0",
+      "demand_id": "dem-drill-0001",
+      "status": "fulfilled",
+      "asset_ref": "d0110000000000000000000000000001",
+      "removed": false,
+      "locked_by_self": true
+    },
+    {
+      "local_key": "ui-slot-command",
+      "origin": "manual_ui",
+      "name": "ui-slot-command（演练：命令卡槽位面底图——正式需求板无此卡，缺陷 F3）",
+      "category": "ui",
+      "source_defs": [],
+      "spec": {
+        "kind": "panel",
+        "size_px": [
+          40,
+          40
+        ],
+        "format": "PNG",
+        "nine_slice": "drill 级：环厚 1px 对齐 plan-a slot_border_w token"
+      },
+      "acceptance": "drill 级：九宫格切片无畸变 + 字节校验 + 离屏取证图",
+      "priority": "P0",
+      "demand_id": "dem-drill-0002",
+      "status": "fulfilled",
+      "asset_ref": "d01200000000000000000000000000002",
+      "removed": false,
+      "locked_by_self": true
+    }
+  ]
+}
