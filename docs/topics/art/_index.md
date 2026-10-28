@@ -31,3 +31,4 @@ tags: [art-pipeline, cross-game]
 - [[decisions/0009-art-vault-to-game-asset-flow|ADR-0009 资产流]] · [[decisions/0015-art-needs-demand-integration|ADR-0015 需求流]]
 - [[topics/graphics/model-part-animation-prep-spec|分件规范]]（graphics 域）
 - 工具：`tools/art`、`tools/art-sync`、`tools/art-needs`、`tools/art-catalog`
+| [[topics/art/artvault-wip-preview-proposal\|岩库侧提案——WIP 预审通道+看板速度字段]] | reference | proposed | 交付美术项目的两项体验增强（producing 态挂预览稿一键反馈、DemandEvent 聚合速度侧栏）；游戏侧对应承诺与边界 |

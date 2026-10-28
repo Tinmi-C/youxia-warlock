@@ -31,3 +31,4 @@
 | [[decisions/0017-multiplayer-data-layer\|ADR-0017]] | 多玩家数据层——玩家/队伍/外交矩阵，Hostility 唯一敌我判定缝（不含 netcode；经济分域暂缓） | accepted | 2026-10-22 |
 | [[decisions/0018-warbase-round2-rpg-depth-and-ui-system\|ADR-0018]] | warbase 第二轮扩域——RPG 纵深全量补齐（采集/建造/技能词汇/英雄/镜头/野怪昼夜/高地/存档/观战）+ UI 设计系统进基底 + 循环圈纵深 v2 第二验收图（修订 ADR-0016 范围条） | accepted | 2026-10-24 |
 | [[decisions/0019-warbase-round3-maturity-and-legion\|ADR-0019]] | warbase 第三轮——成熟度收口+军团战争图（复用效率 KPI 制度化；八项清债上收；默认拍板混合战略/军团图/美术冻结） | accepted | 2026-10-27 |
+| [[decisions/0020-warbase-round4-art-readiness\|ADR-0020]] | warbase 第四轮——美术就绪+多人债收口（贴图入口/需求投影/外观过滤/全环演练；L2 经济分域；状态机不加态调研修正） | accepted | 2026-10-28 |
