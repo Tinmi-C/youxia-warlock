@@ -100,6 +100,7 @@ pub fn enemy_unit_registry(defs: &EnemyDefs) -> warbase::prelude::UnitRegistry {
             def.name.to_string(),
             warbase::prelude::UnitDef {
                 hero_stats: None,
+                pop_cost: 1, // L3: serde default made explicit
                 id: def.name.to_string(),
                 attrs: warbase::prelude::BaseAttributes {
                     hp: def.hp,

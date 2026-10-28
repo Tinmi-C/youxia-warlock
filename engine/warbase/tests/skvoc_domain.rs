@@ -20,6 +20,7 @@ const DT: f32 = 1.0 / 60.0;
 fn udef(id: &str, hp: f32) -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: 0.0, body_radius: 0.3 },

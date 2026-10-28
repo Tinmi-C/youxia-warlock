@@ -32,6 +32,7 @@ fn hero_def(id: &str, hp: f32, stats: HeroStats, mana: Option<ManaDef>) -> UnitD
         mana,
         skill_levels: vec![],
         hero_stats: Some(stats),
+        pop_cost: 1,
     }
 }
 
@@ -57,6 +58,7 @@ fn creep_def(id: &str, hp: f32) -> UnitDef {
         mana: None,
         skill_levels: vec![],
         hero_stats: None,
+        pop_cost: 1,
     }
 }
 

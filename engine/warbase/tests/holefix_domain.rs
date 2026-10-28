@@ -28,6 +28,7 @@ use warbase::testing::test_app;
 fn def(id: &str, body_radius: f32) -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1,
         leak: 1,
         id: id.to_string(),
         attrs: BaseAttributes { hp: 80.0, move_speed: 0.0, body_radius },

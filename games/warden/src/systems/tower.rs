@@ -386,6 +386,7 @@ pub fn tower_unit_registry(
     ) -> warbase::prelude::UnitDef {
         warbase::prelude::UnitDef {
             hero_stats: None,
+            pop_cost: 1, // L3: serde default made explicit
             id: name.to_string(),
             attrs: warbase::prelude::BaseAttributes {
                 hp: 0.0,

@@ -301,6 +301,7 @@ fn injectable_app() -> App {
                 upgrade_to: None,
                 heal: None,
                 leak: 1,
+                pop_cost: 1,
                 mana: None,
                 hero_stats: None,
             },
@@ -430,4 +431,24 @@ fn routing_only_paths_do_not_block_the_build_grid() {
     let grid = build_grid(&world);
     assert_eq!(grid.origin, Vec2::new(-2.0, -1.5), "origin-centered FreeGrid");
     assert!(grid.blocked.is_empty(), "no terrain from routing-only paths");
+}
+
+// -- L3: def-level population cost ----------------------------------------------
+
+/// L3-i: `pop_cost` ships per def (legion's 1-4 band) and defaults to 1
+/// for defs that omit it — old RON loads unchanged, every unit is one pop
+/// slot unless the map says otherwise.
+#[test]
+fn pop_cost_ships_per_def_and_defaults_to_one() {
+    let with_field: UnitDef = ron::from_str(
+        r#"(id: "merc_tank", attrs: (hp: 420.0, move_speed: 2.4, body_radius: 0.5), armor_type: Heavy, pop_cost: 3)"#,
+    )
+    .expect("parse");
+    assert_eq!(with_field.pop_cost, 3);
+
+    let without: UnitDef = ron::from_str(
+        r#"(id: "merc_cheap", attrs: (hp: 90.0, move_speed: 3.2, body_radius: 0.3), armor_type: Light)"#,
+    )
+    .expect("parse");
+    assert_eq!(without.pop_cost, 1, "serde default: one body, one slot");
 }

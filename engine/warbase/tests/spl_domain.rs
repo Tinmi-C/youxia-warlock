@@ -12,6 +12,7 @@ use warbase::testing::{count_over_frames, test_app, STEP};
 fn def(id: &str, hp: f32) -> UnitDef {
     UnitDef {
         hero_stats: None,
+        pop_cost: 1, // L3: serde default made explicit
         leak: 1,
         id: id.into(),
         attrs: BaseAttributes { hp, move_speed: 0.0, body_radius: 0.3 },

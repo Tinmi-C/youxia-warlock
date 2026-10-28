@@ -44,6 +44,7 @@ fn unit_def(id: &str) -> UnitDef {
         heal: None,
         mana: None,
         hero_stats: None,
+        pop_cost: 1,
     }
 }
 

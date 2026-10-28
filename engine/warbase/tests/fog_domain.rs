@@ -24,6 +24,7 @@ fn sample_bundle() -> MapBundle {
         "grunt".to_string(),
         UnitDef {
             hero_stats: None,
+            pop_cost: 1,
             leak: 1,
             id: "grunt".into(),
             attrs: BaseAttributes { hp: 50.0, move_speed: 1.0, body_radius: 0.3 },
