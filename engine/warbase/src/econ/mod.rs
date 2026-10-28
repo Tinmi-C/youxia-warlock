@@ -158,12 +158,17 @@ pub fn apply_econ(
     mut pop: ResMut<Population>,
     mut purchases: ResMut<PopPurchases>,
     rules: Res<EconRules>,
-    local: Res<LocalPlayer>,
-    mut wallets: ResMut<Wallets>,
+    local: Option<Res<LocalPlayer>>,
+    mut wallets: Option<ResMut<Wallets>>,
     owners: Query<&crate::unit::Owner>,
     mut changed: MessageWriter<EconChanged>,
     mut rejected: MessageWriter<EconRejected>,
 ) {
+    // L2 params are Option-al on purpose: consumers that cherry-pick this
+    // system WITHOUT WarbasePlugin (warden wires it into its own schedule)
+    // never registered the per-player resources — absent wallets = pure
+    // pre-L2 semantics (global Resources credit), zero drift for them.
+    let local = local.map(|l| l.0).unwrap_or(crate::unit::PlayerId(0));
     // Kill bounties first so a same-frame Spend can rely on them.
     for d in deaths.read() {
         if d.gold > 0 || d.wood > 0 {
@@ -171,15 +176,18 @@ pub fn apply_econ(
             let credited = match d.killer {
                 Some(crate::combat::DamageOrigin::Attack(e))
                 | Some(crate::combat::DamageOrigin::Skill { caster: e, .. }) => {
-                    owners.get(e).map(|o| o.0).unwrap_or(local.0)
+                    owners.get(e).map(|o| o.0).unwrap_or(local)
                 }
-                _ => local.0,
+                _ => local,
             };
-            let w = wallets.of_mut(credited);
-            w.gold += d.gold;
-            w.wood += d.wood;
-            if credited == local.0 {
-                // Legacy local view: identical to the pre-L2 write.
+            if let Some(w) = wallets.as_deref_mut() {
+                let w = w.of_mut(credited);
+                w.gold += d.gold;
+                w.wood += d.wood;
+            }
+            if wallets.is_none() || credited == local {
+                // Legacy local view: identical to the pre-L2 write (and the
+                // ONLY write when per-player wallets are not in play).
                 res.gold += d.gold;
                 res.wood += d.wood;
             }

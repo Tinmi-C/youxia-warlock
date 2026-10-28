@@ -452,3 +452,36 @@ fn pop_cost_ships_per_def_and_defaults_to_one() {
     .expect("parse");
     assert_eq!(without.pop_cost, 1, "serde default: one body, one slot");
 }
+
+/// L2-v (cherry-picked consumer tolerance): apps that wire `apply_econ`
+/// WITHOUT WarbasePlugin (warden's own schedule) never registered
+/// Wallets/LocalPlayer — the system must fall back to the exact pre-L2
+/// global-credit semantics instead of panicking on a missing resource.
+#[test]
+fn apply_econ_tolerates_missing_wallet_resources() {
+    // Warden's shape exactly: MinimalPlugins + hand-registered messages +
+    // the cherry-picked system — no WarbasePlugin, no L2 resources.
+    let mut app = bevy::app::App::new();
+    app.add_plugins(bevy::MinimalPlugins);
+    app.add_message::<EconCommand>()
+        .add_message::<EconChanged>()
+        .add_message::<EconRejected>()
+        .add_message::<UnitDied>()
+        .init_resource::<Resources>()
+        .init_resource::<Population>()
+        .init_resource::<PopPurchases>()
+        .init_resource::<EconRules>()
+        .add_systems(bevy::app::Update, apply_econ);
+    let killer = owned_unit(app.world_mut(), Some(PlayerId(1)));
+    app.world_mut().write_message(died(Some(DamageOrigin::Attack(killer)), 7));
+    app.update();
+    assert_eq!(
+        app.world().resource::<Resources>().gold,
+        7,
+        "no wallets in play -> global credit, the pre-L2 behavior"
+    );
+    assert!(
+        !app.world().contains_resource::<Wallets>(),
+        "the system never (re)creates wallets on its own"
+    );
+}
