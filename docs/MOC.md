@@ -43,6 +43,7 @@ updated: 2026-10-06
 - [[decisions/0018-warbase-round2-rpg-depth-and-ui-system|ADR-0018 warbase 第二轮扩域]]（新增，accepted：全量 A 层 RPG 纵深 + UI 设计系统进基底 + 循环圈纵深 v2 第二验收图；用户 UI 四项全否转负面约束；看图拍板 H-UI 关）
 - [[topics/engine/warbase-round2-plan|warbase 第二轮扩域方案 v2]]（新增，accepted：SEAM2+七线/三线/三线四批 34-38 增量；第一轮方案标 done）
 - [[topics/game-design/loop-td-v2-rpg-proposal|loop-td 循环圈纵深 v2 需求草案]]（新增，draft：装备/神器/挑战/挖宝/羁绊/双人漏怪六件，验收数字化）
+- [[topics/engine/bevy-despawn-all-entities-pitfall|Bevy 0.19 测试 despawn 全部实体→框架内部实体命令悬空]]（pitfall done：`query::<Entity>()` 全清连 Bevy 簿记实体一并清→首帧命令 panic；正解=按组件过滤）
 - [[topics/engine/bevy-resource-registration-entity-shift-pitfall|Bevy 0.19 首次注册资源分配簿记实体→index 偏移]]（新增，pitfall done：录像指纹对账第 0 帧即差；正解=对账世界资源集与时序同构）
 - [[topics/engine/multi-worktree-shared-target-pitfall|同包多 worktree 共享 CARGO_TARGET_DIR 互踩]]（新增，pitfall done：并行批次两线踩中「源码完好却编译报错」假象；正解=每 worktree 私有 target）
 - [[topics/engine/macos-locked-session-black-gpu-capture-pitfall|macOS 锁屏会话下一切窗口表面 GPU 捕获皆黑]]（新增，pitfall done：锁屏态窗口截图全黑、窗口内离屏 Image 也黑；正解=无窗口 headless 渲染（MMP 骨架）+ readback 非黑守卫）
