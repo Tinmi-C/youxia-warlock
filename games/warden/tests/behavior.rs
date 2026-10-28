@@ -7622,3 +7622,446 @@ mod skills_ui {
     }
 }
 
+
+// --- WARDEN-ROSTER: roster v2 new-capability assertions (docs/roster-v2.md §7) ----
+//
+// The zero-drift contract: every pre-existing assertion above passes
+// unchanged (anchors kept); this module pins ONLY the new capabilities —
+// windup frame window (A1/A2), backswing lock (A3), splash hit count via
+// the base seam (A4), hero pools/mana costs (A5/A6), free-channel guard
+// (A7), equipment rack (A8). A9 (the in-game ballista string) and A10 (the
+// RON drift guard) live in the ballista gateway test below and
+// tests/map_bundle.rs.
+
+mod roster_v2 {
+    use super::*;
+    use warden::components::{AttackTiming, Commander, EffectiveStats, SkillCaster, StatMods, TowerEquip};
+    use warden::resources::{FusionDefs, WarFrenzy};
+    use warden::systems::equip::{equip_tower_item, unequip_tower_slot, EQUIP_ITEMS};
+    use warden::systems::skills::CastSkill;
+
+    /// Place a base tower through the REAL gateway (def numbers, timing
+    /// component, appearance fallback) — the roster-v2 def consumer.
+    fn place_gateway_tower(app: &mut App, def_index: usize, pos: Vec3) -> Entity {
+        app.world_mut()
+            .resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+                    let def = world.resource::<TowerDefs>().list[def_index].clone();
+                    let mut commands = world.commands();
+                    warden::systems::tower::spawn_base_tower(
+                        &mut commands,
+                        &def,
+                        def_index,
+                        pos,
+                        &mut meshes,
+                        &mut materials,
+                        None, // headless: gray box, no mount — logic only
+                    )
+                })
+            })
+    }
+
+    /// A fusion result through the REAL gateway (hero stats + signature
+    /// kit + equip rack ride along).
+    fn place_fused(app: &mut App, kind: FusionKind) -> Entity {
+        let recipe = app
+            .world()
+            .resource::<FusionDefs>()
+            .list
+            .iter()
+            .find(|r| r.kind == kind)
+            .expect("recipe")
+            .clone();
+        app.world_mut()
+            .resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+                    let mut commands = world.commands();
+                    warden::systems::tower::spawn_fused_tower(
+                        &mut commands,
+                        &recipe,
+                        Vec3::ZERO,
+                        100,
+                        &mut meshes,
+                        &mut materials,
+                    )
+                })
+            })
+    }
+
+    fn projectiles(app: &mut App) -> usize {
+        let mut q = app.world_mut().query_filtered::<(), With<Projectile>>();
+        q.iter(app.world()).count()
+    }
+
+    /// A1 — the cannon's first shot lands exactly one windup (0.60s) after
+    /// acquisition: nothing before frame 34, the round out by frame 37
+    /// (60fps: windup spans frames 1..36, ±1 scheduling slack).
+    #[test]
+    fn cannon_windup_frame_window() {
+        let mut app = test_app();
+        app.update();
+        place_gateway_tower(&mut app, 3, Vec3::ZERO);
+        spawn_enemy_like(&mut app, Vec3::new(6.0, 0.4, 0.0), 500.0);
+        for f in 1..=33 {
+            app.update();
+            assert_eq!(
+                projectiles(&mut app),
+                0,
+                "frame {f}: no round may leave before the windup completes"
+            );
+        }
+        let mut fired = false;
+        for _ in 34..=37 {
+            app.update();
+            if projectiles(&mut app) > 0 {
+                fired = true;
+                break;
+            }
+        }
+        assert!(fired, "the round must be out within the 0.60s ±1 frame window");
+        // The windup burned: the component cleared at the damage point.
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(), With<warbase::prelude::AttackWindup>>();
+        assert_eq!(q.iter(app.world()).count(), 0, "windup cleared at release");
+    }
+
+    /// A2 — a target dying mid-windup cancels the swing: no round, no
+    /// cooldown burn, no residual windup (base SKVOC semantics).
+    #[test]
+    fn windup_cancels_when_target_dies() {
+        let mut app = test_app();
+        app.update();
+        place_gateway_tower(&mut app, 3, Vec3::ZERO);
+        let enemy = spawn_enemy_like(&mut app, Vec3::new(6.0, 0.4, 0.0), 500.0);
+        for _ in 0..20 {
+            app.update(); // windup in flight (0.6s spans ~36 frames)
+        }
+        app.world_mut().despawn(enemy);
+        for _ in 0..10 {
+            app.update();
+        }
+        assert_eq!(projectiles(&mut app), 0, "a cancelled swing never fires");
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(), With<warbase::prelude::AttackWindup>>();
+        assert_eq!(q.iter(app.world()).count(), 0, "windup removed on cancel");
+        let tower = {
+            let mut q = app.world_mut().query_filtered::<Entity, With<Tower>>();
+            q.single(app.world()).unwrap()
+        };
+        let cd = app.world().get::<Tower>(tower).unwrap().cooldown;
+        assert!(cd <= 0.0, "a cancelled swing burns no cooldown, got {cd}");
+    }
+
+    /// A3 — the backswing lock: after a shot the tower cannot START a new
+    /// windup until the lock expires (authored 0.5s here, longer than the
+    /// 0.2s cooldown, so the lock is the binding constraint).
+    #[test]
+    fn backswing_lock_blocks_new_windup() {
+        let mut app = test_app();
+        app.update();
+        // Hand-built cadence: windup 0.1s, backswing 0.5s, interval 0.2s.
+        app.world_mut().spawn((
+            Tower {
+                tower_index: 3,
+                damage: 10.0,
+                attack_speed: 5.0,
+                range: 20.0,
+                attack_type: AttackType::Physical,
+                cooldown: 0.0,
+                target: None,
+                kind: TowerKind::Base(3),
+                aoe_radius: 0.0,
+                slow_factor: 0.0,
+                slow_duration: 0.0,
+                invested: 0,
+            },
+            AttackTiming { windup_secs: 0.1, backswing_secs: 0.5 },
+            StatMods::default(),
+            Transform::from_xyz(0.0, 0.6, 0.0),
+        ));
+        spawn_enemy_like(&mut app, Vec3::new(6.0, 0.4, 0.0), 500000.0);
+        // Count FIRES (not live rounds — the first one hits and despawns).
+        type FiredMsgs = Messages<warden::systems::tower::TowerFired>;
+        let mut cursor = bevy::ecs::message::MessageCursor::<
+            warden::systems::tower::TowerFired,
+        >::default();
+        let mut read = cursor.read(app.world().resource::<FiredMsgs>()).count();
+        // Windup 0.1s -> first fire by frame 8.
+        for _ in 1..=8 {
+            app.update();
+            read += cursor.read(app.world().resource::<FiredMsgs>()).count();
+        }
+        assert_eq!(read, 1, "the windup-0.1 shot fires by frame 8");
+        // Cooldown (0.2s) expires ~frame 20 — but the backswing lock (0.5s
+        // from the fire frame ~7) holds until ~frame 37: still ONE fire.
+        for _ in 0..12 {
+            app.update();
+            read += cursor.read(app.world().resource::<FiredMsgs>()).count();
+        }
+        assert_eq!(read, 1, "cooldown ready but the lock holds");
+        // After the lock lifts (~frame 38) the next windup starts and the
+        // second fire lands by ~frame 46.
+        let mut second = false;
+        for _ in 0..30 {
+            app.update();
+            read += cursor.read(app.world().resource::<FiredMsgs>()).count();
+            if read >= 2 {
+                second = true;
+                break;
+            }
+        }
+        assert!(second, "the second fire must follow once the lock expires");
+    }
+
+    /// A raw Enemy fixture (the file's local spawn convention).
+    fn spawn_enemy_like(app: &mut App, pos: Vec3, hp: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Enemy { speed: 0.0, def_index: 0 },
+                warbase::prelude::Hp(hp),
+                warbase::prelude::MaxHp(hp),
+                Transform::from_translation(pos),
+            ))
+            .id()
+    }
+
+    /// A4 — the cannon's splash (radius 2.5) hits EXACTLY the pack around
+    /// the impact: two ring enemies take the hit, the one at 4.0 does not
+    /// (victims resolved through the base `area_targets` seam).
+    #[test]
+    fn cannon_splash_hits_exactly_the_pack() {
+        let mut app = test_app();
+        app.update();
+        place_gateway_tower(&mut app, 3, Vec3::ZERO);
+        // Nearest to the tower gets acquired and homed: impact at (5, -2).
+        let impact = spawn_enemy_like(&mut app, Vec3::new(5.0, 0.4, -2.0), 100.0);
+        let ring_a = spawn_enemy_like(&mut app, Vec3::new(6.0, 0.4, 0.0), 100.0); // 2.24 from impact
+        let ring_b = spawn_enemy_like(&mut app, Vec3::new(6.5, 0.4, -1.5), 100.0); // 1.58 from impact
+        let _far = spawn_enemy_like(&mut app, Vec3::new(9.0, 0.4, -2.0), 100.0); // 4.0 from impact
+        // Windup 0.6s + flight ~0.5s + resolve: settle by ~2s.
+        for _ in 0..130 {
+            app.update();
+        }
+        let hp = |e: Entity| app.world().get::<warbase::prelude::Hp>(e).unwrap().0;
+        for e in [impact, ring_a, ring_b] {
+            assert!(
+                (hp(e) - 75.0).abs() < 0.01,
+                "pack member {e:?} takes exactly one 25-hit, got {}",
+                hp(e)
+            );
+        }
+        assert!(
+            (hp(_far) - 100.0).abs() < 0.01,
+            "the enemy at 4.0 (> radius 2.5) stays untouched, got {}",
+            hp(_far)
+        );
+    }
+
+    /// A5/A6 — hero towers ship real three-attribute stats, a full mana
+    /// pool converted from INT, and pay their signature's mana at confirm;
+    /// an unaffordable cast is refused without paying anything back.
+    #[test]
+    fn hero_tower_pools_and_signature_costs() {
+        let mut app = test_app();
+        app.update();
+        let tower = place_fused(&mut app, FusionKind::Marksman);
+        app.update(); // deferred hero stats convert on the first frame
+
+        assert_eq!(
+            app.world().get::<warbase::prelude::HeroStats>(tower).copied(),
+            Some(warbase::prelude::HeroStats { str: 6, agi: 14, int: 10 }),
+            "the recipe's three attributes ride the base HeroStats component"
+        );
+        let mana = app.world().get::<warbase::prelude::Mana>(tower).unwrap().0;
+        let max = app.world().get::<warbase::prelude::MaxMana>(tower).unwrap().0;
+        let regen = app.world().get::<warbase::prelude::ManaRegen>(tower).unwrap().0;
+        assert_eq!(max, 120.0, "INT 10 x mana_per_int 12");
+        assert_eq!(mana, 120.0, "the pool spawns FULL");
+        assert!((regen - 3.0).abs() < 1e-4, "INT 10 x regen_per_int 0.3, got {regen}");
+
+        // Deadeye costs 30 (SkillBalance single source) at confirm.
+        let slot = app
+            .world()
+            .get::<SkillCaster>(tower)
+            .unwrap()
+            .slots
+            .iter()
+            .position(|s| s.skill == "deadeye")
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<Messages<CastSkill>>()
+            .write(CastSkill { caster: tower, slot, target: None });
+        app.update();
+        // One frame of regen (3/s / 60fps = 0.05) rides the same update,
+        // so the assert tolerates it: 120 − 30 + ε.
+        assert!(
+            (app.world().get::<warbase::prelude::Mana>(tower).unwrap().0 - 90.0).abs() < 0.5,
+            "the signature spend 30 at confirm"
+        );
+
+        // Unaffordable: refused with no cooldown, no spend.
+        app.world_mut()
+            .get_mut::<warbase::prelude::Mana>(tower)
+            .unwrap()
+            .0 = 10.0;
+        app.world_mut()
+            .get_mut::<SkillCaster>(tower)
+            .unwrap()
+            .slots[slot]
+            .cooldown = 0.0;
+        app.world_mut()
+            .resource_mut::<Messages<CastSkill>>()
+            .write(CastSkill { caster: tower, slot, target: None });
+        app.update();
+        assert!(
+            (app.world().get::<warbase::prelude::Mana>(tower).unwrap().0 - 10.0).abs() < 0.5,
+            "a refused cast spends nothing (only regen moves the pool)"
+        );
+        assert_eq!(
+            app.world().get::<SkillCaster>(tower).unwrap().slots[slot].cooldown,
+            0.0,
+            "a refused cast burns no cooldown"
+        );
+
+        // Regen refills the pool (base tick; 3/s at 60fps = 0.05/frame).
+        app.world_mut()
+            .get_mut::<warbase::prelude::Mana>(tower)
+            .unwrap()
+            .0 = 100.0;
+        for _ in 0..20 {
+            app.update(); // ~1.0 mana back
+        }
+        let now = app.world().get::<warbase::prelude::Mana>(tower).unwrap().0;
+        assert!(now > 100.5 && now < 120.0, "regen refills toward the cap, got {now}");
+    }
+
+    /// A7 — the free channels stay free: commander + archer-kit rows carry
+    /// zero mana cost and their casters have no pool at all.
+    #[test]
+    fn free_channels_stay_free() {
+        let balance = warden::systems::skills::production_skill_balance();
+        for free in ["meteor_rain", "frost_nova", "war_frenzy", "eagle_eye", "multishot", "fire_arrows"] {
+            assert_eq!(balance.mana_cost(free), 0.0, "{free} stays free");
+        }
+        for (hero_skill, cost) in [("deadeye", 30.0), ("arcane_blast", 40.0), ("piercing_bolt", 30.0), ("concussion", 35.0)] {
+            assert_eq!(balance.mana_cost(hero_skill), cost, "{hero_skill} roster-v2 cost");
+        }
+        let mut app = test_app();
+        app.update();
+        // The commander casts without any mana pool (meteor stays free).
+        let commander = {
+            let mut q = app
+                .world_mut()
+                .query_filtered::<Entity, With<Commander>>();
+            q.single(app.world()).unwrap()
+        };
+        assert!(
+            app.world().get::<warbase::prelude::Mana>(commander).is_none(),
+            "the commander carries no mana pool"
+        );
+        let slot = app
+            .world()
+            .get::<SkillCaster>(commander)
+            .unwrap()
+            .slots
+            .iter()
+            .position(|s| s.skill == "war_frenzy")
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<Messages<CastSkill>>()
+            .write(CastSkill { caster: commander, slot, target: None });
+        app.update();
+        assert!(
+            app.world().resource::<WarFrenzy>().remaining > 0.0,
+            "the free commander cast went through"
+        );
+    }
+
+    /// A8 — the LT2-pattern equipment rack: hero towers only; affixes
+    /// inject through the stats pipeline per slot; same-slot replaces;
+    /// unequip withdraws.
+    #[test]
+    fn equip_rack_injects_and_withdraws() {
+        let mut app = test_app();
+        app.update();
+        let tower = place_fused(&mut app, FusionKind::Marksman);
+        app.update();
+        let base = {
+            let e = app.world().get::<EffectiveStats>(tower).unwrap();
+            (e.damage, e.attack_speed, e.range)
+        };
+        assert_eq!(
+            base,
+            (18.0, 1.2, 12.6),
+            "unequipped baseline = the §7.3 anchors (zero drift)"
+        );
+        assert!(
+            app.world().get::<TowerEquip>(tower).is_some(),
+            "hero towers ship an empty rack"
+        );
+
+        // Whetstone (damage ×1.15) into slot 0.
+        equip_tower_item(app.world_mut(), tower, 0, 0).unwrap();
+        app.update();
+        assert!((app.world().get::<EffectiveStats>(tower).unwrap().damage - 18.0 * 1.15).abs() < 1e-4);
+
+        // Swift string (attack speed ×1.10) into slot 1 — slots stack.
+        equip_tower_item(app.world_mut(), tower, 1, 1).unwrap();
+        app.update();
+        let e = app.world().get::<EffectiveStats>(tower).unwrap();
+        assert!((e.damage - 18.0 * 1.15).abs() < 1e-4);
+        assert!((e.attack_speed - 1.2 * 1.10).abs() < 1e-4);
+
+        // Same-slot replace (eagle lens into slot 1): the string withdraws,
+        // the lens lands — no stacking of stale affixes.
+        equip_tower_item(app.world_mut(), tower, 1, 2).unwrap();
+        app.update();
+        let e = app.world().get::<EffectiveStats>(tower).unwrap();
+        assert!((e.attack_speed - 1.2).abs() < 1e-4, "replaced affix withdrawn");
+        assert!((e.range - 12.6 * 1.15).abs() < 1e-4, "new affix active");
+
+        // Unequip restores the baseline exactly.
+        unequip_tower_slot(app.world_mut(), tower, 0).unwrap();
+        unequip_tower_slot(app.world_mut(), tower, 1).unwrap();
+        app.update();
+        let e = app.world().get::<EffectiveStats>(tower).unwrap();
+        assert!((e.damage - 18.0).abs() < 1e-4);
+        assert!((e.range - 12.6).abs() < 1e-4);
+        assert_eq!(app.world().get::<TowerEquip>(tower).unwrap().slots, [None; 3]);
+
+        // Plain towers carry none (the LT2 guard).
+        let plain = place_gateway_tower(&mut app, 0, Vec3::new(4.0, 0.0, 4.0));
+        app.update();
+        assert!(app.world().get::<TowerEquip>(plain).is_none());
+        assert!(
+            equip_tower_item(app.world_mut(), plain, 0, 0).is_err(),
+            "equipping a plain tower must be rejected"
+        );
+        assert_eq!(EQUIP_ITEMS.len(), 3, "v1 item table ships three items");
+    }
+
+    /// Balance-table sanity for the anchors this module relies on.
+    #[test]
+    fn cannon_def_numbers_are_the_section5_anchors() {
+        let defs = TowerDefs::palette();
+        let cannon = &defs.list[3];
+        assert_eq!(cannon.cost, 80);
+        assert!((cannon.damage - 25.0).abs() < 1e-6);
+        assert!((cannon.attack_speed - 0.33).abs() < 1e-6);
+        assert!((cannon.range - 12.0).abs() < 1e-6);
+        assert_eq!(cannon.attack_type, AttackType::Physical);
+        assert!((cannon.windup_secs - 0.60).abs() < 1e-6, "long windup");
+        assert!((cannon.backswing_secs - 0.40).abs() < 1e-6);
+        assert!((cannon.aoe_radius - 2.5).abs() < 1e-6, "§5 wide-AOE anchor");
+        let archer = &defs.list[0];
+        assert_eq!(archer.windup_secs, 0.0, "the archer keeps no-windup rapid fire");
+        assert_eq!(archer.backswing_secs, 0.0);
+        let shield = &defs.list[1];
+        assert!(
+            shield.backswing_secs < 1.0 / shield.attack_speed,
+            "shield backswing strictly under its interval (zero-drift guard)"
+        );
+    }
+}

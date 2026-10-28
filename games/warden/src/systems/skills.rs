@@ -169,6 +169,10 @@ pub fn production_skill_balance() -> SkillBalance {
         // 战意狂暴: all towers +50% attack speed for 3s.
         frenzy_speed_mult: 1.5,
         frenzy_duration: 3.0,
+        // Roster v2: mana spent at cast confirm — hero-tower signature skills
+        // only (commander + archer kit stay free; their casters carry no
+        // `Mana` pool so the gate is inert for them anyway).
+        mana_cost: vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 30.0, 40.0, 30.0, 35.0],
         // SK12 狙杀: normal-attack damage ×4/5/6.
         deadeye_mult: vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![4.0, 5.0, 6.0]],
         // SK12 奥术爆轰: instant magic damage per victim.
@@ -583,12 +587,19 @@ pub fn level_up(defs: &SkillDefs, caster: &mut SkillCaster, slot: usize) -> u8 {
 /// aim confirms, so a cancelled pick never pays (the SK1 law). `Unit`
 /// targets confirm immediately until unit picking exists.
 ///
+/// Roster v2 mana gate (base `process_casts` order: caster → cooldown →
+/// mana → execute): the cost (SkillBalance `mana_cost`, single source)
+/// is CHECKED here for every path, but SPENT only at confirm — the aiming
+/// layer pays on its confirm click (`update_aim_picking`), so a cancelled
+/// pick still never pays (the SK1 law extended to mana). Casters without
+/// a `Mana` pool (commander, archer kit) are never gated — free casts.
+///
 /// Unlike the base's `process_casts` (immediate confirm, def-embedded
 /// cooldown), warden reads the per-(id, level) cooldown from SkillBalance
 /// and defers Point skills to the aiming layer — the WX2 semantics bridge.
 pub fn handle_cast_requests(
     mut requests: MessageReader<CastSkill>,
-    mut casters: Query<&mut SkillCaster>,
+    mut casters: Query<(&mut SkillCaster, Option<&mut warbase::prelude::Mana>)>,
     mut confirmed: MessageWriter<SkillCast>,
     mut aiming: ResMut<SkillAiming>,
     mut build: ResMut<BuildMode>,
@@ -596,7 +607,7 @@ pub fn handle_cast_requests(
     balance: Res<SkillBalance>,
 ) {
     for req in requests.read() {
-        let Ok(mut caster) = casters.get_mut(req.caster) else {
+        let Ok((mut caster, mana)) = casters.get_mut(req.caster) else {
             continue; // despawned between request and validation
         };
         let Some(slot) = caster.slots.get(req.slot) else {
@@ -609,6 +620,20 @@ pub fn handle_cast_requests(
         if cooldown > 0.0 || def.kind == SkillKind::Passive {
             continue;
         }
+        // Roster v2: refuse unaffordable casts up front (no cooldown burn,
+        // no aiming — the base's OutOfMana order, mirrored locally).
+        let cost = balance.mana_cost(&skill_id);
+        if cost > 0.0 {
+            if let Some(pool) = &mana {
+                if pool.0 < cost {
+                    info!(
+                        "[sk] {} refused: mana {:.0}/{:.0} < cost {cost:.0}",
+                        def.id, pool.0, cost
+                    );
+                    continue;
+                }
+            }
+        }
         // A cast owns the next click: disarm any pending build.
         build.armed = false;
         match def.targeting {
@@ -617,6 +642,9 @@ pub fn handle_cast_requests(
                 info!("[sk] {} entering point aiming", def.id);
             }
             SkillTargetMode::None | SkillTargetMode::Unit => {
+                if let Some(mut pool) = mana {
+                    pool.0 -= cost; // spent at confirm (roster v2)
+                }
                 let cd = balance.cooldown(&skill_id, level);
                 caster.slots[req.slot].cooldown = cd;
                 confirmed.write(SkillCast {
@@ -701,6 +729,9 @@ pub fn commander_skill_effects(
 /// the cursor's ground point; a left click away from the UI confirms the
 /// cast there (`SkillCast` + cooldown starts, aiming clears). Esc /
 /// right-click cancel via `command::cancel_modes` — a cancel never pays.
+/// Roster v2: the mana cost is spent HERE at the confirm click (a refused
+/// or cancelled pick never pays — the SK1 law extended to mana); pool-less
+/// casters skip the gate.
 /// Runs before `select_object` (the confirming click must not also
 /// re-select) and before the cast handlers (the click that started the
 /// cast cannot confirm itself one frame early).
@@ -716,7 +747,9 @@ pub fn update_aim_picking(
     defs: Res<SkillDefs>,
     balance: Res<SkillBalance>,
     mut aiming: ResMut<SkillAiming>,
-    mut casters: Query<&mut SkillCaster>,
+    // Mana rides the casters query (SystemParam budget; see SK12's
+    // ShotDiagnostics note) — Option = pool-less casters skip the gate.
+    mut casters: Query<(&mut SkillCaster, Option<&mut warbase::prelude::Mana>)>,
     mut confirmed: MessageWriter<SkillCast>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -736,10 +769,10 @@ pub fn update_aim_picking(
             .filter(|(caster, slot)| {
                 casters
                     .get(*caster)
-                    .is_ok_and(|c| c.slots.get(*slot).is_some())
+                    .is_ok_and(|(c, _)| c.slots.get(*slot).is_some())
             })
             .map(|(caster, slot)| {
-                let c = casters.get(caster).expect("checked above");
+                let (c, _) = casters.get(caster).expect("checked above");
                 let s = c.slots.get(slot).expect("checked above");
                 (caster, slot, s.skill.clone(), s.level)
             })
@@ -800,10 +833,29 @@ pub fn update_aim_picking(
     // Left click (away from the UI) confirms the cast at the ground point.
     if buttons.just_pressed(MouseButton::Left) && !cursor_over_blocking_ui(&blocking, &panel) {
         if let Some(point) = ground {
-            let cd = balance.cooldown(&def_id, level);
-            if let Ok(mut caster) = casters.get_mut(caster_e) {
+            // Roster v2: spend the mana HERE (confirm pays; aim/cancel
+            // never does). A pool that cannot afford the cost drops the
+            // pick unpaid — the base's OutOfMana order at the confirm seam.
+            let cost = balance.mana_cost(&def_id);
+            if let Ok((_, pool)) = casters.get_mut(caster_e) {
+                if let Some(pool) = &pool {
+                    if pool.0 < cost {
+                        info!(
+                            "[sk] {def_id} confirm refused: mana {:.0} < cost {cost:.0}",
+                            pool.0
+                        );
+                        aiming.0 = None;
+                        return;
+                    }
+                }
+            }
+            let spent = cost > 0.0;
+            if let Ok((mut caster, pool)) = casters.get_mut(caster_e) {
                 if let Some(slot) = caster.slots.get_mut(slot_idx) {
-                    slot.cooldown = cd;
+                    slot.cooldown = balance.cooldown(&def_id, level);
+                }
+                if let Some(mut pool) = pool {
+                    pool.0 -= cost;
                 }
             }
             confirmed.write(SkillCast {
@@ -815,10 +867,12 @@ pub fn update_aim_picking(
             });
             aiming.0 = None;
             info!(
-                "[sk] {} cast at ({:.1}, {:.1}), cd {cd:.0}s",
+                "[sk] {} cast at ({:.1}, {:.1}){}, cd {:.0}s",
                 defs.get(&def_id).map(|d| d.id.as_str()).unwrap_or("?"),
                 point.x,
-                point.z
+                point.z,
+                if spent { format!(" −{cost:.0} mana") } else { String::new() },
+                balance.cooldown(&def_id, level),
             );
         }
     }

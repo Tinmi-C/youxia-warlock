@@ -28,6 +28,14 @@ impl Plugin for EnemiesPlugin {
             .add_systems(
                 Update,
                 (
+                    // Roster v2: the base splash seam (`area_targets`) answers
+                    // through the Hostility oracle, which reads `Allegiance`
+                    // — every warden Enemy is an attacker by definition, so
+                    // this health-check backfills the marker on any enemy
+                    // that entered the world without it (the spawn gateway
+                    // always attaches one; synthetic/test spawns may not).
+                    // No-op after the first frame in production.
+                    systems::enemy::ensure_enemy_allegiance,
                     systems::enemy::sync_move_speed,
                     warbase::prelude::advance_followers,
                     systems::enemy::face_movement,

@@ -166,6 +166,43 @@ pub struct FireRecoil {
     pub elapsed: Option<f32>,
 }
 
+/// Roster v2: a tower's authored attack cadence beyond the bare interval
+/// (copied from `TowerDef` by the spawn gateway — raw test-spawned towers
+/// carry none and fire exactly as before, the zero-drift guard). The
+/// RUNTIME state rides the base's `AttackWindup` / `AttackLock` components;
+/// this is only the per-tower config.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct AttackTiming {
+    /// Seconds between the fire decision and the damage point (base
+    /// `AttackDef::windup_secs`). 0 = immediate fire.
+    pub windup_secs: f32,
+    /// Post-hit lock: no new windup may START while it runs (base
+    /// `AttackDef::backswing_secs`). Authored < interval in v2.
+    pub backswing_secs: f32,
+}
+
+/// Roster v2: hero-tower (fused) equipment rack — the LT2 `EquipSlots`
+/// pattern. Three slots; each holds at most one `EquipItem`. Plain (base)
+/// towers carry none (the LT2 guard). Affixes inject through the warden
+/// `StatMods` pipeline with a per-slot `ModSource::Other("equip:<slot>")`
+/// identity, so same-slot equips refresh and different slots stack.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TowerEquip {
+    pub slots: [Option<EquipItem>; 3],
+}
+
+impl Default for TowerEquip {
+    fn default() -> Self {
+        Self { slots: [None; 3] }
+    }
+}
+
+/// One equipped item instance (which table row sits in a slot).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EquipItem {
+    /// Index into `systems::equip::EQUIP_ITEMS`.
+    pub item: usize,
+}
 
 /// A temporary slow effect on an enemy (e.g. from the shield / bastion tower).
 #[derive(Component)]

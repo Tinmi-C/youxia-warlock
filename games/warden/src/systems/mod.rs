@@ -12,6 +12,8 @@ pub mod debug;
 #[cfg(debug_assertions)]
 pub mod debug_time;
 pub mod enemy;
+// Roster v2 hero-tower equipment rack (LT2 EquipSlots pattern).
+pub mod equip;
 pub mod fx;
 pub mod hud;
 pub mod input;
