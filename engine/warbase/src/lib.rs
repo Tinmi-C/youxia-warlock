@@ -32,8 +32,8 @@ pub mod prelude {
     pub use crate::rng::MatchRng;
     pub use crate::rule::{
         building_open, pass_leaks_to_neighbor, rules_tick, BuildWindow, LapBuffPolicy, LeakPolicy,
-        LivesLeft, MatchEnded, MatchFlow, MatchOutcome, MatchRules, StockCount, TransferredLeak,
-        WinCondition,
+        LivesLeft, MatchEnded, MatchFlow, MatchOutcome, MatchRules, PlayerLives, StockCount,
+        TransferredLeak, WinCondition,
     };
     pub use crate::skill::{
         area_targets, distribute_xp, process_casts, run_autocast, spend_skill_point,

@@ -167,3 +167,109 @@ fn ended_flow_carries_structured_win_and_draw() {
     };
     assert!(matches!(flow, MatchFlow::Ended { outcome: MatchOutcome::Win(TeamId(0)), .. }));
 }
+
+// -- L5: team-lives win condition ---------------------------------------------
+
+/// A 2v2 app adjudicating on `TeamLives` (rules/diplomacy/lives board
+/// inserted directly — rules_tick reads resources, it does not care who
+/// assembled them) with one owned unit per player.
+fn team_lives_app() -> App {
+    let mut app = test_app();
+    let world = app.world_mut();
+    world.insert_resource(MatchDiplomacy {
+        players: vec![
+            (PlayerId(0), TeamId(0)),
+            (PlayerId(1), TeamId(1)),
+            (PlayerId(2), TeamId(0)),
+            (PlayerId(3), TeamId(1)),
+        ],
+        hostile_pairs: vec![(TeamId(0), TeamId(1))],
+    });
+    world.insert_resource(MatchRules {
+        leak: LeakPolicy::Lives { lives: 20 },
+        build_window: BuildWindow::Always,
+        lap_buff: None,
+        win: WinCondition::TeamLives { per_team: 20 },
+        sell_refund_pct: 0.7,
+    });
+    world.insert_resource(PlayerLives(vec![20, 20, 20, 20]));
+    for p in 0..4 {
+        let e = owned_unit(world, Some(PlayerId(p)));
+        world.entity_mut(e).insert(Transform::from_xyz(p as f32, 0.0, 0.0));
+    }
+    // One update before handing over (the legion_app convention): Bevy
+    // 0.19 rejects entity commands on the FIRST update for entities
+    // despawned before it (first-frame schedule init) — touch entities
+    // only after the app has run once.
+    app.update();
+    *app.world_mut().resource_mut::<MatchFlow>() = MatchFlow::Running;
+    app
+}
+
+/// L5-i: presence is the LIVES board, not the field — an empty arena with
+/// every team alive never crowns (the exact mis-fire the 0-damage banner
+/// kits used to paper over), and eliminating a whole team via the board
+/// sweeps their units and ends the match with the structured winner.
+#[test]
+fn team_lives_adjudicates_on_the_board_not_the_field() {
+    let mut app = team_lives_app();
+
+    // Empty the field entirely (simulating a build phase before anyone
+    // hired): the match must keep running.
+    {
+        // NOTE: despawn the UNITS only — `query::<Entity>()` would sweep
+        // MinimalPlugins' own internal entities too and Bevy's first-frame
+        // bookkeeping then errors on their stale ids (pitfall, KB'd).
+        let world = app.world_mut();
+        let mut q = world.query_filtered::<Entity, With<UnitInstance>>();
+        let units: Vec<Entity> = q.iter(world).collect();
+        for e in units {
+            world.despawn(e);
+        }
+    }
+    app.update();
+    assert_eq!(
+        *app.world().resource::<MatchFlow>(),
+        MatchFlow::Running,
+        "empty field, all teams alive: no crown"
+    );
+
+    // Team 1 eliminated through the board: their units are swept and the
+    // structured ending fires with MatchWinner.
+    let mut app = team_lives_app();
+    {
+        let world = app.world_mut();
+        world.resource_mut::<PlayerLives>().0 = vec![20, 0, 20, 0];
+    }
+    let mut ended = MessageCursor::<MatchEnded>::default();
+    app.update();
+    app.update(); // deferred sweep commands apply, adjudication lands
+    let flow = app.world().resource::<MatchFlow>().clone();
+    assert!(matches!(
+        flow,
+        MatchFlow::Ended { ref reason, outcome: MatchOutcome::Win(TeamId(0)) }
+            if reason.contains("team 0")
+    ));
+    assert_eq!(app.world().resource::<MatchWinner>().0, TeamId(0));
+    let msgs = app.world().resource::<Messages<MatchEnded>>();
+    assert!(ended.read(msgs).any(|m| matches!(&m.outcome, Ok(r) if r.contains("team 0"))));
+
+    // The sweep: P1/P3 units despawned, team-0 units untouched.
+    let world = app.world_mut();
+    let mut q = world.query_filtered::<&Owner, With<UnitInstance>>();
+    let owners: Vec<u8> = q.iter(world).map(|o| o.0 .0).collect();
+    assert_eq!(owners, vec![0, 2], "eliminated players' units swept");
+
+    // A single-team-1 survivor (P3 alive) keeps the match running.
+    let mut app = team_lives_app();
+    app.world_mut().resource_mut::<PlayerLives>().0 = vec![20, 0, 20, 0];
+    // P3 revived to 1 via board write before any update:
+    app.world_mut().resource_mut::<PlayerLives>().0[3] = 1;
+    app.update();
+    app.update();
+    assert_eq!(
+        *app.world().resource::<MatchFlow>(),
+        MatchFlow::Running,
+        "team 1 still stands (P3 has lives)"
+    );
+}

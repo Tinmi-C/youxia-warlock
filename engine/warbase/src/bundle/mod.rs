@@ -217,6 +217,11 @@ pub fn validate(bundle: &MapBundle) -> Result<(), MapError> {
             ));
         }
     }
+    if let crate::rule::WinCondition::TeamLives { per_team } = &bundle.rules.win {
+        if *per_team == 0 {
+            return invalid("TeamLives per_team must be > 0".into());
+        }
+    }
     Ok(())
 }
 
@@ -323,6 +328,23 @@ pub fn assemble(world: &mut World, bundle: &MapBundle) {
     world.insert_resource(crate::rule::MatchFlow::Running);
     world.insert_resource(crate::rule::StockCount(0));
     world.remove_resource::<crate::rule::LivesLeft>();
+    // L5: per-player lives seeded iff the map adjudicates on them; other
+    // maps carry no board (rules_tick's TeamLives branch early-outs).
+    match &bundle.rules.win {
+        crate::rule::WinCondition::TeamLives { per_team } => {
+            let n = bundle
+                .teams
+                .players
+                .iter()
+                .map(|&(p, _)| p as usize + 1)
+                .max()
+                .unwrap_or(1);
+            world.insert_resource(crate::rule::PlayerLives(vec![u32::from(*per_team); n]));
+        }
+        _ => {
+            world.remove_resource::<crate::rule::PlayerLives>();
+        }
+    }
 
     // New-domain dispatch (SEAM0d): one line per domain, implemented in the
     // domain module. Never add domain loading logic to this file.
