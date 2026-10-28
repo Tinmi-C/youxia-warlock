@@ -17,6 +17,7 @@ tags: [art-pipeline, cross-game]
 
 - [[topics/art/game-art-cross-project-workflow|游戏↔美术跨项目工作流]]（howto draft：五阶段两回环权威规格——def 需求唯一源→art-needs 投影→看板 draft/locked→美术制作→art-sync 版本锁同步→四手段取证+H-ART 看图→回流；两个拍板点其余全自动；含已实证/五项待补清单）
 - [[topics/art/asset-taxonomy-spec|项目美术资产分类规格]]（reference draft：六大类——UI 2D（九宫格+图标 P0）/3D 模型（分件+体量对齐 body_radius，loop-td 16 需求已上板）/动画（时长对齐逻辑帧窗）/VFX（fx 消息即接口）/环境/音频（SfxKind 即需求表）；每类给需求源/规格/验收/接入缝/数量与批次）
+- [[topics/art/art-development-roadmap|美术开发路线图]]（reference draft：四批次执行计划——阶段0 工具缝🎮一天/阶段1 风格定稿🎨👤/P0 UI+loop-td 模型+音效（需求源全就绪）/P1 warden+VFX（前置塔阵容立项）/P2 legion+语音/P3 环境；每批流程+验收纪律+风险对策+当前状态快照）
 - [[topics/art/art-pipeline-overview|管线总纲]]（reference：八环节合同 + 产出三线 + 文档地图）
 - [[topics/art/visual-acceptance-methods|视觉验收取证规范]]（reference：四手段适用矩阵 + ART11 教训）
 - [[topics/art/surgery-workflow|分件手术流程]]（howto：AI 主刀纪律，Blender 无头脚本规范）
