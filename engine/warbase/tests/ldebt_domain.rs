@@ -273,3 +273,112 @@ fn team_lives_adjudicates_on_the_board_not_the_field() {
         "team 1 still stands (P3 has lives)"
     );
 }
+
+// -- L8: owned-unit injection seam ---------------------------------------------
+
+/// A registry with one marching def + 2v2 diplomacy.
+fn injectable_app() -> App {
+    let mut app = test_app();
+    let world = app.world_mut();
+    world.insert_resource(UnitRegistry {
+        defs: [(
+            "grunt".to_string(),
+            UnitDef {
+                id: "grunt".into(),
+                attrs: BaseAttributes { hp: 50.0, move_speed: 3.0, body_radius: 0.3 },
+                attack: None,
+                armor_type: ArmorType::Light,
+                cost_gold: 0,
+                cost_wood: 0,
+                bounty_gold: 0,
+                bounty_wood: 0,
+                grant_xp: 0,
+                traits: Vec::new(),
+                auras: Vec::new(),
+                hero: false,
+                skills: Vec::new(),
+                skill_levels: Vec::new(),
+                upgrade_to: None,
+                heal: None,
+                leak: 1,
+                mana: None,
+                hero_stats: None,
+            },
+        )]
+        .into_iter()
+        .collect(),
+    });
+    world.insert_resource(MatchDiplomacy {
+        players: vec![
+            (PlayerId(0), TeamId(0)),
+            (PlayerId(1), TeamId(1)),
+            (PlayerId(2), TeamId(0)),
+            (PlayerId(3), TeamId(1)),
+        ],
+        hostile_pairs: vec![(TeamId(0), TeamId(1))],
+    });
+    app
+}
+
+/// L8-i: a SpawnRequest for P1 (team 1, hostile to team 0) spawns an OWNED
+/// unit — `Owner(P1)` + derived `Attacker` allegiance — marching via a
+/// `MoveAgent` whose attack-move order is ARMED AT SPAWN (the same-frame
+/// seam; no observer, no next-frame command needed).
+#[test]
+fn owned_injection_spawns_with_owner_and_armed_attack_move() {
+    let mut app = injectable_app();
+    let to = Vec3::new(13.0, 0.0, -4.0);
+    app.world_mut().write_message(SpawnRequest {
+        def: "grunt".into(),
+        owner: PlayerId(1),
+        pos: Vec3::new(-13.0, 0.0, -4.0),
+        hp_scale: 1.0,
+        march: MarchMode::AttackMove { to },
+    });
+    app.update();
+    app.update(); // deferred spawn materialized
+
+    let world = app.world_mut();
+    let mut q = world.query_filtered::<
+        (&Owner, &Allegiance, &MoveAgent, &AgentOrderState),
+        With<UnitInstance>,
+    >();
+    let injected: Vec<_> = q.iter(world).collect();
+    assert_eq!(injected.len(), 1, "exactly one injected unit");
+    let (owner, side, agent, state) = injected[0];
+    assert_eq!(owner.0, PlayerId(1), "the spawn carries its owner");
+    assert_eq!(*side, Allegiance::Attacker, "team-1 owner derives Attacker");
+    assert_eq!(agent.order, Some(Order::AttackMove { to }), "order armed at spawn");
+    assert_eq!(agent.waypoints, vec![to], "straight-line seed waypoint");
+    assert_eq!(*state, AgentOrderState::Moving, "marching, not idle");
+    assert_eq!(agent.speed, 3.0, "speed from the def");
+}
+
+/// L8-ii: the FollowPath mode attaches a PathFollower on the requested
+/// path entity (the TD track shape), still owned.
+#[test]
+fn owned_injection_follows_the_requested_path() {
+    let mut app = injectable_app();
+    let path_entity = {
+        let world = app.world_mut();
+        let e = world.spawn(PathDef::open(vec![[-10.0, 0.0], [10.0, 0.0]])).id();
+        world.insert_resource(Paths(vec![e]));
+        e
+    };
+    app.world_mut().write_message(SpawnRequest {
+        def: "grunt".into(),
+        owner: PlayerId(0),
+        pos: Vec3::new(-10.0, 0.0, 0.0),
+        hp_scale: 1.0,
+        march: MarchMode::FollowPath { path: 0 },
+    });
+    app.update();
+    app.update();
+
+    let world = app.world_mut();
+    let mut q = world.query_filtered::<(&Owner, &PathFollower), With<UnitInstance>>();
+    let injected: Vec<_> = q.iter(world).collect();
+    assert_eq!(injected.len(), 1);
+    assert_eq!(injected[0].0 .0, PlayerId(0));
+    assert_eq!(injected[0].1.path, path_entity, "follower rides the requested path");
+}

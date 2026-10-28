@@ -8,8 +8,11 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::econ::EconCommand;
+use crate::movement::{AgentOrderState, MoveAgent, Order};
 use crate::path::{PathDef, PathFollower};
-use crate::unit::{spawn_unit_deferred, Allegiance, UnitId, UnitRegistry};
+use crate::unit::{
+    spawn_unit_deferred, Allegiance, MatchDiplomacy, Owner, PlayerId, UnitId, UnitRegistry,
+};
 
 fn default_interval() -> f32 {
     1.0
@@ -222,6 +225,104 @@ pub struct BossTimedOut(pub usize);
 /// Manual trigger; in an Auto intermission it early-calls (plus bonus).
 #[derive(Message, Debug)]
 pub struct StartWave;
+
+// ---------------------------------------------------------------------------
+// L8 (round-4 LDEBT): owned-unit injection seam
+// ---------------------------------------------------------------------------
+
+/// How an injected unit marches once spawned. `run_director`'s spawn path
+/// is the TD model (unowned Attacker + `PathFollower`); legion-style games
+/// need OWNED units that fight through contested ground instead.
+#[derive(Debug, Clone)]
+pub enum MarchMode {
+    /// TD creep track: attach a `PathFollower` on `Paths[path_index]`.
+    FollowPath { path: usize },
+    /// RTS attack-move: attach a `MoveAgent` with the order ARMED at
+    /// spawn (waypoint seeded straight-line, MOV2 best-effort). Arming at
+    /// spawn is the fix for the same-frame-order pitfall (kpi L6/L8): an
+    /// observer-attached agent eats a same-frame order written before the
+    /// observer ran.
+    AttackMove { to: Vec3 },
+}
+
+/// One owned-unit injection: spawn def `def` at `pos` for `owner`
+/// (Allegiance derived via `MatchDiplomacy`), marching per `march`.
+/// Games needing game-side markers on the entity use the function form
+/// [`spawn_owned_deferred`] (it returns the entity); this message form is
+/// the declarative seam (consumed by [`process_spawn_requests`]).
+#[derive(Message, Debug)]
+pub struct SpawnRequest {
+    pub def: UnitId,
+    pub owner: PlayerId,
+    pub pos: Vec3,
+    pub hp_scale: f32,
+    pub march: MarchMode,
+}
+
+/// Spawn an owned, marching unit (L8 core; both the `SpawnRequest`
+/// consumer and direct game callers funnel here). Returns the entity for
+/// game-side marker attachment, or None when the def / path index is
+/// unknown (nothing spawned).
+pub fn spawn_owned_deferred(
+    commands: &mut Commands,
+    registry: &UnitRegistry,
+    diplomacy: &MatchDiplomacy,
+    paths: &Paths,
+    request: &SpawnRequest,
+) -> Option<Entity> {
+    let def = registry.get(&request.def)?;
+    let path_entity = match request.march {
+        MarchMode::FollowPath { path } => Some(*paths.0.get(path)?),
+        MarchMode::AttackMove { .. } => None,
+    };
+    let side = diplomacy.allegiance_of(request.owner);
+    let entity = spawn_unit_deferred(
+        commands,
+        registry,
+        &request.def,
+        request.pos,
+        side,
+        request.hp_scale,
+    )?;
+    let mut ec = commands.entity(entity);
+    ec.insert(Owner(request.owner));
+    match (&request.march, path_entity) {
+        (MarchMode::FollowPath { .. }, Some(path)) => {
+            ec.insert(PathFollower { path, progress: 0.0, laps: 0, finished: false });
+        }
+        (MarchMode::AttackMove { to }, _) => {
+            ec.insert((
+                MoveAgent {
+                    speed: def.attrs.move_speed,
+                    arrival_radius: 0.1,
+                    waypoints: vec![*to],
+                    velocity: Vec3::ZERO,
+                    body_radius: def.attrs.body_radius,
+                    order: Some(Order::AttackMove { to: *to }),
+                },
+                AgentOrderState::Moving,
+            ));
+        }
+        // Unreachable: FollowPath resolved its entity above or returned.
+        (MarchMode::FollowPath { .. }, None) => {}
+    }
+    Some(entity)
+}
+
+/// Declarative consumer of [`SpawnRequest`] (Director set, right after
+/// `run_director`). Marker-free injections (reinforcements, summons)
+/// use this directly; marker-carrying games prefer the function form.
+pub fn process_spawn_requests(
+    mut requests: MessageReader<SpawnRequest>,
+    registry: Res<UnitRegistry>,
+    diplomacy: Res<MatchDiplomacy>,
+    paths: Res<Paths>,
+    mut commands: Commands,
+) {
+    for request in requests.read() {
+        let _ = spawn_owned_deferred(&mut commands, &registry, &diplomacy, &paths, request);
+    }
+}
 
 impl WaveDirector {
     fn enter_intermission(&mut self, intermission: f32) {
