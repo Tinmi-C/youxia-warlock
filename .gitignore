@@ -42,3 +42,6 @@ docs/.trash/
 
 # mimosa scan artifacts (local tooling output)
 .mimosa/
+
+# === AI 会话本地状态 ===
+.zcode/
